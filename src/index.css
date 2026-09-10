@@ -1,0 +1,56 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', 'Hind Siliguri', system-ui, -apple-system, sans-serif;
+  }
+}
+
+.font-thermal {
+  font-family: 'JetBrains Mono', 'Hind Siliguri', monospace;
+}
+
+.font-bengali {
+  font-family: 'Hind Siliguri', sans-serif;
+}
+
+/* Print Specific Rules for 58mm / 80mm thermal roll printers */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  #thermal-printable-receipt, #thermal-printable-receipt * {
+    visibility: visible;
+  }
+
+  #thermal-printable-receipt {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: white !important;
+    color: black !important;
+  }
+
+  @page {
+    margin: 0;
+    size: auto;
+  }
+}
+
+/* Paper roll tear jagged edge styling */
+.receipt-tear-edge {
+  background-image: radial-gradient(circle at 10px -5px, transparent 12px, white 13px);
+  background-size: 20px 20px;
+}
+
+.receipt-tear-edge-bottom {
+  background-image: radial-gradient(circle at 10px 25px, transparent 12px, white 13px);
+  background-size: 20px 20px;
+}
+
