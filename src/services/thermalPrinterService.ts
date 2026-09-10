@@ -1,12 +1,23 @@
 import { BillInvoice, ThermalPrinterSettings, BluetoothDeviceInfo } from '../types';
 import { storageService } from './storageService';
 
-const POS_SERVICES = [
-  '000018f0-0000-1000-8000-00805f9b34fb', // Standard POS
-  'e7810a71-73ae-499d-8c15-faa9aef0c3f2', // Rongta / Xprinter
-  '49535343-fe7d-4ae5-8fa9-9fafd205e455', // ISSC
-  '0000ffe0-0000-1000-8000-00805f9b34fb', // HM-10
+// Comprehensive list of standard Bluetooth Thermal Printer Service UUIDs
+export const POS_SERVICES = [
+  '000018f0-0000-1000-8000-00805f9b34fb', // Standard POS Print Service
+  '0000ffe0-0000-1000-8000-00805f9b34fb', // Common HM-10 / Serial BLE
+  '0000ff00-0000-1000-8000-00805f9b34fb', // POS-58 / JP-QR73 / Zjiang / MPT-II
+  '49535343-fe7d-4ae5-8fa9-9fafd205e455', // ISSC Transparent UART
+  'e7810a71-73ae-499d-8c15-faa9aef0c3f2', // Rongta / Xprinter / Goojprt
+  '6e400001-b5a3-f393-e0a9-e50e24dcca9e', // Nordic UART Service (NUS)
+  '0000ae30-0000-1000-8000-00805f9b34fb', // Milestone / Zebra BLE
+  '0000fee7-0000-1000-8000-00805f9b34fb', // Tencent / BLE Serial
   '000018f1-0000-1000-8000-00805f9b34fb',
+  '0000af30-0000-1000-8000-00805f9b34fb',
+  'd8c30001-9f93-4a6a-a238-d65e23631988',
+  '0000fff0-0000-1000-8000-00805f9b34fb',
+  '0000fee0-0000-1000-8000-00805f9b34fb',
+  '00001800-0000-1000-8000-00805f9b34fb', // Generic Access
+  '0000180a-0000-1000-8000-00805f9b34fb', // Device Info
 ];
 
 export class ThermalPrinterService {
@@ -19,7 +30,7 @@ export class ThermalPrinterService {
   private onStatusChangeCallback: ((status: BluetoothDeviceInfo) => void) | null = null;
 
   constructor() {
-    // Listen for tab focus/visibility to ensure connection stays alive throughout the business day
+    // Listen for tab focus/visibility to maintain connection
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible' && !this.isConnected && !this.manualDisconnect) {
@@ -34,7 +45,6 @@ export class ThermalPrinterService {
 
   setStatusListener(callback: (status: BluetoothDeviceInfo) => void) {
     this.onStatusChangeCallback = callback;
-    // Emit initial status right away
     this.notifyStatus();
   }
 
@@ -46,8 +56,7 @@ export class ThermalPrinterService {
         isConnecting: this.isConnecting,
         deviceName:
           this.bluetoothDevice?.name ||
-          saved?.name ||
-          (this.isConnected ? 'Thermal Bluetooth POS-58' : undefined),
+          (this.isConnected ? (saved?.name || 'Thermal POS Printer') : undefined),
         deviceId: this.bluetoothDevice?.id || saved?.id,
         savedPrinter: saved,
       });
@@ -55,15 +64,27 @@ export class ThermalPrinterService {
   }
 
   isBluetoothSupported(): boolean {
-    return typeof navigator !== 'undefined' && 'bluetooth' in navigator;
+    return (
+      typeof navigator !== 'undefined' &&
+      'bluetooth' in navigator &&
+      typeof (navigator as any).bluetooth?.requestDevice === 'function'
+    );
   }
 
   getIsConnected(): boolean {
-    return this.isConnected;
+    return this.isConnected && !!this.characteristic;
   }
 
   getIsConnecting(): boolean {
     return this.isConnecting;
+  }
+
+  hasWritableCharacteristic(): boolean {
+    return !!this.characteristic;
+  }
+
+  getDeviceName(): string | undefined {
+    return this.bluetoothDevice?.name || storageService.getSavedPrinter()?.name;
   }
 
   private attachDeviceListeners(device: any) {
@@ -73,38 +94,68 @@ export class ThermalPrinterService {
   }
 
   private handleGattDisconnected = () => {
+    console.log('Bluetooth GATT disconnected');
     this.isConnected = false;
     this.characteristic = null;
     this.notifyStatus();
 
-    // If not intentionally disconnected, attempt silent background reconnect after 2.5 seconds
+    // If not manually disconnected, attempt silent background reconnect after 2 seconds
     if (!this.manualDisconnect) {
       if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
       this.reconnectTimer = setTimeout(() => {
         this.autoReconnect().catch(() => {});
-      }, 2500);
+      }, 2000);
     }
   };
 
   private async setupCharacteristics(server: any): Promise<boolean> {
     try {
-      const services = await server.getPrimaryServices();
+      let services: any[] = [];
+      try {
+        services = await server.getPrimaryServices();
+      } catch (e) {
+        console.warn('Could not list all services at once, will query known thermal services:', e);
+      }
+
+      // If services list is empty, query known POS services individually
+      if (!services || services.length === 0) {
+        for (const uuid of POS_SERVICES) {
+          try {
+            const s = await server.getPrimaryService(uuid);
+            if (s) services.push(s);
+          } catch {
+            // Service not present
+          }
+        }
+      }
+
+      // Look for characteristic with writeWithoutResponse or write properties
       for (const service of services) {
         try {
           const characteristics = await service.getCharacteristics();
           for (const char of characteristics) {
-            if (char.properties?.write || char.properties?.writeWithoutResponse) {
+            const props = char.properties;
+            if (props?.writeWithoutResponse || props?.write) {
               this.characteristic = char;
+              console.log(
+                'Found writable BLE characteristic:',
+                char.uuid,
+                'writeWithoutResponse:',
+                !!props?.writeWithoutResponse,
+                'write:',
+                !!props?.write
+              );
               return true;
             }
           }
         } catch (e) {
-          console.warn('Could not inspect service characteristic:', e);
+          console.warn('Could not query characteristics for service:', service.uuid, e);
         }
       }
+
       return false;
     } catch (e) {
-      console.warn('Primary services scan error:', e);
+      console.warn('GATT setupCharacteristics failed:', e);
       return false;
     }
   }
@@ -118,6 +169,8 @@ export class ThermalPrinterService {
     if (this.isConnecting) return false;
 
     const saved = storageService.getSavedPrinter();
+    if (!saved) return false;
+
     this.manualDisconnect = false;
     this.isConnecting = true;
     this.notifyStatus();
@@ -127,49 +180,33 @@ export class ThermalPrinterService {
       if (this.bluetoothDevice && this.bluetoothDevice.gatt) {
         this.attachDeviceListeners(this.bluetoothDevice);
         const server = await this.bluetoothDevice.gatt.connect();
-        await this.setupCharacteristics(server);
-        this.isConnected = true;
-        this.isConnecting = false;
-        this.notifyStatus();
-        return true;
+        const found = await this.setupCharacteristics(server);
+        if (found) {
+          this.isConnected = true;
+          this.isConnecting = false;
+          this.notifyStatus();
+          return true;
+        }
       }
 
       // 2. If Web Bluetooth getDevices is supported (Chrome 85+):
       if (this.isBluetoothSupported() && (navigator as any).bluetooth?.getDevices) {
         const devices = await (navigator as any).bluetooth.getDevices();
         if (devices && devices.length > 0) {
-          const target = saved
-            ? devices.find((d: any) => d.id === saved.id) || devices[0]
-            : devices[0];
-
+          const target = devices.find((d: any) => d.id === saved.id) || devices[0];
           if (target && target.gatt) {
             this.bluetoothDevice = target;
             this.attachDeviceListeners(target);
             const server = await target.gatt.connect();
-            await this.setupCharacteristics(server);
-            this.isConnected = true;
-            this.isConnecting = false;
-
-            storageService.saveSavedPrinter({
-              id: target.id,
-              name: target.name || 'Bluetooth Thermal POS',
-              savedAt: Date.now(),
-            });
-
-            this.notifyStatus();
-            return true;
+            const found = await this.setupCharacteristics(server);
+            if (found) {
+              this.isConnected = true;
+              this.isConnecting = false;
+              this.notifyStatus();
+              return true;
+            }
           }
         }
-      }
-
-      // 3. In environments where Bluetooth hardware is unavailable or in iframe preview,
-      // if virtual printer is marked as saved, maintain virtual ready state.
-      if (!this.isBluetoothSupported() && saved) {
-        this.isConnected = true;
-        this.isConnecting = false;
-        this.bluetoothDevice = { name: saved.name, id: saved.id };
-        this.notifyStatus();
-        return true;
       }
 
       this.isConnecting = false;
@@ -185,38 +222,15 @@ export class ThermalPrinterService {
     }
   }
 
-  // Connect to Bluetooth Thermal Printer (attempts auto-reconnect first; pairs if not found)
+  // Direct Web Bluetooth Connection (invoked directly from user gesture / Connect button)
   async connectBluetooth(): Promise<{ success: boolean; message: string; deviceName?: string }> {
     this.manualDisconnect = false;
 
-    // Check if auto-reconnect can fulfill this without prompting
-    const saved = storageService.getSavedPrinter();
-    if (saved && !this.isConnected) {
-      const reconnected = await this.autoReconnect();
-      if (reconnected) {
-        return {
-          success: true,
-          deviceName: this.bluetoothDevice?.name || saved.name,
-          message: `Reconnected to ${this.bluetoothDevice?.name || saved.name}`,
-        };
-      }
-    }
-
     if (!this.isBluetoothSupported()) {
-      this.isConnected = true;
-      const deviceName = 'Virtual Thermal POS (Ready)';
-      const deviceId = 'virt-printer-01';
-      this.bluetoothDevice = { name: deviceName, id: deviceId };
-      storageService.saveSavedPrinter({
-        id: deviceId,
-        name: deviceName,
-        savedAt: Date.now(),
-      });
-      this.notifyStatus();
       return {
-        success: true,
-        deviceName,
-        message: 'Printer connected. One-click thermal and browser print active.',
+        success: false,
+        message:
+          'Web Bluetooth is not supported on this browser. Please use Google Chrome or Microsoft Edge on Windows, Mac, Android, or ChromeOS.',
       };
     }
 
@@ -224,26 +238,38 @@ export class ThermalPrinterService {
     this.notifyStatus();
 
     try {
+      // Direct call to navigator.bluetooth.requestDevice within the user gesture tick
       const device = await (navigator as any).bluetooth.requestDevice({
         acceptAllDevices: true,
         optionalServices: POS_SERVICES,
       });
 
-      if (!device) throw new Error('No device selected');
+      if (!device) {
+        this.isConnecting = false;
+        this.notifyStatus();
+        return { success: false, message: 'No device selected' };
+      }
 
       this.attachDeviceListeners(device);
 
+      console.log('Connecting to GATT server on:', device.name || device.id);
       const server = await device.gatt.connect();
-      await this.setupCharacteristics(server);
+      const foundChar = await this.setupCharacteristics(server);
+
+      if (!foundChar) {
+        console.warn('Connected to device, but no writable POS characteristic was found.');
+      }
 
       this.bluetoothDevice = device;
       this.isConnected = true;
       this.isConnecting = false;
 
-      // Save to localStorage so printer is remembered permanently
+      const deviceName = device.name || 'Bluetooth Thermal Printer';
+
+      // Remember paired printer in local storage
       storageService.saveSavedPrinter({
         id: device.id,
-        name: device.name || 'Bluetooth Thermal POS',
+        name: deviceName,
         savedAt: Date.now(),
       });
 
@@ -251,43 +277,37 @@ export class ThermalPrinterService {
 
       return {
         success: true,
-        deviceName: device.name || 'Bluetooth Printer',
-        message: `Connected to ${device.name || 'Thermal Printer'}`,
+        deviceName,
+        message: `Connected to ${deviceName}! Ready for direct silent printing.`,
       };
     } catch (error: any) {
-      console.warn('Bluetooth connection fallback:', error);
       this.isConnecting = false;
+      this.notifyStatus();
 
-      // In case user cancelled or browser sandbox blocked requestDevice:
       if (error?.name === 'NotFoundError' || error?.message?.includes('cancelled')) {
-        this.notifyStatus();
         return {
           success: false,
-          message: 'Connection cancelled. Tap to try again.',
+          message: 'Bluetooth pairing cancelled.',
         };
       }
 
-      // Safe fallback virtual printer for testing & iframe environments
-      this.isConnected = true;
-      const fallbackName = 'Thermal Bluetooth POS (Active)';
-      const fallbackId = 'demo-bt-01';
-      this.bluetoothDevice = { name: fallbackName, id: fallbackId };
-      storageService.saveSavedPrinter({
-        id: fallbackId,
-        name: fallbackName,
-        savedAt: Date.now(),
-      });
-      this.notifyStatus();
+      if (error?.name === 'SecurityError') {
+        return {
+          success: false,
+          message:
+            'Bluetooth access was restricted. If this app is in an iframe preview, please open it in a new tab to pair directly.',
+        };
+      }
 
+      console.error('Bluetooth connection error:', error);
       return {
-        success: true,
-        deviceName: fallbackName,
-        message: 'Thermal printer active for direct printing.',
+        success: false,
+        message: error?.message || 'Failed to connect to Bluetooth printer.',
       };
     }
   }
 
-  // Disconnect & optionally forget printer from local storage
+  // Disconnect & optionally forget printer
   disconnect(forget = false) {
     this.manualDisconnect = true;
     if (this.reconnectTimer) {
@@ -427,42 +447,104 @@ export class ThermalPrinterService {
     return new Uint8Array(commands);
   }
 
-  // Print via Web Bluetooth GATT
-  async printViaBluetooth(bill: BillInvoice, settings: ThermalPrinterSettings): Promise<boolean> {
-    if (!this.isConnected || !this.characteristic) {
-      // Automatically attempt silent auto-reconnection in background before printing!
-      await this.autoReconnect();
-    }
+  // RawBT Android App Integration via Intent Scheme
+  // Sends raw ESC/POS binary data to the RawBT Android app for 1-tap mobile thermal printing
+  printViaRawBT(bill: BillInvoice, settings: ThermalPrinterSettings): void {
+    try {
+      const bytes = this.generateEscPosCommands(bill, settings);
+      let binary = '';
+      const len = bytes.byteLength;
+      for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      const base64EscPos = btoa(binary);
 
-    if (!this.isConnected || !this.characteristic) {
-      // Trigger native browser print dialog as reliable thermal fallback
+      // Official RawBT Android Intent URL
+      // If RawBT is installed, it opens and prints immediately.
+      // If not, it falls back to the Google Play Store page for ru.a402d.rawbtprinter
+      const playStoreFallback = encodeURIComponent(
+        'https://play.google.com/store/apps/details?id=ru.a402d.rawbtprinter'
+      );
+      const intentUrl = `intent:base64,${base64EscPos}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;S.browser_fallback_url=${playStoreFallback};end;`;
+
+      window.location.href = intentUrl;
+    } catch (e) {
+      console.error('Failed to trigger RawBT intent, falling back to browser print:', e);
       this.printViaBrowser(bill, settings);
-      return true;
+    }
+  }
+
+  // Print via Web Bluetooth GATT (Silent direct stream to thermal printer)
+  async printViaBluetooth(
+    bill: BillInvoice,
+    settings: ThermalPrinterSettings
+  ): Promise<{ success: boolean; message: string; deviceName?: string }> {
+    // 1. Check if Bluetooth is connected
+    if (!this.isConnected || !this.characteristic) {
+      // Try silent auto-reconnect if device reference or saved printer exists
+      const reconnected = await this.autoReconnect();
+      if (!reconnected || !this.characteristic) {
+        return {
+          success: false,
+          message: 'Printer not connected. Please pair your Bluetooth printer first.',
+        };
+      }
     }
 
     try {
       const data = this.generateEscPosCommands(bill, settings);
-      const CHUNK_SIZE = 100;
+      const CHUNK_SIZE = 64; // Standard BLE MTU-safe chunk size for thermal printers
+      const canWriteWithoutResponse =
+        this.characteristic.properties?.writeWithoutResponse &&
+        typeof this.characteristic.writeValueWithoutResponse === 'function';
+
+      console.log(
+        `Streaming ${data.length} bytes of ESC/POS data to ${this.bluetoothDevice?.name || 'printer'}...`
+      );
+
       for (let i = 0; i < data.length; i += CHUNK_SIZE) {
         const chunk = data.slice(i, i + CHUNK_SIZE);
-        await this.characteristic.writeValue(chunk);
-        await new Promise((r) => setTimeout(r, 20));
+        if (canWriteWithoutResponse) {
+          await this.characteristic.writeValueWithoutResponse(chunk);
+        } else if (typeof this.characteristic.writeValue === 'function') {
+          await this.characteristic.writeValue(chunk);
+        } else if (typeof this.characteristic.writeValueWithResponse === 'function') {
+          await this.characteristic.writeValueWithResponse(chunk);
+        }
+        // Small 15ms buffer drainage delay between BLE packets to prevent thermal printer buffer overrun
+        await new Promise((r) => setTimeout(r, 15));
       }
-      return true;
-    } catch (e) {
-      console.error('Bluetooth write failed, falling back to browser print:', e);
+
+      return {
+        success: true,
+        deviceName: this.bluetoothDevice?.name || 'Bluetooth Printer',
+        message: `Invoice #${bill.invoiceNo} printed directly via Bluetooth.`,
+      };
+    } catch (e: any) {
+      console.error('Bluetooth write failed:', e);
       this.isConnected = false;
       this.characteristic = null;
       this.notifyStatus();
-      this.printViaBrowser(bill, settings);
-      return false;
+      return {
+        success: false,
+        message: `Bluetooth write failed: ${e?.message || 'Connection interrupted'}`,
+      };
     }
   }
 
   // Quick Test Print to verify Bluetooth connection
-  async printTestReceipt(settings: ThermalPrinterSettings): Promise<boolean> {
+  async printTestReceipt(
+    settings: ThermalPrinterSettings
+  ): Promise<{ success: boolean; message: string }> {
     if (!this.isConnected || !this.characteristic) {
       await this.autoReconnect();
+    }
+
+    if (!this.isConnected || !this.characteristic) {
+      return {
+        success: false,
+        message: 'Printer not connected. Please tap "Connect Printer" first.',
+      };
     }
 
     const width = settings.paperWidth === '80mm' ? 48 : 32;
@@ -478,93 +560,84 @@ export class ThermalPrinterService {
 
     const text = [
       doubleDiv,
-      padCenter('THERMAL PRINTER TEST'),
-      padCenter('STATUS: READY & CONNECTED'),
+      padCenter('BLUETOOTH PRINTER TEST'),
+      padCenter('STATUS: CONNECTED & READY'),
       padCenter(settings.storeName.toUpperCase()),
       divider,
-      padCenter(`Paper: ${settings.paperWidth} | ${new Date().toLocaleDateString()}`),
-      padCenter(`${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`),
+      padCenter(`Roll: ${settings.paperWidth} | BLE ESC/POS Direct`),
+      padCenter(
+        `${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
+      ),
       doubleDiv,
+      padCenter('Direct Web Bluetooth OK!'),
       '\n\n\n',
     ].join('\n');
 
-    if (this.isConnected && this.characteristic) {
-      try {
-        const commands: number[] = [0x1b, 0x40, 0x1b, 0x74, 0x00];
-        for (let i = 0; i < text.length; i++) {
-          const charCode = text.charCodeAt(i);
-          commands.push(charCode < 128 ? charCode : 0x3f);
-        }
-        commands.push(0x0a, 0x0a, 0x0a);
-        commands.push(0x1d, 0x56, 0x41, 0x10); // Cut
-        const data = new Uint8Array(commands);
-        await this.characteristic.writeValue(data);
-        return true;
-      } catch (e) {
-        console.warn('Bluetooth test print write error:', e);
+    try {
+      const commands: number[] = [0x1b, 0x40, 0x1b, 0x74, 0x00];
+      for (let i = 0; i < text.length; i++) {
+        const charCode = text.charCodeAt(i);
+        commands.push(charCode < 128 ? charCode : 0x3f);
       }
-    }
+      commands.push(0x0a, 0x0a, 0x0a);
+      commands.push(0x1d, 0x56, 0x41, 0x10); // Cut
+      const data = new Uint8Array(commands);
 
-    const printWindow = window.open('', '_blank', 'width=340,height=400');
-    if (printWindow) {
-      printWindow.document.write(`
-        <html><body style="font-family:monospace;font-size:12px;padding:12px;white-space:pre-wrap;">${text}</body></html>
-      `);
-      printWindow.document.close();
-      printWindow.focus();
-      setTimeout(() => {
-        printWindow.print();
-        printWindow.close();
-      }, 250);
+      const CHUNK_SIZE = 64;
+      const canWriteWithoutResponse =
+        this.characteristic.properties?.writeWithoutResponse &&
+        typeof this.characteristic.writeValueWithoutResponse === 'function';
+
+      for (let i = 0; i < data.length; i += CHUNK_SIZE) {
+        const chunk = data.slice(i, i + CHUNK_SIZE);
+        if (canWriteWithoutResponse) {
+          await this.characteristic.writeValueWithoutResponse(chunk);
+        } else if (typeof this.characteristic.writeValue === 'function') {
+          await this.characteristic.writeValue(chunk);
+        } else if (typeof this.characteristic.writeValueWithResponse === 'function') {
+          await this.characteristic.writeValueWithResponse(chunk);
+        }
+        await new Promise((r) => setTimeout(r, 15));
+      }
+
+      return {
+        success: true,
+        message: 'Test slip printed directly via Bluetooth!',
+      };
+    } catch (e: any) {
+      console.warn('Bluetooth test print write error:', e);
+      return {
+        success: false,
+        message: `Failed to stream test slip: ${e?.message || 'Error'}`,
+      };
     }
-    return true;
   }
 
-  // Browser Print Dialog (Zero margin standard receipt print)
+  // Browser Print Dialog (Precise 58mm / 80mm Zero-Margin Mobile & Desktop Print)
   printViaBrowser(bill: BillInvoice, settings: ThermalPrinterSettings) {
     const formatted = this.generateReceiptText(bill, settings);
 
-    const printWindow = window.open('', '_blank', 'width=380,height=600');
-    if (!printWindow) {
-      window.print();
-      return;
+    // Look for or create the dedicated print root element in DOM
+    let root = document.getElementById('thermal-print-root');
+    if (!root) {
+      root = document.createElement('div');
+      root.id = 'thermal-print-root';
+      document.body.appendChild(root);
     }
 
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Receipt #${bill.invoiceNo}</title>
-          <style>
-            @page {
-              size: ${settings.paperWidth === '80mm' ? '80mm' : '58mm'} auto;
-              margin: 0;
-            }
-            body {
-              font-family: 'Courier New', Courier, monospace;
-              font-size: ${settings.paperWidth === '80mm' ? '12px' : '11px'};
-              line-height: 1.25;
-              padding: 6px 8px;
-              margin: 0;
-              color: #000;
-              background: #fff;
-              white-space: pre-wrap;
-              word-break: break-all;
-            }
-            .center { text-align: center; }
-            .bold { font-weight: bold; }
-          </style>
-        </head>
-        <body>${formatted}</body>
-      </html>
-    `);
+    const paperClass = settings.paperWidth === '80mm' ? 'thermal-paper-80mm' : 'thermal-paper-58mm';
+    root.innerHTML = `<div class="${paperClass} receipt-mono">${formatted}</div>`;
 
-    printWindow.document.close();
-    printWindow.focus();
+    const originalTitle = document.title;
+    document.title = `Invoice-${bill.invoiceNo}`;
+
+    // Small delay ensures DOM paint is complete before print spooler captures the document
     setTimeout(() => {
-      printWindow.print();
-      printWindow.close();
-    }, 250);
+      window.print();
+      setTimeout(() => {
+        document.title = originalTitle;
+      }, 1000);
+    }, 60);
   }
 }
 

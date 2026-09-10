@@ -7,13 +7,22 @@ import {
   RotateCcw,
   Tag,
   Percent,
+  RefreshCw,
 } from 'lucide-react';
-import { BillItem, BillInvoice, PaymentMethod, ThermalPrinterSettings } from '../types';
+import {
+  BillItem,
+  BillInvoice,
+  PaymentMethod,
+  ThermalPrinterSettings,
+  BluetoothDeviceInfo,
+} from '../types';
 
 interface BillingTabProps {
   billItems: BillItem[];
   setBillItems: React.Dispatch<React.SetStateAction<BillItem[]>>;
   settings: ThermalPrinterSettings;
+  bluetoothStatus: BluetoothDeviceInfo;
+  isPrinting?: boolean;
   onPrintBill: (bill: BillInvoice) => void;
   onClearBill: () => void;
 }
@@ -22,6 +31,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   billItems,
   setBillItems,
   settings,
+  bluetoothStatus,
+  isPrinting = false,
   onPrintBill,
   onClearBill,
 }) => {
@@ -536,17 +547,44 @@ export const BillingTab: React.FC<BillingTabProps> = ({
 
         {/* Primary Action Button: Print Receipt / Bill */}
         <button
+          id="billing-print-btn"
           onClick={handleCheckoutAndPrint}
-          disabled={billItems.length === 0}
-          className={`w-full py-3 rounded-xl font-bold text-sm sm:text-base shadow-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
-            billItems.length > 0
-              ? 'bg-green-600 hover:bg-green-500 text-white shadow-emerald-700/20 active:scale-[0.99]'
+          disabled={billItems.length === 0 || isPrinting}
+          className={`w-full py-3.5 rounded-2xl font-bold text-sm sm:text-base shadow-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
+            billItems.length > 0 && !isPrinting
+              ? bluetoothStatus.connected
+                ? 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white shadow-blue-600/20 active:scale-[0.99]'
+                : 'bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white shadow-emerald-600/20 active:scale-[0.99]'
               : 'bg-stone-200 text-stone-400 cursor-not-allowed'
           }`}
         >
-          <Printer className="w-5 h-5" />
-          <span>Print Receipt</span>
+          {isPrinting ? (
+            <>
+              <RefreshCw className="w-5 h-5 animate-spin" />
+              <span>Streaming to {bluetoothStatus.deviceName || 'Thermal Printer'}...</span>
+            </>
+          ) : (
+            <>
+              <Printer className="w-5 h-5" />
+              <span>
+                {bluetoothStatus.connected
+                  ? `Print Bill (${bluetoothStatus.deviceName ? bluetoothStatus.deviceName.slice(0, 16) : 'Bluetooth'})`
+                  : 'Print Bill'}
+              </span>
+            </>
+          )}
         </button>
+
+        {bluetoothStatus.connected ? (
+          <p className="text-center text-[11px] font-semibold text-emerald-700 flex items-center justify-center gap-1.5 pt-0.5">
+            <span className="h-2 w-2 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
+            <span>Silent Direct BLE Print Active • No external apps needed</span>
+          </p>
+        ) : (
+          <p className="text-center text-[11px] text-stone-400 pt-0.5">
+            Tip: Tap <strong className="text-stone-700">"Connect Printer"</strong> in header for silent 1-click Bluetooth printing
+          </p>
+        )}
       </div>
     </div>
   );

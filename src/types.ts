@@ -2,6 +2,10 @@ export type PaperWidth = '58mm' | '80mm';
 
 export type PaymentMethod = 'cash' | 'upi' | 'card' | 'due';
 
+export type PaymentStatus = 'PAID' | 'DUE' | 'PARTIAL';
+
+export type ActiveTab = 'billing' | 'invoices' | 'cashbook' | 'due';
+
 export interface BillItem {
   id: string;
   name: string;
@@ -24,6 +28,7 @@ export interface BillInvoice {
   discountValue?: number;
   grandTotal: number;
   paymentMethod: PaymentMethod;
+  paymentStatus?: PaymentStatus;
   paidAmount: number;
   changeAmount: number;
 }

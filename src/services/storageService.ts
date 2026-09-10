@@ -56,18 +56,138 @@ class StorageService {
   getBills(): BillInvoice[] {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.BILLS);
-      return data ? JSON.parse(data) : [];
+      if (data) {
+        return JSON.parse(data);
+      }
+
+      // Seed initial demo invoices for realistic instant testing
+      const now = Date.now();
+      const demoBills: BillInvoice[] = [
+        {
+          id: 'inv-demo-1',
+          invoiceNo: 'INV-1048',
+          date: new Date(now - 1000 * 60 * 75).toLocaleString([], {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          }),
+          timestamp: now - 1000 * 60 * 75,
+          customerName: 'Ananya Roy',
+          customerPhone: '98301 54321',
+          items: [
+            { id: 'it-1', name: 'Cotton Printed Kurti', price: 650, qty: 2, total: 1300 },
+            { id: 'it-2', name: 'Chiffon Dupatta Set', price: 350, qty: 1, total: 350 },
+          ],
+          subtotal: 1650,
+          discount: 150,
+          discountType: 'fixed',
+          discountValue: 150,
+          grandTotal: 1500,
+          paymentMethod: 'upi',
+          paymentStatus: 'PAID',
+          paidAmount: 1500,
+          changeAmount: 0,
+        },
+        {
+          id: 'inv-demo-2',
+          invoiceNo: 'INV-1047',
+          date: new Date(now - 1000 * 60 * 180).toLocaleString([], {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          }),
+          timestamp: now - 1000 * 60 * 180,
+          customerName: 'Ramesh Patel',
+          customerPhone: '98450 11223',
+          items: [
+            { id: 'it-3', name: "Men's Casual Linen Shirt", price: 899, qty: 2, total: 1798 },
+            { id: 'it-4', name: 'Slim Fit Denim Jeans', price: 1299, qty: 1, total: 1299 },
+          ],
+          subtotal: 3097,
+          discount: 97,
+          discountType: 'fixed',
+          discountValue: 97,
+          grandTotal: 3000,
+          paymentMethod: 'cash',
+          paymentStatus: 'PAID',
+          paidAmount: 3000,
+          changeAmount: 0,
+        },
+        {
+          id: 'inv-demo-3',
+          invoiceNo: 'INV-1046',
+          date: new Date(now - 1000 * 60 * 60 * 26).toLocaleString([], {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          }),
+          timestamp: now - 1000 * 60 * 60 * 26,
+          customerName: 'Pooja Sharma',
+          customerPhone: '98451 23456',
+          items: [
+            { id: 'it-5', name: 'Designer Anarkali Gown', price: 1850, qty: 1, total: 1850 },
+          ],
+          subtotal: 1850,
+          discount: 0,
+          discountType: 'fixed',
+          discountValue: 0,
+          grandTotal: 1850,
+          paymentMethod: 'due',
+          paymentStatus: 'DUE',
+          paidAmount: 0,
+          changeAmount: 0,
+        },
+      ];
+
+      this.saveBillsList(demoBills);
+      return demoBills;
     } catch {
       return [];
     }
   }
 
+  saveBillsList(bills: BillInvoice[]): void {
+    try {
+      localStorage.setItem(STORAGE_KEYS.BILLS, JSON.stringify(bills));
+    } catch (e) {
+      console.error('Failed to save bills list:', e);
+    }
+  }
+
   saveBill(bill: BillInvoice): void {
     const bills = this.getBills();
-    bills.unshift(bill);
-    // keep latest 100
-    if (bills.length > 100) bills.pop();
-    localStorage.setItem(STORAGE_KEYS.BILLS, JSON.stringify(bills));
+    // Ensure payment status is set
+    if (!bill.paymentStatus) {
+      bill.paymentStatus = bill.paymentMethod === 'due' ? 'DUE' : 'PAID';
+    }
+
+    const existingIndex = bills.findIndex((b) => b.id === bill.id || b.invoiceNo === bill.invoiceNo);
+    if (existingIndex >= 0) {
+      bills[existingIndex] = { ...bills[existingIndex], ...bill };
+    } else {
+      bills.unshift(bill);
+    }
+
+    // Keep up to 500 invoices for durable history
+    if (bills.length > 500) {
+      bills.splice(500);
+    }
+    this.saveBillsList(bills);
+  }
+
+  deleteBill(id: string): void {
+    const bills = this.getBills().filter((b) => b.id !== id);
+    this.saveBillsList(bills);
+  }
+
+  getBillById(id: string): BillInvoice | undefined {
+    return this.getBills().find((b) => b.id === id);
   }
 
   // --- CASHBOOK (INCOME / EXPENSE) ---

@@ -29,14 +29,27 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
 
   const handlePrint = async () => {
     setIsPrinting(true);
-    await thermalPrinterService.printViaBluetooth(bill, settings);
+    const res = await thermalPrinterService.printViaBluetooth(bill, settings);
     setIsPrinting(false);
-    setPrintSuccess(true);
-    setTimeout(() => setPrintSuccess(false), 2500);
+
+    if (res.success) {
+      setPrintSuccess(true);
+      setTimeout(() => {
+        setPrintSuccess(false);
+        onClose();
+      }, 1500);
+    } else {
+      // If Bluetooth fails or is not connected, fall back to native browser print
+      thermalPrinterService.printViaBrowser(bill, settings);
+    }
   };
 
   const handleBrowserPrint = () => {
     thermalPrinterService.printViaBrowser(bill, settings);
+  };
+
+  const handleRawBtPrint = () => {
+    thermalPrinterService.printViaRawBT(bill, settings);
   };
 
   const handleDownloadEscPos = () => {
@@ -124,12 +137,16 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
               {isPrinting ? (
                 <>
                   <span className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-white border-t-transparent"></span>
-                  <span>Connecting & Printing...</span>
+                  <span>Streaming to BLE...</span>
                 </>
               ) : (
                 <>
                   <Printer className="w-4 h-4" />
-                  <span>Print Bill</span>
+                  <span>
+                    {bluetoothStatus.connected
+                      ? `Print (${bluetoothStatus.deviceName ? bluetoothStatus.deviceName.slice(0, 10) : 'BLE'})`
+                      : 'Print Bill'}
+                  </span>
                 </>
               )}
             </button>
@@ -137,10 +154,21 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
             <button
               onClick={handleBrowserPrint}
               className="py-2.5 bg-stone-900 hover:bg-stone-800 text-white font-bold rounded-xl text-xs sm:text-sm shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+              title="Browser print dialog formatted for 58mm / 80mm thermal paper"
             >
               <span>Browser Print</span>
             </button>
           </div>
+
+          {/* Android RawBT 1-Tap Intent Print */}
+          <button
+            onClick={handleRawBtPrint}
+            className="w-full py-2 px-3 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+            title="Sends raw ESC/POS commands directly to the RawBT Android app via intent scheme"
+          >
+            <Smartphone className="w-4 h-4 text-amber-700" />
+            <span>Print via RawBT (Android 1-Tap)</span>
+          </button>
 
           <div className="flex items-center justify-between pt-1 text-xs">
             <button
