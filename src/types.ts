@@ -4,7 +4,9 @@ export type PaymentMethod = 'cash' | 'upi' | 'card' | 'due';
 
 export type PaymentStatus = 'PAID' | 'DUE' | 'PARTIAL';
 
-export type ActiveTab = 'billing' | 'invoices' | 'cashbook' | 'due';
+export type ActiveTab = 'billing' | 'invoices' | 'cashbook' | 'due' | 'purchases';
+
+export type Language = 'bn' | 'en';
 
 export interface BillItem {
   id: string;
@@ -95,4 +97,38 @@ export interface BluetoothDeviceInfo {
   deviceId?: string;
   isConnecting?: boolean;
   savedPrinter?: SavedPrinterInfo | null;
+}
+
+export type PurchaseExpenseCategory =
+  | 'goods'
+  | 'transport'
+  | 'food'
+  | 'labour'
+  | 'packing'
+  | 'other';
+
+export interface PurchaseExpenseItem {
+  id: string;
+  title: string; // e.g., 'সুতি শাড়ি পাইকারি লট', 'থান কাপড়'
+  category: PurchaseExpenseCategory;
+  amount: number;
+  vendorOrPlace?: string; // e.g. 'রহিম টেক্সটাইল, দোকান ১২' (where spent)
+  note?: string;
+  timestamp: number;
+  dateFormatted: string;
+}
+
+export interface PurchaseTrip {
+  id: string;
+  title: string; // e.g., 'চকবাজার থেকে পাইকারি মাল কেনা'
+  marketLocation?: string; // e.g. 'চকবাজার, ঢাকা'
+  dateFormatted: string;
+  timestamp: number;
+  initialCash: number; // e.g. 10000 টাকা নিয়ে বের হয়েছি
+  expenses: PurchaseExpenseItem[];
+  totalSpent: number; // Total money spent so far
+  remainingCash: number; // initialCash - totalSpent
+  status: 'active' | 'completed'; // 'active' = বাজারে কেনাকাটা চলছে, 'completed' = সম্পন্ন
+  note?: string;
+  syncedCashEntryId?: string; // If synced to cashbook as expense
 }

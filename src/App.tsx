@@ -11,6 +11,9 @@ import {
   ActiveTab,
   PaperWidth,
   UserProfile,
+  Language,
+  PurchaseTrip,
+  PurchaseExpenseItem,
 } from './types';
 import { storageService } from './services/storageService';
 import { thermalPrinterService } from './services/thermalPrinterService';
@@ -19,6 +22,7 @@ import { BillingTab } from './components/BillingTab';
 import { InvoicesTab } from './components/InvoicesTab';
 import { CashbookTab } from './components/CashbookTab';
 import { CustomerDueTab } from './components/CustomerDueTab';
+import { PurchaseTripTab } from './components/PurchaseTripTab';
 import { PrintReceiptModal } from './components/PrintReceiptModal';
 import { SettingsModal } from './components/SettingsModal';
 import { LoginModal } from './components/LoginModal';
@@ -31,6 +35,8 @@ export default function App() {
   const [customerDues, setCustomerDues] = useState<CustomerDue[]>([]);
   const [settings, setSettings] = useState<ThermalPrinterSettings>(storageService.getSettings());
   const [userProfile, setUserProfile] = useState<UserProfile>(storageService.getUserProfile());
+  const [language, setLanguage] = useState<Language>(storageService.getLanguage());
+  const [purchaseTrips, setPurchaseTrips] = useState<PurchaseTrip[]>(storageService.getPurchaseTrips());
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [receiptBill, setReceiptBill] = useState<BillInvoice | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -64,6 +70,8 @@ export default function App() {
     setCustomerDues(storageService.getCustomerDues());
     setSettings(storageService.getSettings());
     setUserProfile(storageService.getUserProfile());
+    setLanguage(storageService.getLanguage());
+    setPurchaseTrips(storageService.getPurchaseTrips());
 
     thermalPrinterService.setStatusListener((status) => {
       setBluetoothStatus(status);
@@ -232,6 +240,107 @@ export default function App() {
     setCustomerDues(storageService.getCustomerDues());
   };
 
+  // 4. LANGUAGE TOGGLE HANDLER
+  const handleToggleLanguage = () => {
+    const nextLang: Language = language === 'bn' ? 'en' : 'bn';
+    storageService.setLanguage(nextLang);
+    setLanguage(nextLang);
+    showToast(
+      nextLang === 'bn'
+        ? 'বাংলা ভাষা সক্রিয় করা হয়েছে'
+        : 'Switched to English language',
+      'info'
+    );
+  };
+
+  // 5. STOCK PURCHASE / SHOPPING TRIP HANDLERS
+  const handleCreatePurchaseTrip = (
+    title: string,
+    initialCash: number,
+    marketLocation?: string,
+    note?: string
+  ) => {
+    const newTrip = storageService.createPurchaseTrip(title, initialCash, marketLocation, note);
+    setPurchaseTrips(storageService.getPurchaseTrips());
+    showToast(
+      language === 'bn'
+        ? `নতুন বাজার ট্রিপ "${newTrip.title}" যুক্ত হয়েছে। সাথে নেওয়া ক্যাশ: ${settings.currencySymbol}${initialCash}`
+        : `Shopping trip "${newTrip.title}" started. Cash taken: ${settings.currencySymbol}${initialCash}`,
+      'success'
+    );
+  };
+
+  const handleAddTripExpense = (
+    tripId: string,
+    expense: Omit<PurchaseExpenseItem, 'id' | 'timestamp' | 'dateFormatted'>
+  ) => {
+    const updated = storageService.addExpenseToTrip(tripId, expense);
+    if (updated) {
+      setPurchaseTrips(storageService.getPurchaseTrips());
+      showToast(
+        language === 'bn'
+          ? `খরচ যোগ হয়েছে: ${expense.title} (${settings.currencySymbol}${expense.amount})`
+          : `Expense recorded: ${expense.title} (${settings.currencySymbol}${expense.amount})`,
+        'success'
+      );
+    }
+  };
+
+  const handleDeleteTripExpense = (tripId: string, expenseId: string) => {
+    storageService.deleteExpenseFromTrip(tripId, expenseId);
+    setPurchaseTrips(storageService.getPurchaseTrips());
+    showToast(
+      language === 'bn' ? 'খরচের বিবরণ মুছে ফেলা হয়েছে' : 'Expense item removed',
+      'info'
+    );
+  };
+
+  const handleUpdateTripStatus = (tripId: string, status: 'active' | 'completed') => {
+    storageService.updateTripStatus(tripId, status);
+    setPurchaseTrips(storageService.getPurchaseTrips());
+    showToast(
+      status === 'completed'
+        ? (language === 'bn' ? 'কেনাকাটা সম্পন্ন হিসেবে চিহ্নিত করা হয়েছে' : 'Trip completed')
+        : (language === 'bn' ? 'ট্রিপ পুনরায় সক্রিয় করা হয়েছে' : 'Trip reopened'),
+      'info'
+    );
+  };
+
+  const handleDeletePurchaseTrip = (tripId: string) => {
+    storageService.deletePurchaseTrip(tripId);
+    setPurchaseTrips(storageService.getPurchaseTrips());
+    showToast(
+      language === 'bn' ? 'কেনাকাটার ট্রিপ মুছে ফেলা হয়েছে' : 'Trip record deleted',
+      'info'
+    );
+  };
+
+  const handleSyncTripToCashbook = (trip: PurchaseTrip) => {
+    if (trip.totalSpent <= 0) {
+      showToast(
+        language === 'bn'
+          ? 'কোনো খরচ না থাকায় ক্যাশবুকে যোগ করার প্রয়োজন নেই'
+          : 'No expenses to sync',
+        'info'
+      );
+      return;
+    }
+    const entry = storageService.addCashEntry(
+      'Expense',
+      trip.totalSpent,
+      `দোকানের মাল কেনা: ${trip.title}${trip.marketLocation ? ` (${trip.marketLocation})` : ''} [সাথে নেওয়া: ${settings.currencySymbol}${trip.initialCash}, অবশিষ্ট: ${settings.currencySymbol}${trip.remainingCash}]`
+    );
+    storageService.setTripSyncedCashEntry(trip.id, entry.id);
+    setCashEntries(storageService.getCashEntries());
+    setPurchaseTrips(storageService.getPurchaseTrips());
+    showToast(
+      language === 'bn'
+        ? `ক্যাশবুকে ${settings.currencySymbol}${trip.totalSpent.toFixed(2)} খরচ হিসেবে যোগ করা হয়েছে!`
+        : `Recorded ${settings.currencySymbol}${trip.totalSpent.toFixed(2)} as Cashbook Expense!`,
+      'success'
+    );
+  };
+
   // Settings Handlers
   const handleSaveSettings = (newSettings: ThermalPrinterSettings) => {
     storageService.saveSettings(newSettings);
@@ -246,12 +355,13 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-stone-100/70 text-stone-900 flex flex-col font-sans">
-      {/* Header with 4 core tabs: Billing, Invoices, Cashbook, Customer Due */}
+      {/* Header with 5 core tabs: Billing, Invoices, Cashbook, Customer Due, Purchases */}
       <Header
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         cartCount={billItems.length}
         invoicesCount={bills.length}
+        purchasesCount={purchaseTrips.filter((t) => t.status === 'active').length}
         bluetoothStatus={bluetoothStatus}
         onConnectBluetooth={handleConnectBluetooth}
         onDisconnectBluetooth={handleDisconnectBluetooth}
@@ -260,6 +370,8 @@ export default function App() {
         settings={settings}
         userProfile={userProfile}
         onOpenLogin={() => setIsLoginModalOpen(true)}
+        language={language}
+        onToggleLanguage={handleToggleLanguage}
       />
 
       {/* Main Workspace */}
@@ -305,13 +417,30 @@ export default function App() {
             onPrintDueSlip={(bill) => setReceiptBill(bill)}
           />
         )}
+
+        {activeTab === 'purchases' && (
+          <PurchaseTripTab
+            trips={purchaseTrips}
+            settings={settings}
+            language={language}
+            onCreateTrip={handleCreatePurchaseTrip}
+            onAddExpense={handleAddTripExpense}
+            onDeleteExpense={handleDeleteTripExpense}
+            onUpdateTripStatus={handleUpdateTripStatus}
+            onDeleteTrip={handleDeletePurchaseTrip}
+            onSyncTripToCashbook={handleSyncTripToCashbook}
+            onPrintTripSlip={(bill) => setReceiptBill(bill)}
+          />
+        )}
       </main>
 
       {/* App Footer with Explicit Creator Attribution (fahad uddin) */}
       <footer id="app-footer" className="w-full border-t border-stone-200/90 bg-white/85 backdrop-blur-xs py-4 px-4 mt-auto">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2.5 text-xs text-stone-600">
           <div className="flex items-center gap-2 flex-wrap justify-center sm:justify-start">
-            <span className="text-stone-500 font-medium">অ্যাপটি তৈরি করেছেন:</span>
+            <span className="text-stone-500 font-medium">
+              {language === 'bn' ? 'অ্যাপটি তৈরি করেছেন:' : 'Created & Built by:'}
+            </span>
             <span className="font-extrabold text-stone-900 bg-stone-100 px-2.5 py-1 rounded-lg border border-stone-300 tracking-wide text-xs">
               fahad uddin
             </span>

@@ -15,14 +15,24 @@ import {
   ChevronDown,
   User,
   Mail,
+  Globe,
+  Truck,
 } from 'lucide-react';
-import { BluetoothDeviceInfo, ThermalPrinterSettings, ActiveTab, UserProfile } from '../types';
+import {
+  BluetoothDeviceInfo,
+  ThermalPrinterSettings,
+  ActiveTab,
+  UserProfile,
+  Language,
+} from '../types';
+import { translations } from '../utils/i18n';
 
 interface HeaderProps {
   activeTab: ActiveTab;
   setActiveTab: (tab: ActiveTab) => void;
   cartCount: number;
   invoicesCount?: number;
+  purchasesCount?: number;
   bluetoothStatus: BluetoothDeviceInfo;
   onConnectBluetooth: () => void;
   onDisconnectBluetooth: (forget?: boolean) => void;
@@ -31,6 +41,8 @@ interface HeaderProps {
   settings: ThermalPrinterSettings;
   userProfile: UserProfile;
   onOpenLogin: () => void;
+  language: Language;
+  onToggleLanguage: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -38,6 +50,7 @@ export const Header: React.FC<HeaderProps> = ({
   setActiveTab,
   cartCount,
   invoicesCount = 0,
+  purchasesCount = 0,
   bluetoothStatus,
   onConnectBluetooth,
   onDisconnectBluetooth,
@@ -46,7 +59,10 @@ export const Header: React.FC<HeaderProps> = ({
   settings,
   userProfile,
   onOpenLogin,
+  language,
+  onToggleLanguage,
 }) => {
+  const t = translations[language];
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -181,6 +197,15 @@ export const Header: React.FC<HeaderProps> = ({
           )}
 
           <button
+            onClick={onToggleLanguage}
+            className="px-2 py-1.5 rounded-xl text-xs font-bold text-stone-700 bg-stone-100 hover:bg-stone-200 border border-stone-200 cursor-pointer flex items-center gap-1"
+            title={t.languageToggleTitle}
+          >
+            <Globe className="w-3.5 h-3.5 text-blue-600" />
+            <span>{language === 'bn' ? 'EN' : 'বাং'}</span>
+          </button>
+
+          <button
             onClick={onOpenLogin}
             className="p-1.5 rounded-xl text-stone-700 bg-stone-100 hover:bg-stone-200 border border-stone-200 cursor-pointer flex items-center justify-center"
             title={userProfile.isLoggedIn ? `ইউজার অ্যাকাউন্ট: ${userProfile.email}` : 'ইমেল দিয়ে লগইন করুন'}
@@ -270,17 +295,17 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Navigation Tabs */}
-        <div className="flex bg-stone-100 p-1 rounded-xl border border-stone-200 text-xs sm:text-sm font-semibold">
+        <div className="flex bg-stone-100 p-1 rounded-xl border border-stone-200 text-xs sm:text-sm font-semibold overflow-x-auto">
           <button
             onClick={() => setActiveTab('billing')}
-            className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+            className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'billing'
                 ? 'bg-white text-blue-600 shadow-xs font-bold'
                 : 'text-stone-600 hover:text-stone-900'
             }`}
           >
             <ShoppingBag className="w-4 h-4" />
-            <span>Billing</span>
+            <span>{t.tabBilling}</span>
             {cartCount > 0 && (
               <span className="bg-blue-600 text-white text-[10px] px-1.5 py-0.2 rounded-full font-mono">
                 {cartCount}
@@ -290,14 +315,14 @@ export const Header: React.FC<HeaderProps> = ({
 
           <button
             onClick={() => setActiveTab('invoices')}
-            className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+            className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'invoices'
                 ? 'bg-white text-blue-600 shadow-xs font-bold'
                 : 'text-stone-600 hover:text-stone-900'
             }`}
           >
             <Receipt className="w-4 h-4" />
-            <span>Invoices</span>
+            <span>{t.tabInvoices}</span>
             {invoicesCount > 0 && (
               <span className="bg-stone-200 text-stone-700 text-[10px] px-1.5 py-0.2 rounded-full font-mono">
                 {invoicesCount}
@@ -307,26 +332,43 @@ export const Header: React.FC<HeaderProps> = ({
 
           <button
             onClick={() => setActiveTab('cashbook')}
-            className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+            className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'cashbook'
                 ? 'bg-white text-blue-600 shadow-xs font-bold'
                 : 'text-stone-600 hover:text-stone-900'
             }`}
           >
             <BookOpen className="w-4 h-4" />
-            <span>Cashbook</span>
+            <span>{t.tabCashbook}</span>
           </button>
 
           <button
             onClick={() => setActiveTab('due')}
-            className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+            className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'due'
                 ? 'bg-white text-blue-600 shadow-xs font-bold'
                 : 'text-stone-600 hover:text-stone-900'
             }`}
           >
             <Users className="w-4 h-4" />
-            <span>Customer Due</span>
+            <span>{t.tabDue}</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('purchases')}
+            className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'purchases'
+                ? 'bg-white text-blue-600 shadow-xs font-bold'
+                : 'text-stone-600 hover:text-stone-900'
+            }`}
+          >
+            <Truck className="w-4 h-4" />
+            <span>{t.tabPurchases}</span>
+            {purchasesCount > 0 && (
+              <span className="bg-emerald-600 text-white text-[10px] px-1.5 py-0.2 rounded-full font-mono">
+                {purchasesCount}
+              </span>
+            )}
           </button>
         </div>
 
@@ -441,6 +483,18 @@ export const Header: React.FC<HeaderProps> = ({
               )}
             </div>
           )}
+
+          <button
+            onClick={onToggleLanguage}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-stone-200 bg-stone-50 hover:bg-stone-100 text-xs font-bold text-stone-700 transition-colors cursor-pointer"
+            title={t.languageToggleTitle}
+          >
+            <Globe className="w-3.5 h-3.5 text-blue-600" />
+            <span>{language === 'bn' ? 'English' : 'বাংলা'}</span>
+            <span className="text-[10px] px-1.5 py-0.2 rounded bg-stone-200 text-stone-700 uppercase font-mono">
+              {language}
+            </span>
+          </button>
 
           <button
             onClick={onOpenLogin}

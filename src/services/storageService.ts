@@ -6,6 +6,9 @@ import {
   ThermalPrinterSettings,
   SavedPrinterInfo,
   UserProfile,
+  Language,
+  PurchaseTrip,
+  PurchaseExpenseItem,
 } from '../types';
 
 const STORAGE_KEYS = {
@@ -15,6 +18,8 @@ const STORAGE_KEYS = {
   SETTINGS: 'simple_pos_settings',
   SAVED_PRINTER: 'pos_saved_bluetooth_printer',
   USER: 'simple_pos_user',
+  PURCHASES: 'simple_pos_purchase_trips',
+  LANG: 'simple_pos_language',
 };
 
 const DEFAULT_USER: UserProfile = {
@@ -553,6 +558,213 @@ class StorageService {
     } catch (e) {
       console.error('Failed to clear saved printer:', e);
     }
+  }
+
+  // --- LANGUAGE SETTINGS ---
+  getLanguage(): Language {
+    try {
+      const lang = localStorage.getItem(STORAGE_KEYS.LANG);
+      if (lang === 'en' || lang === 'bn') {
+        return lang;
+      }
+      return 'bn'; // Default to Bengali as requested
+    } catch {
+      return 'bn';
+    }
+  }
+
+  setLanguage(lang: Language): void {
+    try {
+      localStorage.setItem(STORAGE_KEYS.LANG, lang);
+    } catch (e) {
+      console.error('Failed to save language:', e);
+    }
+  }
+
+  // --- STOCK PURCHASE / SHOPPING TRIPS ---
+  getPurchaseTrips(): PurchaseTrip[] {
+    try {
+      const now = Date.now();
+      const defaultTrips: PurchaseTrip[] = [
+        {
+          id: 'trip-demo-1',
+          title: 'চকবাজার পাইকারি বাজার - নতুন কালেকশন কেনা',
+          marketLocation: 'চকবাজার পাইকারি মার্কেট',
+          dateFormatted: new Date(now).toLocaleDateString(),
+          timestamp: now - 1000 * 60 * 60 * 3, // 3 hours ago
+          initialCash: 10000,
+          totalSpent: 8650,
+          remainingCash: 1350,
+          status: 'active',
+          note: 'দোকানের জন্য নতুন পোশাক ও কাপড় কেনাকাটা',
+          expenses: [
+            {
+              id: 'exp-1',
+              title: 'সুতি জামদানি শাড়ি ও কাতান লট (৫ পিস)',
+              category: 'goods',
+              amount: 6200,
+              vendorOrPlace: 'মেসার্স মোল্লা টেক্সটাইল, দোকান নং ১৪',
+              note: 'পাইকারি রেটে নেওয়া হয়েছে',
+              timestamp: now - 1000 * 60 * 60 * 2.5,
+              dateFormatted: new Date(now - 1000 * 60 * 60 * 2.5).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              }),
+            },
+            {
+              id: 'exp-2',
+              title: 'সুতি থান কাপড় (২০ গজ রোল)',
+              category: 'goods',
+              amount: 1900,
+              vendorOrPlace: 'আল-মদিনা ক্লথ স্টোর, ২য় তলা',
+              note: 'ব্লাউজ ও সালোয়ারের থান কাপড়',
+              timestamp: now - 1000 * 60 * 60 * 2,
+              dateFormatted: new Date(now - 1000 * 60 * 60 * 2).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              }),
+            },
+            {
+              id: 'exp-3',
+              title: 'মাল লোড ও ভ্যান পরিবহন ভাড়া',
+              category: 'transport',
+              amount: 350,
+              vendorOrPlace: 'চকবাজার ভ্যান স্ট্যান্ড',
+              note: 'দোকানে মাল পৌঁছানোর ভাড়া',
+              timestamp: now - 1000 * 60 * 60 * 1.5,
+              dateFormatted: new Date(now - 1000 * 60 * 60 * 1.5).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              }),
+            },
+            {
+              id: 'exp-4',
+              title: 'দুপুরের খাবার ও চা-নাস্তা',
+              category: 'food',
+              amount: 200,
+              vendorOrPlace: 'হোটেল কস্তুরী, চকবাজার',
+              note: 'বাজার চলাকালীন খাবার খরচ',
+              timestamp: now - 1000 * 60 * 60 * 1,
+              dateFormatted: new Date(now - 1000 * 60 * 60 * 1).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              }),
+            },
+          ],
+        },
+      ];
+
+      const data = localStorage.getItem(STORAGE_KEYS.PURCHASES);
+      if (!data) {
+        this.savePurchaseTrips(defaultTrips);
+        return defaultTrips;
+      }
+      return JSON.parse(data);
+    } catch {
+      return [];
+    }
+  }
+
+  savePurchaseTrips(trips: PurchaseTrip[]): void {
+    try {
+      localStorage.setItem(STORAGE_KEYS.PURCHASES, JSON.stringify(trips));
+    } catch (e) {
+      console.error('Failed to save purchase trips:', e);
+    }
+  }
+
+  createPurchaseTrip(
+    title: string,
+    initialCash: number,
+    marketLocation?: string,
+    note?: string
+  ): PurchaseTrip {
+    const trips = this.getPurchaseTrips();
+    const now = Date.now();
+    const newTrip: PurchaseTrip = {
+      id: 'trip-' + now,
+      title: title.trim(),
+      marketLocation: marketLocation?.trim() || '',
+      dateFormatted: new Date(now).toLocaleDateString(),
+      timestamp: now,
+      initialCash: Math.max(0, initialCash),
+      expenses: [],
+      totalSpent: 0,
+      remainingCash: Math.max(0, initialCash),
+      status: 'active',
+      note: note?.trim() || '',
+    };
+
+    trips.unshift(newTrip);
+    this.savePurchaseTrips(trips);
+    return newTrip;
+  }
+
+  addExpenseToTrip(
+    tripId: string,
+    item: Omit<PurchaseExpenseItem, 'id' | 'timestamp' | 'dateFormatted'>
+  ): PurchaseTrip | null {
+    const trips = this.getPurchaseTrips();
+    const trip = trips.find((t) => t.id === tripId);
+    if (!trip) return null;
+
+    const now = Date.now();
+    const newExpense: PurchaseExpenseItem = {
+      ...item,
+      id: 'exp-' + now,
+      timestamp: now,
+      dateFormatted:
+        new Date(now).toLocaleDateString() +
+        ' ' +
+        new Date(now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+
+    trip.expenses = trip.expenses || [];
+    trip.expenses.unshift(newExpense);
+
+    // Recompute totals
+    trip.totalSpent = trip.expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+    trip.remainingCash = trip.initialCash - trip.totalSpent;
+
+    this.savePurchaseTrips(trips);
+    return trip;
+  }
+
+  deleteExpenseFromTrip(tripId: string, expenseId: string): PurchaseTrip | null {
+    const trips = this.getPurchaseTrips();
+    const trip = trips.find((t) => t.id === tripId);
+    if (!trip) return null;
+
+    trip.expenses = trip.expenses.filter((e) => e.id !== expenseId);
+    trip.totalSpent = trip.expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+    trip.remainingCash = trip.initialCash - trip.totalSpent;
+
+    this.savePurchaseTrips(trips);
+    return trip;
+  }
+
+  updateTripStatus(tripId: string, status: 'active' | 'completed'): PurchaseTrip | null {
+    const trips = this.getPurchaseTrips();
+    const trip = trips.find((t) => t.id === tripId);
+    if (!trip) return null;
+
+    trip.status = status;
+    this.savePurchaseTrips(trips);
+    return trip;
+  }
+
+  setTripSyncedCashEntry(tripId: string, cashEntryId: string): void {
+    const trips = this.getPurchaseTrips();
+    const trip = trips.find((t) => t.id === tripId);
+    if (!trip) return;
+
+    trip.syncedCashEntryId = cashEntryId;
+    this.savePurchaseTrips(trips);
+  }
+
+  deletePurchaseTrip(tripId: string): void {
+    const trips = this.getPurchaseTrips().filter((t) => t.id !== tripId);
+    this.savePurchaseTrips(trips);
   }
 }
 
