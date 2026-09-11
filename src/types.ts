@@ -44,9 +44,12 @@ export interface CashEntry {
   dateFormatted: string;
 }
 
+export type DueType = 'receivable' | 'payable'; // 'receivable' = আমি পাবো (Customer owes me), 'payable' = আমি দেবো (কাস্টমার পাওনাদার / Advance)
+
 export interface DueTransaction {
   id: string;
   type: 'added' | 'paid';
+  dueType?: DueType;
   amount: number;
   note: string;
   timestamp: number;
@@ -57,9 +60,17 @@ export interface CustomerDue {
   id: string;
   name: string;
   phone: string;
+  type?: DueType; // default 'receivable'
   dueAmount: number;
   lastUpdated: number;
   transactions: DueTransaction[];
+}
+
+export interface UserProfile {
+  email: string;
+  name: string;
+  isLoggedIn: boolean;
+  loginTime?: number;
 }
 
 export interface ThermalPrinterSettings {

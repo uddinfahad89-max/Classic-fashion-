@@ -1,4 +1,12 @@
-import { BillInvoice, CashEntry, CustomerDue, ThermalPrinterSettings, SavedPrinterInfo } from '../types';
+import {
+  BillInvoice,
+  CashEntry,
+  CustomerDue,
+  DueType,
+  ThermalPrinterSettings,
+  SavedPrinterInfo,
+  UserProfile,
+} from '../types';
 
 const STORAGE_KEYS = {
   BILLS: 'simple_pos_bills',
@@ -6,6 +14,14 @@ const STORAGE_KEYS = {
   DUES: 'simple_pos_dues',
   SETTINGS: 'simple_pos_settings',
   SAVED_PRINTER: 'pos_saved_bluetooth_printer',
+  USER: 'simple_pos_user',
+};
+
+const DEFAULT_USER: UserProfile = {
+  email: 'uddinfahad89@gmail.com',
+  name: 'Fahad Uddin',
+  isLoggedIn: true,
+  loginTime: Date.now(),
 };
 
 const DEFAULT_SETTINGS: ThermalPrinterSettings = {
@@ -278,12 +294,14 @@ class StorageService {
           id: 'due-1',
           name: 'Pooja Sharma',
           phone: '98451 23456',
+          type: 'receivable',
           dueAmount: 1850,
           lastUpdated: Date.now() - 1000 * 60 * 60 * 24,
           transactions: [
             {
               id: 'tx-1',
               type: 'added',
+              dueType: 'receivable',
               amount: 1850,
               note: 'Designer Kurti & Anarkali suit set on credit',
               timestamp: Date.now() - 1000 * 60 * 60 * 24,
@@ -295,16 +313,37 @@ class StorageService {
           id: 'due-2',
           name: 'Rahul Verma',
           phone: '98200 98765',
+          type: 'receivable',
           dueAmount: 3200,
           lastUpdated: Date.now() - 1000 * 60 * 60 * 48,
           transactions: [
             {
               id: 'tx-2',
               type: 'added',
+              dueType: 'receivable',
               amount: 3200,
               note: "Men's formal shirts (2 pcs) and denim jeans",
               timestamp: Date.now() - 1000 * 60 * 60 * 48,
               dateFormatted: new Date(Date.now() - 1000 * 60 * 60 * 48).toLocaleDateString(),
+            },
+          ],
+        },
+        {
+          id: 'due-3',
+          name: 'Kabir Ahmed',
+          phone: '98453 77889',
+          type: 'payable',
+          dueAmount: 1200,
+          lastUpdated: Date.now() - 1000 * 60 * 60 * 12,
+          transactions: [
+            {
+              id: 'tx-3',
+              type: 'added',
+              dueType: 'payable',
+              amount: 1200,
+              note: 'অর্ডারের জন্য অগ্রিম জমা (Advance deposit for suit stitching)',
+              timestamp: Date.now() - 1000 * 60 * 60 * 12,
+              dateFormatted: new Date(Date.now() - 1000 * 60 * 60 * 12).toLocaleDateString(),
             },
           ],
         },
@@ -321,7 +360,11 @@ class StorageService {
         this.saveCustomerDues(defaultDues);
         return defaultDues;
       }
-      return parsed;
+      // Ensure all dues have valid type
+      return parsed.map((d) => ({
+        ...d,
+        type: d.type || 'receivable',
+      }));
     } catch {
       return [];
     }
@@ -331,25 +374,55 @@ class StorageService {
     localStorage.setItem(STORAGE_KEYS.DUES, JSON.stringify(dues));
   }
 
-  addOrUpdateCustomerDue(name: string, amount: number, phone: string = '', note: string = ''): CustomerDue {
+  addOrUpdateCustomerDue(
+    name: string,
+    amount: number,
+    phone: string = '',
+    note: string = '',
+    type: DueType = 'receivable'
+  ): CustomerDue {
     const dues = this.getCustomerDues();
     const existingIndex = dues.findIndex(
       (d) => d.name.trim().toLowerCase() === name.trim().toLowerCase()
     );
 
     const now = Date.now();
+    const txNote =
+      note.trim() ||
+      (type === 'payable'
+        ? 'কাস্টমার পাওনাদার / অগ্রিম জমা (Payable / Advance)'
+        : 'বাকি যোগ (Due added)');
+
     const newTx = {
       id: 'tx-' + now,
       type: 'added' as const,
+      dueType: type,
       amount,
-      note: note.trim() || 'Due added',
+      note: txNote,
       timestamp: now,
-      dateFormatted: new Date(now).toLocaleDateString() + ' ' + new Date(now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      dateFormatted:
+        new Date(now).toLocaleDateString() +
+        ' ' +
+        new Date(now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
 
     if (existingIndex >= 0) {
       const existing = dues[existingIndex];
-      existing.dueAmount += amount;
+      existing.type = existing.type || 'receivable';
+
+      // If same type, add
+      if (existing.type === type) {
+        existing.dueAmount += amount;
+      } else {
+        // Opposite type net-off
+        if (amount > existing.dueAmount) {
+          existing.dueAmount = amount - existing.dueAmount;
+          existing.type = type;
+        } else {
+          existing.dueAmount -= amount;
+        }
+      }
+
       if (phone) existing.phone = phone.trim();
       existing.lastUpdated = now;
       existing.transactions = existing.transactions || [];
@@ -362,6 +435,7 @@ class StorageService {
         id: 'due-' + now,
         name: name.trim(),
         phone: phone.trim(),
+        type,
         dueAmount: Math.max(0, amount),
         lastUpdated: now,
         transactions: [newTx],
@@ -377,16 +451,27 @@ class StorageService {
     const target = dues.find((d) => d.id === id);
     if (!target) return null;
 
+    target.type = target.type || 'receivable';
     target.dueAmount = Math.max(0, target.dueAmount - paidAmount);
     target.lastUpdated = Date.now();
     target.transactions = target.transactions || [];
+
+    const defaultNote =
+      target.type === 'payable'
+        ? 'পাওনাদারকে পরিশোধ / সমন্বয় (Paid to Creditor / Settle)'
+        : 'বাকি আদায় / পেমেন্ট জমা (Payment received)';
+
     target.transactions.unshift({
       id: 'tx-' + Date.now(),
       type: 'paid',
+      dueType: target.type,
       amount: paidAmount,
-      note: note.trim() || 'Payment received',
+      note: note.trim() || defaultNote,
       timestamp: Date.now(),
-      dateFormatted: new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      dateFormatted:
+        new Date().toLocaleDateString() +
+        ' ' +
+        new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     });
 
     this.saveCustomerDues(dues);
@@ -396,6 +481,52 @@ class StorageService {
   deleteCustomerDue(id: string): void {
     const dues = this.getCustomerDues().filter((d) => d.id !== id);
     this.saveCustomerDues(dues);
+  }
+
+  // --- USER PROFILE & EMAIL AUTH ---
+  getUserProfile(): UserProfile {
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.USER);
+      if (!data) {
+        this.saveUserProfile(DEFAULT_USER);
+        return DEFAULT_USER;
+      }
+      return JSON.parse(data);
+    } catch {
+      return DEFAULT_USER;
+    }
+  }
+
+  saveUserProfile(profile: UserProfile): void {
+    localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(profile));
+  }
+
+  loginUser(email: string, name?: string): UserProfile {
+    const cleanEmail = email.trim();
+    const inferredName =
+      name?.trim() ||
+      (cleanEmail.toLowerCase().includes('fahad')
+        ? 'Fahad Uddin'
+        : cleanEmail.split('@')[0]);
+
+    const updated: UserProfile = {
+      email: cleanEmail,
+      name: inferredName,
+      isLoggedIn: true,
+      loginTime: Date.now(),
+    };
+    this.saveUserProfile(updated);
+    return updated;
+  }
+
+  logoutUser(): UserProfile {
+    const current = this.getUserProfile();
+    const updated: UserProfile = {
+      ...current,
+      isLoggedIn: false,
+    };
+    this.saveUserProfile(updated);
+    return updated;
   }
 
   // --- SAVED PRINTER ---

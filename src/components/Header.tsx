@@ -13,8 +13,10 @@ import {
   FileText,
   Receipt,
   ChevronDown,
+  User,
+  Mail,
 } from 'lucide-react';
-import { BluetoothDeviceInfo, ThermalPrinterSettings, ActiveTab } from '../types';
+import { BluetoothDeviceInfo, ThermalPrinterSettings, ActiveTab, UserProfile } from '../types';
 
 interface HeaderProps {
   activeTab: ActiveTab;
@@ -27,6 +29,8 @@ interface HeaderProps {
   onTestPrint: () => void;
   onOpenSettings: () => void;
   settings: ThermalPrinterSettings;
+  userProfile: UserProfile;
+  onOpenLogin: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -40,6 +44,8 @@ export const Header: React.FC<HeaderProps> = ({
   onTestPrint,
   onOpenSettings,
   settings,
+  userProfile,
+  onOpenLogin,
 }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -173,6 +179,20 @@ export const Header: React.FC<HeaderProps> = ({
               <ChevronDown className="w-3 h-3 text-emerald-600" />
             </button>
           )}
+
+          <button
+            onClick={onOpenLogin}
+            className="p-1.5 rounded-xl text-stone-700 bg-stone-100 hover:bg-stone-200 border border-stone-200 cursor-pointer flex items-center justify-center"
+            title={userProfile.isLoggedIn ? `ইউজার অ্যাকাউন্ট: ${userProfile.email}` : 'ইমেল দিয়ে লগইন করুন'}
+          >
+            {userProfile.isLoggedIn ? (
+              <div className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] font-bold">
+                {userProfile.name ? userProfile.name.charAt(0).toUpperCase() : 'U'}
+              </div>
+            ) : (
+              <Mail className="w-4 h-4 text-stone-600" />
+            )}
+          </button>
 
           <button
             onClick={onOpenSettings}
@@ -421,6 +441,37 @@ export const Header: React.FC<HeaderProps> = ({
               )}
             </div>
           )}
+
+          <button
+            onClick={onOpenLogin}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-stone-200 bg-stone-50 hover:bg-stone-100 transition-colors cursor-pointer"
+            title={userProfile.isLoggedIn ? `লগইন করা অ্যাকাউন্ট: ${userProfile.email}` : 'ইমেল দিয়ে লগইন করুন'}
+          >
+            <div className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-[11px] font-bold shadow-2xs">
+              {userProfile.isLoggedIn ? (
+                userProfile.name ? (
+                  userProfile.name.charAt(0).toUpperCase()
+                ) : (
+                  'U'
+                )
+              ) : (
+                <Mail className="w-3.5 h-3.5" />
+              )}
+            </div>
+            <div className="text-left hidden lg:block">
+              <span className="block text-xs font-bold text-stone-900 leading-tight truncate max-w-[120px]">
+                {userProfile.isLoggedIn ? userProfile.name : 'ইমেল লগইন'}
+              </span>
+              {userProfile.isLoggedIn && (
+                <span className="block text-[10px] text-stone-400 font-mono leading-none truncate max-w-[120px]">
+                  {userProfile.email}
+                </span>
+              )}
+            </div>
+            <span className="block lg:hidden text-xs font-bold text-stone-800">
+              {userProfile.isLoggedIn ? userProfile.name.split(' ')[0] : 'লগইন'}
+            </span>
+          </button>
 
           <button
             onClick={onOpenSettings}

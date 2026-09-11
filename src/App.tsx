@@ -4,11 +4,13 @@ import {
   BillInvoice,
   CashEntry,
   CustomerDue,
+  DueType,
   ThermalPrinterSettings,
   BluetoothDeviceInfo,
   CashEntryType,
   ActiveTab,
   PaperWidth,
+  UserProfile,
 } from './types';
 import { storageService } from './services/storageService';
 import { thermalPrinterService } from './services/thermalPrinterService';
@@ -19,6 +21,7 @@ import { CashbookTab } from './components/CashbookTab';
 import { CustomerDueTab } from './components/CustomerDueTab';
 import { PrintReceiptModal } from './components/PrintReceiptModal';
 import { SettingsModal } from './components/SettingsModal';
+import { LoginModal } from './components/LoginModal';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('billing');
@@ -27,6 +30,8 @@ export default function App() {
   const [cashEntries, setCashEntries] = useState<CashEntry[]>([]);
   const [customerDues, setCustomerDues] = useState<CustomerDue[]>([]);
   const [settings, setSettings] = useState<ThermalPrinterSettings>(storageService.getSettings());
+  const [userProfile, setUserProfile] = useState<UserProfile>(storageService.getUserProfile());
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [receiptBill, setReceiptBill] = useState<BillInvoice | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isPrintingBill, setIsPrintingBill] = useState(false);
@@ -58,6 +63,7 @@ export default function App() {
     setCashEntries(storageService.getCashEntries());
     setCustomerDues(storageService.getCustomerDues());
     setSettings(storageService.getSettings());
+    setUserProfile(storageService.getUserProfile());
 
     thermalPrinterService.setStatusListener((status) => {
       setBluetoothStatus(status);
@@ -90,6 +96,19 @@ export default function App() {
   const handleTestPrint = async () => {
     const res = await thermalPrinterService.printTestReceipt(settings);
     showToast(res.message, res.success ? 'success' : 'info');
+  };
+
+  // Authentication Handlers
+  const handleLoginUser = (email: string, name?: string) => {
+    const updated = storageService.loginUser(email, name);
+    setUserProfile(updated);
+    showToast(`স্বাগতম, ${updated.name}! (${updated.email})`, 'success');
+  };
+
+  const handleLogoutUser = () => {
+    const updated = storageService.logoutUser();
+    setUserProfile(updated);
+    showToast('লগআউট সফল হয়েছে', 'info');
   };
 
   // 1. BILLING HANDLERS
@@ -163,27 +182,48 @@ export default function App() {
     setCashEntries(storageService.getCashEntries());
   };
 
-  // 3. CUSTOMER DUE HANDLERS
+  // 3. CUSTOMER DUE & PAYABLE HANDLERS
   const handleAddOrUpdateDue = (
     name: string,
     amount: number,
     phone?: string,
-    note?: string
+    note?: string,
+    type: DueType = 'receivable'
   ) => {
-    storageService.addOrUpdateCustomerDue(name, amount, phone || '', note || '');
+    storageService.addOrUpdateCustomerDue(name, amount, phone || '', note || '', type);
     setCustomerDues(storageService.getCustomerDues());
+    if (type === 'payable') {
+      showToast(`কাস্টমার পাওনাদার হিসেবে ${settings.currencySymbol}${amount.toFixed(2)} যুক্ত করা হয়েছে`, 'info');
+    } else {
+      showToast(`বাকি হিসেবে ${settings.currencySymbol}${amount.toFixed(2)} যুক্ত করা হয়েছে`, 'info');
+    }
   };
 
   const handleRecordCustomerPayment = (id: string, amount: number, note?: string) => {
+    const target = customerDues.find((d) => d.id === id);
+    const isPayable = target?.type === 'payable';
+
     storageService.recordCustomerPayment(id, amount, note || '');
     setCustomerDues(storageService.getCustomerDues());
 
-    // Also record received money as Cashbook Income
-    storageService.addCashEntry(
-      'Income',
-      amount,
-      `Due payment collected: ${note || 'Customer payment'}`
-    );
+    // Cashbook sync:
+    // If receiving money for due -> Cashbook Income
+    // If paying creditor customer back -> Cashbook Expense
+    if (isPayable) {
+      storageService.addCashEntry(
+        'Expense',
+        amount,
+        `পাওনাদারকে পরিশোধ: ${target?.name || 'Customer'} - ${note || 'Settlement'}`
+      );
+      showToast(`পাওনাদারকে ${settings.currencySymbol}${amount.toFixed(2)} পরিশোধ রেকর্ড করা হয়েছে`, 'success');
+    } else {
+      storageService.addCashEntry(
+        'Income',
+        amount,
+        `বাকি আদায় জমা: ${target?.name || 'Customer'} - ${note || 'Due payment'}`
+      );
+      showToast(`বাকি আদায় ${settings.currencySymbol}${amount.toFixed(2)} ক্যাশবুকে জমা হয়েছে`, 'success');
+    }
     setCashEntries(storageService.getCashEntries());
   };
 
@@ -218,10 +258,12 @@ export default function App() {
         onTestPrint={handleTestPrint}
         onOpenSettings={() => setIsSettingsOpen(true)}
         settings={settings}
+        userProfile={userProfile}
+        onOpenLogin={() => setIsLoginModalOpen(true)}
       />
 
       {/* Main Workspace */}
-      <main className="flex-1 pb-12">
+      <main className="flex-1 pb-8">
         {activeTab === 'billing' && (
           <BillingTab
             billItems={billItems}
@@ -264,6 +306,35 @@ export default function App() {
           />
         )}
       </main>
+
+      {/* App Footer with Explicit Creator Attribution (fahad uddin) */}
+      <footer id="app-footer" className="w-full border-t border-stone-200/90 bg-white/85 backdrop-blur-xs py-4 px-4 mt-auto">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2.5 text-xs text-stone-600">
+          <div className="flex items-center gap-2 flex-wrap justify-center sm:justify-start">
+            <span className="text-stone-500 font-medium">অ্যাপটি তৈরি করেছেন:</span>
+            <span className="font-extrabold text-stone-900 bg-stone-100 px-2.5 py-1 rounded-lg border border-stone-300 tracking-wide text-xs">
+              fahad uddin
+            </span>
+            {userProfile.isLoggedIn && (
+              <span className="text-stone-500 font-mono text-[11px] bg-stone-50 px-2 py-0.5 rounded border border-stone-200">
+                {userProfile.email}
+              </span>
+            )}
+          </div>
+          <div className="text-[11px] text-stone-400 text-center sm:text-right">
+            Designed & Created by <strong className="text-stone-700 font-bold">fahad uddin</strong> • All Rights Reserved
+          </div>
+        </div>
+      </footer>
+
+      {/* User Login & Profile Modal */}
+      <LoginModal
+        isOpen={isLoginModalOpen}
+        onClose={() => setIsLoginModalOpen(false)}
+        userProfile={userProfile}
+        onLogin={handleLoginUser}
+        onLogout={handleLogoutUser}
+      />
 
       {/* Thermal Receipt Print & Preview Dialog */}
       <PrintReceiptModal
