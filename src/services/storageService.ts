@@ -753,6 +753,47 @@ class StorageService {
     return trip;
   }
 
+  updatePurchaseTrip(
+    tripId: string,
+    updates: {
+      title?: string;
+      initialCash?: number;
+      marketLocation?: string;
+      note?: string;
+    }
+  ): PurchaseTrip | null {
+    const trips = this.getPurchaseTrips();
+    const trip = trips.find((t) => t.id === tripId);
+    if (!trip) return null;
+
+    if (updates.title !== undefined) trip.title = updates.title.trim();
+    if (updates.marketLocation !== undefined) trip.marketLocation = updates.marketLocation.trim();
+    if (updates.note !== undefined) trip.note = updates.note.trim();
+    if (updates.initialCash !== undefined) {
+      trip.initialCash = Math.max(0, updates.initialCash);
+    }
+
+    // Recalculate totals
+    trip.totalSpent = (trip.expenses || []).reduce((sum, e) => sum + (e.amount || 0), 0);
+    trip.remainingCash = trip.initialCash - trip.totalSpent;
+
+    this.savePurchaseTrips(trips);
+    return trip;
+  }
+
+  addCashToTrip(tripId: string, additionalCash: number): PurchaseTrip | null {
+    const trips = this.getPurchaseTrips();
+    const trip = trips.find((t) => t.id === tripId);
+    if (!trip) return null;
+
+    trip.initialCash = Math.max(0, trip.initialCash + additionalCash);
+    trip.totalSpent = (trip.expenses || []).reduce((sum, e) => sum + (e.amount || 0), 0);
+    trip.remainingCash = trip.initialCash - trip.totalSpent;
+
+    this.savePurchaseTrips(trips);
+    return trip;
+  }
+
   setTripSyncedCashEntry(tripId: string, cashEntryId: string): void {
     const trips = this.getPurchaseTrips();
     const trip = trips.find((t) => t.id === tripId);

@@ -315,6 +315,40 @@ export default function App() {
     );
   };
 
+  const handleUpdatePurchaseTrip = (
+    tripId: string,
+    updates: {
+      title?: string;
+      initialCash?: number;
+      marketLocation?: string;
+      note?: string;
+    }
+  ) => {
+    const updated = storageService.updatePurchaseTrip(tripId, updates);
+    if (updated) {
+      setPurchaseTrips(storageService.getPurchaseTrips());
+      showToast(
+        language === 'bn'
+          ? `ট্রিপ ও ক্যাশ টাকা সফলভাবে সংশোধন করা হয়েছে (${settings.currencySymbol}${updated.initialCash})`
+          : `Trip & cash updated successfully (${settings.currencySymbol}${updated.initialCash})`,
+        'success'
+      );
+    }
+  };
+
+  const handleAddCashToTrip = (tripId: string, additionalCash: number) => {
+    const updated = storageService.addCashToTrip(tripId, additionalCash);
+    if (updated) {
+      setPurchaseTrips(storageService.getPurchaseTrips());
+      showToast(
+        language === 'bn'
+          ? `ক্যাশে আরো ${settings.currencySymbol}${additionalCash} যোগ হয়েছে! বর্তমান মোট ক্যাশ: ${settings.currencySymbol}${updated.initialCash}`
+          : `Added ${settings.currencySymbol}${additionalCash} cash! Total cash: ${settings.currencySymbol}${updated.initialCash}`,
+        'success'
+      );
+    }
+  };
+
   const handleSyncTripToCashbook = (trip: PurchaseTrip) => {
     if (trip.totalSpent <= 0) {
       showToast(
@@ -424,6 +458,8 @@ export default function App() {
             settings={settings}
             language={language}
             onCreateTrip={handleCreatePurchaseTrip}
+            onUpdateTrip={handleUpdatePurchaseTrip}
+            onAddCashToTrip={handleAddCashToTrip}
             onAddExpense={handleAddTripExpense}
             onDeleteExpense={handleDeleteTripExpense}
             onUpdateTripStatus={handleUpdateTripStatus}

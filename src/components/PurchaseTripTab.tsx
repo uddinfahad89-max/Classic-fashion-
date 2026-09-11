@@ -20,6 +20,8 @@ import {
   Package,
   Layers,
   FileSpreadsheet,
+  Edit2,
+  Coins,
 } from 'lucide-react';
 import {
   PurchaseTrip,
@@ -41,6 +43,16 @@ interface PurchaseTripTabProps {
     marketLocation?: string,
     note?: string
   ) => void;
+  onUpdateTrip?: (
+    tripId: string,
+    updates: {
+      title?: string;
+      initialCash?: number;
+      marketLocation?: string;
+      note?: string;
+    }
+  ) => void;
+  onAddCashToTrip?: (tripId: string, additionalCash: number) => void;
   onAddExpense: (
     tripId: string,
     expense: Omit<PurchaseExpenseItem, 'id' | 'timestamp' | 'dateFormatted'>
@@ -57,6 +69,8 @@ export const PurchaseTripTab: React.FC<PurchaseTripTabProps> = ({
   settings,
   language,
   onCreateTrip,
+  onUpdateTrip,
+  onAddCashToTrip,
   onAddExpense,
   onDeleteExpense,
   onUpdateTripStatus,
@@ -74,6 +88,17 @@ export const PurchaseTripTab: React.FC<PurchaseTripTabProps> = ({
     trips.find((t) => t.status === 'active')?.id || trips[0]?.id || null
   );
 
+  // Edit Trip & Cash state
+  const [editingTrip, setEditingTrip] = useState<PurchaseTrip | null>(null);
+  const [editTripTitle, setEditTripTitle] = useState('');
+  const [editTripMarket, setEditTripMarket] = useState('');
+  const [editTripInitialCash, setEditTripInitialCash] = useState('');
+  const [editTripNote, setEditTripNote] = useState('');
+
+  // Quick Add Additional Cash state
+  const [addCashTrip, setAddCashTrip] = useState<PurchaseTrip | null>(null);
+  const [additionalCashAmount, setAdditionalCashAmount] = useState('');
+
   // New Trip Form state
   const [newTripTitle, setNewTripTitle] = useState('');
   const [newTripMarket, setNewTripMarket] = useState('');
@@ -86,6 +111,63 @@ export const PurchaseTripTab: React.FC<PurchaseTripTabProps> = ({
   const [expCategory, setExpCategory] = useState<PurchaseExpenseCategory>('goods');
   const [expVendor, setExpVendor] = useState('');
   const [expNote, setExpNote] = useState('');
+
+  // Open Edit Modal
+  const openEditTripModal = (trip: PurchaseTrip) => {
+    setEditingTrip(trip);
+    setEditTripTitle(trip.title);
+    setEditTripMarket(trip.marketLocation || '');
+    setEditTripInitialCash(trip.initialCash.toString());
+    setEditTripNote(trip.note || '');
+  };
+
+  // Open Add Cash Modal
+  const openAddCashModal = (trip: PurchaseTrip) => {
+    setAddCashTrip(trip);
+    setAdditionalCashAmount('');
+  };
+
+  // Handle Edit Trip Submit
+  const handleEditTripSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTrip) return;
+    const cash = parseFloat(editTripInitialCash);
+    if (!editTripTitle.trim() || isNaN(cash) || cash < 0) {
+      alert(
+        language === 'bn'
+          ? 'সঠিক শিরোনাম ও সাথে নেওয়া টাকার পরিমাণ লিখুন'
+          : 'Please enter valid title and cash amount'
+      );
+      return;
+    }
+
+    onUpdateTrip?.(editingTrip.id, {
+      title: editTripTitle.trim(),
+      initialCash: cash,
+      marketLocation: editTripMarket.trim(),
+      note: editTripNote.trim(),
+    });
+    setEditingTrip(null);
+  };
+
+  // Handle Add Extra Cash Submit
+  const handleAddCashSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!addCashTrip) return;
+    const addAmt = parseFloat(additionalCashAmount);
+    if (isNaN(addAmt) || addAmt <= 0) {
+      alert(
+        language === 'bn'
+          ? 'সঠিক টাকার পরিমাণ লিখুন'
+          : 'Please enter a valid cash amount'
+      );
+      return;
+    }
+
+    onAddCashToTrip?.(addCashTrip.id, addAmt);
+    setAddCashTrip(null);
+    setAdditionalCashAmount('');
+  };
 
   // Calculations for Summary
   const totalInitialAll = trips.reduce((sum, tr) => sum + tr.initialCash, 0);
@@ -221,9 +303,22 @@ export const PurchaseTripTab: React.FC<PurchaseTripTabProps> = ({
               <Wallet className="w-4 h-4 text-blue-600" />
               <span>{t.cashTakenCard}</span>
             </span>
-            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-blue-200 text-blue-800 font-mono">
-              {trips.length} Trips
-            </span>
+            <div className="flex items-center gap-1.5">
+              {activeTrips.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => openEditTripModal(activeTrips[0])}
+                  className="text-[10px] font-bold text-blue-700 bg-blue-100 hover:bg-blue-200 px-2 py-0.5 rounded-md flex items-center gap-1 cursor-pointer transition-colors"
+                  title={language === 'bn' ? 'ক্যাশ টাকা সংশোধন করুন' : 'Edit cash amount'}
+                >
+                  <Edit2 className="w-2.5 h-2.5" />
+                  <span>{t.editCashBtn}</span>
+                </button>
+              )}
+              <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-blue-200 text-blue-800 font-mono">
+                {trips.length} Trips
+              </span>
+            </div>
           </div>
           <span className="text-2xl font-black text-blue-700 font-mono block">
             {sym}
@@ -360,6 +455,7 @@ export const PurchaseTripTab: React.FC<PurchaseTripTabProps> = ({
                       {/* Action buttons */}
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <button
+                          type="button"
                           onClick={() => {
                             setActiveExpenseTrip(trip);
                             setExpTitle('');
@@ -374,7 +470,30 @@ export const PurchaseTripTab: React.FC<PurchaseTripTabProps> = ({
                           <span>{t.addExpenseBtn}</span>
                         </button>
 
+                        {/* Edit Trip & Cash Button */}
                         <button
+                          type="button"
+                          onClick={() => openEditTripModal(trip)}
+                          className="px-2.5 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                          title={language === 'bn' ? 'টাকার পরিমাণ বা ট্রিপ সংশোধন করুন' : 'Edit cash amount or trip details'}
+                        >
+                          <Edit2 className="w-3.5 h-3.5 text-blue-600" />
+                          <span>{t.editTripBtn}</span>
+                        </button>
+
+                        {/* Quick Add Extra Cash Button */}
+                        <button
+                          type="button"
+                          onClick={() => openAddCashModal(trip)}
+                          className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                          title={language === 'bn' ? 'ক্যাশ টাকা আরো যোগ করুন' : 'Add additional cash'}
+                        >
+                          <Coins className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>{t.addCashBtn}</span>
+                        </button>
+
+                        <button
+                          type="button"
                           onClick={() => handlePrintSlip(trip)}
                           className="p-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl transition-colors cursor-pointer"
                           title={t.printTripSlipBtn}
@@ -383,6 +502,7 @@ export const PurchaseTripTab: React.FC<PurchaseTripTabProps> = ({
                         </button>
 
                         <button
+                          type="button"
                           onClick={() => onUpdateTripStatus(trip.id, 'completed')}
                           className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
                           title="কেনাকাটা সম্পন্ন হিসেবে চিহ্নিত করুন"
@@ -392,6 +512,20 @@ export const PurchaseTripTab: React.FC<PurchaseTripTabProps> = ({
                         </button>
 
                         <button
+                          type="button"
+                          onClick={() => {
+                            if (confirm(t.deleteTripConfirm)) {
+                              onDeleteTrip(trip.id);
+                            }
+                          }}
+                          className="p-2 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+                          title={t.deleteTripBtn}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+
+                        <button
+                          type="button"
                           onClick={() => setExpandedTripId(isExpanded ? null : trip.id)}
                           className="p-2 text-stone-400 hover:text-stone-700 rounded-xl transition-colors cursor-pointer"
                         >
@@ -408,10 +542,32 @@ export const PurchaseTripTab: React.FC<PurchaseTripTabProps> = ({
                     <div className="mt-4 pt-3 border-t border-stone-200/80">
                       <div className="grid grid-cols-3 gap-2 text-center sm:text-left mb-2.5">
                         <div className="bg-white/80 p-2.5 rounded-xl border border-stone-200">
-                          <span className="text-[10px] text-stone-400 font-semibold block">
-                            {t.cashTakenCard}
-                          </span>
-                          <span className="text-base sm:text-lg font-black font-mono text-blue-700">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] text-stone-400 font-semibold block">
+                              {t.cashTakenCard}
+                            </span>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => openEditTripModal(trip)}
+                                className="text-[10px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-1.5 py-0.5 rounded cursor-pointer flex items-center gap-0.5"
+                                title={language === 'bn' ? 'ক্যাশ সংশোধন করুন' : 'Edit cash amount'}
+                              >
+                                <Edit2 className="w-2.5 h-2.5" />
+                                <span>{language === 'bn' ? 'সংশোধন' : 'Edit'}</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openAddCashModal(trip)}
+                                className="text-[10px] font-bold text-emerald-600 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-1.5 py-0.5 rounded cursor-pointer flex items-center gap-0.5"
+                                title={language === 'bn' ? 'আরো ক্যাশ যোগ করুন' : 'Add more cash'}
+                              >
+                                <Plus className="w-2.5 h-2.5" />
+                                <span>{language === 'bn' ? '+ক্যাশ' : '+Cash'}</span>
+                              </button>
+                            </div>
+                          </div>
+                          <span className="text-base sm:text-lg font-black font-mono text-blue-700 block mt-0.5">
                             {sym}
                             {trip.initialCash.toFixed(2)}
                           </span>
@@ -656,6 +812,7 @@ export const PurchaseTripTab: React.FC<PurchaseTripTabProps> = ({
 
                       <div className="flex items-center gap-1">
                         <button
+                          type="button"
                           onClick={() => handlePrintSlip(trip)}
                           className="p-1.5 text-stone-600 hover:text-stone-900 hover:bg-stone-100 rounded-lg cursor-pointer"
                           title={t.printTripSlipBtn}
@@ -664,6 +821,16 @@ export const PurchaseTripTab: React.FC<PurchaseTripTabProps> = ({
                         </button>
 
                         <button
+                          type="button"
+                          onClick={() => openEditTripModal(trip)}
+                          className="p-1.5 text-stone-600 hover:text-blue-600 hover:bg-stone-100 rounded-lg cursor-pointer"
+                          title={t.editTripBtn}
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+
+                        <button
+                          type="button"
                           onClick={() => onUpdateTripStatus(trip.id, 'active')}
                           className="px-2 py-1 text-xs font-bold text-stone-600 hover:text-stone-900 hover:bg-stone-100 rounded-lg border border-stone-200 cursor-pointer"
                           title="পুনরায় সক্রিয় করুন"
@@ -1014,6 +1181,279 @@ export const PurchaseTripTab: React.FC<PurchaseTripTabProps> = ({
                 >
                   <span>{t.saveExpenseBtn}</span>
                   <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 7. EDIT TRIP & CASH MODAL (ট্রিপ ও ক্যাশ টাকা সংশোধন করুন) */}
+      {editingTrip && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl shadow-2xl border border-stone-200 w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-150">
+            <div className="p-5 border-b border-stone-100 bg-gradient-to-r from-blue-50/90 via-white to-stone-50 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
+                  <Edit2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-stone-900">
+                    {t.editTripModalTitle}
+                  </h2>
+                  <p className="text-xs text-stone-500">
+                    {language === 'bn'
+                      ? 'ভুলবশত লেখা ক্যাশ টাকা ঠিক করুন বা ট্রিপের তথ্য পরিবর্তন করুন'
+                      : 'Correct mistyped cash amount or trip details'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingTrip(null)}
+                className="p-2 rounded-xl text-stone-400 hover:text-stone-700 hover:bg-stone-100 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleEditTripSubmit} className="p-5 space-y-3.5">
+              <div>
+                <label className="block text-xs font-bold text-stone-700 mb-1">
+                  {t.tripTitleLabel}
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editTripTitle}
+                  onChange={(e) => setEditTripTitle(e.target.value)}
+                  placeholder={t.tripTitlePlaceholder}
+                  className="w-full border border-stone-200 bg-stone-50/80 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-semibold focus:outline-none focus:border-blue-600"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-blue-900">
+                    {t.initialCashLabel}
+                  </label>
+                  <span className="text-[10px] text-blue-600 font-semibold">
+                    {language === 'bn' ? 'শুরুতে সাথে নেওয়া টাকা' : 'Initial cash budget'}
+                  </span>
+                </div>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs font-mono font-bold">
+                    {sym}
+                  </span>
+                  <input
+                    type="number"
+                    required
+                    min="0"
+                    step="any"
+                    autoFocus
+                    value={editTripInitialCash}
+                    onChange={(e) => setEditTripInitialCash(e.target.value)}
+                    placeholder={t.initialCashPlaceholder}
+                    className="w-full border-2 border-blue-400 bg-blue-50/30 pl-8 pr-3 py-2.5 rounded-xl text-base sm:text-lg font-mono font-black focus:outline-none focus:border-blue-600 text-blue-700 shadow-xs"
+                  />
+                </div>
+                <p className="text-[11px] text-stone-500 mt-1">
+                  {language === 'bn'
+                    ? 'আগে দেওয়া ক্যাশ টাকায় ভুল হয়ে থাকলে এখানে সঠিক টাকার পরিমাণ লিখুন।'
+                    : 'If you typed the initial cash incorrectly, enter the exact correct amount here.'}
+                </p>
+
+                {/* Quick amount suggestion chips */}
+                <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                  <span className="text-[10px] text-stone-400">
+                    {language === 'bn' ? 'দ্রুত নির্বাচন:' : 'Quick:'}
+                  </span>
+                  {[5000, 10000, 15000, 20000, 50000, 100000].map((amt) => (
+                    <button
+                      key={amt}
+                      type="button"
+                      onClick={() => setEditTripInitialCash(amt.toString())}
+                      className="text-[10px] font-mono px-2 py-0.5 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold transition-colors cursor-pointer"
+                    >
+                      {sym}
+                      {amt.toLocaleString()}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-stone-700 mb-1">
+                  {t.tripMarketLabel}
+                </label>
+                <input
+                  type="text"
+                  value={editTripMarket}
+                  onChange={(e) => setEditTripMarket(e.target.value)}
+                  placeholder={t.tripMarketPlaceholder}
+                  className="w-full border border-stone-200 bg-stone-50/80 px-3 py-2 rounded-xl text-xs focus:outline-none focus:border-blue-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-stone-700 mb-1">
+                  {t.tripNoteLabel}
+                </label>
+                <input
+                  type="text"
+                  value={editTripNote}
+                  onChange={(e) => setEditTripNote(e.target.value)}
+                  placeholder={t.tripNotePlaceholder}
+                  className="w-full border border-stone-200 bg-stone-50/80 px-3 py-2 rounded-xl text-xs focus:outline-none focus:border-blue-600"
+                />
+              </div>
+
+              {/* Recalculation preview note */}
+              {editingTrip && !isNaN(parseFloat(editTripInitialCash)) && (
+                <div className="p-3 bg-stone-100 rounded-xl text-xs space-y-1">
+                  <div className="flex justify-between text-stone-600">
+                    <span>{t.totalSpentCard}:</span>
+                    <span className="font-mono font-bold text-rose-600">{sym}{editingTrip.totalSpent.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between font-bold">
+                    <span className="text-stone-800">{language === 'bn' ? 'সংশোধনের পর অবশিষ্ট থাকবে:' : 'New Remaining Cash:'}</span>
+                    <span className={`font-mono ${parseFloat(editTripInitialCash) - editingTrip.totalSpent >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                      {sym}{(parseFloat(editTripInitialCash) - editingTrip.totalSpent).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingTrip(null)}
+                  className="flex-1 py-2.5 rounded-xl border border-stone-200 text-xs font-semibold text-stone-600 hover:bg-stone-100 cursor-pointer"
+                >
+                  {t.cancel}
+                </button>
+                <button
+                  type="submit"
+                  className="flex-2 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{t.saveChangesBtn}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 8. ADD EXTRA CASH MODAL (এই ট্রিপে আরো ক্যাশ টাকা যুক্ত করুন) */}
+      {addCashTrip && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl shadow-2xl border border-stone-200 w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-150">
+            <div className="p-5 border-b border-stone-100 bg-gradient-to-r from-emerald-50/90 via-white to-stone-50 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shadow-xs">
+                  <Coins className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-stone-900">
+                    {t.addMoreCashModalTitle}
+                  </h2>
+                  <p className="text-xs text-stone-500 font-medium truncate max-w-[240px]">
+                    {addCashTrip.title}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAddCashTrip(null)}
+                className="p-2 rounded-xl text-stone-400 hover:text-stone-700 hover:bg-stone-100 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleAddCashSubmit} className="p-5 space-y-3.5">
+              {/* Current Status Box */}
+              <div className="grid grid-cols-2 gap-2 bg-stone-50 p-3 rounded-2xl border border-stone-200 text-xs">
+                <div>
+                  <span className="text-stone-500 block text-[10px]">{t.cashTakenCard}</span>
+                  <span className="font-mono font-bold text-blue-700 text-sm">
+                    {sym}{addCashTrip.initialCash.toFixed(2)}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-stone-500 block text-[10px]">{t.remainingCashCard}</span>
+                  <span className="font-mono font-bold text-emerald-700 text-sm">
+                    {sym}{addCashTrip.remainingCash.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-stone-700 mb-1">
+                  {t.extraCashAmountLabel} *
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs font-mono font-bold">
+                    {sym}
+                  </span>
+                  <input
+                    type="number"
+                    required
+                    min="1"
+                    step="any"
+                    autoFocus
+                    value={additionalCashAmount}
+                    onChange={(e) => setAdditionalCashAmount(e.target.value)}
+                    placeholder="যেমন: 5000"
+                    className="w-full border-2 border-emerald-400 bg-emerald-50/30 pl-8 pr-3 py-2.5 rounded-xl text-base sm:text-lg font-mono font-black focus:outline-none focus:border-emerald-600 text-emerald-800 shadow-xs"
+                  />
+                </div>
+
+                {/* Quick Add Buttons */}
+                <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                  <span className="text-[10px] text-stone-400">
+                    {language === 'bn' ? 'দ্রুত যোগ করুন:' : 'Quick add:'}
+                  </span>
+                  {[500, 1000, 2000, 5000, 10000].map((amt) => (
+                    <button
+                      key={amt}
+                      type="button"
+                      onClick={() => setAdditionalCashAmount(amt.toString())}
+                      className="text-[10px] font-mono px-2 py-0.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold border border-emerald-200 transition-colors cursor-pointer"
+                    >
+                      +{sym}{amt.toLocaleString()}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Total preview */}
+              {additionalCashAmount && !isNaN(parseFloat(additionalCashAmount)) && parseFloat(additionalCashAmount) > 0 && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs flex items-center justify-between">
+                  <span className="text-emerald-800 font-medium">
+                    {language === 'bn' ? 'মোট নতুন ক্যাশ হবে:' : 'New Total Cash will be:'}
+                  </span>
+                  <span className="font-mono font-black text-emerald-700 text-base">
+                    {sym}{(addCashTrip.initialCash + parseFloat(additionalCashAmount)).toFixed(2)}
+                  </span>
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setAddCashTrip(null)}
+                  className="flex-1 py-2.5 rounded-xl border border-stone-200 text-xs font-semibold text-stone-600 hover:bg-stone-100 cursor-pointer"
+                >
+                  {t.cancel}
+                </button>
+                <button
+                  type="submit"
+                  className="flex-2 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Coins className="w-4 h-4" />
+                  <span>{t.addCashBtn}</span>
                 </button>
               </div>
             </form>
