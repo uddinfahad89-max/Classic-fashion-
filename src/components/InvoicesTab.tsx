@@ -16,15 +16,23 @@ import {
   SmartphoneNfc,
   ChevronDown,
   ChevronUp,
+  Edit2,
+  Download,
 } from 'lucide-react';
-import { BillInvoice, ThermalPrinterSettings } from '../types';
+import { BillInvoice, ThermalPrinterSettings, Language } from '../types';
 import { thermalPrinterService } from '../services/thermalPrinterService';
+import { translations } from '../utils/i18n';
+import { EditInvoiceModal } from './EditInvoiceModal';
 
 interface InvoicesTabProps {
   bills: BillInvoice[];
   settings: ThermalPrinterSettings;
+  language?: Language;
   onViewReceipt: (bill: BillInvoice) => void;
   onDeleteBill: (id: string) => void;
+  onEditBill?: (bill: BillInvoice) => void;
+  onUpdateBill?: (bill: BillInvoice) => void;
+  onLoadIntoBilling?: (bill: BillInvoice) => void;
 }
 
 type DateFilterPreset = 'all' | 'today' | 'yesterday' | 'week' | 'custom';
@@ -32,15 +40,21 @@ type DateFilterPreset = 'all' | 'today' | 'yesterday' | 'week' | 'custom';
 export const InvoicesTab: React.FC<InvoicesTabProps> = ({
   bills,
   settings,
+  language = 'bn',
   onViewReceipt,
   onDeleteBill,
+  onEditBill,
+  onUpdateBill,
+  onLoadIntoBilling,
 }) => {
+  const t = translations[language];
   const [searchTerm, setSearchTerm] = useState('');
   const [datePreset, setDatePreset] = useState<DateFilterPreset>('all');
   const [customDate, setCustomDate] = useState('');
   const [paymentFilter, setPaymentFilter] = useState<'all' | 'cash' | 'upi' | 'card' | 'due'>('all');
   const [expandedInvoiceId, setExpandedInvoiceId] = useState<string | null>(null);
   const [actionFeedback, setActionFeedback] = useState<{ id: string; message: string } | null>(null);
+  const [editingBill, setEditingBill] = useState<BillInvoice | null>(null);
 
   const sym = settings.currencySymbol || '₹';
 
@@ -347,14 +361,41 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
 
                     {/* Action Buttons */}
                     <div className="flex items-center gap-1">
-                      {/* View & Reprint Receipt */}
+                      {/* View Clear Invoice / Tax Bill */}
                       <button
                         onClick={() => onViewReceipt(bill)}
-                        className="px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
-                        title="View Thermal Receipt preview and print options"
+                        className="px-2.5 py-1.5 rounded-xl bg-[#6E68D8]/10 hover:bg-[#6E68D8]/20 text-[#6E68D8] text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors border border-[#6E68D8]/25"
+                        title="View Clear Tax Invoice with Print & PDF Save options"
                       >
-                        <Eye className="w-3.5 h-3.5 text-blue-600" />
-                        <span className="hidden sm:inline">Receipt</span>
+                        <FileText className="w-3.5 h-3.5 text-[#6E68D8]" />
+                        <span className="hidden sm:inline">{language === 'bn' ? 'ক্লিয়ার বিল' : 'Clear Bill'}</span>
+                      </button>
+
+                      {/* Direct PDF & Print Modal */}
+                      <button
+                        onClick={() => onViewReceipt(bill)}
+                        className="px-2 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors border border-emerald-200"
+                        title="Download or Print PDF"
+                      >
+                        <Download className="w-3.5 h-3.5 text-emerald-700" />
+                        <span className="hidden sm:inline">PDF</span>
+                      </button>
+
+                      {/* Edit Invoice Button */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (onEditBill) {
+                            onEditBill(bill);
+                          } else {
+                            setEditingBill(bill);
+                          }
+                        }}
+                        className="px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors border border-amber-200/60"
+                        title={language === 'bn' ? 'ইনভয়েস এডিট করুন' : 'Edit Invoice'}
+                      >
+                        <Edit2 className="w-3.5 h-3.5 text-amber-700" />
+                        <span className="hidden sm:inline">{t.editInvoiceBtn}</span>
                       </button>
 
                       {/* Quick Print Button */}
@@ -445,6 +486,27 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
                           <span className="font-mono">{sym}{bill.changeAmount.toFixed(2)}</span>
                         </div>
                       )}
+
+                      {/* Edit action in expanded breakdown */}
+                      <div className="pt-2.5 flex items-center justify-between border-t border-stone-200">
+                        <span className="text-[11px] text-stone-400 font-mono">
+                          Invoice #{bill.invoiceNo}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (onEditBill) {
+                              onEditBill(bill);
+                            } else {
+                              setEditingBill(bill);
+                            }
+                          }}
+                          className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                          <span>{t.editInvoiceBtn}</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -453,6 +515,24 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
           })
         )}
       </div>
+
+      {/* Edit Invoice Modal */}
+      {editingBill && (
+        <EditInvoiceModal
+          bill={editingBill}
+          isOpen={!!editingBill}
+          onClose={() => setEditingBill(null)}
+          onSave={(updated) => {
+            if (onUpdateBill) {
+              onUpdateBill(updated);
+            }
+            setEditingBill(null);
+          }}
+          onLoadInBilling={onLoadIntoBilling}
+          settings={settings}
+          language={language}
+        />
+      )}
     </div>
   );
 };

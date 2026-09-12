@@ -30,13 +30,17 @@ const DEFAULT_USER: UserProfile = {
 };
 
 const DEFAULT_SETTINGS: ThermalPrinterSettings = {
-  storeName: 'Shree Fashion & Garments',
-  storePhone: '+91 98765 43210',
-  storeAddress: 'Shop #12, Commercial Street, Bangalore',
+  storeName: 'CLASSIC FASHION',
+  storePhone: '7055271959',
+  storeAddress: 'kotamoni bazar near jama masjid',
+  signatoryName: '',
+  upiId: '',
   paperWidth: '58mm',
-  currencySymbol: '₹',
+  currencySymbol: 'Rs',
+  currencyName: 'Rupees',
   footerNote: 'Thank you for shopping with us! Visit again.',
   autoPrintOnCheckout: true,
+  defaultInvoiceFormat: 'tax_invoice',
 };
 
 class StorageService {
@@ -49,16 +53,31 @@ class StorageService {
         return DEFAULT_SETTINGS;
       }
       const parsed = JSON.parse(data);
-      // Auto-migrate if old Bangladeshi currency or defaults exist
-      if (parsed.currencySymbol === '৳' || !parsed.currencySymbol || parsed.storePhone?.includes('+880') || parsed.storeName === 'My Shop & General Store') {
+      if (parsed.signatoryName === 'Fahad Uddin') {
+        parsed.signatoryName = '';
+      }
+      // Auto-migrate if older defaults exist or missing fields
+      if (
+        parsed.storeName === 'Shree Fashion & Garments' ||
+        parsed.storeName === 'My Shop & General Store' ||
+        !parsed.storeName ||
+        !parsed.signatoryName ||
+        !parsed.defaultInvoiceFormat
+      ) {
         const migrated: ThermalPrinterSettings = {
           ...DEFAULT_SETTINGS,
           ...parsed,
-          currencySymbol: '₹',
-          storeName: parsed.storeName === 'My Shop & General Store' ? DEFAULT_SETTINGS.storeName : parsed.storeName,
-          storePhone: parsed.storePhone?.includes('+880') ? DEFAULT_SETTINGS.storePhone : parsed.storePhone,
-          storeAddress: parsed.storeAddress?.includes('Dhaka') ? DEFAULT_SETTINGS.storeAddress : parsed.storeAddress,
-          footerNote: parsed.footerNote || DEFAULT_SETTINGS.footerNote,
+          storeName:
+            parsed.storeName === 'Shree Fashion & Garments' || parsed.storeName === 'My Shop & General Store'
+              ? DEFAULT_SETTINGS.storeName
+              : parsed.storeName || DEFAULT_SETTINGS.storeName,
+          storePhone: parsed.storePhone?.includes('98765') ? DEFAULT_SETTINGS.storePhone : parsed.storePhone || DEFAULT_SETTINGS.storePhone,
+          storeAddress: parsed.storeAddress?.includes('Bangalore') ? DEFAULT_SETTINGS.storeAddress : parsed.storeAddress || DEFAULT_SETTINGS.storeAddress,
+          signatoryName: parsed.signatoryName || DEFAULT_SETTINGS.signatoryName,
+          upiId: parsed.upiId || DEFAULT_SETTINGS.upiId,
+          currencySymbol: parsed.currencySymbol === '৳' ? 'Rs' : (parsed.currencySymbol || 'Rs'),
+          currencyName: parsed.currencyName || 'Rupees',
+          defaultInvoiceFormat: 'tax_invoice',
         };
         this.saveSettings(migrated);
         return migrated;
@@ -78,22 +97,84 @@ class StorageService {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.BILLS);
       if (data) {
-        return JSON.parse(data);
+        const list: BillInvoice[] = JSON.parse(data);
+        // If sale 306 isn't present, ensure it's included
+        if (!list.some((b) => b.invoiceNo === '306')) {
+          const sale306: BillInvoice = {
+            id: 'inv-sale-306',
+            invoiceNo: '306',
+            date: '22-08-2026',
+            time: '02:58 PM',
+            timestamp: new Date('2026-08-22T14:58:00').getTime(),
+            customerName: 'RUMANA BEGAM',
+            customerPhone: '9707502246',
+            items: [
+              { id: 'it-306-1', name: 'Ganji set', price: 200.0, qty: 2, total: 400.0 },
+              { id: 'it-306-2', name: 'Seka ganji', price: 20.0, qty: 4, total: 80.0 },
+              { id: 'it-306-3', name: 'Stal orna', price: 200.0, qty: 1, total: 200.0 },
+              { id: 'it-306-4', name: 'Cotton orna', price: 125.0, qty: 2, total: 250.0 },
+              { id: 'it-306-5', name: 'Nitee', price: 200.0, qty: 1, total: 200.0 },
+              { id: 'it-306-6', name: 'Frk', price: 180.0, qty: 1, total: 180.0 },
+              { id: 'it-306-7', name: 'Seka', price: 90.0, qty: 1, total: 90.0 },
+            ],
+            subtotal: 1400.0,
+            discount: 140.0,
+            discountType: 'percent',
+            discountValue: 10.0,
+            grandTotal: 1260.0,
+            paymentMethod: 'due',
+            paymentStatus: 'DUE',
+            paidAmount: 0.0,
+            changeAmount: 0.0,
+            balance: 1260.0,
+            previousBalance: 0.0,
+            currentBalance: 1260.0,
+          };
+          const updated = [sale306, ...list];
+          this.saveBillsList(updated);
+          return updated;
+        }
+        return list;
       }
 
       // Seed initial demo invoices for realistic instant testing
       const now = Date.now();
       const demoBills: BillInvoice[] = [
         {
+          id: 'inv-sale-306',
+          invoiceNo: '306',
+          date: '22-08-2026',
+          time: '02:58 PM',
+          timestamp: new Date('2026-08-22T14:58:00').getTime(),
+          customerName: 'RUMANA BEGAM',
+          customerPhone: '9707502246',
+          items: [
+            { id: 'it-306-1', name: 'Ganji set', price: 200.0, qty: 2, total: 400.0 },
+            { id: 'it-306-2', name: 'Seka ganji', price: 20.0, qty: 4, total: 80.0 },
+            { id: 'it-306-3', name: 'Stal orna', price: 200.0, qty: 1, total: 200.0 },
+            { id: 'it-306-4', name: 'Cotton orna', price: 125.0, qty: 2, total: 250.0 },
+            { id: 'it-306-5', name: 'Nitee', price: 200.0, qty: 1, total: 200.0 },
+            { id: 'it-306-6', name: 'Frk', price: 180.0, qty: 1, total: 180.0 },
+            { id: 'it-306-7', name: 'Seka', price: 90.0, qty: 1, total: 90.0 },
+          ],
+          subtotal: 1400.0,
+          discount: 140.0,
+          discountType: 'percent',
+          discountValue: 10.0,
+          grandTotal: 1260.0,
+          paymentMethod: 'due',
+          paymentStatus: 'DUE',
+          paidAmount: 0.0,
+          changeAmount: 0.0,
+          balance: 1260.0,
+          previousBalance: 0.0,
+          currentBalance: 1260.0,
+        },
+        {
           id: 'inv-demo-1',
           invoiceNo: 'INV-1048',
-          date: new Date(now - 1000 * 60 * 75).toLocaleString([], {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-          }),
+          date: '22-08-2026',
+          time: '01:45 PM',
           timestamp: now - 1000 * 60 * 75,
           customerName: 'Ananya Roy',
           customerPhone: '98301 54321',
@@ -110,6 +191,9 @@ class StorageService {
           paymentStatus: 'PAID',
           paidAmount: 1500,
           changeAmount: 0,
+          balance: 0,
+          previousBalance: 0,
+          currentBalance: 0,
         },
         {
           id: 'inv-demo-2',

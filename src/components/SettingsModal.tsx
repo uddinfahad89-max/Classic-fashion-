@@ -165,8 +165,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 type="text"
                 value={form.currencySymbol}
                 onChange={(e) => setForm({ ...form, currencySymbol: e.target.value })}
-                placeholder="₹ or $"
+                placeholder="Rs or ₹"
                 className="w-full border border-stone-200 bg-stone-50/80 p-2 rounded-xl text-xs font-mono font-bold focus:outline-none focus:border-blue-500"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2.5">
+            <div>
+              <label className="block text-stone-700 font-semibold mb-1">Signatory Name (স্বাক্ষর)</label>
+              <input
+                type="text"
+                value={form.signatoryName || ''}
+                onChange={(e) => setForm({ ...form, signatoryName: e.target.value })}
+                placeholder="(ঐচ্ছিক / Optional)"
+                className="w-full border border-stone-200 bg-stone-50/80 p-2 rounded-xl text-xs focus:outline-none focus:border-blue-500 font-medium"
+              />
+            </div>
+
+            <div>
+              <label className="block text-stone-700 font-semibold mb-1">UPI ID (ঐচ্ছিক)</label>
+              <input
+                type="text"
+                value={form.upiId || ''}
+                onChange={(e) => setForm({ ...form, upiId: e.target.value })}
+                placeholder="example@upi"
+                className="w-full border border-stone-200 bg-stone-50/80 p-2 rounded-xl text-xs font-mono focus:outline-none focus:border-blue-500"
               />
             </div>
           </div>

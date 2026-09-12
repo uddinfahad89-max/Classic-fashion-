@@ -20,6 +20,7 @@ export interface BillInvoice {
   id: string;
   invoiceNo: string;
   date: string;
+  time?: string;
   timestamp: number;
   customerName?: string;
   customerPhone?: string;
@@ -33,6 +34,9 @@ export interface BillInvoice {
   paymentStatus?: PaymentStatus;
   paidAmount: number;
   changeAmount: number;
+  balance?: number;
+  previousBalance?: number;
+  currentBalance?: number;
 }
 
 export type CashEntryType = 'Income' | 'Expense';
@@ -79,10 +83,14 @@ export interface ThermalPrinterSettings {
   storeName: string;
   storePhone: string;
   storeAddress: string;
+  signatoryName?: string;
+  upiId?: string;
   paperWidth: PaperWidth;
   currencySymbol: string;
+  currencyName?: string;
   footerNote: string;
   autoPrintOnCheckout: boolean;
+  defaultInvoiceFormat?: 'tax_invoice' | 'thermal';
 }
 
 export interface SavedPrinterInfo {

@@ -126,17 +126,27 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       return;
     }
 
-    const invoiceNo = String(Date.now()).slice(-6);
     const now = new Date();
-    const dateFormatted = `${now.toLocaleDateString()} ${now.toLocaleTimeString([], {
+    const day = String(now.getDate()).padStart(2, '0');
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const year = now.getFullYear();
+    const dateFormatted = `${day}-${month}-${year}`;
+    const timeFormatted = now.toLocaleTimeString([], {
       hour: '2-digit',
       minute: '2-digit',
-    })}`;
+      hour12: true,
+    });
+
+    const invoiceNo = String(Math.floor(100 + Math.random() * 900));
+
+    const actualPaid = paidNum > 0 ? paidNum : (paymentMethod === 'due' ? 0 : grandTotal);
+    const balanceAmount = paymentMethod === 'due' ? Math.max(0, grandTotal - actualPaid) : 0;
 
     const bill: BillInvoice = {
       id: 'inv-' + Date.now(),
       invoiceNo,
       date: dateFormatted,
+      time: timeFormatted,
       timestamp: Date.now(),
       customerName: customerName.trim() || undefined,
       customerPhone: customerPhone.trim() || undefined,
@@ -147,8 +157,11 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       discountValue: rawDiscount,
       grandTotal,
       paymentMethod,
-      paidAmount: paidNum > 0 ? paidNum : grandTotal,
+      paidAmount: actualPaid,
       changeAmount: paidNum > grandTotal ? changeAmount : 0,
+      balance: balanceAmount,
+      previousBalance: 0,
+      currentBalance: balanceAmount,
     };
 
     onPrintBill(bill);
@@ -545,46 +558,33 @@ export const BillingTab: React.FC<BillingTabProps> = ({
           )}
         </div>
 
-        {/* Primary Action Button: Print Receipt / Bill */}
+        {/* Primary Action Button: Create Clear Invoice, Print & Save */}
         <button
           id="billing-print-btn"
           onClick={handleCheckoutAndPrint}
           disabled={billItems.length === 0 || isPrinting}
           className={`w-full py-3.5 rounded-2xl font-bold text-sm sm:text-base shadow-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
             billItems.length > 0 && !isPrinting
-              ? bluetoothStatus.connected
-                ? 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white shadow-blue-600/20 active:scale-[0.99]'
-                : 'bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white shadow-emerald-600/20 active:scale-[0.99]'
+              ? 'bg-[#6E68D8] hover:bg-[#5E58C8] active:bg-[#534DA8] text-white shadow-md active:scale-[0.99]'
               : 'bg-stone-200 text-stone-400 cursor-not-allowed'
           }`}
         >
           {isPrinting ? (
             <>
               <RefreshCw className="w-5 h-5 animate-spin" />
-              <span>Streaming to {bluetoothStatus.deviceName || 'Thermal Printer'}...</span>
+              <span>প্রিন্টার প্রস্তুত হচ্ছে...</span>
             </>
           ) : (
             <>
               <Printer className="w-5 h-5" />
-              <span>
-                {bluetoothStatus.connected
-                  ? `Print Bill (${bluetoothStatus.deviceName ? bluetoothStatus.deviceName.slice(0, 16) : 'Bluetooth'})`
-                  : 'Print Bill'}
-              </span>
+              <span>ক্লিয়ার বিল তৈরি, প্রিন্ট ও সেভ করুন (Tax Invoice)</span>
             </>
           )}
         </button>
 
-        {bluetoothStatus.connected ? (
-          <p className="text-center text-[11px] font-semibold text-emerald-700 flex items-center justify-center gap-1.5 pt-0.5">
-            <span className="h-2 w-2 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
-            <span>Silent Direct BLE Print Active • No external apps needed</span>
-          </p>
-        ) : (
-          <p className="text-center text-[11px] text-stone-400 pt-0.5">
-            Tip: Tap <strong className="text-stone-700">"Connect Printer"</strong> in header for silent 1-click Bluetooth printing
-          </p>
-        )}
+        <p className="text-center text-[11px] text-stone-500 pt-0.5">
+          ✓ সরাসরি এ৪ ট্যাক্স ইনভয়েস ও রসিদ তৈরি হবে • ১-ক্লিকে <strong>প্রিন্ট</strong> ও <strong>পিডিএফ সেভ</strong> করার সুবিধা
+        </p>
       </div>
     </div>
   );

@@ -613,11 +613,51 @@ export class ThermalPrinterService {
     }
   }
 
-  // Browser Print Dialog (Precise 58mm / 80mm Zero-Margin Mobile & Desktop Print)
+  // Standard A4 / Sheet Tax Invoice Print (Matching user uploaded clear bill)
+  printTaxInvoiceElement(invoiceElement: HTMLElement, bill: BillInvoice) {
+    let thermalRoot = document.getElementById('thermal-print-root');
+    if (thermalRoot) {
+      thermalRoot.classList.remove('active-print');
+    }
+
+    let invoiceRoot = document.getElementById('invoice-print-root');
+    if (!invoiceRoot) {
+      invoiceRoot = document.createElement('div');
+      invoiceRoot.id = 'invoice-print-root';
+      document.body.appendChild(invoiceRoot);
+    }
+
+    // Clone the exact rendered tax invoice element
+    invoiceRoot.innerHTML = '';
+    const clone = invoiceElement.cloneNode(true) as HTMLElement;
+    invoiceRoot.appendChild(clone);
+    invoiceRoot.classList.add('active-print');
+
+    const originalTitle = document.title;
+    const formattedDate = bill.date.replace(/[\/\s:]/g, '-');
+    document.title = `Sale_${bill.invoiceNo}_${formattedDate}`;
+
+    setTimeout(() => {
+      window.print();
+      setTimeout(() => {
+        document.title = originalTitle;
+        if (invoiceRoot) {
+          invoiceRoot.classList.remove('active-print');
+          invoiceRoot.innerHTML = '';
+        }
+      }, 1000);
+    }, 60);
+  }
+
+  // Browser Print Dialog for Thermal Roll (58mm / 80mm)
   printViaBrowser(bill: BillInvoice, settings: ThermalPrinterSettings) {
+    let invoiceRoot = document.getElementById('invoice-print-root');
+    if (invoiceRoot) {
+      invoiceRoot.classList.remove('active-print');
+    }
+
     const formatted = this.generateReceiptText(bill, settings);
 
-    // Look for or create the dedicated print root element in DOM
     let root = document.getElementById('thermal-print-root');
     if (!root) {
       root = document.createElement('div');
@@ -627,18 +667,22 @@ export class ThermalPrinterService {
 
     const paperClass = settings.paperWidth === '80mm' ? 'thermal-paper-80mm' : 'thermal-paper-58mm';
     root.innerHTML = `<div class="${paperClass} receipt-mono">${formatted}</div>`;
+    root.classList.add('active-print');
 
     const originalTitle = document.title;
     document.title = `Invoice-${bill.invoiceNo}`;
 
-    // Small delay ensures DOM paint is complete before print spooler captures the document
     setTimeout(() => {
       window.print();
       setTimeout(() => {
         document.title = originalTitle;
+        if (root) {
+          root.classList.remove('active-print');
+        }
       }, 1000);
     }, 60);
   }
 }
 
 export const thermalPrinterService = new ThermalPrinterService();
+
