@@ -30,7 +30,7 @@ const DEFAULT_USER: UserProfile = {
 };
 
 const DEFAULT_SETTINGS: ThermalPrinterSettings = {
-  storeName: 'MY SHOP / STORE NAME',
+  storeName: '',
   storePhone: '',
   storeAddress: '',
   signatoryName: '',
@@ -49,12 +49,14 @@ class StorageService {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.SETTINGS);
       if (!data) {
-        this.saveSettings(DEFAULT_SETTINGS);
         return DEFAULT_SETTINGS;
       }
       const parsed = JSON.parse(data);
       if (parsed.signatoryName === 'Fahad Uddin') {
         parsed.signatoryName = '';
+      }
+      if (parsed.storeName === 'MY SHOP / STORE NAME' || parsed.storeName === 'Shree Fashion') {
+        parsed.storeName = '';
       }
       return { ...DEFAULT_SETTINGS, ...parsed };
     } catch {

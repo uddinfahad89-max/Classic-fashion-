@@ -8,6 +8,12 @@ import {
   Tag,
   Percent,
   RefreshCw,
+  User,
+  Phone,
+  Banknote,
+  QrCode,
+  CreditCard,
+  Clock,
 } from 'lucide-react';
 import {
   BillItem,
@@ -15,7 +21,9 @@ import {
   PaymentMethod,
   ThermalPrinterSettings,
   BluetoothDeviceInfo,
+  Language,
 } from '../types';
+import { translations } from '../utils/i18n';
 
 interface BillingTabProps {
   billItems: BillItem[];
@@ -25,6 +33,7 @@ interface BillingTabProps {
   isPrinting?: boolean;
   onPrintBill: (bill: BillInvoice) => void;
   onClearBill: () => void;
+  language?: Language;
 }
 
 export const BillingTab: React.FC<BillingTabProps> = ({
@@ -35,7 +44,11 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   isPrinting = false,
   onPrintBill,
   onClearBill,
+  language = 'bn',
 }) => {
+  const t = translations[language];
+  const isBn = language === 'bn';
+
   // Direct item input form state
   const [itemName, setItemName] = useState('');
   const [itemPrice, setItemPrice] = useState('');
@@ -76,7 +89,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     const qty = parseInt(itemQty, 10);
 
     if (!name || isNaN(price) || price <= 0) {
-      alert('Please enter a valid Item Name and Price');
+      alert(t.enterValidNamePrice);
       return;
     }
 
@@ -122,7 +135,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   // Handle Checkout & Print Bill
   const handleCheckoutAndPrint = () => {
     if (billItems.length === 0) {
-      alert('Please add at least one item to the bill.');
+      alert(t.addAtLeastOneItem);
       return;
     }
 
@@ -175,14 +188,59 @@ export const BillingTab: React.FC<BillingTabProps> = ({
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-4 sm:py-6 space-y-4">
-      {/* 1. INSTANT ITEM ENTRY BOX */}
-      <div className="bg-white rounded-2xl p-4 sm:p-5 shadow-xs border border-stone-200">
+      {/* 1. CUSTOMER DETAILS CARD (SECTION 1 - TOP) */}
+      <div id="billing-customer-section" className="bg-white rounded-2xl p-4 sm:p-5 shadow-xs border border-stone-200">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-bold text-stone-900 flex items-center gap-1.5">
+            <User className="w-4 h-4 text-blue-600" />
+            <span>{isBn ? 'ক্রেতার বিবরণ (ঐচ্ছিক)' : 'Customer Details (Optional)'}</span>
+          </h2>
+          <span className="text-[11px] text-stone-400 font-medium">
+            {isBn ? 'ইনভয়েস ও বাকি খাতার জন্য' : 'For invoice & due ledger'}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          {/* Customer Name */}
+          <div className="relative">
+            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none">
+              <User className="w-4 h-4" />
+            </div>
+            <input
+              type="text"
+              id="billing-customer-name"
+              value={customerName}
+              onChange={(e) => setCustomerName(e.target.value)}
+              placeholder={t.customerNameOptionalPlaceholder}
+              className="w-full border border-stone-200 bg-stone-50/80 pl-9 pr-3 py-2 rounded-xl text-xs sm:text-sm font-medium focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
+            />
+          </div>
+
+          {/* Customer Phone / Mobile */}
+          <div className="relative">
+            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none">
+              <Phone className="w-4 h-4" />
+            </div>
+            <input
+              type="tel"
+              id="billing-customer-phone"
+              value={customerPhone}
+              onChange={(e) => setCustomerPhone(e.target.value)}
+              placeholder={t.customerPhoneOptionalPlaceholder}
+              className="w-full border border-stone-200 bg-stone-50/80 pl-9 pr-3 py-2 rounded-xl text-xs sm:text-sm font-mono font-medium focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* 2. INSTANT ITEM ENTRY CARD (SECTION 2 - MIDDLE) */}
+      <div id="billing-item-entry-section" className="bg-white rounded-2xl p-4 sm:p-5 shadow-xs border border-stone-200">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-bold text-stone-900 flex items-center gap-1.5">
             <Receipt className="w-4 h-4 text-blue-600" />
-            <span>Instant Item Entry</span>
+            <span>{t.instantItemEntry}</span>
           </h2>
-          <span className="text-[11px] text-stone-400 font-medium">Type & add directly</span>
+          <span className="text-[11px] text-stone-400 font-medium">{t.typeAndAddDirectly}</span>
         </div>
 
         <form onSubmit={handleAddItem} className="space-y-2.5">
@@ -193,7 +251,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
               id="itemName"
               value={itemName}
               onChange={(e) => setItemName(e.target.value)}
-              placeholder="Item Name (e.g. Cotton Saree, Men's Shirt, Kurti, Jeans)"
+              placeholder={t.itemNamePlaceholder}
               className="w-full border border-stone-200 bg-stone-50/80 px-3 py-2 rounded-xl text-xs sm:text-sm font-medium focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
             />
           </div>
@@ -210,7 +268,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 step="any"
                 value={itemPrice}
                 onChange={(e) => setItemPrice(e.target.value)}
-                placeholder="Price"
+                placeholder={t.unitPrice}
                 className="w-full border border-stone-200 bg-stone-50/80 pl-7 pr-3 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
               />
             </div>
@@ -222,7 +280,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 min="1"
                 value={itemQty}
                 onChange={(e) => setItemQty(e.target.value)}
-                placeholder="Qty"
+                placeholder={t.qty}
                 className="w-full border border-stone-200 bg-stone-50/80 px-3 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
               />
             </div>
@@ -234,16 +292,16 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             className="w-full bg-blue-600 hover:bg-blue-500 active:scale-[0.99] text-white py-2.5 rounded-xl font-bold text-xs sm:text-sm shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
           >
             <Plus className="w-4 h-4 stroke-[3]" />
-            <span>+ Add Item to Bill</span>
+            <span>{t.addItemToBill}</span>
           </button>
         </form>
       </div>
 
-      {/* 2. CURRENT BILL ITEMS TABLE */}
-      <div className="bg-white rounded-2xl shadow-xs border border-stone-200 overflow-hidden">
+      {/* 3. CURRENT BILL ITEMS LIST (SECTION 3) */}
+      <div id="billing-items-list-section" className="bg-white rounded-2xl shadow-xs border border-stone-200 overflow-hidden">
         <div className="p-3.5 border-b border-stone-200 bg-stone-50/70 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-stone-800">Current Bill Items</span>
+            <span className="text-xs font-bold text-stone-800">{t.currentBillItems}</span>
             <span className="bg-blue-100 text-blue-800 text-[11px] font-bold px-2 py-0.5 rounded-full">
               {billItems.length}
             </span>
@@ -252,7 +310,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
           {billItems.length > 0 && (
             <button
               onClick={() => {
-                if (confirm('Clear current bill items?')) {
+                if (confirm(t.clearBillConfirm)) {
                   onClearBill();
                   setCustomerName('');
                   setCustomerPhone('');
@@ -263,24 +321,24 @@ export const BillingTab: React.FC<BillingTabProps> = ({
               className="text-[11px] text-stone-500 hover:text-red-600 flex items-center gap-1 transition-colors cursor-pointer"
             >
               <RotateCcw className="w-3 h-3" />
-              <span>Clear</span>
+              <span>{t.clearBill}</span>
             </button>
           )}
         </div>
 
         {billItems.length === 0 ? (
           <div className="p-8 text-center text-stone-400 text-xs">
-            No items in current bill. Enter garment item name and price above to add.
+            {t.noItemsInBill}
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-xs sm:text-sm">
               <thead>
                 <tr className="bg-stone-100/70 text-stone-600 text-[11px] uppercase tracking-wider font-semibold border-b border-stone-200">
-                  <th className="text-left p-2.5 sm:p-3">Item</th>
-                  <th className="text-center p-2.5 sm:p-3 w-24">Qty</th>
-                  <th className="text-right p-2.5 sm:p-3">Price</th>
-                  <th className="text-right p-2.5 sm:p-3">Total</th>
+                  <th className="text-left p-2.5 sm:p-3">{isBn ? 'পণ্য' : 'Item'}</th>
+                  <th className="text-center p-2.5 sm:p-3 w-24">{t.qty}</th>
+                  <th className="text-right p-2.5 sm:p-3">{t.unitPrice}</th>
+                  <th className="text-right p-2.5 sm:p-3">{isBn ? 'মোট' : 'Total'}</th>
                   <th className="p-2.5 sm:p-3 w-8"></th>
                 </tr>
               </thead>
@@ -292,14 +350,14 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                       <div className="inline-flex items-center gap-1 bg-stone-100 px-1.5 py-0.5 rounded-lg border border-stone-200">
                         <button
                           onClick={() => handleUpdateQty(item.id, item.qty - 1)}
-                          className="w-4 h-4 text-stone-600 hover:text-stone-900 font-bold flex items-center justify-center leading-none"
+                          className="w-4 h-4 text-stone-600 hover:text-stone-900 font-bold flex items-center justify-center leading-none cursor-pointer"
                         >
                           -
                         </button>
                         <span className="font-mono font-bold text-xs px-1">{item.qty}</span>
                         <button
                           onClick={() => handleUpdateQty(item.id, item.qty + 1)}
-                          className="w-4 h-4 text-stone-600 hover:text-stone-900 font-bold flex items-center justify-center leading-none"
+                          className="w-4 h-4 text-stone-600 hover:text-stone-900 font-bold flex items-center justify-center leading-none cursor-pointer"
                         >
                           +
                         </button>
@@ -317,7 +375,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                       <button
                         onClick={() => handleRemoveItem(item.id)}
                         className="p-1 rounded text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                        title="Remove"
+                        title={isBn ? 'মুছে ফেলুন' : 'Remove'}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -330,60 +388,14 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         )}
       </div>
 
-      {/* 3. CHECKOUT & TOTAL BILL SECTION */}
-      <div className="bg-white rounded-2xl p-4 sm:p-5 shadow-xs border border-stone-200 space-y-3.5">
-        {/* Optional Customer info */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <input
-            type="text"
-            value={customerName}
-            onChange={(e) => setCustomerName(e.target.value)}
-            placeholder="Customer Name (Optional)"
-            className="border border-stone-200 bg-stone-50/70 px-3 py-1.5 rounded-xl text-xs focus:outline-none focus:border-blue-500"
-          />
-          <input
-            type="text"
-            value={customerPhone}
-            onChange={(e) => setCustomerPhone(e.target.value)}
-            placeholder="Phone (e.g. 98XXXXXXXX)"
-            className="border border-stone-200 bg-stone-50/70 px-3 py-1.5 rounded-xl text-xs font-mono focus:outline-none focus:border-blue-500"
-          />
-        </div>
-
-        {/* Payment Methods */}
-        <div>
-          <label className="block text-[11px] font-bold uppercase text-stone-500 mb-1">
-            Payment Method
-          </label>
-          <div className="grid grid-cols-4 gap-1.5">
-            {[
-              { id: 'cash', label: 'Cash' },
-              { id: 'upi', label: 'UPI / GPay' },
-              { id: 'card', label: 'Card' },
-              { id: 'due', label: 'Due / Credit' },
-            ].map((method) => (
-              <button
-                key={method.id}
-                type="button"
-                onClick={() => setPaymentMethod(method.id as PaymentMethod)}
-                className={`py-1.5 px-2 rounded-xl text-xs font-bold text-center border transition-all cursor-pointer ${
-                  paymentMethod === method.id
-                    ? 'bg-stone-900 text-white border-stone-900 shadow-2xs'
-                    : 'bg-stone-50 text-stone-700 border-stone-200 hover:bg-stone-100'
-                }`}
-              >
-                {method.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Discount Section */}
-        <div className="pt-2 border-t border-stone-100 space-y-2">
+      {/* 4. PAYMENT & CHECKOUT SUMMARY (SECTION 4 - BOTTOM) */}
+      <div id="billing-checkout-summary-section" className="bg-white rounded-2xl p-4 sm:p-5 shadow-xs border border-stone-200 space-y-4">
+        {/* 1. TOP: Discount Section */}
+        <div className="space-y-2">
           <div className="flex items-center justify-between">
             <label className="text-xs font-bold text-stone-700 flex items-center gap-1.5">
               <Tag className="w-3.5 h-3.5 text-blue-600" />
-              <span>Discount</span>
+              <span>{t.discountSection}</span>
             </label>
 
             {/* Mode Switcher: Fixed ₹ vs Percent % */}
@@ -397,7 +409,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                     : 'text-stone-500 hover:text-stone-800'
                 }`}
               >
-                Fixed ({sym})
+                {t.discountFixedLabel} ({sym})
               </button>
               <button
                 type="button"
@@ -409,7 +421,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 }`}
               >
                 <Percent className="w-3 h-3" />
-                <span>Percent (%)</span>
+                <span>{t.discountPercentLabel}</span>
               </button>
             </div>
           </div>
@@ -437,14 +449,14 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 onClick={() => setDiscountValue('')}
                 className="px-3 py-2 border border-stone-200 bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-xl text-xs font-semibold cursor-pointer"
               >
-                Clear
+                {t.clearBill}
               </button>
             )}
           </div>
 
           {/* Quick preset chips */}
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-[11px] text-stone-400 font-medium">Quick:</span>
+            <span className="text-[11px] text-stone-400 font-medium">{isBn ? 'দ্রুত:' : 'Quick:'}</span>
             {discountType === 'percent'
               ? [5, 10, 15, 20, 25].map((pct) => (
                   <button
@@ -481,26 +493,30 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             <div className="p-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center justify-between">
               <span>
                 {discountType === 'percent'
-                  ? `Applied ${rawDiscount}% discount`
-                  : `Flat discount applied`}
+                  ? isBn
+                    ? `${rawDiscount}% ছাড় প্রযোজ্য হয়েছে`
+                    : `Applied ${rawDiscount}% discount`
+                  : isBn
+                  ? 'নির্দিষ্ট ছাড় প্রযোজ্য হয়েছে'
+                  : 'Flat discount applied'}
               </span>
               <span className="font-bold">
-                Saves -{sym}{discountAmount.toFixed(2)}
+                {isBn ? 'সাশ্রয়' : 'Saves'} -{sym}{discountAmount.toFixed(2)}
               </span>
             </div>
           )}
         </div>
 
-        {/* Real-time Order Summary Breakdown */}
+        {/* 2. MIDDLE 1: Real-time Order Summary Breakdown */}
         <div className="bg-stone-50/90 border border-stone-200 p-3.5 rounded-2xl space-y-2">
           <div className="flex items-center justify-between text-xs text-stone-600">
-            <span>Subtotal:</span>
+            <span>{t.subtotalText}</span>
             <span className="font-mono font-bold text-stone-900">{sym}{subtotal.toFixed(2)}</span>
           </div>
 
           <div className="flex items-center justify-between text-xs text-stone-600">
             <span className="flex items-center gap-1.5">
-              <span>Discount:</span>
+              <span>{t.discountText}</span>
               {discountAmount > 0 && discountType === 'percent' && (
                 <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded">
                   {rawDiscount}% off
@@ -514,8 +530,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
 
           <div className="pt-2 border-t border-stone-200 flex items-center justify-between">
             <div>
-              <span className="text-xs font-bold text-stone-800 block">Grand Total:</span>
-              <span className="text-[11px] text-stone-500">Final Payable Amount</span>
+              <span className="text-xs font-bold text-stone-800 block">{t.grandTotalText}</span>
+              <span className="text-[11px] text-stone-500">{t.finalPayableSub}</span>
             </div>
             <div id="grandTotal" className="text-xl sm:text-2xl font-black text-green-700 font-mono">
               {sym}{grandTotal.toFixed(2)}
@@ -523,11 +539,11 @@ export const BillingTab: React.FC<BillingTabProps> = ({
           </div>
         </div>
 
-        {/* Tendered Amount & Change */}
+        {/* 3. MIDDLE 2: Tendered Amount & Change Due */}
         <div className="pt-1 space-y-2">
           <div className="flex items-center justify-between">
             <label className="text-xs font-bold text-stone-700">
-              Paid / Received ({sym})
+              {t.paidReceivedLabel} ({sym})
             </label>
             {grandTotal > 0 && (
               <button
@@ -535,7 +551,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 onClick={() => setPaidAmount(grandTotal.toFixed(2))}
                 className="text-[11px] text-blue-600 hover:text-blue-700 font-bold underline cursor-pointer"
               >
-                Exact ({sym}{grandTotal.toFixed(2)})
+                {t.exactBtn} ({sym}{grandTotal.toFixed(2)})
               </button>
             )}
           </div>
@@ -547,18 +563,51 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             value={paidAmount}
             onChange={(e) => setPaidAmount(e.target.value)}
             placeholder={grandTotal > 0 ? grandTotal.toFixed(2) : '0.00'}
-            className="w-full border border-stone-200 bg-stone-50/80 px-3 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-500"
+            className="w-full border border-stone-200 bg-stone-50/80 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
           />
 
           {paidNum > grandTotal && (
             <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-900 text-xs font-bold flex items-center justify-between">
-              <span>Change to Return:</span>
+              <span>{t.changeToReturn}</span>
               <span className="font-mono text-sm">{sym}{changeAmount.toFixed(2)}</span>
             </div>
           )}
         </div>
 
-        {/* Primary Action Button: Create Clear Invoice, Print & Save */}
+        {/* 4. BOTTOM: Payment Method Selection Buttons (Right before Print button) */}
+        <div className="pt-2 border-t border-stone-100">
+          <label className="block text-[11px] font-bold uppercase tracking-wider text-stone-500 mb-2">
+            {t.paymentModeLabel}
+          </label>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {[
+              { id: 'cash', label: t.modeCash, icon: Banknote },
+              { id: 'upi', label: t.modeUpi, icon: QrCode },
+              { id: 'card', label: t.modeCard, icon: CreditCard },
+              { id: 'due', label: t.modeDue, icon: Clock },
+            ].map((method) => {
+              const Icon = method.icon;
+              const isSelected = paymentMethod === method.id;
+              return (
+                <button
+                  key={method.id}
+                  type="button"
+                  onClick={() => setPaymentMethod(method.id as PaymentMethod)}
+                  className={`py-2.5 px-3 rounded-xl text-xs font-bold text-center border transition-all cursor-pointer flex items-center justify-center gap-2 shadow-2xs ${
+                    isSelected
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-xs ring-2 ring-blue-600/20 scale-[1.02]'
+                      : 'bg-stone-50 text-stone-700 border-stone-200 hover:bg-stone-100 hover:border-stone-300'
+                  }`}
+                >
+                  <Icon className={`w-4 h-4 shrink-0 ${isSelected ? 'text-white' : 'text-stone-500'}`} />
+                  <span className="truncate">{method.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 5. VERY BOTTOM: Primary Action Button (Create Invoice, Print & Save) */}
         <button
           id="billing-print-btn"
           onClick={handleCheckoutAndPrint}
@@ -572,18 +621,18 @@ export const BillingTab: React.FC<BillingTabProps> = ({
           {isPrinting ? (
             <>
               <RefreshCw className="w-5 h-5 animate-spin" />
-              <span>প্রিন্টার প্রস্তুত হচ্ছে...</span>
+              <span>{t.generatingInvoice}</span>
             </>
           ) : (
             <>
               <Printer className="w-5 h-5" />
-              <span>ক্লিয়ার বিল তৈরি, প্রিন্ট ও সেভ করুন (Tax Invoice)</span>
+              <span>{t.printTaxInvoiceBtn}</span>
             </>
           )}
         </button>
 
         <p className="text-center text-[11px] text-stone-500 pt-0.5">
-          ✓ সরাসরি এ৪ ট্যাক্স ইনভয়েস ও রসিদ তৈরি হবে • ১-ক্লিকে <strong>প্রিন্ট</strong> ও <strong>পিডিএফ সেভ</strong> করার সুবিধা
+          {t.printTaxInvoiceSub}
         </p>
       </div>
     </div>

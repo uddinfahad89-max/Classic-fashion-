@@ -17,11 +17,13 @@ import {
   CreditCard,
   FileText,
 } from 'lucide-react';
-import { CustomerDue, DueType, ThermalPrinterSettings, BillInvoice } from '../types';
+import { CustomerDue, DueType, ThermalPrinterSettings, BillInvoice, Language } from '../types';
+import { translations } from '../utils/i18n';
 
 interface CustomerDueTabProps {
   dues: CustomerDue[];
   settings: ThermalPrinterSettings;
+  language?: Language;
   onAddOrUpdateDue: (
     name: string,
     amount: number,
@@ -37,11 +39,15 @@ interface CustomerDueTabProps {
 export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
   dues,
   settings,
+  language = 'bn',
   onAddOrUpdateDue,
   onRecordPayment,
   onDeleteDue,
   onPrintDueSlip,
 }) => {
+  const t = translations[language];
+  const isBn = language === 'bn';
+
   // New Due / Payable Form
   const [entryType, setEntryType] = useState<DueType>('receivable'); // 'receivable' = আমি পাবো, 'payable' = আমি দেবো (কাস্টমার পাওনাদার)
   const [custName, setCustName] = useState('');
@@ -80,7 +86,11 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
     e.preventDefault();
     const amount = parseFloat(custDue);
     if (!custName.trim() || isNaN(amount) || amount <= 0) {
-      alert('সঠিক কাস্টমারের নাম এবং টাকার পরিমাণ লিখুন (Please enter valid Customer Name and Amount)');
+      alert(
+        isBn
+          ? 'সঠিক কাস্টমারের নাম এবং টাকার পরিমাণ লিখুন'
+          : 'Please enter a valid customer name and amount'
+      );
       return;
     }
 
@@ -103,8 +113,12 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
     if (activeModal.action === 'add') {
       const defaultNote =
         customerType === 'payable'
-          ? 'পাওনাদার হিসেবে অতিরিক্ত জমা'
-          : 'অতিরিক্ত বাকি যোগ';
+          ? isBn
+            ? 'পাওনাদার হিসেবে অতিরিক্ত জমা'
+            : 'Additional advance credit deposited'
+          : isBn
+          ? 'অতিরিক্ত বাকি যোগ'
+          : 'Additional due balance added';
       onAddOrUpdateDue(
         activeModal.customer.name,
         amount,
@@ -115,8 +129,12 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
     } else {
       const defaultNote =
         customerType === 'payable'
-          ? 'পাওনাদারকে পরিশোধ / পণ্য সমন্বয়'
-          : 'বাকি আদায় / পেমেন্ট জমা';
+          ? isBn
+            ? 'পাওনাদারকে পরিশোধ / পণ্য সমন্বয়'
+            : 'Settle creditor payment / return adjustment'
+          : isBn
+          ? 'বাকি আদায় / পেমেন্ট জমা'
+          : 'Due collection / payment received';
       onRecordPayment(activeModal.customer.id, amount, modalNote.trim() || defaultNote);
     }
 
@@ -135,16 +153,15 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
       minute: '2-digit',
     })}`;
 
-    const titleText = isPayable
-      ? 'Customer Credit (কাস্টমার পাওনাদার / অগ্রিম জমা)'
-      : 'Customer Due (আমি পাবো / বাকি হিসাব)';
+    const titleText = isPayable ? t.customerPayableSlipTitle : t.customerDueSlipTitle;
 
     const bill: BillInvoice = {
       id: 'due-slip-' + customer.id,
       invoiceNo,
       date: dateFormatted,
       timestamp: Date.now(),
-      customerName: customer.name + (isPayable ? ' [পাওনাদার]' : ' [বাকি]'),
+      customerName:
+        customer.name + (isPayable ? (isBn ? ' [পাওনাদার]' : ' [Creditor]') : (isBn ? ' [বাকি]' : ' [Due]')),
       customerPhone: customer.phone,
       items: [
         {
@@ -195,17 +212,17 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
           <div className="flex items-center justify-between mb-1">
             <span className="text-[11px] font-bold text-red-700 flex items-center gap-1">
               <ArrowDownLeft className="w-3.5 h-3.5 text-red-600" />
-              <span>আমি পাবো (Receivable)</span>
+              <span>{t.receivableTitle}</span>
             </span>
             <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-red-200 text-red-800">
-              {countReceivable} জন
+              {countReceivable} {t.personCount}
             </span>
           </div>
           <span className="text-xl sm:text-2xl font-black text-red-600 font-mono block">
             {sym}
             {totalReceivable.toFixed(2)}
           </span>
-          <p className="text-[10px] text-red-600/80 mt-0.5">কাস্টমারের কাছে দোকানে বাকি</p>
+          <p className="text-[10px] text-red-600/80 mt-0.5">{t.receivableSub}</p>
         </div>
 
         {/* Card 2: Total Payable (আমি দেবো / কাস্টমার পাওনাদার) */}
@@ -220,17 +237,17 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
           <div className="flex items-center justify-between mb-1">
             <span className="text-[11px] font-bold text-blue-700 flex items-center gap-1">
               <ArrowUpRight className="w-3.5 h-3.5 text-blue-600" />
-              <span>আমি দেবো (Payable)</span>
+              <span>{t.payableTitle}</span>
             </span>
             <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-blue-200 text-blue-800">
-              {countPayable} জন
+              {countPayable} {t.personCount}
             </span>
           </div>
           <span className="text-xl sm:text-2xl font-black text-blue-600 font-mono block">
             {sym}
             {totalPayable.toFixed(2)}
           </span>
-          <p className="text-[10px] text-blue-600/80 mt-0.5">কাস্টমার পাওনাদার / অগ্রিম জমা</p>
+          <p className="text-[10px] text-blue-600/80 mt-0.5">{t.payableSub}</p>
         </div>
 
         {/* Card 3: Net Balance Position */}
@@ -238,7 +255,7 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
           <div className="flex items-center justify-between mb-1">
             <span className="text-[11px] font-bold text-stone-600 flex items-center gap-1">
               <Scale className="w-3.5 h-3.5 text-stone-500" />
-              <span>নিট খাতা অবস্থান (Net)</span>
+              <span>{t.netDueTitle}</span>
             </span>
             <span
               className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full ${
@@ -247,7 +264,7 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
                   : 'bg-amber-100 text-amber-800'
               }`}
             >
-              {netBalance >= 0 ? 'পাওনা বেশি' : 'দেনা বেশি'}
+              {netBalance >= 0 ? t.receivableHigher : t.payableHigher}
             </span>
           </div>
           <span
@@ -259,7 +276,7 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
             {sym}
             {netBalance.toFixed(2)}
           </span>
-          <p className="text-[10px] text-stone-500 mt-0.5">পাবো - দেবো (Net Difference)</p>
+          <p className="text-[10px] text-stone-500 mt-0.5">{t.netDiffSub}</p>
         </div>
       </div>
 
@@ -280,11 +297,9 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
             </div>
             <div>
               <h2 className="text-sm font-bold text-stone-900">
-                {entryType === 'receivable'
-                  ? 'আমি পাবো (Customer Owes Me - বাকি)'
-                  : 'আমি দেবো / সে পাবে (Customer is Creditor - পাওনাদার)'}
+                {entryType === 'receivable' ? t.customerOwesMeTitle : t.iOweCustomerTitle}
               </h2>
-              <p className="text-[11px] text-stone-400">খাতায় কাস্টমারের হিসাব এন্ট্রি করুন</p>
+              <p className="text-[11px] text-stone-400">{t.entryFormSubtitle}</p>
             </div>
           </div>
 
@@ -299,7 +314,7 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
                   : 'text-stone-600 hover:text-stone-900'
               }`}
             >
-              <span>🔴 আমি পাবো</span>
+              <span>{t.btnReceivable}</span>
             </button>
             <button
               type="button"
@@ -310,7 +325,7 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
                   : 'text-stone-600 hover:text-stone-900'
               }`}
             >
-              <span>🔵 আমি দেবো (পাওনাদার)</span>
+              <span>{t.btnPayable}</span>
             </button>
           </div>
         </div>
@@ -319,7 +334,7 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             <div>
               <label className="block text-[11px] font-bold text-stone-700 mb-1">
-                কাস্টমারের নাম (Customer Name) *
+                {t.custNameLabel}
               </label>
               <input
                 type="text"
@@ -327,19 +342,19 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
                 required
                 value={custName}
                 onChange={(e) => setCustName(e.target.value)}
-                placeholder="e.g. Rahim Ali / Ananya Roy"
+                placeholder={t.custNamePlaceholder}
                 className="w-full border border-stone-200 bg-stone-50/80 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold focus:outline-none focus:border-stone-800"
               />
             </div>
             <div>
               <label className="block text-[11px] font-bold text-stone-700 mb-1">
-                মোবাইল নম্বর (Phone Number)
+                {t.custPhoneLabel}
               </label>
               <input
                 type="text"
                 value={custPhone}
                 onChange={(e) => setCustPhone(e.target.value)}
-                placeholder="e.g. 017XXXXXXXX or 98XXXXXXXX"
+                placeholder={t.custPhonePlaceholder}
                 className="w-full border border-stone-200 bg-stone-50/80 px-3 py-2 rounded-xl text-xs sm:text-sm font-mono focus:outline-none focus:border-stone-800"
               />
             </div>
@@ -347,7 +362,7 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
 
           <div>
             <label className="block text-[11px] font-bold text-stone-700 mb-1">
-              টাকার পরিমাণ (Amount) *
+              {t.amountLabel}
             </label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs font-mono font-bold">
@@ -362,7 +377,7 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
                 value={custDue}
                 onChange={(e) => setCustDue(e.target.value)}
                 placeholder={
-                  entryType === 'receivable' ? 'বাকি টাকার পরিমাণ' : 'কাস্টমার যত টাকা পাবে / অগ্রিম জমা'
+                  entryType === 'receivable' ? t.amountReceivablePlaceholder : t.amountPayablePlaceholder
                 }
                 className="w-full border border-stone-200 bg-stone-50/80 pl-8 pr-3 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-stone-800"
               />
@@ -371,7 +386,7 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
 
           <div>
             <label className="block text-[11px] font-bold text-stone-700 mb-1">
-              বিবরণ / কারণ (Note / Reason)
+              {t.noteReasonLabel}
             </label>
             <input
               type="text"
@@ -379,8 +394,8 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
               onChange={(e) => setCustNote(e.target.value)}
               placeholder={
                 entryType === 'receivable'
-                  ? 'যেমন: সুতি শাড়ি ও কামিজ বাকি নেওয়া হলো'
-                  : 'যেমন: নতুন পোশাক অর্ডারের অগ্রিম জমা / পণ্য ফেরতের পাওনা'
+                  ? t.noteReceivablePlaceholder
+                  : t.notePayablePlaceholder
               }
               className="w-full border border-stone-200 bg-stone-50/80 px-3 py-2 rounded-xl text-xs sm:text-sm focus:outline-none focus:border-stone-800"
             />
@@ -388,10 +403,14 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
 
           {/* Quick Note Suggestions */}
           <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-            <span className="text-[10px] text-stone-400">দ্রুত নোট:</span>
+            <span className="text-[10px] text-stone-400">{t.quickNoteLabel}</span>
             {(entryType === 'receivable'
-              ? ['বাকি কেনাকাটা', 'বাকি কাপড়/পোশাক', 'আংশিক বাকি', 'পুরানো বকেয়া']
-              : ['অগ্রিম জমা (Advance)', 'অর্ডারের অগ্রিম', 'পণ্য ফেরতের টাকা', 'কাপড় তৈরির বায়না']
+              ? isBn
+                ? ['বাকি কেনাকাটা', 'বাকি কাপড়/পোশাক', 'আংশিক বাকি', 'পুরানো বকেয়া']
+                : ['Due Purchase', 'Cloth / Goods Due', 'Partial Balance', 'Previous Due']
+              : isBn
+              ? ['অগ্রিম জমা (Advance)', 'অর্ডারের অগ্রিম', 'পণ্য ফেরতের টাকা', 'কাপড় তৈরির বায়না']
+              : ['Advance Deposit', 'Order Advance', 'Return Refund', 'Booking Advance']
             ).map((tag) => (
               <button
                 key={tag}
@@ -413,9 +432,7 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
             }`}
           >
             <span>
-              {entryType === 'receivable'
-                ? 'বাকি হিসাব সংরক্ষণ করুন (Save Due)'
-                : 'পাওনাদার হিসাব সংরক্ষণ করুন (Save Payable)'}
+              {entryType === 'receivable' ? t.saveDueBtn : t.savePayableBtn}
             </span>
           </button>
         </form>
@@ -434,7 +451,7 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
                   : 'bg-white border border-stone-200 text-stone-600 hover:bg-stone-100'
               }`}
             >
-              সব ({dues.length})
+              {t.filterAll} ({dues.length})
             </button>
             <button
               onClick={() => setActiveFilter('receivable')}
@@ -444,7 +461,7 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
                   : 'bg-white border border-stone-200 text-red-700 hover:bg-red-50'
               }`}
             >
-              <span>আমি পাবো</span>
+              <span>{t.filterReceivable}</span>
               <span className="text-[10px] opacity-90">({countReceivable})</span>
             </button>
             <button
@@ -455,7 +472,7 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
                   : 'bg-white border border-stone-200 text-blue-700 hover:bg-blue-50'
               }`}
             >
-              <span>আমি দেবো (পাওনাদার)</span>
+              <span>{t.filterPayable}</span>
               <span className="text-[10px] opacity-90">({countPayable})</span>
             </button>
           </div>
@@ -467,7 +484,7 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="কাস্টমার খুঁজুন..."
+              placeholder={t.searchDuePlaceholder}
               className="w-full pl-8 pr-3 py-1.5 bg-white border border-stone-200 rounded-xl text-xs focus:outline-none focus:border-stone-800"
             />
           </div>
@@ -476,10 +493,16 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
         {filteredDues.length === 0 ? (
           <div className="p-8 text-center text-stone-400 text-xs">
             {searchTerm
-              ? 'খোঁজা অনুযায়ী কোনো কাস্টমার পাওয়া যায়নি।'
+              ? isBn
+                ? 'খোঁজা অনুযায়ী কোনো কাস্টমার পাওয়া যায়নি।'
+                : 'No matching customer found.'
               : activeFilter === 'payable'
-              ? 'কোনো কাস্টমার পাওনাদার হিসেবে এন্ট্রি করা নেই।'
-              : 'কোনো কাস্টমার হিসাব নেই। উপরে নতুন হিসাব যোগ করুন।'}
+              ? isBn
+                ? 'কোনো কাস্টমার পাওনাদার হিসেবে এন্ট্রি করা নেই।'
+                : 'No creditor or advance customer records found.'
+              : isBn
+              ? 'কোনো কাস্টমার হিসাব নেই। উপরে নতুন হিসাব যোগ করুন।'
+              : 'No customer ledger records. Add a new record above.'}
           </div>
         ) : (
           <ul id="dueList" className="divide-y divide-stone-100">
@@ -507,12 +530,12 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
                           {isPayable ? (
                             <>
                               <ArrowUpRight className="w-3 h-3" />
-                              <span>কাস্টমার পাওনাদার (সে পাবে)</span>
+                              <span>{isBn ? 'কাস্টমার পাওনাদার (সে পাবে)' : 'Creditor (Advance Balance)'}</span>
                             </>
                           ) : (
                             <>
                               <ArrowDownLeft className="w-3 h-3" />
-                              <span>আমি পাবো (বাকি)</span>
+                              <span>{isBn ? 'আমি পাবো (বাকি)' : 'Receivable (Customer Due)'}</span>
                             </>
                           )}
                         </span>
@@ -525,7 +548,8 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
                         )}
                       </div>
                       <span className="text-[10px] text-stone-400 mt-0.5 block">
-                        সর্বশেষ আপডেট: {new Date(customer.lastUpdated).toLocaleDateString()}
+                        {isBn ? 'সর্বশেষ আপডেট:' : 'Last updated:'}{' '}
+                        {new Date(customer.lastUpdated).toLocaleDateString()}
                       </span>
                     </div>
 
@@ -540,7 +564,7 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
                           {customer.dueAmount.toFixed(2)}
                         </span>
                         <span className="text-[10px] text-stone-400 block -mt-0.5">
-                          {isPayable ? 'দোকান দেবে' : 'বকেয়া পাওনা'}
+                          {isPayable ? (isBn ? 'দোকান দেবে' : 'To Pay') : (isBn ? 'বকেয়া পাওনা' : 'Due Amount')}
                         </span>
                       </div>
 
@@ -557,10 +581,20 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
                               ? 'bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200'
                               : 'bg-red-50 hover:bg-red-100 text-red-700 border-red-200'
                           }`}
-                          title={isPayable ? 'অতিরিক্ত পাওনা/জমা যোগ' : 'বাকি যোগ করুন'}
+                          title={
+                            isPayable
+                              ? isBn
+                                ? 'অতিরিক্ত পাওনা/জমা যোগ'
+                                : 'Add Advance / Credit'
+                              : isBn
+                              ? 'বাকি যোগ করুন'
+                              : 'Add Due'
+                          }
                         >
                           <Plus className="w-3 h-3" />
-                          <span>{isPayable ? 'জমা' : 'বাকি'}</span>
+                          <span>
+                            {isPayable ? (isBn ? 'জমা' : 'Advance') : (isBn ? 'বাকি' : 'Due')}
+                          </span>
                         </button>
 
                         {/* Quick Button 2: Pay/Settle (- Receive or - Settle) */}
@@ -575,17 +609,27 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
                               ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200'
                               : 'bg-green-50 hover:bg-green-100 text-green-700 border-green-200'
                           }`}
-                          title={isPayable ? 'পাওনাদারকে পরিশোধ করুন' : 'বাকি আদায় জমা করুন'}
+                          title={
+                            isPayable
+                              ? isBn
+                                ? 'পাওনাদারকে পরিশোধ করুন'
+                                : 'Settle / Pay Creditor'
+                              : isBn
+                              ? 'বাকি আদায় জমা করুন'
+                              : 'Collect Due Payment'
+                          }
                         >
                           <Minus className="w-3 h-3" />
-                          <span>{isPayable ? 'পরিশোধ' : 'আদায়'}</span>
+                          <span>
+                            {isPayable ? (isBn ? 'পরিশোধ' : 'Settle') : (isBn ? 'আদায়' : 'Receive')}
+                          </span>
                         </button>
 
                         {/* Print Receipt Slip */}
                         <button
                           onClick={() => handlePrintSlip(customer)}
                           className="p-1.5 text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded-lg transition-colors cursor-pointer"
-                          title="থার্মাল স্লিপ প্রিন্ট করুন (Print Thermal Slip)"
+                          title={isBn ? 'স্লিপ প্রিন্ট করুন' : 'Print Slip'}
                         >
                           <Printer className="w-4 h-4" />
                         </button>
@@ -594,7 +638,7 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
                         <button
                           onClick={() => setExpandedId(isExpanded ? null : customer.id)}
                           className="p-1.5 text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded-lg transition-colors cursor-pointer"
-                          title="লেনদেনের হিস্ট্রি দেখুন"
+                          title={isBn ? 'লেনদেনের হিস্ট্রি দেখুন' : 'View Transaction History'}
                         >
                           <Clock className="w-4 h-4" />
                         </button>
@@ -602,12 +646,15 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
                         {/* Delete record */}
                         <button
                           onClick={() => {
-                            if (confirm(`${customer.name}-এর সম্পূর্ণ হিসাব খাতা মুছে ফেলতে চান?`)) {
+                            const confirmMsg = isBn
+                              ? `${customer.name}-এর সম্পূর্ণ হিসাব খাতা মুছে ফেলতে চান?`
+                              : `Are you sure you want to delete ${customer.name}'s account record?`;
+                            if (confirm(confirmMsg)) {
                               onDeleteDue(customer.id);
                             }
                           }}
                           className="p-1.5 text-stone-300 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
-                          title="হিসাব মুছে ফেলুন"
+                          title={isBn ? 'হিসাব মুছে ফেলুন' : 'Delete Account'}
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -621,15 +668,21 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
                       <div className="text-[11px] font-bold text-stone-700 flex items-center justify-between">
                         <span className="flex items-center gap-1">
                           <Clock className="w-3.5 h-3.5 text-stone-500" />
-                          <span>{customer.name}-এর বিস্তারিত লেনদেন হিস্ট্রি:</span>
+                          <span>
+                            {isBn
+                              ? `${customer.name}-এর বিস্তারিত লেনদেন হিস্ট্রি:`
+                              : `${customer.name}'s Transaction History:`}
+                          </span>
                         </span>
                         <span className="text-[10px] text-stone-400">
-                          {customer.transactions?.length || 0} টি এন্ট্রি
+                          {customer.transactions?.length || 0} {isBn ? 'টি এন্ট্রি' : 'entries'}
                         </span>
                       </div>
 
                       {!customer.transactions || customer.transactions.length === 0 ? (
-                        <p className="text-[11px] text-stone-400">কোনো লেনদেন রেকর্ড নেই।</p>
+                        <p className="text-[11px] text-stone-400">
+                          {isBn ? 'কোনো লেনদেন রেকর্ড নেই।' : 'No transaction records found.'}
+                        </p>
                       ) : (
                         <div className="space-y-1.5 max-h-48 overflow-y-auto">
                           {customer.transactions.map((tx) => {
@@ -653,11 +706,19 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
                                   >
                                     {isAdded
                                       ? isTxPayable
-                                        ? '+ জমা (পাওনাদার)'
-                                        : '+ বাকি যোগ'
+                                        ? isBn
+                                          ? '+ জমা (পাওনাদার)'
+                                          : '+ Advance'
+                                        : isBn
+                                        ? '+ বাকি যোগ'
+                                        : '+ Due Added'
                                       : isTxPayable
-                                      ? '- পরিশোধ'
-                                      : '- আদায়'}
+                                      ? isBn
+                                        ? '- পরিশোধ'
+                                        : '- Settle'
+                                      : isBn
+                                      ? '- আদায়'
+                                      : '- Received'}
                                   </span>
                                   <span className="text-stone-700 truncate max-w-[200px] sm:max-w-xs">
                                     {tx.note}
@@ -694,11 +755,19 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
               <h3 className="font-bold text-xs sm:text-sm text-stone-900">
                 {activeModal.customer.type === 'payable'
                   ? activeModal.action === 'add'
-                    ? '+ পাওনা/অগ্রিম জমা যোগ'
-                    : '- পাওনাদারকে পরিশোধ'
+                    ? isBn
+                      ? '+ পাওনা/অগ্রিম জমা যোগ'
+                      : '+ Add Advance / Credit'
+                    : isBn
+                    ? '- পাওনাদারকে পরিশোধ'
+                    : '- Settle / Pay Creditor'
                   : activeModal.action === 'add'
-                  ? '+ বাকি টাকার পরিমাণ যোগ'
-                  : '- বকেয়া বাকি আদায়'}
+                  ? isBn
+                    ? '+ বাকি টাকার পরিমাণ যোগ'
+                    : '+ Add Due Amount'
+                  : isBn
+                  ? '- বকেয়া বাকি আদায়'
+                  : '- Collect Due Payment'}
               </h3>
               <button
                 onClick={() => setActiveModal(null)}
@@ -710,7 +779,7 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
 
             <form onSubmit={handleModalSubmit} className="p-4 space-y-3">
               <div>
-                <span className="text-xs text-stone-500">কাস্টমার:</span>
+                <span className="text-xs text-stone-500">{isBn ? 'কাস্টমার:' : 'Customer:'}</span>
                 <div className="font-bold text-sm text-stone-900 flex items-center gap-1.5">
                   <span>{activeModal.customer.name}</span>
                   <span
@@ -720,7 +789,13 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
                         : 'bg-red-100 text-red-800'
                     }`}
                   >
-                    {activeModal.customer.type === 'payable' ? 'পাওনাদার' : 'বাকি'}
+                    {activeModal.customer.type === 'payable'
+                      ? isBn
+                        ? 'পাওনাদার'
+                        : 'Creditor'
+                      : isBn
+                      ? 'বাকি'
+                      : 'Due'}
                   </span>
                 </div>
                 <div
@@ -728,14 +803,14 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
                     activeModal.customer.type === 'payable' ? 'text-blue-600' : 'text-red-600'
                   }`}
                 >
-                  বর্তমান ব্যালেন্স: {sym}
+                  {isBn ? 'বর্তমান ব্যালেন্স:' : 'Current Balance:'} {sym}
                   {activeModal.customer.dueAmount.toFixed(2)}
                 </div>
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-stone-700 mb-1">
-                  টাকার পরিমাণ ({sym}) *
+                  {isBn ? `টাকার পরিমাণ (${sym}) *` : `Amount (${sym}) *`}
                 </label>
                 <input
                   type="number"
@@ -752,7 +827,7 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
 
               <div>
                 <label className="block text-xs font-semibold text-stone-700 mb-1">
-                  বিবরণ / নোট
+                  {isBn ? 'বিবরণ / নোট' : 'Note / Reason'}
                 </label>
                 <input
                   type="text"
@@ -761,11 +836,19 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
                   placeholder={
                     activeModal.customer.type === 'payable'
                       ? activeModal.action === 'add'
-                        ? 'যেমন: নতুন অর্ডারের অগ্রিম টাকা জমা'
-                        : 'যেমন: নগদ বা ইউপিআই মারফত পাওনা শোধ'
+                        ? isBn
+                          ? 'যেমন: নতুন অর্ডারের অগ্রিম টাকা জমা'
+                          : 'e.g. Advance deposit for new order'
+                        : isBn
+                        ? 'যেমন: নগদ বা ইউপিআই মারফত পাওনা শোধ'
+                        : 'e.g. Settle advance via Cash or UPI'
                       : activeModal.action === 'add'
-                      ? 'যেমন: নতুন পোশাক বাকি নেওয়া হলো'
-                      : 'যেমন: বাকি টাকা নগদে শোধ করলো'
+                      ? isBn
+                        ? 'যেমন: নতুন পোশাক বাকি নেওয়া হলো'
+                        : 'e.g. Purchased clothes on credit'
+                      : isBn
+                      ? 'যেমন: বাকি টাকা নগদে শোধ করলো'
+                      : 'e.g. Due amount paid in cash'
                   }
                   className="w-full border border-stone-200 bg-stone-50/80 p-2 rounded-xl text-xs focus:outline-none focus:border-stone-900"
                 />
@@ -777,7 +860,7 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
                   onClick={() => setActiveModal(null)}
                   className="px-3 py-1.5 rounded-xl text-xs text-stone-600 hover:bg-stone-100 cursor-pointer"
                 >
-                  বাতিল (Cancel)
+                  {isBn ? 'বাতিল' : 'Cancel'}
                 </button>
                 <button
                   type="submit"
@@ -789,7 +872,13 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
                       : 'bg-emerald-600 hover:bg-emerald-700'
                   }`}
                 >
-                  {activeModal.action === 'add' ? 'নিশ্চিত যোগ করুন' : 'নিশ্চিত নিষ্পত্তি করুন'}
+                  {activeModal.action === 'add'
+                    ? isBn
+                      ? 'নিশ্চিত যোগ করুন'
+                      : 'Confirm Add'
+                    : isBn
+                    ? 'নিশ্চিত নিষ্পত্তি করুন'
+                    : 'Confirm Settle'}
                 </button>
               </div>
             </form>

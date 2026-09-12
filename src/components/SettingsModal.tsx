@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Settings, X, Save, Check, Bluetooth, Power, Trash2, FileText, CheckCircle2 } from 'lucide-react';
-import { ThermalPrinterSettings, BluetoothDeviceInfo } from '../types';
+import { ThermalPrinterSettings, BluetoothDeviceInfo, Language } from '../types';
+import { translations } from '../utils/i18n';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -11,6 +12,7 @@ interface SettingsModalProps {
   onConnectBluetooth?: () => void;
   onDisconnectBluetooth?: (forget?: boolean) => void;
   onTestPrint?: () => void;
+  language?: Language;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -22,7 +24,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onConnectBluetooth,
   onDisconnectBluetooth,
   onTestPrint,
+  language = 'bn',
 }) => {
+  const t = translations[language];
+  const isBn = language === 'bn';
   const [form, setForm] = useState<ThermalPrinterSettings>(settings);
   const [saved, setSaved] = useState(false);
 
@@ -48,7 +53,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         <div className="p-4 border-b border-stone-200 bg-stone-50 flex justify-between items-center">
           <div className="flex items-center gap-2">
             <Settings className="w-4 h-4 text-blue-600" />
-            <h3 className="font-bold text-sm text-stone-900">Store & Thermal POS Settings</h3>
+            <h3 className="font-bold text-sm text-stone-900">{t.settingsTitle}</h3>
           </div>
           <button
             onClick={onClose}
@@ -64,7 +69,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5 font-bold text-stone-900">
                 <Bluetooth className="w-4 h-4 text-blue-600" />
-                <span>Bluetooth Thermal Printer</span>
+                <span>{isBn ? 'ব্লুটুথ থার্মাল প্রিন্টার' : 'Bluetooth Thermal Printer'}</span>
               </div>
               <span
                 className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
@@ -76,24 +81,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 }`}
               >
                 {bluetoothStatus?.connected
-                  ? 'Connected'
+                  ? (isBn ? 'সংযুক্ত' : 'Connected')
                   : bluetoothStatus?.isConnecting
-                  ? 'Connecting...'
-                  : 'Disconnected'}
+                  ? (isBn ? 'সংযুক্ত হচ্ছে...' : 'Connecting...')
+                  : (isBn ? 'বিচ্ছিন্ন' : 'Disconnected')}
               </span>
             </div>
 
             <div className="text-[11px] text-stone-500">
               {bluetoothStatus?.savedPrinter ? (
                 <p>
-                  Remembered Device:{' '}
+                  {isBn ? 'সংরক্ষিত প্রিন্টার:' : 'Remembered Device:'}{' '}
                   <span className="font-semibold text-stone-800">
                     {bluetoothStatus.savedPrinter.name}
                   </span>{' '}
-                  (Auto-reconnects on print)
+                  ({isBn ? 'প্রিন্ট করার সময় স্বয়ংক্রিয়ভাবে রিকানেক্ট হবে' : 'Auto-reconnects on print'})
                 </p>
               ) : (
-                <p>No printer remembered yet. Pair once to enable persistent auto-reconnect.</p>
+                <p>{isBn ? 'এখনো কোনো প্রিন্টার পেয়ার করা হয়নি।' : 'No printer remembered yet. Pair once to enable auto-reconnect.'}</p>
               )}
             </div>
 
@@ -105,7 +110,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
                 >
                   <Bluetooth className="w-3.5 h-3.5" />
-                  <span>Connect / Pair Printer</span>
+                  <span>{isBn ? 'প্রিন্টার কানেক্ট করুন' : 'Connect / Pair Printer'}</span>
                 </button>
               ) : (
                 <>
@@ -115,7 +120,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     className="px-2.5 py-1.5 rounded-xl bg-white border border-stone-200 hover:bg-stone-100 text-stone-800 font-semibold text-[11px] flex items-center gap-1 cursor-pointer transition-colors"
                   >
                     <FileText className="w-3.5 h-3.5 text-blue-600" />
-                    <span>Test Slip</span>
+                    <span>{isBn ? 'টেস্ট প্রিন্ট' : 'Test Slip'}</span>
                   </button>
                   <button
                     type="button"
@@ -123,7 +128,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     className="px-2.5 py-1.5 rounded-xl bg-white border border-stone-200 hover:bg-stone-100 text-stone-700 font-semibold text-[11px] flex items-center gap-1 cursor-pointer transition-colors"
                   >
                     <Power className="w-3.5 h-3.5 text-stone-500" />
-                    <span>Disconnect</span>
+                    <span>{isBn ? 'সংযোগ বিচ্ছিন্ন' : 'Disconnect'}</span>
                   </button>
                   <button
                     type="button"
@@ -131,27 +136,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     className="px-2.5 py-1.5 rounded-xl bg-rose-50 border border-rose-200 hover:bg-rose-100 text-rose-700 font-semibold text-[11px] flex items-center gap-1 cursor-pointer transition-colors"
                   >
                     <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-                    <span>Forget</span>
+                    <span>{isBn ? 'মুছে ফেলুন' : 'Forget'}</span>
                   </button>
                 </>
               )}
             </div>
           </div>
           <div>
-            <label className="block text-stone-700 font-semibold mb-1">Store / Shop Name (দোকানের নাম)</label>
+            <label className="block text-stone-700 font-semibold mb-1">{t.storeNameLabel}</label>
             <input
               type="text"
               required
               value={form.storeName}
               onChange={(e) => setForm({ ...form, storeName: e.target.value })}
-              placeholder="e.g. My Fashion Store / দোকানের নাম"
+              placeholder={t.storeNamePlaceholder}
               className="w-full border border-stone-200 bg-stone-50/80 p-2 rounded-xl text-xs sm:text-sm font-semibold focus:outline-none focus:border-blue-500"
             />
           </div>
 
           <div className="grid grid-cols-2 gap-2.5">
             <div>
-              <label className="block text-stone-700 font-semibold mb-1">Phone Number (মোবাইল)</label>
+              <label className="block text-stone-700 font-semibold mb-1">{t.storePhoneLabel}</label>
               <input
                 type="text"
                 value={form.storePhone}
@@ -162,7 +167,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
 
             <div>
-              <label className="block text-stone-700 font-semibold mb-1">Currency Symbol (মুদ্রা)</label>
+              <label className="block text-stone-700 font-semibold mb-1">{t.currencySymbolLabel}</label>
               <input
                 type="text"
                 value={form.currencySymbol}
@@ -175,18 +180,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           <div className="grid grid-cols-2 gap-2.5">
             <div>
-              <label className="block text-stone-700 font-semibold mb-1">Signatory Name (স্বাক্ষর)</label>
+              <label className="block text-stone-700 font-semibold mb-1">{t.signatoryNameLabel}</label>
               <input
                 type="text"
                 value={form.signatoryName || ''}
                 onChange={(e) => setForm({ ...form, signatoryName: e.target.value })}
-                placeholder="(ঐচ্ছিক / Optional)"
+                placeholder={isBn ? '(ঐচ্ছিক)' : '(Optional)'}
                 className="w-full border border-stone-200 bg-stone-50/80 p-2 rounded-xl text-xs focus:outline-none focus:border-blue-500 font-medium"
               />
             </div>
 
             <div>
-              <label className="block text-stone-700 font-semibold mb-1">UPI ID (ঐচ্ছিক)</label>
+              <label className="block text-stone-700 font-semibold mb-1">{isBn ? 'UPI আইডি (ঐচ্ছিক)' : 'UPI ID (Optional)'}</label>
               <input
                 type="text"
                 value={form.upiId || ''}
@@ -198,18 +203,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
 
           <div>
-            <label className="block text-stone-700 font-semibold mb-1">Store Address (দোকানের ঠিকানা)</label>
+            <label className="block text-stone-700 font-semibold mb-1">{t.storeAddressLabel}</label>
             <input
               type="text"
               value={form.storeAddress}
               onChange={(e) => setForm({ ...form, storeAddress: e.target.value })}
-              placeholder="e.g. Main Road, Market Area, City"
+              placeholder={t.storeAddressPlaceholder}
               className="w-full border border-stone-200 bg-stone-50/80 p-2 rounded-xl text-xs focus:outline-none focus:border-blue-500"
             />
           </div>
 
           <div>
-            <label className="block text-stone-700 font-semibold mb-1">Thermal Paper Roll</label>
+            <label className="block text-stone-700 font-semibold mb-1">{t.paperWidthLabel}</label>
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
@@ -237,7 +242,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
 
           <div>
-            <label className="block text-stone-700 font-semibold mb-1">Receipt Footer Note</label>
+            <label className="block text-stone-700 font-semibold mb-1">{isBn ? 'রসিদের ফুটার বার্তা' : 'Receipt Footer Note'}</label>
             <input
               type="text"
               value={form.footerNote}
@@ -250,9 +255,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-3.5 py-2 rounded-xl text-stone-600 hover:bg-stone-100 font-medium"
+              className="px-3.5 py-2 rounded-xl text-stone-600 hover:bg-stone-100 font-medium cursor-pointer"
             >
-              Cancel
+              {isBn ? 'বাতিল' : 'Cancel'}
             </button>
 
             <button
@@ -260,7 +265,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl flex items-center gap-1.5 shadow-xs cursor-pointer"
             >
               {saved ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-              <span>{saved ? 'Saved!' : 'Save Settings'}</span>
+              <span>{saved ? (isBn ? 'সংরক্ষিত!' : 'Saved!') : t.saveSettingsBtn}</span>
             </button>
           </div>
         </form>

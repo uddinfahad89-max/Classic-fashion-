@@ -1,44 +1,33 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  ShoppingBag,
-  BookOpen,
-  Users,
+  Store,
+  MoreVertical,
   Bluetooth,
-  Printer,
-  Settings,
-  CheckCircle2,
   RefreshCw,
+  FileText,
   Power,
   Trash2,
-  FileText,
-  Receipt,
-  ChevronDown,
+  Globe,
+  Settings as SettingsIcon,
   User,
   Mail,
-  Globe,
-  Truck,
+  CheckCircle2,
+  ChevronRight,
 } from 'lucide-react';
 import {
-  BluetoothDeviceInfo,
   ThermalPrinterSettings,
-  ActiveTab,
+  BluetoothDeviceInfo,
   UserProfile,
   Language,
 } from '../types';
-import { translations } from '../utils/i18n';
 
 interface HeaderProps {
-  activeTab: ActiveTab;
-  setActiveTab: (tab: ActiveTab) => void;
-  cartCount: number;
-  invoicesCount?: number;
-  purchasesCount?: number;
+  settings: ThermalPrinterSettings;
   bluetoothStatus: BluetoothDeviceInfo;
   onConnectBluetooth: () => void;
   onDisconnectBluetooth: (forget?: boolean) => void;
   onTestPrint: () => void;
   onOpenSettings: () => void;
-  settings: ThermalPrinterSettings;
   userProfile: UserProfile;
   onOpenLogin: () => void;
   language: Language;
@@ -46,494 +35,310 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({
-  activeTab,
-  setActiveTab,
-  cartCount,
-  invoicesCount = 0,
-  purchasesCount = 0,
+  settings,
   bluetoothStatus,
   onConnectBluetooth,
   onDisconnectBluetooth,
   onTestPrint,
   onOpenSettings,
-  settings,
   userProfile,
   onOpenLogin,
   language,
   onToggleLanguage,
 }) => {
-  const t = translations[language];
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdown on outside click
+  // Close dropdown menu when tapping/clicking outside or pressing Escape
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setIsMenuOpen(false);
       }
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  const handleBadgeClick = () => {
-    if (!bluetoothStatus.connected && !bluetoothStatus.isConnecting) {
-      onConnectBluetooth();
-    } else {
-      setIsMenuOpen((prev) => !prev);
-    }
-  };
-
-  const getStatusContent = () => {
-    if (bluetoothStatus.isConnecting) {
-      return {
-        badgeClass: 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100',
-        dot: (
-          <span className="relative flex h-2.5 w-2.5">
-            <span className="animate-spin rounded-full h-2.5 w-2.5 border-2 border-amber-600 border-t-transparent"></span>
-          </span>
-        ),
-        textDesktop: '🟡 Connecting...',
-        textMobile: '🟡 Connecting',
-        title: 'Attempting background reconnection to printer',
-      };
-    }
-
-    if (bluetoothStatus.connected) {
-      const name = bluetoothStatus.deviceName || 'Thermal Printer';
-      return {
-        badgeClass:
-          'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100 shadow-2xs',
-        dot: (
-          <span className="relative flex h-2.5 w-2.5">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-          </span>
-        ),
-        textDesktop: `🟢 ${name.length > 16 ? name.slice(0, 14) + '…' : name} Ready`,
-        textMobile: '🟢 Printer Ready',
-        title: `Connected to ${name}. Click for printer options.`,
-      };
-    }
-
-    // Disconnected state
-    const hasSaved = !!bluetoothStatus.savedPrinter;
-    return {
-      badgeClass:
-        'bg-rose-50 text-rose-700 border-rose-300 hover:bg-rose-100 transition-colors shadow-2xs animate-pulse',
-      dot: <span className="h-2.5 w-2.5 rounded-full bg-rose-500 inline-block"></span>,
-      textDesktop: hasSaved
-        ? `🔴 Disconnected - Tap to Connect`
-        : '🔴 Disconnected - Tap to Connect',
-      textMobile: '🔴 Tap to Connect',
-      title: hasSaved
-        ? `Saved printer: ${bluetoothStatus.savedPrinter?.name}. Tap to auto-reconnect.`
-        : 'No printer connected. Tap to pair Bluetooth printer.',
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsMenuOpen(false);
+      }
     };
-  };
 
-  const status = getStatusContent();
+    if (isMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('keydown', handleKeyDown);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isMenuOpen]);
 
   return (
-    <header className="bg-white border-b border-stone-200 sticky top-0 z-30 shadow-xs">
-      <div className="max-w-4xl mx-auto px-3 sm:px-4 py-2.5 sm:py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 sm:gap-3">
-        {/* Brand & Store Name + Mobile Badge */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center font-black shadow-xs shrink-0">
-              <Printer className="w-5 h-5" />
-            </div>
-            <div>
-              <h1 className="text-sm sm:text-base font-bold text-stone-900 leading-tight">
-                {settings.storeName || 'Simple POS & Cashbook'}
-              </h1>
-              <p className="text-[11px] text-stone-500 font-medium">
-                Thermal POS • Daily Cashbook • Due Khata
-              </p>
+    <header
+      id="main-top-header"
+      className="bg-white/95 backdrop-blur-md border-b border-stone-200 sticky top-0 z-30 shadow-xs"
+    >
+      <div className="max-w-7xl mx-auto px-4 py-2.5 flex items-center justify-between gap-3">
+        {/* Clean, Minimal Shop Name Display */}
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold shadow-xs shrink-0">
+            <Store className="w-4.5 h-4.5" />
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-base sm:text-lg font-black text-stone-900 tracking-tight leading-tight truncate">
+              {settings.storeName || (language === 'bn' ? 'দোকানের নাম সেট করুন' : 'My Shop')}
+            </h1>
+            <div className="flex items-center gap-1.5 text-[11px] text-stone-500 font-medium truncate">
+              {settings.storePhone && (
+                <span className="font-mono font-semibold text-stone-700">📞 {settings.storePhone}</span>
+              )}
+              {settings.storePhone && settings.storeAddress && (
+                <span className="text-stone-300">•</span>
+              )}
+              {settings.storeAddress ? (
+                <span className="truncate">{settings.storeAddress}</span>
+              ) : (
+                !settings.storePhone && (
+                  <span className="text-stone-400">POS &amp; Billing System</span>
+                )
+              )}
             </div>
           </div>
+        </div>
 
-        {/* Mobile Right Controls: Dedicated Connect Printer Button or Status + Settings */}
-        <div className="flex items-center gap-1.5 sm:hidden relative" ref={menuRef}>
-          {!bluetoothStatus.connected ? (
-            <button
-              id="mobile-connect-printer-btn"
-              onClick={onConnectBluetooth}
-              disabled={bluetoothStatus.isConnecting}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all cursor-pointer ${
-                bluetoothStatus.isConnecting
-                  ? 'bg-amber-500 text-white opacity-90'
-                  : 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white'
+        {/* Top-Right Area: Live status pill + 3-Dot (⋮) Menu Button */}
+        <div className="flex items-center gap-2 relative" ref={menuRef}>
+          {/* Subtle live printer status dot indicator */}
+          <button
+            type="button"
+            onClick={() => setIsMenuOpen((prev) => !prev)}
+            className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all cursor-pointer ${
+              bluetoothStatus.connected
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                : bluetoothStatus.isConnecting
+                ? 'bg-amber-50 text-amber-700 border-amber-200'
+                : 'bg-stone-50 text-stone-500 border-stone-200'
+            }`}
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${
+                bluetoothStatus.connected
+                  ? 'bg-emerald-500 animate-pulse'
+                  : bluetoothStatus.isConnecting
+                  ? 'bg-amber-500 animate-spin'
+                  : 'bg-stone-400'
               }`}
-              title="Pair Bluetooth thermal printer"
+            />
+            <span className="text-[11px] max-w-[120px] truncate">
+              {bluetoothStatus.connected
+                ? bluetoothStatus.deviceName || 'Printer'
+                : bluetoothStatus.isConnecting
+                ? 'Connecting...'
+                : 'Printer Offline'}
+            </span>
+          </button>
+
+          {/* Vyapar-style 3-dot (⋮) menu button */}
+          <button
+            id="header-three-dot-menu-btn"
+            type="button"
+            onClick={() => setIsMenuOpen((prev) => !prev)}
+            aria-expanded={isMenuOpen}
+            aria-label="Open More Options Menu"
+            className={`p-2 rounded-xl text-stone-700 hover:text-stone-950 hover:bg-stone-100 border border-transparent transition-all cursor-pointer ${
+              isMenuOpen ? 'bg-stone-100 text-blue-600 border-stone-200' : ''
+            }`}
+          >
+            <MoreVertical className="w-5 h-5" />
+          </button>
+
+          {/* Dropdown Menu (Vyapar App Style) */}
+          {isMenuOpen && (
+            <div
+              id="top-three-dot-dropdown"
+              className="absolute right-0 top-12 w-72 bg-white rounded-2xl shadow-xl border border-stone-200 py-2 z-50 animate-in fade-in zoom-in-95 duration-150 divide-y divide-stone-100"
             >
-              {bluetoothStatus.isConnecting ? (
-                <>
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  <span>Connecting...</span>
-                </>
-              ) : (
-                <>
-                  <Bluetooth className="w-3.5 h-3.5" />
-                  <span>Connect Printer</span>
-                </>
-              )}
-            </button>
-          ) : (
-            <button
-              id="mobile-printer-status-btn"
-              onClick={() => setIsMenuOpen((prev) => !prev)}
-              className="px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-emerald-300 bg-emerald-50 text-emerald-800 shadow-2xs cursor-pointer"
-              title={`Connected to ${bluetoothStatus.deviceName}. Tap for options.`}
-            >
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-              </span>
-              <span className="max-w-[110px] truncate">{bluetoothStatus.deviceName || 'Ready'}</span>
-              <ChevronDown className="w-3 h-3 text-emerald-600" />
-            </button>
-          )}
-
-          <button
-            onClick={onToggleLanguage}
-            className="px-2 py-1.5 rounded-xl text-xs font-bold text-stone-700 bg-stone-100 hover:bg-stone-200 border border-stone-200 cursor-pointer flex items-center gap-1"
-            title={t.languageToggleTitle}
-          >
-            <Globe className="w-3.5 h-3.5 text-blue-600" />
-            <span>{language === 'bn' ? 'EN' : 'বাং'}</span>
-          </button>
-
-          <button
-            onClick={onOpenLogin}
-            className="p-1.5 rounded-xl text-stone-700 bg-stone-100 hover:bg-stone-200 border border-stone-200 cursor-pointer flex items-center justify-center"
-            title={userProfile.isLoggedIn ? `ইউজার অ্যাকাউন্ট: ${userProfile.email}` : 'ইমেল দিয়ে লগইন করুন'}
-          >
-            {userProfile.isLoggedIn ? (
-              <div className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] font-bold">
-                {userProfile.name ? userProfile.name.charAt(0).toUpperCase() : 'U'}
-              </div>
-            ) : (
-              <Mail className="w-4 h-4 text-stone-600" />
-            )}
-          </button>
-
-          <button
-            onClick={onOpenSettings}
-            className="p-1.5 rounded-xl text-stone-700 bg-stone-100 hover:bg-stone-200 border border-stone-200 cursor-pointer"
-            title="Store Settings"
-          >
-            <Settings className="w-4 h-4" />
-          </button>
-
-          {/* Mobile Dropdown Menu when connected */}
-          {isMenuOpen && bluetoothStatus.connected && (
-            <div className="absolute top-12 right-0 w-64 bg-white rounded-2xl shadow-xl border border-stone-200 p-3 z-50 animate-in fade-in zoom-in-95 duration-150">
-              <div className="flex items-center justify-between pb-2 mb-2 border-b border-stone-100">
-                <div>
-                  <p className="text-[10px] text-stone-400 font-bold uppercase tracking-wider">
-                    Bluetooth Thermal POS
-                  </p>
-                  <p className="text-xs font-bold text-stone-900 truncate">
-                    {bluetoothStatus.deviceName || 'Thermal Printer'}
-                  </p>
-                </div>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                  Ready
-                </span>
-              </div>
-
-              <div className="space-y-1 text-xs">
-                <button
-                  onClick={() => {
-                    setIsMenuOpen(false);
-                    onTestPrint();
-                  }}
-                  className="w-full text-left px-2.5 py-2 rounded-xl text-stone-700 hover:bg-blue-50 hover:text-blue-700 flex items-center gap-2 font-semibold cursor-pointer"
-                >
-                  <FileText className="w-4 h-4 text-blue-600" />
-                  <span>Print Test Slip</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setIsMenuOpen(false);
-                    onConnectBluetooth();
-                  }}
-                  className="w-full text-left px-2.5 py-2 rounded-xl text-blue-600 hover:bg-blue-50 flex items-center gap-2 font-medium cursor-pointer"
-                >
-                  <Bluetooth className="w-4 h-4 text-blue-600" />
-                  <span>Pair Different Printer</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setIsMenuOpen(false);
-                    onDisconnectBluetooth(false);
-                  }}
-                  className="w-full text-left px-2.5 py-2 rounded-xl text-stone-700 hover:bg-stone-100 flex items-center gap-2 font-medium cursor-pointer"
-                >
-                  <Power className="w-4 h-4 text-stone-500" />
-                  <span>Disconnect</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setIsMenuOpen(false);
-                    onDisconnectBluetooth(true);
-                  }}
-                  className="w-full text-left px-2.5 py-2 rounded-xl text-rose-600 hover:bg-rose-50 flex items-center gap-2 font-medium cursor-pointer"
-                >
-                  <Trash2 className="w-4 h-4 text-rose-500" />
-                  <span>Forget Printer</span>
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-        </div>
-
-        {/* Navigation Tabs */}
-        <div className="flex bg-stone-100 p-1 rounded-xl border border-stone-200 text-xs sm:text-sm font-semibold overflow-x-auto">
-          <button
-            onClick={() => setActiveTab('billing')}
-            className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'billing'
-                ? 'bg-white text-blue-600 shadow-xs font-bold'
-                : 'text-stone-600 hover:text-stone-900'
-            }`}
-          >
-            <ShoppingBag className="w-4 h-4" />
-            <span>{t.tabBilling}</span>
-            {cartCount > 0 && (
-              <span className="bg-blue-600 text-white text-[10px] px-1.5 py-0.2 rounded-full font-mono">
-                {cartCount}
-              </span>
-            )}
-          </button>
-
-          <button
-            onClick={() => setActiveTab('invoices')}
-            className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'invoices'
-                ? 'bg-white text-blue-600 shadow-xs font-bold'
-                : 'text-stone-600 hover:text-stone-900'
-            }`}
-          >
-            <Receipt className="w-4 h-4" />
-            <span>{t.tabInvoices}</span>
-            {invoicesCount > 0 && (
-              <span className="bg-stone-200 text-stone-700 text-[10px] px-1.5 py-0.2 rounded-full font-mono">
-                {invoicesCount}
-              </span>
-            )}
-          </button>
-
-          <button
-            onClick={() => setActiveTab('cashbook')}
-            className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'cashbook'
-                ? 'bg-white text-blue-600 shadow-xs font-bold'
-                : 'text-stone-600 hover:text-stone-900'
-            }`}
-          >
-            <BookOpen className="w-4 h-4" />
-            <span>{t.tabCashbook}</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('due')}
-            className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'due'
-                ? 'bg-white text-blue-600 shadow-xs font-bold'
-                : 'text-stone-600 hover:text-stone-900'
-            }`}
-          >
-            <Users className="w-4 h-4" />
-            <span>{t.tabDue}</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('purchases')}
-            className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'purchases'
-                ? 'bg-white text-blue-600 shadow-xs font-bold'
-                : 'text-stone-600 hover:text-stone-900'
-            }`}
-          >
-            <Truck className="w-4 h-4" />
-            <span>{t.tabPurchases}</span>
-            {purchasesCount > 0 && (
-              <span className="bg-emerald-600 text-white text-[10px] px-1.5 py-0.2 rounded-full font-mono">
-                {purchasesCount}
-              </span>
-            )}
-          </button>
-        </div>
-
-        {/* Desktop Quick Actions: Dedicated Connect Printer Button or Status + Settings */}
-        <div className="hidden sm:flex items-center gap-2 relative" ref={menuRef}>
-          {!bluetoothStatus.connected ? (
-            <button
-              id="desktop-connect-printer-btn"
-              onClick={onConnectBluetooth}
-              disabled={bluetoothStatus.isConnecting}
-              className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 shadow-xs transition-all cursor-pointer ${
-                bluetoothStatus.isConnecting
-                  ? 'bg-amber-500 text-white opacity-90'
-                  : 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white'
-              }`}
-              title="Pair Bluetooth thermal printer via Chrome"
-            >
-              {bluetoothStatus.isConnecting ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  <span>Connecting...</span>
-                </>
-              ) : (
-                <>
-                  <Bluetooth className="w-4 h-4" />
-                  <span>Connect Printer</span>
-                </>
-              )}
-            </button>
-          ) : (
-            <div className="relative">
-              <button
-                id="desktop-printer-status-btn"
-                onClick={() => setIsMenuOpen((prev) => !prev)}
-                className="px-3 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 shadow-2xs transition-all cursor-pointer"
-                title={`Connected to ${bluetoothStatus.deviceName}. Click for printer options.`}
-              >
-                <span className="relative flex h-2.5 w-2.5">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-                </span>
-                <Bluetooth className="w-4 h-4 text-emerald-600" />
-                <span className="max-w-[150px] truncate">
-                  {bluetoothStatus.deviceName || 'Thermal Printer'}
-                </span>
-                <ChevronDown className="w-3.5 h-3.5 text-emerald-600" />
-              </button>
-
-              {/* Desktop Dropdown for Printer Management */}
-              {isMenuOpen && (
-                <div className="absolute top-12 right-0 w-64 bg-white rounded-2xl shadow-xl border border-stone-200 p-3 z-50 animate-in fade-in zoom-in-95 duration-150">
-                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-stone-100">
+              {/* Section 1: Printer Status & Controls */}
+              <div className="p-2 space-y-1">
+                <div className="px-2.5 py-1.5 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div
+                      className={`w-7 h-7 rounded-lg flex items-center justify-center ${
+                        bluetoothStatus.connected
+                          ? 'bg-emerald-100 text-emerald-700'
+                          : bluetoothStatus.isConnecting
+                          ? 'bg-amber-100 text-amber-700'
+                          : 'bg-stone-100 text-stone-600'
+                      }`}
+                    >
+                      <Bluetooth className="w-4 h-4" />
+                    </div>
                     <div>
-                      <p className="text-[10px] text-stone-400 font-bold uppercase tracking-wider">
-                        Active BLE Printer
+                      <p className="text-xs font-bold text-stone-900">
+                        {language === 'bn' ? 'থার্মাল প্রিন্টার' : 'Thermal Printer'}
                       </p>
-                      <p className="text-xs font-bold text-stone-900 truncate">
-                        {bluetoothStatus.deviceName || 'Thermal POS-58'}
+                      <p className="text-[10px] text-stone-500 truncate max-w-[150px]">
+                        {bluetoothStatus.connected
+                          ? bluetoothStatus.deviceName || (language === 'bn' ? 'কানেক্টেড' : 'Connected')
+                          : bluetoothStatus.isConnecting
+                          ? (language === 'bn' ? 'সংযোগ হচ্ছে...' : 'Connecting...')
+                          : (language === 'bn' ? 'সংযুক্ত নয়' : 'Not Connected')}
                       </p>
                     </div>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                      Ready
-                    </span>
                   </div>
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                      bluetoothStatus.connected
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : bluetoothStatus.isConnecting
+                        ? 'bg-amber-100 text-amber-800'
+                        : 'bg-stone-100 text-stone-600'
+                    }`}
+                  >
+                    {bluetoothStatus.connected
+                      ? (language === 'bn' ? 'অনলাইন' : 'Online')
+                      : (language === 'bn' ? 'অফলাইন' : 'Offline')}
+                  </span>
+                </div>
 
-                  <div className="space-y-1 text-xs">
+                {/* Printer actions */}
+                {!bluetoothStatus.connected ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMenuOpen(false);
+                      onConnectBluetooth();
+                    }}
+                    className="w-full text-left px-3 py-2 rounded-xl text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 flex items-center justify-between cursor-pointer transition-colors"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Bluetooth className="w-4 h-4" />
+                      {language === 'bn' ? 'প্রিন্টার কানেক্ট করুন' : 'Connect Printer'}
+                    </span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                ) : (
+                  <div className="pt-1 space-y-1">
                     <button
+                      type="button"
                       onClick={() => {
                         setIsMenuOpen(false);
                         onTestPrint();
                       }}
-                      className="w-full text-left px-2.5 py-1.5 rounded-xl text-stone-700 hover:bg-blue-50 hover:text-blue-700 flex items-center gap-2 font-semibold cursor-pointer transition-colors"
+                      className="w-full text-left px-3 py-1.5 rounded-xl text-xs font-medium text-stone-700 hover:bg-stone-100 flex items-center gap-2 cursor-pointer transition-colors"
                     >
-                      <FileText className="w-4 h-4 text-blue-600" />
-                      <span>Print Test Slip</span>
+                      <FileText className="w-3.5 h-3.5 text-blue-600" />
+                      <span>{language === 'bn' ? 'টেস্ট প্রিন্ট দিন' : 'Print Test Slip'}</span>
                     </button>
-
                     <button
+                      type="button"
                       onClick={() => {
                         setIsMenuOpen(false);
                         onConnectBluetooth();
                       }}
-                      className="w-full text-left px-2.5 py-1.5 rounded-xl text-blue-600 hover:bg-blue-50 flex items-center gap-2 font-medium cursor-pointer transition-colors"
+                      className="w-full text-left px-3 py-1.5 rounded-xl text-xs font-medium text-stone-700 hover:bg-stone-100 flex items-center gap-2 cursor-pointer transition-colors"
                     >
-                      <Bluetooth className="w-4 h-4 text-blue-600" />
-                      <span>Pair Different Printer</span>
+                      <RefreshCw className="w-3.5 h-3.5 text-stone-500" />
+                      <span>{language === 'bn' ? 'অন্য প্রিন্টার পেয়ার করুন' : 'Pair Different Printer'}</span>
                     </button>
-
                     <button
+                      type="button"
                       onClick={() => {
                         setIsMenuOpen(false);
                         onDisconnectBluetooth(false);
                       }}
-                      className="w-full text-left px-2.5 py-1.5 rounded-xl text-stone-700 hover:bg-stone-100 flex items-center gap-2 font-medium cursor-pointer transition-colors"
+                      className="w-full text-left px-3 py-1.5 rounded-xl text-xs font-medium text-stone-700 hover:bg-stone-100 flex items-center gap-2 cursor-pointer transition-colors"
                     >
-                      <Power className="w-4 h-4 text-stone-500" />
-                      <span>Disconnect</span>
+                      <Power className="w-3.5 h-3.5 text-stone-500" />
+                      <span>{language === 'bn' ? 'ডিসকানেক্ট করুন' : 'Disconnect'}</span>
                     </button>
-
                     <button
+                      type="button"
                       onClick={() => {
                         setIsMenuOpen(false);
                         onDisconnectBluetooth(true);
                       }}
-                      className="w-full text-left px-2.5 py-1.5 rounded-xl text-rose-600 hover:bg-rose-50 flex items-center gap-2 font-medium cursor-pointer transition-colors"
+                      className="w-full text-left px-3 py-1.5 rounded-xl text-xs font-medium text-rose-600 hover:bg-rose-50 flex items-center gap-2 cursor-pointer transition-colors"
                     >
-                      <Trash2 className="w-4 h-4 text-rose-500" />
-                      <span>Forget Printer</span>
+                      <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                      <span>{language === 'bn' ? 'প্রিন্টার মুছে ফেলুন' : 'Forget Printer'}</span>
                     </button>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
+
+              {/* Section 2: Language Switcher */}
+              <div className="p-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onToggleLanguage();
+                    setIsMenuOpen(false);
+                  }}
+                  className="w-full text-left px-3 py-2 rounded-xl text-xs font-semibold text-stone-800 hover:bg-stone-100 flex items-center justify-between cursor-pointer transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-blue-600" />
+                    <span>{language === 'bn' ? 'ভাষা: বাংলা' : 'Language: English'}</span>
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md bg-stone-100 text-[10px] font-bold text-stone-600 border border-stone-200">
+                    {language === 'bn' ? 'Change to EN' : 'বাংলায় পরিবর্তন'}
+                  </span>
+                </button>
+              </div>
+
+              {/* Section 3: Store Settings */}
+              <div className="p-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMenuOpen(false);
+                    onOpenSettings();
+                  }}
+                  className="w-full text-left px-3 py-2 rounded-xl text-xs font-semibold text-stone-800 hover:bg-stone-100 flex items-center justify-between cursor-pointer transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <SettingsIcon className="w-4 h-4 text-stone-600" />
+                    <span>{language === 'bn' ? 'দোকান ও প্রিন্টার সেটিংস' : 'Store & POS Settings'}</span>
+                  </span>
+                  <ChevronRight className="w-3.5 h-3.5 text-stone-400" />
+                </button>
+              </div>
+
+              {/* Section 4: Profile / Account Details */}
+              <div className="p-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMenuOpen(false);
+                    onOpenLogin();
+                  }}
+                  className="w-full text-left px-3 py-2 rounded-xl text-xs font-semibold text-stone-800 hover:bg-stone-100 flex items-center justify-between cursor-pointer transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    {userProfile.isLoggedIn ? (
+                      <div className="w-4 h-4 rounded-full bg-blue-600 text-white flex items-center justify-center text-[9px] font-bold">
+                        {userProfile.name ? userProfile.name.charAt(0).toUpperCase() : 'U'}
+                      </div>
+                    ) : (
+                      <Mail className="w-4 h-4 text-stone-600" />
+                    )}
+                    <span className="truncate max-w-[150px]">
+                      {userProfile.isLoggedIn
+                        ? userProfile.name || userProfile.email
+                        : language === 'bn'
+                        ? 'লগইন / ক্লাউড সিঙ্ক'
+                        : 'Profile & Cloud Sync'}
+                    </span>
+                  </span>
+                  <span className="text-[10px] text-stone-400">
+                    {userProfile.isLoggedIn
+                      ? (language === 'bn' ? 'অ্যাকাউন্ট' : 'Account')
+                      : (language === 'bn' ? 'সাইন ইন' : 'Sign in')}
+                  </span>
+                </button>
+              </div>
             </div>
           )}
-
-          <button
-            onClick={onToggleLanguage}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-stone-200 bg-stone-50 hover:bg-stone-100 text-xs font-bold text-stone-700 transition-colors cursor-pointer"
-            title={t.languageToggleTitle}
-          >
-            <Globe className="w-3.5 h-3.5 text-blue-600" />
-            <span>{language === 'bn' ? 'English' : 'বাংলা'}</span>
-            <span className="text-[10px] px-1.5 py-0.2 rounded bg-stone-200 text-stone-700 uppercase font-mono">
-              {language}
-            </span>
-          </button>
-
-          <button
-            onClick={onOpenLogin}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-stone-200 bg-stone-50 hover:bg-stone-100 transition-colors cursor-pointer"
-            title={userProfile.isLoggedIn ? `লগইন করা অ্যাকাউন্ট: ${userProfile.email}` : 'ইমেল দিয়ে লগইন করুন'}
-          >
-            <div className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-[11px] font-bold shadow-2xs">
-              {userProfile.isLoggedIn ? (
-                userProfile.name ? (
-                  userProfile.name.charAt(0).toUpperCase()
-                ) : (
-                  'U'
-                )
-              ) : (
-                <Mail className="w-3.5 h-3.5" />
-              )}
-            </div>
-            <div className="text-left hidden lg:block">
-              <span className="block text-xs font-bold text-stone-900 leading-tight truncate max-w-[120px]">
-                {userProfile.isLoggedIn ? userProfile.name : 'ইমেল লগইন'}
-              </span>
-              {userProfile.isLoggedIn && (
-                <span className="block text-[10px] text-stone-400 font-mono leading-none truncate max-w-[120px]">
-                  {userProfile.email}
-                </span>
-              )}
-            </div>
-            <span className="block lg:hidden text-xs font-bold text-stone-800">
-              {userProfile.isLoggedIn ? userProfile.name.split(' ')[0] : 'লগইন'}
-            </span>
-          </button>
-
-          <button
-            onClick={onOpenSettings}
-            className="p-2 rounded-xl text-stone-600 hover:text-stone-900 bg-stone-50 hover:bg-stone-100 border border-stone-200 transition-colors cursor-pointer"
-            title="Settings & Receipt Options"
-          >
-            <Settings className="w-4 h-4" />
-          </button>
         </div>
       </div>
     </header>

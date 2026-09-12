@@ -18,6 +18,7 @@ import {
 import { storageService } from './services/storageService';
 import { thermalPrinterService } from './services/thermalPrinterService';
 import { Header } from './components/Header';
+import { BottomNav } from './components/BottomNav';
 import { BillingTab } from './components/BillingTab';
 import { InvoicesTab } from './components/InvoicesTab';
 import { CashbookTab } from './components/CashbookTab';
@@ -26,6 +27,7 @@ import { PurchaseTripTab } from './components/PurchaseTripTab';
 import { PrintReceiptModal } from './components/PrintReceiptModal';
 import { SettingsModal } from './components/SettingsModal';
 import { LoginModal } from './components/LoginModal';
+import { OnboardingModal } from './components/OnboardingModal';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('billing');
@@ -38,6 +40,7 @@ export default function App() {
   const [language, setLanguage] = useState<Language>(storageService.getLanguage());
   const [purchaseTrips, setPurchaseTrips] = useState<PurchaseTrip[]>(storageService.getPurchaseTrips());
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [receiptBill, setReceiptBill] = useState<BillInvoice | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isPrintingBill, setIsPrintingBill] = useState(false);
@@ -68,7 +71,11 @@ export default function App() {
     setBills(storageService.getBills());
     setCashEntries(storageService.getCashEntries());
     setCustomerDues(storageService.getCustomerDues());
-    setSettings(storageService.getSettings());
+    const currentSettings = storageService.getSettings();
+    setSettings(currentSettings);
+    if (!currentSettings.storeName || currentSettings.storeName.trim() === '') {
+      setIsOnboardingOpen(true);
+    }
     setUserProfile(storageService.getUserProfile());
     setLanguage(storageService.getLanguage());
     setPurchaseTrips(storageService.getPurchaseTrips());
@@ -85,6 +92,24 @@ export default function App() {
       });
     }
   }, []);
+
+  const handleSaveOnboarding = (data: { storeName: string; storePhone: string; storeAddress: string }) => {
+    const updated: ThermalPrinterSettings = {
+      ...settings,
+      storeName: data.storeName,
+      storePhone: data.storePhone,
+      storeAddress: data.storeAddress || settings.storeAddress,
+    };
+    storageService.saveSettings(updated);
+    setSettings(updated);
+    setIsOnboardingOpen(false);
+    showToast(
+      language === 'bn'
+        ? `দোকানের তথ্য সংরক্ষিত হয়েছে: ${data.storeName}`
+        : `Shop setup completed: ${data.storeName}`,
+      'success'
+    );
+  };
 
   // Connect Bluetooth Thermal Printer
   const handleConnectBluetooth = async () => {
@@ -389,27 +414,22 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-stone-100/70 text-stone-900 flex flex-col font-sans">
-      {/* Header with 5 core tabs: Billing, Invoices, Cashbook, Customer Due, Purchases */}
+      {/* Minimal Top Header with Vyapar-style 3-Dot (⋮) Menu */}
       <Header
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        cartCount={billItems.length}
-        invoicesCount={bills.length}
-        purchasesCount={purchaseTrips.filter((t) => t.status === 'active').length}
+        settings={settings}
         bluetoothStatus={bluetoothStatus}
         onConnectBluetooth={handleConnectBluetooth}
         onDisconnectBluetooth={handleDisconnectBluetooth}
         onTestPrint={handleTestPrint}
         onOpenSettings={() => setIsSettingsOpen(true)}
-        settings={settings}
         userProfile={userProfile}
         onOpenLogin={() => setIsLoginModalOpen(true)}
         language={language}
         onToggleLanguage={handleToggleLanguage}
       />
 
-      {/* Main Workspace */}
-      <main className="flex-1 pb-8">
+      {/* Main Workspace with proper bottom padding to prevent overlap with bottom bar */}
+      <main className="flex-1 pb-20 sm:pb-24">
         {activeTab === 'billing' && (
           <BillingTab
             billItems={billItems}
@@ -419,6 +439,7 @@ export default function App() {
             isPrinting={isPrintingBill}
             onPrintBill={handlePrintBill}
             onClearBill={handleClearBill}
+            language={language}
           />
         )}
 
@@ -426,6 +447,7 @@ export default function App() {
           <InvoicesTab
             bills={bills}
             settings={settings}
+            language={language}
             onViewReceipt={(bill) => setReceiptBill(bill)}
             onDeleteBill={handleDeleteBill}
           />
@@ -436,6 +458,7 @@ export default function App() {
             entries={cashEntries}
             bills={bills}
             settings={settings}
+            language={language}
             onAddEntry={handleAddCashEntry}
             onDeleteEntry={handleDeleteCashEntry}
           />
@@ -445,6 +468,7 @@ export default function App() {
           <CustomerDueTab
             dues={customerDues}
             settings={settings}
+            language={language}
             onAddOrUpdateDue={handleAddOrUpdateDue}
             onRecordPayment={handleRecordCustomerPayment}
             onDeleteDue={handleDeleteCustomerDue}
@@ -471,7 +495,7 @@ export default function App() {
       </main>
 
       {/* App Footer with Explicit Creator Attribution (fahad uddin) */}
-      <footer id="app-footer" className="w-full border-t border-stone-200/90 bg-white/85 backdrop-blur-xs py-4 px-4 mt-auto">
+      <footer id="app-footer" className="w-full border-t border-stone-200/90 bg-white/85 backdrop-blur-xs py-4 px-4 pb-20 sm:pb-24 mt-auto">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2.5 text-xs text-stone-600">
           <div className="flex items-center gap-2 flex-wrap justify-center sm:justify-start">
             <span className="text-stone-500 font-medium">
@@ -492,6 +516,17 @@ export default function App() {
         </div>
       </footer>
 
+      {/* Fixed Bottom Navigation Bar (Vyapar style - Tabs only) */}
+      <BottomNav
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        cartCount={billItems.length}
+        invoicesCount={bills.length}
+        purchasesCount={purchaseTrips.filter((t) => t.status === 'active').length}
+        duesCount={customerDues.filter((c) => c.totalDue > 0).length}
+        language={language}
+      />
+
       {/* User Login & Profile Modal */}
       <LoginModal
         isOpen={isLoginModalOpen}
@@ -509,6 +544,7 @@ export default function App() {
         bluetoothStatus={bluetoothStatus}
         onConnectBluetooth={handleConnectBluetooth}
         onUpdatePaperWidth={handleUpdatePaperWidth}
+        language={language}
       />
 
       {/* Settings Modal */}
@@ -521,6 +557,14 @@ export default function App() {
         onConnectBluetooth={handleConnectBluetooth}
         onDisconnectBluetooth={handleDisconnectBluetooth}
         onTestPrint={handleTestPrint}
+        language={language}
+      />
+
+      {/* First-Time Onboarding Modal with Voice Prompt */}
+      <OnboardingModal
+        isOpen={isOnboardingOpen}
+        onSave={handleSaveOnboarding}
+        language={language}
       />
 
       {/* Instant Notification Toast */}

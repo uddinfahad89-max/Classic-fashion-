@@ -10,7 +10,7 @@ interface TaxInvoiceSheetProps {
 export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({ bill, settings }) => {
   const currencySymbol = settings.currencySymbol || 'Rs';
   const currencyName = settings.currencyName || (currencySymbol === '₹' || currencySymbol.toLowerCase().includes('rs') ? 'Rupees' : 'Taka');
-  const storeName = settings.storeName?.trim() || 'SHOP / STORE NAME';
+  const storeName = settings.storeName?.trim() || 'STORE / SHOP';
   const storeAddress = settings.storeAddress?.trim() || '';
   const storePhone = settings.storePhone?.trim() || '';
   const signatoryName = settings.signatoryName || '';

@@ -9,7 +9,8 @@ import {
   CheckCircle,
   TrendingUp,
 } from 'lucide-react';
-import { CashEntry, CashEntryType, ThermalPrinterSettings, BillInvoice } from '../types';
+import { CashEntry, CashEntryType, ThermalPrinterSettings, BillInvoice, Language } from '../types';
+import { translations } from '../utils/i18n';
 
 interface CashbookTabProps {
   entries: CashEntry[];
@@ -17,6 +18,7 @@ interface CashbookTabProps {
   settings: ThermalPrinterSettings;
   onAddEntry: (type: CashEntryType, amount: number, note: string) => void;
   onDeleteEntry: (id: string) => void;
+  language?: Language;
 }
 
 export const CashbookTab: React.FC<CashbookTabProps> = ({
@@ -25,7 +27,11 @@ export const CashbookTab: React.FC<CashbookTabProps> = ({
   settings,
   onAddEntry,
   onDeleteEntry,
+  language = 'bn',
 }) => {
+  const t = translations[language];
+  const isBn = language === 'bn';
+
   const [cashType, setCashType] = useState<CashEntryType>('Expense');
   const [cashAmount, setCashAmount] = useState('');
   const [cashNote, setCashNote] = useState('');
@@ -94,12 +100,25 @@ export const CashbookTab: React.FC<CashbookTabProps> = ({
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-4 sm:py-6 space-y-4">
+      {/* Daybook Header Banner */}
+      <div className="flex items-center justify-between pb-2 border-b border-stone-200">
+        <div>
+          <h2 className="text-base font-bold text-stone-900 flex items-center gap-2">
+            <BookOpen className="w-5 h-5 text-blue-600" />
+            <span>{isBn ? 'ডেবুক (দৈনিক সেলস ও খরচ রেজিস্টার)' : 'Daybook (Daily Sales & Expense Register)'}</span>
+          </h2>
+          <p className="text-xs text-stone-500 font-medium">
+            {isBn ? 'আজকের বিক্রয়, নগদ জমা ও খরচের হিসাব' : 'Daily sales income, cash in/out and expense tracking'}
+          </p>
+        </div>
+      </div>
+
       {/* 1. TODAY'S SALES & CASH SUMMARY CARDS */}
       <div className="space-y-2">
         <div className="flex items-center justify-between px-1">
-          <span className="text-xs font-bold text-stone-600">Today's Cashbook & Sales Summary:</span>
+          <span className="text-xs font-bold text-stone-600">{t.todaySummary}</span>
           <span className="text-[11px] font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md">
-            {todaysPaidBills.length} Invoices Paid Today
+            {todaysPaidBills.length} {t.invoicesPaidToday}
           </span>
         </div>
 
@@ -111,7 +130,7 @@ export const CashbookTab: React.FC<CashbookTabProps> = ({
                 <div className="w-7 h-7 rounded-lg bg-emerald-200/70 flex items-center justify-center">
                   <ArrowDownLeft className="w-4 h-4 text-emerald-700 stroke-[2.5]" />
                 </div>
-                <span className="text-xs font-bold">Total Sales / In:</span>
+                <span className="text-xs font-bold">{t.totalSalesIn}</span>
               </div>
               <span id="totalIncome" className="text-base font-bold font-mono text-emerald-700">
                 {sym}
@@ -119,8 +138,8 @@ export const CashbookTab: React.FC<CashbookTabProps> = ({
               </span>
             </div>
             <div className="text-[10px] text-emerald-600 flex justify-between font-medium pt-1 border-t border-emerald-200/50">
-              <span>Bills: {sym}{todaysBilledSales.toFixed(0)}</span>
-              <span>Manual: {sym}{manualIncome.toFixed(0)}</span>
+              <span>{t.billedSales} {sym}{todaysBilledSales.toFixed(0)}</span>
+              <span>{t.manualIncomeText} {sym}{manualIncome.toFixed(0)}</span>
             </div>
           </div>
 
@@ -131,7 +150,7 @@ export const CashbookTab: React.FC<CashbookTabProps> = ({
                 <div className="w-7 h-7 rounded-lg bg-rose-200/70 flex items-center justify-center">
                   <ArrowUpRight className="w-4 h-4 text-rose-700 stroke-[2.5]" />
                 </div>
-                <span className="text-xs font-bold">Total Expense:</span>
+                <span className="text-xs font-bold">{t.totalExpenseText}</span>
               </div>
               <span id="totalExpense" className="text-base font-bold font-mono text-rose-700">
                 {sym}
@@ -139,7 +158,7 @@ export const CashbookTab: React.FC<CashbookTabProps> = ({
               </span>
             </div>
             <div className="text-[10px] text-rose-500 font-medium pt-1 border-t border-rose-200/50">
-              Shop overheads & costs
+              {t.shopCosts}
             </div>
           </div>
 
@@ -150,7 +169,7 @@ export const CashbookTab: React.FC<CashbookTabProps> = ({
                 <div className="w-7 h-7 rounded-lg bg-stone-200 flex items-center justify-center">
                   <Wallet className="w-4 h-4 text-stone-700" />
                 </div>
-                <span className="text-xs font-bold">Net Balance:</span>
+                <span className="text-xs font-bold">{t.netBalanceText}</span>
               </div>
               <span
                 className={`text-base font-bold font-mono ${
@@ -162,7 +181,7 @@ export const CashbookTab: React.FC<CashbookTabProps> = ({
               </span>
             </div>
             <div className="text-[10px] text-stone-500 font-medium pt-1 border-t border-stone-200/50">
-              Total In minus Expenses
+              {t.netBalanceSub}
             </div>
           </div>
         </div>
@@ -171,26 +190,26 @@ export const CashbookTab: React.FC<CashbookTabProps> = ({
         {todaysPaidBills.length > 0 && (
           <div className="p-3 bg-white rounded-2xl border border-stone-200 text-xs shadow-2xs space-y-1.5">
             <div className="flex items-center justify-between text-[11px] font-bold text-stone-500 uppercase tracking-wider">
-              <span>Today's Billed Breakdown:</span>
+              <span>{t.todaysBilledBreakdown}</span>
               <span className="text-stone-700 font-mono font-bold">
                 {sym}{todaysBilledSales.toFixed(2)}
               </span>
             </div>
             <div className="grid grid-cols-4 gap-1 text-center font-mono">
               <div className="bg-stone-50 p-1.5 rounded-lg border border-stone-100">
-                <span className="block text-[10px] text-stone-400 font-sans">Cash</span>
+                <span className="block text-[10px] text-stone-400 font-sans">{t.modeCash}</span>
                 <span className="text-xs font-bold text-stone-800">{sym}{cashSales.toFixed(0)}</span>
               </div>
               <div className="bg-stone-50 p-1.5 rounded-lg border border-stone-100">
-                <span className="block text-[10px] text-stone-400 font-sans">UPI</span>
+                <span className="block text-[10px] text-stone-400 font-sans">{t.modeUpi}</span>
                 <span className="text-xs font-bold text-blue-700">{sym}{upiSales.toFixed(0)}</span>
               </div>
               <div className="bg-stone-50 p-1.5 rounded-lg border border-stone-100">
-                <span className="block text-[10px] text-stone-400 font-sans">Card</span>
+                <span className="block text-[10px] text-stone-400 font-sans">{t.modeCard}</span>
                 <span className="text-xs font-bold text-purple-700">{sym}{cardSales.toFixed(0)}</span>
               </div>
               <div className="bg-rose-50/70 p-1.5 rounded-lg border border-rose-100">
-                <span className="block text-[10px] text-rose-500 font-sans">Due Bills</span>
+                <span className="block text-[10px] text-rose-500 font-sans">{t.dueBillsLabel}</span>
                 <span className="text-xs font-bold text-rose-700">{sym}{todaysDueSales.toFixed(0)}</span>
               </div>
             </div>
@@ -203,11 +222,11 @@ export const CashbookTab: React.FC<CashbookTabProps> = ({
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-bold text-stone-900 flex items-center gap-1.5">
             <BookOpen className="w-4 h-4 text-indigo-600" />
-            <span>Record Cash Entry (Manual Income / Expense)</span>
+            <span>{t.recordCashEntry}</span>
           </h2>
           {savedFeedback && (
             <span className="text-[11px] font-bold text-emerald-600 flex items-center gap-1 animate-pulse">
-              <CheckCircle className="w-3 h-3" /> Entry Saved!
+              <CheckCircle className="w-3 h-3" /> {t.entrySaved}
             </span>
           )}
         </div>
@@ -220,8 +239,8 @@ export const CashbookTab: React.FC<CashbookTabProps> = ({
               onChange={(e) => setCashType(e.target.value as CashEntryType)}
               className="w-full border border-stone-200 bg-stone-50/80 px-3 py-2 rounded-xl text-xs sm:text-sm font-bold focus:outline-none focus:border-indigo-500"
             >
-              <option value="Expense">Expense (Shop Cost, Rent, Tea, Salary)</option>
-              <option value="Income">Income (Other Direct Cash Receipts)</option>
+              <option value="Expense">{t.expenseOption}</option>
+              <option value="Income">{t.incomeOption}</option>
             </select>
           </div>
 
@@ -238,7 +257,7 @@ export const CashbookTab: React.FC<CashbookTabProps> = ({
                 step="any"
                 value={cashAmount}
                 onChange={(e) => setCashAmount(e.target.value)}
-                placeholder={`Amount (${sym})`}
+                placeholder={`${t.cashAmountPlaceholder} (${sym})`}
                 className="w-full border border-stone-200 bg-stone-50/80 pl-7 pr-3 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-indigo-500"
               />
             </div>
@@ -250,7 +269,7 @@ export const CashbookTab: React.FC<CashbookTabProps> = ({
               id="cashNote"
               value={cashNote}
               onChange={(e) => setCashNote(e.target.value)}
-              placeholder="Note (e.g. Wholesale Cloth Purchase, Shop Electricity, Tea)"
+              placeholder={t.cashNotePlaceholder}
               className="w-full border border-stone-200 bg-stone-50/80 px-3 py-2 rounded-xl text-xs sm:text-sm focus:outline-none focus:border-indigo-500"
             />
           </div>
@@ -259,7 +278,7 @@ export const CashbookTab: React.FC<CashbookTabProps> = ({
             type="submit"
             className="w-full bg-indigo-600 hover:bg-indigo-500 active:scale-[0.99] text-white py-2.5 rounded-xl font-bold text-xs sm:text-sm shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
           >
-            <span>Save Entry</span>
+            <span>{t.saveEntryBtn}</span>
           </button>
         </form>
       </div>
@@ -276,7 +295,7 @@ export const CashbookTab: React.FC<CashbookTabProps> = ({
                   : 'text-stone-500 hover:text-stone-800'
               }`}
             >
-              Cash Entries ({entries.length})
+              {t.cashEntriesTab} ({entries.length})
             </button>
             <button
               onClick={() => setActiveSubTab('bills')}
@@ -286,19 +305,19 @@ export const CashbookTab: React.FC<CashbookTabProps> = ({
                   : 'text-stone-500 hover:text-stone-800'
               }`}
             >
-              Today's Bills ({todaysBills.length})
+              {t.todaysBillsTab} ({todaysBills.length})
             </button>
           </div>
 
           <span className="text-[11px] text-stone-400 font-mono pr-2">
-            {activeSubTab === 'entries' ? 'Manual Book' : 'Auto-counted'}
+            {activeSubTab === 'entries' ? t.manualBookLabel : t.autoCountedLabel}
           </span>
         </div>
 
         {activeSubTab === 'entries' ? (
           entries.length === 0 ? (
             <div className="p-8 text-center text-stone-400 text-xs">
-              No manual cash entries recorded yet.
+              {t.noEntriesYet}
             </div>
           ) : (
             <div className="divide-y divide-stone-100 max-h-80 overflow-y-auto">
@@ -317,7 +336,7 @@ export const CashbookTab: React.FC<CashbookTabProps> = ({
                             : 'bg-red-100 text-red-700'
                         }`}
                       >
-                        {entry.type}
+                        {isIncome ? (isBn ? 'আয়' : 'Income') : (isBn ? 'খরচ' : 'Expense')}
                       </span>
                       <div>
                         <div className="text-xs sm:text-sm font-semibold text-stone-900">
@@ -343,7 +362,7 @@ export const CashbookTab: React.FC<CashbookTabProps> = ({
                       <button
                         onClick={() => onDeleteEntry(entry.id)}
                         className="p-1 rounded text-stone-300 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
-                        title="Delete"
+                        title={isBn ? 'মুছে ফেলুন' : 'Delete'}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -355,7 +374,7 @@ export const CashbookTab: React.FC<CashbookTabProps> = ({
           )
         ) : todaysBills.length === 0 ? (
           <div className="p-8 text-center text-stone-400 text-xs">
-            No bills generated today yet.
+            {t.noBillsToday}
           </div>
         ) : (
           <div className="divide-y divide-stone-100 max-h-80 overflow-y-auto">
@@ -378,7 +397,7 @@ export const CashbookTab: React.FC<CashbookTabProps> = ({
                     </span>
                   </div>
                   <div className="text-[11px] text-stone-400">
-                    {b.customerName || 'Walk-in'} • {b.items.length} items
+                    {b.customerName || t.walkInCustomer} • {b.items.length} {t.items}
                   </div>
                 </div>
 
