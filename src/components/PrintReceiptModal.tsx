@@ -3,15 +3,10 @@ import {
   Printer,
   Download,
   X,
-  CheckCircle,
-  Smartphone,
   Edit2,
-  FileText,
   Image as ImageIcon,
   Share2,
-  Receipt,
   FileCheck,
-  ChevronRight,
 } from 'lucide-react';
 import { BillInvoice, ThermalPrinterSettings, BluetoothDeviceInfo, Language } from '../types';
 import { thermalPrinterService } from '../services/thermalPrinterService';
@@ -22,9 +17,9 @@ interface PrintReceiptModalProps {
   bill: BillInvoice | null;
   onClose: () => void;
   settings: ThermalPrinterSettings;
-  bluetoothStatus: BluetoothDeviceInfo;
-  onConnectBluetooth: () => void;
-  onUpdatePaperWidth: (width: '58mm' | '80mm') => void;
+  bluetoothStatus?: BluetoothDeviceInfo;
+  onConnectBluetooth?: () => void;
+  onUpdatePaperWidth?: (width: '58mm' | '80mm') => void;
   onEditBill?: (bill: BillInvoice) => void;
   language?: Language;
 }
@@ -33,17 +28,12 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
   bill,
   onClose,
   settings,
-  bluetoothStatus,
-  onConnectBluetooth,
-  onUpdatePaperWidth,
   onEditBill,
   language = 'bn',
 }) => {
-  const [activeFormat, setActiveFormat] = useState<'tax_invoice' | 'thermal'>('tax_invoice');
   const [isSavingPdf, setIsSavingPdf] = useState(false);
   const [isSavingImage, setIsSavingImage] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
-  const [isPrintingThermal, setIsPrintingThermal] = useState(false);
 
   const sheetRef = useRef<HTMLDivElement>(null);
 
@@ -138,30 +128,13 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
     window.open(whatsappUrl, '_blank');
   };
 
-  // Thermal roll handlers
-  const handlePrintThermal = async () => {
-    setIsPrintingThermal(true);
-    const res = await thermalPrinterService.printViaBluetooth(bill, settings);
-    setIsPrintingThermal(false);
-
-    if (res.success) {
-      setFeedbackMessage(language === 'bn' ? '✓ প্রিন্টারে পাঠানো হয়েছে!' : '✓ Sent to printer!');
-      setTimeout(() => setFeedbackMessage(null), 2500);
-    } else {
-      // Fallback to browser print dialog
-      thermalPrinterService.printViaBrowser(bill, settings);
-    }
-  };
-
-  const receiptText = thermalPrinterService.generateReceiptText(bill, settings);
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto">
-      <div className="bg-stone-100 rounded-2xl shadow-2xl border border-stone-300 w-full max-w-3xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-auto flex flex-col max-h-[96vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-0 sm:p-4 overflow-y-auto">
+      <div className="bg-stone-100 sm:rounded-2xl shadow-2xl border-0 sm:border border-stone-300 w-full max-w-4xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-auto flex flex-col h-full sm:h-auto sm:max-h-[96vh]">
         {/* 1. Modal Top Bar */}
         <div className="p-3 sm:p-4 border-b border-stone-200 bg-white flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-[#6E68D8]/10 flex items-center justify-center text-[#6E68D8]">
+            <div className="w-8 h-8 rounded-xl bg-[#8C8EE8]/15 flex items-center justify-center text-[#8C8EE8]">
               <FileCheck className="w-5 h-5" />
             </div>
             <div>
@@ -204,35 +177,11 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
           </div>
         </div>
 
-        {/* 2. Format Switcher & Action Toolbar */}
+        {/* 2. Clean Action Toolbar (Print, Save PDF, Image, WhatsApp) */}
         <div className="p-2.5 sm:p-3 bg-stone-50 border-b border-stone-200 flex flex-wrap items-center justify-between gap-2">
-          {/* Format Tabs */}
-          <div className="flex items-center bg-stone-200/80 p-1 rounded-xl gap-1 text-xs">
-            <button
-              type="button"
-              onClick={() => setActiveFormat('tax_invoice')}
-              className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                activeFormat === 'tax_invoice'
-                  ? 'bg-white text-[#6E68D8] shadow-xs'
-                  : 'text-stone-600 hover:text-stone-900'
-              }`}
-            >
-              <FileText className="w-3.5 h-3.5" />
-              <span>{language === 'bn' ? 'ট্যাক্স ইনভয়েস (A4 Bill)' : 'Tax Invoice (A4 Bill)'}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveFormat('thermal')}
-              className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                activeFormat === 'thermal'
-                  ? 'bg-white text-blue-700 shadow-xs'
-                  : 'text-stone-600 hover:text-stone-900'
-              }`}
-            >
-              <Receipt className="w-3.5 h-3.5" />
-              <span>{language === 'bn' ? 'থার্মাল স্লিপ (POS Roll)' : 'Thermal Slip (POS Roll)'}</span>
-            </button>
+          <div className="text-xs font-bold text-stone-700 flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-[#8C8EE8]"></span>
+            <span>{language === 'bn' ? 'ইনভয়েস অ্যাকশন' : 'Invoice Actions'}:</span>
           </div>
 
           {/* Quick Action Buttons */}
@@ -240,8 +189,8 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
             {/* 1. PRINT BUTTON */}
             <button
               type="button"
-              onClick={activeFormat === 'tax_invoice' ? handlePrintTaxInvoice : handlePrintThermal}
-              className="px-3.5 py-1.5 rounded-xl bg-[#6E68D8] hover:bg-[#5E58C8] text-white text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-all active:scale-[0.98]"
+              onClick={handlePrintTaxInvoice}
+              className="px-3.5 py-1.5 rounded-xl bg-[#8C8EE8] hover:bg-[#787AD8] text-white text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-all active:scale-[0.98]"
               title="Print Document"
             >
               <Printer className="w-3.5 h-3.5" />
@@ -299,108 +248,25 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
           </div>
         )}
 
-        {/* 3. Document Preview Area */}
-        <div className="p-3 sm:p-6 overflow-y-auto flex-1 bg-stone-200/70 flex justify-center">
-          {activeFormat === 'tax_invoice' ? (
-            /* Clear Tax Invoice Format (Exact layout from user screenshot) */
-            <div ref={sheetRef} className="w-full flex justify-center">
-              <TaxInvoiceSheet bill={bill} settings={settings} />
-            </div>
-          ) : (
-            /* Thermal Monospaced Roll Format */
-            <div className="flex flex-col items-center space-y-3">
-              {/* Paper roll selector */}
-              <div className="flex items-center gap-2 bg-white px-3 py-1 rounded-xl shadow-2xs border border-stone-200 text-xs">
-                <span className="text-stone-500 font-medium">Roll Width:</span>
-                <button
-                  type="button"
-                  onClick={() => onUpdatePaperWidth('58mm')}
-                  className={`px-2.5 py-0.5 rounded-md font-bold transition-all ${
-                    settings.paperWidth === '58mm'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
-                  }`}
-                >
-                  58mm (2-inch)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onUpdatePaperWidth('80mm')}
-                  className={`px-2.5 py-0.5 rounded-md font-bold transition-all ${
-                    settings.paperWidth === '80mm'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
-                  }`}
-                >
-                  80mm (3-inch)
-                </button>
-              </div>
-
-              <div
-                className={`bg-[#fffef9] shadow-md border-t-4 border-stone-400 p-4 font-mono text-[11px] leading-tight text-stone-900 select-all whitespace-pre rounded-sm transition-all ${
-                  settings.paperWidth === '80mm' ? 'w-[320px]' : 'w-[250px]'
-                }`}
-              >
-                {receiptText}
-              </div>
-
-              {/* Android RawBT Intent button */}
-              <button
-                type="button"
-                onClick={() => thermalPrinterService.printViaRawBT(bill, settings)}
-                className="py-2 px-4 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-              >
-                <Smartphone className="w-4 h-4 text-amber-700" />
-                <span>Print via RawBT (Android)</span>
-              </button>
-            </div>
-          )}
+        {/* 3. Document Preview Area: Tax Invoice */}
+        <div className="p-2 sm:p-6 overflow-x-auto overflow-y-auto flex-1 bg-stone-200/70 flex justify-center">
+          <div ref={sheetRef} className="w-full flex justify-center">
+            <TaxInvoiceSheet bill={bill} settings={settings} />
+          </div>
         </div>
 
-        {/* 4. Bottom Footer Bar */}
-        <div className="p-3 sm:p-4 bg-white border-t border-stone-200 flex flex-wrap items-center justify-between gap-2 text-xs">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={onConnectBluetooth}
-              className="text-stone-700 hover:text-blue-700 font-semibold flex items-center gap-1.5 cursor-pointer"
-            >
-              <span
-                className={`h-2.5 w-2.5 rounded-full ${
-                  bluetoothStatus.connected
-                    ? 'bg-emerald-500'
-                    : bluetoothStatus.isConnecting
-                    ? 'bg-amber-500 animate-pulse'
-                    : 'bg-stone-400'
-                }`}
-              />
-              <span className="text-[11px]">
-                {bluetoothStatus.connected
-                  ? `Thermal Printer: ${bluetoothStatus.deviceName || 'Connected'}`
-                  : 'Pair Bluetooth POS Printer'}
-              </span>
-            </button>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleSavePdf}
-              disabled={isSavingPdf}
-              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
-            >
-              <Download className="w-4 h-4" />
-              <span>{language === 'bn' ? 'পিডিএফ ডাউনলোড করুন' : 'Download PDF'}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handlePrintTaxInvoice}
-              className="px-4 py-2 rounded-xl bg-[#6E68D8] hover:bg-[#5E58C8] text-white font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
-            >
-              <Printer className="w-4 h-4" />
-              <span>{language === 'bn' ? 'প্রিন্ট করুন' : 'Print Bill'}</span>
-            </button>
-          </div>
+        {/* 4. Bottom Footer Bar: Clean status & close */}
+        <div className="p-2.5 sm:p-3 bg-white border-t border-stone-200 flex items-center justify-between text-xs">
+          <span className="text-stone-500 text-[11px] font-medium">
+            {language === 'bn' ? '✓ স্ট্যান্ডার্ড ট্যাক্স ইনভয়েস ফরম্যাট' : '✓ Standard Tax Invoice Format'}
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold text-xs cursor-pointer transition-colors"
+          >
+            {language === 'bn' ? 'বন্ধ করুন' : 'Close'}
+          </button>
         </div>
       </div>
     </div>

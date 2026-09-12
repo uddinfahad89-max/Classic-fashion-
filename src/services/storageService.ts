@@ -30,9 +30,9 @@ const DEFAULT_USER: UserProfile = {
 };
 
 const DEFAULT_SETTINGS: ThermalPrinterSettings = {
-  storeName: 'CLASSIC FASHION',
-  storePhone: '7055271959',
-  storeAddress: 'kotamoni bazar near jama masjid',
+  storeName: 'MY SHOP / STORE NAME',
+  storePhone: '',
+  storeAddress: '',
   signatoryName: '',
   upiId: '',
   paperWidth: '58mm',
@@ -55,32 +55,6 @@ class StorageService {
       const parsed = JSON.parse(data);
       if (parsed.signatoryName === 'Fahad Uddin') {
         parsed.signatoryName = '';
-      }
-      // Auto-migrate if older defaults exist or missing fields
-      if (
-        parsed.storeName === 'Shree Fashion & Garments' ||
-        parsed.storeName === 'My Shop & General Store' ||
-        !parsed.storeName ||
-        !parsed.signatoryName ||
-        !parsed.defaultInvoiceFormat
-      ) {
-        const migrated: ThermalPrinterSettings = {
-          ...DEFAULT_SETTINGS,
-          ...parsed,
-          storeName:
-            parsed.storeName === 'Shree Fashion & Garments' || parsed.storeName === 'My Shop & General Store'
-              ? DEFAULT_SETTINGS.storeName
-              : parsed.storeName || DEFAULT_SETTINGS.storeName,
-          storePhone: parsed.storePhone?.includes('98765') ? DEFAULT_SETTINGS.storePhone : parsed.storePhone || DEFAULT_SETTINGS.storePhone,
-          storeAddress: parsed.storeAddress?.includes('Bangalore') ? DEFAULT_SETTINGS.storeAddress : parsed.storeAddress || DEFAULT_SETTINGS.storeAddress,
-          signatoryName: parsed.signatoryName || DEFAULT_SETTINGS.signatoryName,
-          upiId: parsed.upiId || DEFAULT_SETTINGS.upiId,
-          currencySymbol: parsed.currencySymbol === '৳' ? 'Rs' : (parsed.currencySymbol || 'Rs'),
-          currencyName: parsed.currencyName || 'Rupees',
-          defaultInvoiceFormat: 'tax_invoice',
-        };
-        this.saveSettings(migrated);
-        return migrated;
       }
       return { ...DEFAULT_SETTINGS, ...parsed };
     } catch {

@@ -138,29 +138,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           </div>
           <div>
-            <label className="block text-stone-700 font-semibold mb-1">Store / Shop Name</label>
+            <label className="block text-stone-700 font-semibold mb-1">Store / Shop Name (দোকানের নাম)</label>
             <input
               type="text"
               required
               value={form.storeName}
               onChange={(e) => setForm({ ...form, storeName: e.target.value })}
+              placeholder="e.g. My Fashion Store / দোকানের নাম"
               className="w-full border border-stone-200 bg-stone-50/80 p-2 rounded-xl text-xs sm:text-sm font-semibold focus:outline-none focus:border-blue-500"
             />
           </div>
 
           <div className="grid grid-cols-2 gap-2.5">
             <div>
-              <label className="block text-stone-700 font-semibold mb-1">Phone Number</label>
+              <label className="block text-stone-700 font-semibold mb-1">Phone Number (মোবাইল)</label>
               <input
                 type="text"
                 value={form.storePhone}
                 onChange={(e) => setForm({ ...form, storePhone: e.target.value })}
+                placeholder="e.g. 9876543210"
                 className="w-full border border-stone-200 bg-stone-50/80 p-2 rounded-xl text-xs font-mono focus:outline-none focus:border-blue-500"
               />
             </div>
 
             <div>
-              <label className="block text-stone-700 font-semibold mb-1">Currency Symbol</label>
+              <label className="block text-stone-700 font-semibold mb-1">Currency Symbol (মুদ্রা)</label>
               <input
                 type="text"
                 value={form.currencySymbol}
@@ -196,11 +198,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
 
           <div>
-            <label className="block text-stone-700 font-semibold mb-1">Store Address</label>
+            <label className="block text-stone-700 font-semibold mb-1">Store Address (দোকানের ঠিকানা)</label>
             <input
               type="text"
               value={form.storeAddress}
               onChange={(e) => setForm({ ...form, storeAddress: e.target.value })}
+              placeholder="e.g. Main Road, Market Area, City"
               className="w-full border border-stone-200 bg-stone-50/80 p-2 rounded-xl text-xs focus:outline-none focus:border-blue-500"
             />
           </div>
