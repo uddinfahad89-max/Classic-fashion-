@@ -72,48 +72,11 @@ class StorageService {
   getBills(): BillInvoice[] {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.BILLS);
-      if (data) {
-        const list: BillInvoice[] = JSON.parse(data);
-        // If sale 306 isn't present, ensure it's included
-        if (!list.some((b) => b.invoiceNo === '306')) {
-          const sale306: BillInvoice = {
-            id: 'inv-sale-306',
-            invoiceNo: '306',
-            date: '22-08-2026',
-            time: '02:58 PM',
-            timestamp: new Date('2026-08-22T14:58:00').getTime(),
-            customerName: 'RUMANA BEGAM',
-            customerPhone: '9707502246',
-            items: [
-              { id: 'it-306-1', name: 'Ganji set', price: 200.0, qty: 2, total: 400.0 },
-              { id: 'it-306-2', name: 'Seka ganji', price: 20.0, qty: 4, total: 80.0 },
-              { id: 'it-306-3', name: 'Stal orna', price: 200.0, qty: 1, total: 200.0 },
-              { id: 'it-306-4', name: 'Cotton orna', price: 125.0, qty: 2, total: 250.0 },
-              { id: 'it-306-5', name: 'Nitee', price: 200.0, qty: 1, total: 200.0 },
-              { id: 'it-306-6', name: 'Frk', price: 180.0, qty: 1, total: 180.0 },
-              { id: 'it-306-7', name: 'Seka', price: 90.0, qty: 1, total: 90.0 },
-            ],
-            subtotal: 1400.0,
-            discount: 140.0,
-            discountType: 'percent',
-            discountValue: 10.0,
-            grandTotal: 1260.0,
-            paymentMethod: 'due',
-            paymentStatus: 'DUE',
-            paidAmount: 0.0,
-            changeAmount: 0.0,
-            balance: 1260.0,
-            previousBalance: 0.0,
-            currentBalance: 1260.0,
-          };
-          const updated = [sale306, ...list];
-          this.saveBillsList(updated);
-          return updated;
-        }
-        return list;
+      if (data !== null) {
+        return JSON.parse(data);
       }
 
-      // Seed initial demo invoices for realistic instant testing
+      // Seed initial demo invoices for realistic instant testing only on first load
       const now = Date.now();
       const demoBills: BillInvoice[] = [
         {
@@ -263,7 +226,7 @@ class StorageService {
   }
 
   deleteBill(id: string): void {
-    const bills = this.getBills().filter((b) => b.id !== id);
+    const bills = this.getBills().filter((b) => b.id !== id && b.invoiceNo !== id);
     this.saveBillsList(bills);
   }
 

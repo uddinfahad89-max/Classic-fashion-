@@ -199,7 +199,14 @@ export default function App() {
 
   const handleDeleteBill = (id: string) => {
     storageService.deleteBill(id);
-    setBills(storageService.getBills());
+    const updatedBills = storageService.getBills();
+    setBills(updatedBills);
+    showToast(
+      language === 'bn'
+        ? 'ইনভয়েস সফলভাবে ডিলিট করা হয়েছে'
+        : 'Invoice deleted successfully',
+      'info'
+    );
   };
 
   const handleClearBill = () => {

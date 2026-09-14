@@ -62,6 +62,12 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
   const [expandedInvoiceId, setExpandedInvoiceId] = useState<string | null>(null);
   const [actionFeedback, setActionFeedback] = useState<{ id: string; message: string } | null>(null);
   const [editingBill, setEditingBill] = useState<BillInvoice | null>(null);
+  const [deleteConfirmBill, setDeleteConfirmBill] = useState<{
+    id: string;
+    invoiceNo: string;
+    amount: number;
+    customerName?: string;
+  } | null>(null);
 
   // Helper date matchers
   const isSameDay = (timestamp: number, targetDate: Date) => {
@@ -161,10 +167,13 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
     window.open(url, '_blank');
   };
 
-  const handleDelete = (id: string, invNo: string) => {
-    if (window.confirm(isBn ? `আপনি কি ইনভয়েস #${invNo} ডিলিট করতে চান?` : `Are you sure you want to delete Invoice #${invNo}?`)) {
-      onDeleteBill(id);
-    }
+  const handleDelete = (bill: BillInvoice) => {
+    setDeleteConfirmBill({
+      id: bill.id,
+      invoiceNo: bill.invoiceNo,
+      amount: bill.grandTotal,
+      customerName: bill.customerName,
+    });
   };
 
   const toggleExpand = (id: string) => {
@@ -447,8 +456,8 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
                     {/* 5. Delete Bill */}
                     <button
                       type="button"
-                      onClick={() => handleDelete(bill.id, bill.invoiceNo)}
-                      className="p-1.5 rounded-xl text-stone-300 hover:text-rose-600 hover:bg-rose-50 transition-all cursor-pointer"
+                      onClick={() => handleDelete(bill)}
+                      className="p-1.5 rounded-xl text-rose-600 hover:text-rose-700 bg-rose-50/80 hover:bg-rose-100 border border-rose-200/70 transition-all cursor-pointer shadow-2xs"
                       title={isBn ? 'ডিলিট করুন' : 'Delete'}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -483,6 +492,53 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
           })
         )}
       </div>
+
+      {/* Custom Mobile-Friendly Delete Confirmation Modal */}
+      {deleteConfirmBill && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-950/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white w-full max-w-sm rounded-3xl p-5 shadow-2xl border border-stone-200 space-y-4 animate-in zoom-in-95 duration-150 text-center">
+            <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto">
+              <Trash2 className="w-6 h-6" />
+            </div>
+
+            <div className="space-y-1">
+              <h3 className="text-base font-bold text-stone-900">
+                {isBn ? 'ইনভয়েস ডিলিট নিশ্চিত করুন' : 'Confirm Delete Invoice'}
+              </h3>
+              <p className="text-xs text-stone-500">
+                {isBn
+                  ? `বিল #${deleteConfirmBill.invoiceNo} (${sym}${deleteConfirmBill.amount.toFixed(2)}) স্থায়ীভাবে মুছে ফেলা হবে।`
+                  : `Invoice #${deleteConfirmBill.invoiceNo} (${sym}${deleteConfirmBill.amount.toFixed(2)}) will be permanently deleted.`}
+              </p>
+              {deleteConfirmBill.customerName && (
+                <div className="p-2 rounded-xl bg-stone-50 border border-stone-200 text-xs font-semibold text-stone-700 mt-2">
+                  {deleteConfirmBill.customerName}
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmBill(null)}
+                className="py-2.5 px-3 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl font-bold text-xs transition-colors cursor-pointer"
+              >
+                {isBn ? 'বাতিল' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onDeleteBill(deleteConfirmBill.id);
+                  setDeleteConfirmBill(null);
+                }}
+                className="py-2.5 px-3 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white rounded-xl font-bold text-xs transition-all shadow-sm cursor-pointer"
+              >
+                {isBn ? 'হ্যাঁ, ডিলিট করুন' : 'Yes, Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Edit Invoice Modal if open */}
       {editingBill && onUpdateBill && (
