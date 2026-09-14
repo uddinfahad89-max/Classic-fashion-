@@ -25,6 +25,10 @@ const STORAGE_KEYS = {
 const DEFAULT_USER: UserProfile = {
   email: 'uddinfahad89@gmail.com',
   name: 'Fahad Uddin',
+  phone: '9707502246',
+  role: 'Owner',
+  pin: '1234',
+  isAppLockEnabled: false,
   isLoggedIn: true,
   loginTime: Date.now(),
 };
@@ -529,8 +533,15 @@ class StorageService {
     localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(profile));
   }
 
-  loginUser(email: string, name?: string): UserProfile {
+  loginUser(
+    email: string,
+    name?: string,
+    pin?: string,
+    role?: 'Owner' | 'Manager' | 'Cashier',
+    phone?: string
+  ): UserProfile {
     const cleanEmail = email.trim();
+    const current = this.getUserProfile();
     const inferredName =
       name?.trim() ||
       (cleanEmail.toLowerCase().includes('fahad')
@@ -538,13 +549,42 @@ class StorageService {
         : cleanEmail.split('@')[0]);
 
     const updated: UserProfile = {
+      ...current,
       email: cleanEmail,
       name: inferredName,
+      phone: phone?.trim() || current.phone || '9707502246',
+      role: role || current.role || 'Owner',
+      pin: pin?.trim() || current.pin || '1234',
       isLoggedIn: true,
       loginTime: Date.now(),
     };
     this.saveUserProfile(updated);
     return updated;
+  }
+
+  updateUserSecurity(updates: Partial<UserProfile>): UserProfile {
+    const current = this.getUserProfile();
+    const updated: UserProfile = {
+      ...current,
+      ...updates,
+    };
+    this.saveUserProfile(updated);
+    return updated;
+  }
+
+  verifyPin(enteredPin: string): boolean {
+    const profile = this.getUserProfile();
+    const currentPin = profile.pin || '1234';
+    return enteredPin.trim() === currentPin.trim();
+  }
+
+  resetPin(email: string, newPin: string): boolean {
+    const profile = this.getUserProfile();
+    if (profile.email.toLowerCase() === email.trim().toLowerCase()) {
+      this.updateUserSecurity({ pin: newPin.trim() });
+      return true;
+    }
+    return false;
   }
 
   logoutUser(): UserProfile {

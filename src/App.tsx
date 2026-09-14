@@ -27,6 +27,7 @@ import { PurchaseTripTab } from './components/PurchaseTripTab';
 import { PrintReceiptModal } from './components/PrintReceiptModal';
 import { SettingsModal } from './components/SettingsModal';
 import { LoginModal } from './components/LoginModal';
+import { AppLockScreen } from './components/AppLockScreen';
 import { OnboardingModal } from './components/OnboardingModal';
 import { CalculatorModal } from './components/CalculatorModal';
 
@@ -41,6 +42,7 @@ export default function App() {
   const [language, setLanguage] = useState<Language>(storageService.getLanguage());
   const [purchaseTrips, setPurchaseTrips] = useState<PurchaseTrip[]>(storageService.getPurchaseTrips());
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [isAppLocked, setIsAppLocked] = useState(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
   const [receiptBill, setReceiptBill] = useState<BillInvoice | null>(null);
@@ -133,11 +135,63 @@ export default function App() {
     showToast(res.message, res.success ? 'success' : 'info');
   };
 
-  // Authentication Handlers
-  const handleLoginUser = (email: string, name?: string) => {
-    const updated = storageService.loginUser(email, name);
+  // Authentication & Security Handlers
+  const handleLoginUser = (
+    email: string,
+    name?: string,
+    pin?: string,
+    role?: 'Owner' | 'Manager' | 'Cashier',
+    phone?: string,
+    isAppLockEnabled?: boolean
+  ) => {
+    const updated = storageService.loginUser(email, name, pin, role, phone);
+    if (isAppLockEnabled !== undefined) {
+      storageService.updateUserSecurity({ isAppLockEnabled });
+      updated.isAppLockEnabled = isAppLockEnabled;
+    }
     setUserProfile(updated);
-    showToast(`স্বাগতম, ${updated.name}! (${updated.email})`, 'success');
+    showToast(
+      language === 'bn'
+        ? `স্বাগতম, ${updated.name}! (${updated.role || 'Owner'})`
+        : `Welcome, ${updated.name}! (${updated.role || 'Owner'})`,
+      'success'
+    );
+  };
+
+  const handleUpdateSecurity = (updates: Partial<UserProfile>) => {
+    const updated = storageService.updateUserSecurity(updates);
+    setUserProfile(updated);
+    showToast(
+      language === 'bn'
+        ? 'নিরাপত্তা সেটিংস আপডেট করা হয়েছে'
+        : 'Security settings updated',
+      'success'
+    );
+  };
+
+  const handleLockApp = () => {
+    setIsAppLocked(true);
+    showToast(
+      language === 'bn' ? 'অ্যাপ ভল্ট লক করা হয়েছে' : 'App vault has been locked',
+      'info'
+    );
+  };
+
+  const handleUnlockApp = () => {
+    setIsAppLocked(false);
+    showToast(
+      language === 'bn' ? 'ভল্ট সফলভাবে আনলক হয়েছে' : 'Vault successfully unlocked',
+      'success'
+    );
+  };
+
+  const handleResetPin = (newPin: string) => {
+    const updated = storageService.updateUserSecurity({ pin: newPin });
+    setUserProfile(updated);
+    showToast(
+      language === 'bn' ? 'নতুন পিন সেট করা হয়েছে' : 'New PIN has been saved',
+      'success'
+    );
   };
 
   const handleLogoutUser = () => {
@@ -436,6 +490,7 @@ export default function App() {
         language={language}
         onToggleLanguage={handleToggleLanguage}
         onOpenCalculator={() => setIsCalculatorOpen(true)}
+        onLockApp={handleLockApp}
       />
 
       {/* Main Workspace with proper bottom padding to prevent overlap with bottom bar */}
@@ -546,6 +601,19 @@ export default function App() {
         userProfile={userProfile}
         onLogin={handleLoginUser}
         onLogout={handleLogoutUser}
+        onUpdateSecurity={handleUpdateSecurity}
+        onLockApp={handleLockApp}
+        language={language}
+      />
+
+      {/* App Lock Screen (4-Digit PIN Security Vault) */}
+      <AppLockScreen
+        isLocked={isAppLocked}
+        onUnlock={handleUnlockApp}
+        userProfile={userProfile}
+        settings={settings}
+        language={language}
+        onResetPin={handleResetPin}
       />
 
       {/* Thermal Receipt Print & Preview Dialog */}

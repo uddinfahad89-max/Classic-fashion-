@@ -14,6 +14,8 @@ import {
   CheckCircle2,
   ChevronRight,
   Calculator,
+  Lock,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   ThermalPrinterSettings,
@@ -34,6 +36,7 @@ interface HeaderProps {
   language: Language;
   onToggleLanguage: () => void;
   onOpenCalculator: () => void;
+  onLockApp?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -48,6 +51,7 @@ export const Header: React.FC<HeaderProps> = ({
   language,
   onToggleLanguage,
   onOpenCalculator,
+  onLockApp,
 }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -342,8 +346,8 @@ export const Header: React.FC<HeaderProps> = ({
                 </button>
               </div>
 
-              {/* Section 4: Profile / Account Details */}
-              <div className="p-2">
+              {/* Section 4: Profile / Account & Security */}
+              <div className="p-2 space-y-1">
                 <button
                   type="button"
                   onClick={() => {
@@ -358,14 +362,14 @@ export const Header: React.FC<HeaderProps> = ({
                         {userProfile.name ? userProfile.name.charAt(0).toUpperCase() : 'U'}
                       </div>
                     ) : (
-                      <Mail className="w-4 h-4 text-stone-600" />
+                      <ShieldCheck className="w-4 h-4 text-blue-600" />
                     )}
-                    <span className="truncate max-w-[150px]">
+                    <span className="truncate max-w-[140px]">
                       {userProfile.isLoggedIn
                         ? userProfile.name || userProfile.email
                         : language === 'bn'
-                        ? 'লগইন / ক্লাউড সিঙ্ক'
-                        : 'Profile & Cloud Sync'}
+                        ? 'লগইন ও নিরাপত্তা'
+                        : 'Login & Security'}
                     </span>
                   </span>
                   <span className="text-[10px] text-stone-400">
@@ -374,6 +378,25 @@ export const Header: React.FC<HeaderProps> = ({
                       : (language === 'bn' ? 'সাইন ইন' : 'Sign in')}
                   </span>
                 </button>
+
+                {userProfile.isLoggedIn && onLockApp && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMenuOpen(false);
+                      onLockApp();
+                    }}
+                    className="w-full text-left px-3 py-1.5 rounded-xl text-xs font-semibold text-amber-800 bg-amber-50/70 hover:bg-amber-100/80 border border-amber-200/60 flex items-center justify-between cursor-pointer transition-colors"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Lock className="w-3.5 h-3.5 text-amber-700" />
+                      <span>{language === 'bn' ? 'অ্যাপ লক করুন (PIN Lock)' : 'Lock App (PIN)'}</span>
+                    </span>
+                    <span className="text-[10px] font-mono bg-amber-200/70 text-amber-900 px-1 rounded font-bold">
+                      ●●●●
+                    </span>
+                  </button>
+                )}
               </div>
             </div>
           )}

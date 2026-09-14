@@ -77,6 +77,12 @@ export interface UserProfile {
   name: string;
   isLoggedIn: boolean;
   loginTime?: number;
+  phone?: string;
+  role?: 'Owner' | 'Manager' | 'Cashier';
+  pin?: string;
+  isAppLockEnabled?: boolean;
+  securityQuestion?: string;
+  securityAnswer?: string;
 }
 
 export interface ThermalPrinterSettings {
