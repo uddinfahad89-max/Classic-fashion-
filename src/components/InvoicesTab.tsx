@@ -18,6 +18,10 @@ import {
   ChevronUp,
   Edit2,
   Download,
+  Share2,
+  MessageCircle,
+  X,
+  PlusCircle,
 } from 'lucide-react';
 import { BillInvoice, ThermalPrinterSettings, Language } from '../types';
 import { thermalPrinterService } from '../services/thermalPrinterService';
@@ -48,6 +52,9 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
   onLoadIntoBilling,
 }) => {
   const t = translations[language];
+  const isBn = language === 'bn';
+  const sym = settings.currencySymbol || '₹';
+
   const [searchTerm, setSearchTerm] = useState('');
   const [datePreset, setDatePreset] = useState<DateFilterPreset>('all');
   const [customDate, setCustomDate] = useState('');
@@ -55,8 +62,6 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
   const [expandedInvoiceId, setExpandedInvoiceId] = useState<string | null>(null);
   const [actionFeedback, setActionFeedback] = useState<{ id: string; message: string } | null>(null);
   const [editingBill, setEditingBill] = useState<BillInvoice | null>(null);
-
-  const sym = settings.currencySymbol || '₹';
 
   // Helper date matchers
   const isSameDay = (timestamp: number, targetDate: Date) => {
@@ -109,7 +114,7 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
     });
   }, [bills, searchTerm, datePreset, customDate, paymentFilter]);
 
-  // Financial Stats of filtered bills
+  // Financial Stats of filtered bills (Khatabook 3-pill stats)
   const stats = useMemo(() => {
     const totalCount = filteredBills.length;
     const totalRevenue = filteredBills.reduce((sum, b) => sum + b.grandTotal, 0);
@@ -123,28 +128,41 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
     return { totalCount, totalRevenue, paidRevenue, dueRevenue };
   }, [filteredBills]);
 
-  // Handlers
+  // Quick Print via Bluetooth / Browser
   const handleQuickPrint = async (bill: BillInvoice) => {
-    setActionFeedback({ id: bill.id, message: 'Printing...' });
+    setActionFeedback({ id: bill.id, message: isBn ? 'প্রিন্ট হচ্ছে...' : 'Printing...' });
     const res = await thermalPrinterService.printViaBluetooth(bill, settings);
     if (res.success) {
-      setActionFeedback({ id: bill.id, message: 'Printed via BLE!' });
+      setActionFeedback({ id: bill.id, message: isBn ? 'প্রিন্ট সম্পন্ন!' : 'Printed via BLE!' });
     } else {
-      // Fallback to browser print if not connected
       thermalPrinterService.printViaBrowser(bill, settings);
-      setActionFeedback({ id: bill.id, message: 'Browser Print' });
+      setActionFeedback({ id: bill.id, message: isBn ? 'ব্রাউজার প্রিন্ট' : 'Browser Print' });
     }
     setTimeout(() => setActionFeedback(null), 2200);
   };
 
-  const handleRawBtPrint = (bill: BillInvoice) => {
-    setActionFeedback({ id: bill.id, message: 'Opening RawBT...' });
-    thermalPrinterService.printViaRawBT(bill, settings);
-    setTimeout(() => setActionFeedback(null), 2000);
+  // WhatsApp Share bill
+  const handleWhatsAppShare = (bill: BillInvoice) => {
+    const cleanPhone = bill.customerPhone ? bill.customerPhone.replace(/[^0-9]/g, '') : '';
+    const store = settings.storeName || 'Our Store';
+
+    let itemsText = bill.items
+      .map((it) => `• ${it.name} (${it.qty} x ${sym}${it.price}) = ${sym}${it.total}`)
+      .join('\n');
+
+    let message = isBn
+      ? `🧾 *${store} - বিল চালান #${bill.invoiceNo}*\nতারিখ: ${bill.date}\nকাস্টমার: ${bill.customerName || 'সম্মানিত ক্রেতা'}\n\n*পণ্য বিবরণ:*\n${itemsText}\n\n*মোট বিল:* ${sym}${bill.grandTotal.toFixed(2)}\n*পেমেন্ট:* ${bill.paymentMethod.toUpperCase()} (${bill.paymentMethod === 'due' ? 'বাকি' : 'পরিশোধিত'})\n\nআমাদের সাথে কেনাকাটার জন্য ধন্যবাদ!`
+      : `🧾 *${store} - Invoice #${bill.invoiceNo}*\nDate: ${bill.date}\nCustomer: ${bill.customerName || 'Valued Customer'}\n\n*Items:*\n${itemsText}\n\n*Grand Total:* ${sym}${bill.grandTotal.toFixed(2)}\n*Status:* ${bill.paymentMethod.toUpperCase()} (${bill.paymentMethod === 'due' ? 'DUE' : 'PAID'})\n\nThank you for your business!`;
+
+    const url = cleanPhone
+      ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`
+      : `https://wa.me/?text=${encodeURIComponent(message)}`;
+
+    window.open(url, '_blank');
   };
 
   const handleDelete = (id: string, invNo: string) => {
-    if (window.confirm(`Are you sure you want to delete Invoice #${invNo}?`)) {
+    if (window.confirm(isBn ? `আপনি কি ইনভয়েস #${invNo} ডিলিট করতে চান?` : `Are you sure you want to delete Invoice #${invNo}?`)) {
       onDeleteBill(id);
     }
   };
@@ -154,148 +172,160 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
   };
 
   return (
-    <div className="max-w-3xl mx-auto px-3 sm:px-4 py-3 sm:py-5 space-y-3.5">
-      {/* 1. Header & Summary Stats */}
-      <div className="bg-white rounded-2xl p-3.5 sm:p-4 shadow-xs border border-stone-200">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-stone-100">
-          <div>
-            <h2 className="text-sm font-bold text-stone-900 flex items-center gap-1.5">
-              <FileText className="w-4 h-4 text-blue-600" />
-              <span>Invoices & Past Bills ({bills.length})</span>
-            </h2>
-            <p className="text-[11px] text-stone-500 font-medium">
-              Every bill auto-saved with complete line items, discount, and payment records
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <div className="px-2.5 py-1 rounded-xl bg-blue-50 border border-blue-200 text-blue-800 text-xs font-bold">
-              Total: {sym}{stats.totalRevenue.toFixed(2)}
-            </div>
-          </div>
+    <div className="max-w-2xl mx-auto px-3 sm:px-4 py-3 sm:py-5 space-y-3.5 pb-28">
+      {/* 1. KHATABOOK / VYAPAR TOP 3 METRIC PILLS */}
+      <div className="bg-white rounded-3xl p-3.5 sm:p-4 shadow-sm border border-stone-200/90 space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-bold text-stone-900 flex items-center gap-2">
+            <FileText className="w-4 h-4 text-blue-600" />
+            <span>{isBn ? 'ইনভয়েস ও বিল হিস্ট্রি' : 'Invoices & Sales Register'}</span>
+          </h2>
+          <span className="text-[11px] font-mono font-bold text-stone-500 bg-stone-100 px-2 py-0.5 rounded-full">
+            {filteredBills.length} {isBn ? 'টি বিল' : 'Invoices'}
+          </span>
         </div>
 
-        {/* 3 Metric Cards */}
-        <div className="grid grid-cols-3 gap-2 pt-3 text-center">
-          <div className="p-2 rounded-xl bg-stone-50 border border-stone-200">
-            <span className="block text-[10px] uppercase font-bold text-stone-400">Bills</span>
-            <span className="text-sm sm:text-base font-bold text-stone-800 font-mono">
-              {stats.totalCount}
+        {/* 3 Metric Pills */}
+        <div className="grid grid-cols-3 gap-2 text-center">
+          {/* Total Sales */}
+          <div className="p-2.5 rounded-2xl bg-stone-50 border border-stone-200">
+            <span className="block text-[10px] uppercase font-bold text-stone-500">
+              {isBn ? 'মোট বিক্রয়' : 'Total Sales'}
+            </span>
+            <span className="text-xs sm:text-base font-black text-stone-900 font-mono block mt-0.5">
+              {sym}{stats.totalRevenue.toFixed(0)}
+            </span>
+            <span className="text-[9px] text-stone-400 font-medium">
+              {stats.totalCount} {isBn ? 'টি বিল' : 'bills'}
             </span>
           </div>
-          <div className="p-2 rounded-xl bg-emerald-50 border border-emerald-200">
-            <span className="block text-[10px] uppercase font-bold text-emerald-600">Paid Sales</span>
-            <span className="text-sm sm:text-base font-bold text-emerald-700 font-mono">
+
+          {/* Paid Sales */}
+          <div className="p-2.5 rounded-2xl bg-emerald-50 border border-emerald-200/80">
+            <span className="block text-[10px] uppercase font-bold text-emerald-700">
+              {isBn ? 'নগদ আদায়' : 'Paid Sales'}
+            </span>
+            <span className="text-xs sm:text-base font-black text-emerald-700 font-mono block mt-0.5">
               {sym}{stats.paidRevenue.toFixed(0)}
             </span>
+            <span className="text-[9px] text-emerald-600 font-medium">
+              {isBn ? 'পরিশোধিত' : 'Settled'}
+            </span>
           </div>
-          <div className="p-2 rounded-xl bg-rose-50 border border-rose-200">
-            <span className="block text-[10px] uppercase font-bold text-rose-500">Credit / Due</span>
-            <span className="text-sm sm:text-base font-bold text-rose-700 font-mono">
+
+          {/* Due Sales */}
+          <div className="p-2.5 rounded-2xl bg-rose-50 border border-rose-200/80">
+            <span className="block text-[10px] uppercase font-bold text-rose-700">
+              {isBn ? 'বাকি বিক্রয়' : 'Due Sales'}
+            </span>
+            <span className="text-xs sm:text-base font-black text-rose-700 font-mono block mt-0.5">
               {sym}{stats.dueRevenue.toFixed(0)}
+            </span>
+            <span className="text-[9px] text-rose-600 font-medium">
+              {isBn ? 'বকেয়া পাওনা' : 'Unpaid credit'}
             </span>
           </div>
         </div>
       </div>
 
-      {/* 2. Filters & Search Controls */}
-      <div className="bg-white rounded-2xl p-3 sm:p-4 shadow-xs border border-stone-200 space-y-2.5">
+      {/* 2. SEARCH & FILTER CONTROLS */}
+      <div className="space-y-2">
         {/* Search Bar */}
         <div className="relative">
-          <Search className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <Search className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search by Bill #, Customer Name, Phone, or Item..."
-            className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-blue-500 focus:bg-white transition-all font-medium"
+            placeholder={isBn ? 'বিল #, কাস্টমারের নাম বা ফোন দিয়ে খুঁজুন...' : 'Search Invoice #, Customer Name, or Phone...'}
+            className="w-full pl-10 pr-9 py-2.5 bg-white border border-stone-200 rounded-2xl text-xs sm:text-sm font-medium focus:outline-none focus:border-blue-500 shadow-2xs transition-all"
           />
           {searchTerm && (
             <button
               onClick={() => setSearchTerm('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-stone-400 hover:text-stone-700 cursor-pointer font-bold"
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700 text-sm font-bold cursor-pointer"
             >
               ×
             </button>
           )}
         </div>
 
-        {/* Filters Row: Date Presets + Payment Method */}
-        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-          {/* Date presets */}
+        {/* Date presets + Payment Mode selector */}
+        <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs">
           <div className="flex items-center gap-1 overflow-x-auto pb-0.5">
-            <span className="text-[11px] font-semibold text-stone-500 mr-1 flex items-center gap-1">
-              <Calendar className="w-3.5 h-3.5 text-stone-400" />
-              Date:
-            </span>
             {(['all', 'today', 'yesterday', 'week', 'custom'] as DateFilterPreset[]).map((preset) => (
               <button
                 key={preset}
+                type="button"
                 onClick={() => setDatePreset(preset)}
-                className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition-all cursor-pointer capitalize ${
+                className={`px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all cursor-pointer capitalize ${
                   datePreset === preset
                     ? 'bg-blue-600 text-white shadow-2xs'
-                    : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+                    : 'bg-white border border-stone-200 text-stone-600 hover:bg-stone-100'
                 }`}
               >
-                {preset === 'week' ? '7 Days' : preset}
+                {preset === 'all'
+                  ? isBn
+                    ? 'সব'
+                    : 'All'
+                  : preset === 'today'
+                  ? isBn
+                    ? 'আজ'
+                    : 'Today'
+                  : preset === 'yesterday'
+                  ? isBn
+                    ? 'গতকাল'
+                    : 'Yesterday'
+                  : preset === 'week'
+                  ? isBn
+                    ? '৭ দিন'
+                    : '7 Days'
+                  : isBn
+                  ? 'তারিখ'
+                  : 'Custom'}
               </button>
             ))}
           </div>
 
-          {/* Payment filter dropdown */}
-          <div className="flex items-center gap-1.5 ml-auto">
-            <span className="text-[11px] font-semibold text-stone-500">Payment:</span>
+          <div className="flex items-center gap-1 ml-auto">
             <select
               value={paymentFilter}
               onChange={(e) => setPaymentFilter(e.target.value as any)}
-              className="bg-stone-100 border border-stone-200 text-stone-800 text-[11px] font-bold px-2 py-1 rounded-lg focus:outline-none focus:border-blue-500 cursor-pointer"
+              className="bg-white border border-stone-200 text-stone-700 text-[11px] font-bold px-2 py-1 rounded-xl focus:outline-none focus:border-blue-500 cursor-pointer shadow-2xs"
             >
-              <option value="all">All Modes</option>
-              <option value="cash">Cash Only</option>
-              <option value="upi">UPI Only</option>
-              <option value="card">Card Only</option>
-              <option value="due">Credit / Due Only</option>
+              <option value="all">{isBn ? 'সকল পেমেন্ট' : 'All Modes'}</option>
+              <option value="cash">{isBn ? 'নগদ (Cash)' : 'Cash'}</option>
+              <option value="upi">UPI</option>
+              <option value="card">{isBn ? 'কার্ড (Card)' : 'Card'}</option>
+              <option value="due">{isBn ? 'বাকি (Due)' : 'Due / Credit'}</option>
             </select>
           </div>
         </div>
 
-        {/* Custom Date Input if selected */}
         {datePreset === 'custom' && (
-          <div className="pt-1 flex items-center gap-2">
-            <span className="text-xs text-stone-600 font-medium">Pick Date:</span>
+          <div className="flex items-center gap-2 pt-1">
+            <span className="text-xs text-stone-500 font-medium">{isBn ? 'তারিখ নির্বাচন:' : 'Select Date:'}</span>
             <input
               type="date"
               value={customDate}
               onChange={(e) => setCustomDate(e.target.value)}
-              className="bg-stone-50 border border-stone-200 text-xs px-2.5 py-1 rounded-lg font-mono focus:outline-none focus:border-blue-500"
+              className="bg-white border border-stone-200 text-xs px-2 py-1 rounded-xl font-mono focus:outline-none focus:border-blue-500"
             />
           </div>
         )}
       </div>
 
-      {/* 3. Invoices List */}
-      <div className="space-y-2.5">
+      {/* 3. MAIN VIEW: INVOICES LIST CARDS */}
+      <div className="space-y-2">
         {filteredBills.length === 0 ? (
-          <div className="bg-white rounded-2xl p-8 text-center border border-stone-200 space-y-2">
-            <FileText className="w-8 h-8 text-stone-300 mx-auto" />
-            <p className="text-xs font-semibold text-stone-700">No invoices matched your filters</p>
-            <p className="text-[11px] text-stone-400">
-              Try clearing search keywords or choosing "All" in the date filter.
+          <div className="bg-white rounded-3xl p-10 text-center border border-stone-200 space-y-2">
+            <FileText className="w-10 h-10 text-stone-300 mx-auto" />
+            <p className="text-xs font-bold text-stone-700">
+              {isBn ? 'কোনো ইনভয়েস পাওয়া যায়নি' : 'No invoices matched your filters'}
             </p>
-            {(searchTerm || datePreset !== 'all' || paymentFilter !== 'all') && (
-              <button
-                onClick={() => {
-                  setSearchTerm('');
-                  setDatePreset('all');
-                  setCustomDate('');
-                  setPaymentFilter('all');
-                }}
-                className="mt-2 px-3 py-1.5 rounded-xl text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors cursor-pointer"
-              >
-                Reset All Filters
-              </button>
-            )}
+            <p className="text-[11px] text-stone-400">
+              {isBn ? 'ফিল্টার পরিবর্তন করুন বা নতুন বিল তৈরি করুন' : 'Try clearing filters or checkout a new bill'}
+            </p>
           </div>
         ) : (
           filteredBills.map((bill) => {
@@ -306,206 +336,144 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
             return (
               <div
                 key={bill.id}
-                className="bg-white rounded-2xl shadow-xs border border-stone-200 overflow-hidden hover:border-stone-300 transition-all"
+                className="bg-white rounded-2xl border border-stone-200/90 hover:border-stone-300 p-3 sm:p-3.5 shadow-2xs transition-all space-y-2.5"
               >
-                {/* Main Card Summary */}
-                <div className="p-3 sm:p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs sm:text-sm font-bold text-stone-900 font-mono">
-                        #{bill.invoiceNo}
-                      </span>
+                {/* Header Row: Invoice #, Status badge, Amount */}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs sm:text-sm font-bold text-stone-900 font-mono">
+                      #{bill.invoiceNo}
+                    </span>
 
-                      {/* Payment Status Pill */}
-                      <span
-                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase ${
-                          isDue
-                            ? 'bg-rose-100 text-rose-700 border border-rose-200'
-                            : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                        }`}
-                      >
-                        {isDue ? 'Due' : 'Paid'} • {bill.paymentMethod}
-                      </span>
+                    {/* Status Badge */}
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                        isDue
+                          ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                          : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                      }`}
+                    >
+                      {isDue ? (isBn ? 'বাকি' : 'DUE') : (isBn ? 'পরিশোধিত' : 'PAID')} • {bill.paymentMethod}
+                    </span>
 
-                      {feedback && (
-                        <span className="text-[10px] font-bold text-blue-600 animate-pulse flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3" /> {feedback}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="text-[11px] text-stone-500 flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                      <span>{bill.date}</span>
-                      <span>•</span>
-                      <span className="font-semibold text-stone-800">
-                        {bill.customerName ? bill.customerName : 'Walk-in Customer'}
-                        {bill.customerPhone ? ` (${bill.customerPhone})` : ''}
+                    {feedback && (
+                      <span className="text-[10px] font-bold text-blue-600 animate-pulse flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" /> {feedback}
                       </span>
-                      <span>•</span>
-                      <span>{bill.items.length} {bill.items.length === 1 ? 'item' : 'items'}</span>
-                    </div>
+                    )}
                   </div>
 
-                  {/* Financial Total & Primary Actions */}
-                  <div className="flex items-center justify-between sm:justify-end gap-2 pt-2 sm:pt-0 border-t sm:border-t-0 border-stone-100">
-                    <div className="text-left sm:text-right">
-                      <div className="text-sm sm:text-base font-bold text-stone-900 font-mono">
-                        {sym}{bill.grandTotal.toFixed(2)}
-                      </div>
-                      {bill.discount > 0 && (
-                        <div className="text-[10px] text-stone-400 line-through font-mono">
-                          {sym}{bill.subtotal.toFixed(2)}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Action Buttons */}
-                    <div className="flex items-center gap-1">
-                      {/* View Clear Invoice / Tax Bill */}
-                      <button
-                        onClick={() => onViewReceipt(bill)}
-                        className="px-2.5 py-1.5 rounded-xl bg-[#6E68D8]/10 hover:bg-[#6E68D8]/20 text-[#6E68D8] text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors border border-[#6E68D8]/25"
-                        title="View Clear Tax Invoice with Print & PDF Save options"
-                      >
-                        <FileText className="w-3.5 h-3.5 text-[#6E68D8]" />
-                        <span className="hidden sm:inline">{language === 'bn' ? 'ক্লিয়ার বিল' : 'Clear Bill'}</span>
-                      </button>
-
-                      {/* Direct PDF & Print Modal */}
-                      <button
-                        onClick={() => onViewReceipt(bill)}
-                        className="px-2 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors border border-emerald-200"
-                        title="Download or Print PDF"
-                      >
-                        <Download className="w-3.5 h-3.5 text-emerald-700" />
-                        <span className="hidden sm:inline">PDF</span>
-                      </button>
-
-                      {/* Edit Invoice Button */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (onEditBill) {
-                            onEditBill(bill);
-                          } else {
-                            setEditingBill(bill);
-                          }
-                        }}
-                        className="px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors border border-amber-200/60"
-                        title={language === 'bn' ? 'ইনভয়েস এডিট করুন' : 'Edit Invoice'}
-                      >
-                        <Edit2 className="w-3.5 h-3.5 text-amber-700" />
-                        <span className="hidden sm:inline">{t.editInvoiceBtn}</span>
-                      </button>
-
-                      {/* Quick Print Button */}
-                      <button
-                        onClick={() => handleQuickPrint(bill)}
-                        className="p-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold cursor-pointer transition-colors"
-                        title="1-Click Print (Bluetooth / Browser Fallback)"
-                      >
-                        <Printer className="w-4 h-4 text-stone-700" />
-                      </button>
-
-                      {/* RawBT Android Print */}
-                      <button
-                        onClick={() => handleRawBtPrint(bill)}
-                        className="p-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-semibold cursor-pointer transition-colors"
-                        title="Print via RawBT (Android Intent)"
-                      >
-                        <Smartphone className="w-4 h-4 text-amber-700" />
-                      </button>
-
-                      {/* Expand / Collapse Details */}
-                      <button
-                        onClick={() => toggleExpand(bill.id)}
-                        className="p-1.5 rounded-xl text-stone-400 hover:text-stone-700 hover:bg-stone-100 cursor-pointer"
-                        title="Toggle Invoice Items"
-                      >
-                        {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                      </button>
-
-                      {/* Delete */}
-                      <button
-                        onClick={() => handleDelete(bill.id, bill.invoiceNo)}
-                        className="p-1.5 rounded-xl text-stone-300 hover:text-rose-600 hover:bg-rose-50 cursor-pointer transition-colors"
-                        title="Delete Invoice"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                  {/* Grand Total */}
+                  <div className="text-right">
+                    <div className="text-base font-black text-stone-900 font-mono tracking-tight">
+                      {sym}{bill.grandTotal.toFixed(2)}
                     </div>
                   </div>
                 </div>
 
-                {/* Expanded Item Breakdown Details */}
-                {isExpanded && (
-                  <div className="bg-stone-50/80 p-3 sm:p-4 border-t border-stone-200 text-xs space-y-2">
-                    <div className="font-semibold text-stone-700 text-[11px] uppercase tracking-wider">
-                      Purchased Items Breakdown
-                    </div>
+                {/* Customer & Items Summary */}
+                <div className="flex items-center justify-between text-[11px] text-stone-500 font-medium">
+                  <div className="truncate flex items-center gap-1.5">
+                    <span className="font-bold text-stone-800">
+                      {bill.customerName || (isBn ? 'সাধারণ ক্রেতা' : 'Walk-in Customer')}
+                    </span>
+                    {bill.customerPhone && (
+                      <span className="font-mono text-stone-400">({bill.customerPhone})</span>
+                    )}
+                  </div>
+                  <div className="shrink-0 flex items-center gap-1.5 text-stone-400">
+                    <span>{bill.items.length} {isBn ? 'আইটেম' : 'items'}</span>
+                    <span>•</span>
+                    <span>{bill.date.split(' ')[0]}</span>
+                  </div>
+                </div>
 
-                    <div className="divide-y divide-stone-200/60 bg-white rounded-xl border border-stone-200 overflow-hidden">
-                      {bill.items.map((item, idx) => (
-                        <div key={idx} className="p-2 sm:p-2.5 flex items-center justify-between text-xs">
-                          <div>
-                            <span className="font-semibold text-stone-800">{item.name}</span>
-                            <div className="text-[11px] text-stone-400">
-                              {sym}{item.price.toFixed(2)} × {item.qty}
-                            </div>
-                          </div>
-                          <span className="font-bold font-mono text-stone-900">
-                            {sym}{item.total.toFixed(2)}
+                {/* Action Icons Bar (Thermal Print, WhatsApp, View Tax Invoice, Delete) */}
+                <div className="pt-2 border-t border-stone-100 flex items-center justify-between gap-1 flex-wrap">
+                  {/* Left: Expand items */}
+                  <button
+                    type="button"
+                    onClick={() => toggleExpand(bill.id)}
+                    className="text-[11px] font-bold text-stone-500 hover:text-stone-800 flex items-center gap-1 cursor-pointer"
+                  >
+                    <span>{isExpanded ? (isBn ? 'সংক্ষেপ করুন' : 'Hide Details') : (isBn ? 'আইটেম দেখুন' : 'View Items')}</span>
+                    {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  </button>
+
+                  {/* Right: Quick Action Icons */}
+                  <div className="flex items-center gap-1.5">
+                    {/* 1. Quick Thermal Print */}
+                    <button
+                      type="button"
+                      onClick={() => handleQuickPrint(bill)}
+                      className="p-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 transition-all cursor-pointer"
+                      title={isBn ? 'থার্মাল প্রিন্ট' : 'Print Thermal Slip'}
+                    >
+                      <Printer className="w-4 h-4" />
+                    </button>
+
+                    {/* 2. WhatsApp Share */}
+                    <button
+                      type="button"
+                      onClick={() => handleWhatsAppShare(bill)}
+                      className="p-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200/80 transition-all cursor-pointer"
+                      title={isBn ? 'হোয়াটসঅ্যাপে চালান পাঠান' : 'Share Bill on WhatsApp'}
+                    >
+                      <MessageCircle className="w-4 h-4 text-emerald-600" />
+                    </button>
+
+                    {/* 3. View Full Tax Invoice / Receipt */}
+                    <button
+                      type="button"
+                      onClick={() => onViewReceipt(bill)}
+                      className="p-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/80 transition-all cursor-pointer"
+                      title={isBn ? 'ট্যাক্স চালান দেখুন' : 'View / Print Tax Invoice'}
+                    >
+                      <Eye className="w-4 h-4 text-blue-600" />
+                    </button>
+
+                    {/* 4. Edit Bill (if allowed) */}
+                    {onUpdateBill && (
+                      <button
+                        type="button"
+                        onClick={() => setEditingBill(bill)}
+                        className="p-1.5 rounded-xl text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition-all cursor-pointer"
+                        title={isBn ? 'বিল এডিট' : 'Edit Bill'}
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+
+                    {/* 5. Delete Bill */}
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(bill.id, bill.invoiceNo)}
+                      className="p-1.5 rounded-xl text-stone-300 hover:text-rose-600 hover:bg-rose-50 transition-all cursor-pointer"
+                      title={isBn ? 'ডিলিট করুন' : 'Delete'}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Expanded Item Breakdown */}
+                {isExpanded && (
+                  <div className="pt-2 border-t border-dashed border-stone-200 space-y-1.5 text-xs animate-in fade-in duration-150">
+                    <div className="bg-stone-50 rounded-xl p-2.5 space-y-1 font-mono">
+                      {bill.items.map((it, idx) => (
+                        <div key={idx} className="flex justify-between items-center text-[11px]">
+                          <span className="font-sans text-stone-800 font-medium">
+                            {it.name} <span className="text-stone-400 font-mono">x{it.qty}</span>
+                          </span>
+                          <span className="font-bold text-stone-900">
+                            {sym}{it.total.toFixed(2)}
                           </span>
                         </div>
                       ))}
-                    </div>
 
-                    {/* Summary Math */}
-                    <div className="space-y-1 text-[11px] text-stone-600 pt-1">
-                      <div className="flex justify-between">
-                        <span>Subtotal:</span>
-                        <span className="font-mono">{sym}{bill.subtotal.toFixed(2)}</span>
-                      </div>
-                      {bill.discount > 0 && (
-                        <div className="flex justify-between text-rose-600">
-                          <span>Discount:</span>
-                          <span className="font-mono">-{sym}{bill.discount.toFixed(2)}</span>
-                        </div>
-                      )}
-                      <div className="flex justify-between font-bold text-stone-900 text-xs border-t border-stone-200 pt-1">
-                        <span>Grand Total:</span>
-                        <span className="font-mono">{sym}{bill.grandTotal.toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between text-stone-500">
-                        <span>Paid:</span>
-                        <span className="font-mono">{sym}{bill.paidAmount.toFixed(2)}</span>
-                      </div>
-                      {bill.changeAmount > 0 && (
-                        <div className="flex justify-between text-stone-500">
-                          <span>Change Returned:</span>
-                          <span className="font-mono">{sym}{bill.changeAmount.toFixed(2)}</span>
-                        </div>
-                      )}
-
-                      {/* Edit action in expanded breakdown */}
-                      <div className="pt-2.5 flex items-center justify-between border-t border-stone-200">
-                        <span className="text-[11px] text-stone-400 font-mono">
-                          Invoice #{bill.invoiceNo}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (onEditBill) {
-                              onEditBill(bill);
-                            } else {
-                              setEditingBill(bill);
-                            }
-                          }}
-                          className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                          <span>{t.editInvoiceBtn}</span>
-                        </button>
+                      <div className="pt-1.5 mt-1.5 border-t border-stone-200 flex justify-between font-bold text-xs">
+                        <span className="font-sans text-stone-600">{isBn ? 'মোট মূল্য' : 'Grand Total'}</span>
+                        <span className="text-stone-900 font-mono">{sym}{bill.grandTotal.toFixed(2)}</span>
                       </div>
                     </div>
                   </div>
@@ -516,21 +484,17 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
         )}
       </div>
 
-      {/* Edit Invoice Modal */}
-      {editingBill && (
+      {/* Edit Invoice Modal if open */}
+      {editingBill && onUpdateBill && (
         <EditInvoiceModal
           bill={editingBill}
-          isOpen={!!editingBill}
-          onClose={() => setEditingBill(null)}
-          onSave={(updated) => {
-            if (onUpdateBill) {
-              onUpdateBill(updated);
-            }
-            setEditingBill(null);
-          }}
-          onLoadInBilling={onLoadIntoBilling}
           settings={settings}
           language={language}
+          onClose={() => setEditingBill(null)}
+          onSave={(updated) => {
+            onUpdateBill(updated);
+            setEditingBill(null);
+          }}
         />
       )}
     </div>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   ShoppingBag,
   Plus,
@@ -22,6 +22,13 @@ import {
   FileSpreadsheet,
   Edit2,
   Coins,
+  Calculator,
+  Search,
+  X,
+  FileText,
+  Tag,
+  ArrowUpRight,
+  Check,
 } from 'lucide-react';
 import {
   PurchaseTrip,
@@ -32,11 +39,13 @@ import {
   BillInvoice,
 } from '../types';
 import { translations, getCategoryBadge } from '../utils/i18n';
+import { KhatabookEntryModal, KhatabookEntryPayload } from './KhatabookEntryModal';
 
 interface PurchaseTripTabProps {
   trips: PurchaseTrip[];
   settings: ThermalPrinterSettings;
   language: Language;
+  onOpenCalculator?: () => void;
   onCreateTrip: (
     title: string,
     initialCash: number,
@@ -68,6 +77,7 @@ export const PurchaseTripTab: React.FC<PurchaseTripTabProps> = ({
   trips,
   settings,
   language,
+  onOpenCalculator,
   onCreateTrip,
   onUpdateTrip,
   onAddCashToTrip,
@@ -79,159 +89,153 @@ export const PurchaseTripTab: React.FC<PurchaseTripTabProps> = ({
   onPrintTripSlip,
 }) => {
   const t = translations[language];
+  const isBn = language === 'bn';
   const sym = settings.currencySymbol || '₹';
 
+  // Filters & Views
+  const [searchTerm, setSearchTerm] = useState('');
+  const [activeView, setActiveView] = useState<'purchases' | 'trips'>('purchases');
+  const [categoryFilter, setCategoryFilter] = useState<string>('all');
+
   // Modals state
+  const [isAddPurchaseModalOpen, setIsAddPurchaseModalOpen] = useState(false);
   const [isNewTripModalOpen, setIsNewTripModalOpen] = useState(false);
-  const [activeExpenseTrip, setActiveExpenseTrip] = useState<PurchaseTrip | null>(null);
-  const [expandedTripId, setExpandedTripId] = useState<string | null>(
-    trips.find((t) => t.status === 'active')?.id || trips[0]?.id || null
+  const [editingTrip, setEditingTrip] = useState<PurchaseTrip | null>(null);
+  const [addCashTrip, setAddCashTrip] = useState<PurchaseTrip | null>(null);
+
+  // Target trip selector
+  const [targetTripId, setTargetTripId] = useState<string>(
+    trips.find((t) => t.status === 'active')?.id || trips[0]?.id || ''
   );
 
-  // Edit Trip & Cash state
-  const [editingTrip, setEditingTrip] = useState<PurchaseTrip | null>(null);
-  const [editTripTitle, setEditTripTitle] = useState('');
-  const [editTripMarket, setEditTripMarket] = useState('');
-  const [editTripInitialCash, setEditTripInitialCash] = useState('');
-  const [editTripNote, setEditTripNote] = useState('');
+  const targetTrip =
+    trips.find((t) => t.id === targetTripId) ||
+    trips.find((t) => t.status === 'active') ||
+    trips[0];
 
-  // Quick Add Additional Cash state
-  const [addCashTrip, setAddCashTrip] = useState<PurchaseTrip | null>(null);
-  const [additionalCashAmount, setAdditionalCashAmount] = useState('');
-
-  // New Trip Form state
+  // New Trip form inside Modal
   const [newTripTitle, setNewTripTitle] = useState('');
   const [newTripMarket, setNewTripMarket] = useState('');
   const [newTripInitialCash, setNewTripInitialCash] = useState('');
   const [newTripNote, setNewTripNote] = useState('');
 
-  // Add Expense Form state
-  const [expTitle, setExpTitle] = useState('');
-  const [expAmount, setExpAmount] = useState('');
-  const [expCategory, setExpCategory] = useState<PurchaseExpenseCategory>('goods');
-  const [expVendor, setExpVendor] = useState('');
-  const [expNote, setExpNote] = useState('');
+  // Edit trip form
+  const [editTripTitle, setEditTripTitle] = useState('');
+  const [editTripMarket, setEditTripMarket] = useState('');
+  const [editTripInitialCash, setEditTripInitialCash] = useState('');
+  const [editTripNote, setEditTripNote] = useState('');
 
-  // Open Edit Modal
-  const openEditTripModal = (trip: PurchaseTrip) => {
-    setEditingTrip(trip);
-    setEditTripTitle(trip.title);
-    setEditTripMarket(trip.marketLocation || '');
-    setEditTripInitialCash(trip.initialCash.toString());
-    setEditTripNote(trip.note || '');
-  };
+  // Expanded Trip Accordion in trips view
+  const [expandedTripId, setExpandedTripId] = useState<string | null>(
+    trips.find((t) => t.status === 'active')?.id || trips[0]?.id || null
+  );
 
-  // Open Add Cash Modal
-  const openAddCashModal = (trip: PurchaseTrip) => {
-    setAddCashTrip(trip);
-    setAdditionalCashAmount('');
-  };
+  // Sync feedback
+  const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
 
-  // Handle Edit Trip Submit
-  const handleEditTripSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingTrip) return;
-    const cash = parseFloat(editTripInitialCash);
-    if (!editTripTitle.trim() || isNaN(cash) || cash < 0) {
-      alert(
-        language === 'bn'
-          ? 'সঠিক শিরোনাম ও সাথে নেওয়া টাকার পরিমাণ লিখুন'
-          : 'Please enter valid title and cash amount'
-      );
-      return;
-    }
-
-    onUpdateTrip?.(editingTrip.id, {
-      title: editTripTitle.trim(),
-      initialCash: cash,
-      marketLocation: editTripMarket.trim(),
-      note: editTripNote.trim(),
-    });
-    setEditingTrip(null);
-  };
-
-  // Handle Add Extra Cash Submit
-  const handleAddCashSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!addCashTrip) return;
-    const addAmt = parseFloat(additionalCashAmount);
-    if (isNaN(addAmt) || addAmt <= 0) {
-      alert(
-        language === 'bn'
-          ? 'সঠিক টাকার পরিমাণ লিখুন'
-          : 'Please enter a valid cash amount'
-      );
-      return;
-    }
-
-    onAddCashToTrip?.(addCashTrip.id, addAmt);
-    setAddCashTrip(null);
-    setAdditionalCashAmount('');
-  };
-
-  // Calculations for Summary
-  const totalInitialAll = trips.reduce((sum, tr) => sum + tr.initialCash, 0);
-  const totalSpentAll = trips.reduce((sum, tr) => sum + tr.totalSpent, 0);
-  const totalRemainingAll = trips.reduce((sum, tr) => sum + tr.remainingCash, 0);
-
+  // Active trips
   const activeTrips = trips.filter((t) => t.status === 'active');
   const completedTrips = trips.filter((t) => t.status === 'completed');
 
-  // Handle New Trip Submit
+  // Overall Totals
+  const totalInitialAll = trips.reduce((sum, t) => sum + t.initialCash, 0);
+  const totalSpentAll = trips.reduce((sum, t) => sum + t.totalSpent, 0);
+  const totalRemainingAll = trips.reduce((sum, t) => sum + t.remainingCash, 0);
+
+  // Flat list of all stock purchases across trips
+  interface FlattenedPurchase extends PurchaseExpenseItem {
+    tripId: string;
+    tripTitle: string;
+    tripStatus: 'active' | 'completed';
+  }
+
+  const allPurchases: FlattenedPurchase[] = useMemo(() => {
+    const list: FlattenedPurchase[] = [];
+    trips.forEach((trip) => {
+      trip.expenses.forEach((exp) => {
+        list.push({
+          ...exp,
+          tripId: trip.id,
+          tripTitle: trip.title,
+          tripStatus: trip.status,
+        });
+      });
+    });
+    return list.sort((a, b) => b.timestamp - a.timestamp);
+  }, [trips]);
+
+  // Filtered purchases
+  const filteredPurchases = useMemo(() => {
+    return allPurchases.filter((p) => {
+      if (categoryFilter !== 'all' && p.category !== categoryFilter) return false;
+      if (!searchTerm.trim()) return true;
+      const q = searchTerm.toLowerCase().trim();
+      return (
+        p.title.toLowerCase().includes(q) ||
+        (p.vendorOrPlace && p.vendorOrPlace.toLowerCase().includes(q)) ||
+        (p.note && p.note.toLowerCase().includes(q)) ||
+        p.tripTitle.toLowerCase().includes(q)
+      );
+    });
+  }, [allPurchases, categoryFilter, searchTerm]);
+
+  // Total amount of filtered purchases
+  const filteredPurchasesTotal = useMemo(() => {
+    return filteredPurchases.reduce((sum, p) => sum + p.amount, 0);
+  }, [filteredPurchases]);
+
+  // Handle Create Trip submit
   const handleCreateTripSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const cash = parseFloat(newTripInitialCash);
-    if (!newTripTitle.trim() || isNaN(cash) || cash < 0) {
-      alert(language === 'bn' ? 'সঠিক শিরোনাম ও সাথে নেওয়া টাকার পরিমাণ লিখুন' : 'Please enter valid title and cash amount');
+    const initialCash = parseFloat(newTripInitialCash);
+    if (!newTripTitle.trim() || isNaN(initialCash) || initialCash < 0) {
+      alert(isBn ? 'সঠিক ট্রিপের নাম ও টাকার পরিমাণ লিখুন' : 'Please enter valid title and initial cash');
       return;
     }
 
-    onCreateTrip(newTripTitle.trim(), cash, newTripMarket.trim(), newTripNote.trim());
-    setIsNewTripModalOpen(false);
+    onCreateTrip(
+      newTripTitle.trim(),
+      initialCash,
+      newTripMarket.trim() || undefined,
+      newTripNote.trim() || undefined
+    );
+
     setNewTripTitle('');
     setNewTripMarket('');
     setNewTripInitialCash('');
     setNewTripNote('');
+    setIsNewTripModalOpen(false);
   };
 
-  // Handle Add Expense Submit
-  const handleAddExpenseSubmit = (e: React.FormEvent) => {
+  // Handle Edit Trip
+  const handleEditTripSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeExpenseTrip) return;
-    const amount = parseFloat(expAmount);
-    if (!expTitle.trim() || isNaN(amount) || amount <= 0) {
-      alert(language === 'bn' ? 'সঠিক খরচের বিবরণ ও পরিমাণ লিখুন' : 'Please enter valid expense title and amount');
-      return;
+    if (!editingTrip) return;
+    const cash = parseFloat(editTripInitialCash);
+    if (!editTripTitle.trim() || isNaN(cash) || cash < 0) return;
+
+    if (onUpdateTrip) {
+      onUpdateTrip(editingTrip.id, {
+        title: editTripTitle.trim(),
+        initialCash: cash,
+        marketLocation: editTripMarket.trim() || undefined,
+        note: editTripNote.trim() || undefined,
+      });
     }
-
-    onAddExpense(activeExpenseTrip.id, {
-      title: expTitle.trim(),
-      amount,
-      category: expCategory,
-      vendorOrPlace: expVendor.trim(),
-      note: expNote.trim(),
-    });
-
-    setActiveExpenseTrip(null);
-    setExpTitle('');
-    setExpAmount('');
-    setExpCategory('goods');
-    setExpVendor('');
-    setExpNote('');
+    setEditingTrip(null);
   };
 
-  // Generate Thermal Print Slip for Trip
+  // Print Trip Receipt
   const handlePrintSlip = (trip: PurchaseTrip) => {
-    const invoiceNo = 'TRIP-' + String(trip.timestamp).slice(-5);
+    const invoiceNo = 'PUR-' + String(Date.now()).slice(-5);
     const now = new Date();
     const dateFormatted = `${now.toLocaleDateString()} ${now.toLocaleTimeString([], {
       hour: '2-digit',
       minute: '2-digit',
     })}`;
 
-    // Convert trip expenses to bill items for thermal receipt printer
-    const items = trip.expenses.map((exp, idx) => ({
-      id: exp.id || `item-${idx}`,
+    const items = trip.expenses.map((exp) => ({
+      id: exp.id,
       name: `${exp.title}${exp.vendorOrPlace ? ` (${exp.vendorOrPlace})` : ''}`,
       price: exp.amount,
       qty: 1,
@@ -241,7 +245,7 @@ export const PurchaseTripTab: React.FC<PurchaseTripTabProps> = ({
     if (items.length === 0) {
       items.push({
         id: 'no-exp',
-        name: language === 'bn' ? 'কোনো খরচ তালিকাভুক্ত নেই' : 'No expenses recorded',
+        name: isBn ? 'কোনো খরচ এন্ট্রি নেই' : 'No expenses recorded',
         price: 0,
         qty: 1,
         total: 0,
@@ -267,982 +271,557 @@ export const PurchaseTripTab: React.FC<PurchaseTripTabProps> = ({
     onPrintTripSlip(bill);
   };
 
+  // Sync to Daybook handler
+  const handleSyncToCashbook = (trip: PurchaseTrip) => {
+    onSyncTripToCashbook(trip);
+    setSyncFeedback(trip.id);
+    setTimeout(() => setSyncFeedback(null), 2500);
+  };
+
+  // Category Icon & Label helper
+  const getCatMeta = (cat: PurchaseExpenseCategory) => {
+    switch (cat) {
+      case 'goods':
+        return { label: isBn ? 'মাল / কাপড়' : 'Goods / Stock', color: 'bg-blue-100 text-blue-800' };
+      case 'transport':
+        return { label: isBn ? 'পরিবহন / গাড়ি' : 'Transport', color: 'bg-amber-100 text-amber-800' };
+      case 'labour':
+        return { label: isBn ? 'কুলি / লেবার' : 'Labour', color: 'bg-purple-100 text-purple-800' };
+      case 'food':
+        return { label: isBn ? 'খাবার / নাস্তা' : 'Food / Meal', color: 'bg-rose-100 text-rose-800' };
+      case 'packing':
+        return { label: isBn ? 'প্যাকিং / বস্তা' : 'Packaging', color: 'bg-emerald-100 text-emerald-800' };
+      default:
+        return { label: isBn ? 'অন্যান্য খরচ' : 'Other', color: 'bg-stone-100 text-stone-800' };
+    }
+  };
+
   return (
-    <div className="max-w-4xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-5">
-      {/* 1. TOP HEADER & INTRO */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white p-4 sm:p-5 rounded-2xl border border-stone-200 shadow-xs">
-        <div>
+    <div className="max-w-2xl mx-auto px-3 sm:px-4 py-3 sm:py-5 space-y-3.5 pb-28">
+      {/* 1. KHATABOOK / VYAPAR TOP SUMMARY CARDS */}
+      <div className="bg-white rounded-3xl p-3.5 sm:p-4 shadow-sm border border-stone-200/90 space-y-3">
+        {/* Header & Calculator Button */}
+        <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
+            <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold">
               <ShoppingBag className="w-4 h-4" />
             </div>
-            <h1 className="text-base sm:text-lg font-bold text-stone-900">
-              {t.purchaseHeaderTitle}
-            </h1>
-          </div>
-          <p className="text-xs text-stone-500 mt-1 max-w-2xl">
-            {t.purchaseHeaderSubtitle}
-          </p>
-        </div>
-
-        <button
-          onClick={() => setIsNewTripModalOpen(true)}
-          className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer shrink-0"
-        >
-          <Plus className="w-4 h-4" />
-          <span>{t.startNewTripBtn}</span>
-        </button>
-      </div>
-
-      {/* 2. THREE SUMMARY CARDS (CASH TAKEN, TOTAL SPENT, REMAINING) */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3">
-        {/* Card 1: Initial Cash Carried */}
-        <div className="p-4 rounded-2xl bg-blue-50/80 border border-blue-200">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[11px] font-bold text-blue-700 flex items-center gap-1.5">
-              <Wallet className="w-4 h-4 text-blue-600" />
-              <span>{t.cashTakenCard}</span>
-            </span>
-            <div className="flex items-center gap-1.5">
-              {activeTrips.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => openEditTripModal(activeTrips[0])}
-                  className="text-[10px] font-bold text-blue-700 bg-blue-100 hover:bg-blue-200 px-2 py-0.5 rounded-md flex items-center gap-1 cursor-pointer transition-colors"
-                  title={language === 'bn' ? 'ক্যাশ টাকা সংশোধন করুন' : 'Edit cash amount'}
-                >
-                  <Edit2 className="w-2.5 h-2.5" />
-                  <span>{t.editCashBtn}</span>
-                </button>
-              )}
-              <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-blue-200 text-blue-800 font-mono">
-                {trips.length} Trips
-              </span>
+            <div>
+              <h2 className="text-sm font-bold text-stone-900">
+                {isBn ? 'সাপ্লায়ার ও মাল কেনাকাটা লেজার' : 'Supplier & Stock Purchases'}
+              </h2>
+              <p className="text-[11px] text-stone-400">
+                {isBn ? 'পাইকারি কেনাকাটা ও খরচের হিসাব' : 'Stock purchases and supplier payments'}
+              </p>
             </div>
           </div>
-          <span className="text-2xl font-black text-blue-700 font-mono block">
-            {sym}
-            {totalInitialAll.toFixed(2)}
-          </span>
-          <p className="text-[10px] text-blue-600/80 mt-0.5">
-            {language === 'bn' ? 'বাজার করার জন্য সাথে নেওয়া টাকা' : 'Total cash allocated for purchases'}
-          </p>
+
+          {onOpenCalculator && (
+            <button
+              type="button"
+              onClick={onOpenCalculator}
+              className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+              title={isBn ? 'ক্যালকুলেটর খুলুন (পাইকারি ও ডজন হিসাব)' : 'Open Wholesale Calculator'}
+            >
+              <Calculator className="w-3.5 h-3.5 text-amber-700" />
+              <span>{isBn ? 'ক্যালকুলেটর' : 'Calc'}</span>
+            </button>
+          )}
         </div>
 
-        {/* Card 2: Total Spent (কোথায় কত ব্যয় হলো) */}
-        <div className="p-4 rounded-2xl bg-rose-50/80 border border-rose-200">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[11px] font-bold text-rose-700 flex items-center gap-1.5">
-              <TrendingDown className="w-4 h-4 text-rose-600" />
-              <span>{t.totalSpentCard}</span>
+        {/* 3 Compact Metric Cards */}
+        <div className="grid grid-cols-3 gap-2 text-center">
+          {/* Total Purchases */}
+          <div className="p-2.5 rounded-2xl bg-stone-50 border border-stone-200">
+            <span className="block text-[10px] uppercase font-bold text-stone-500">
+              {isBn ? 'মোট কেনাকাটা' : 'Total Spent'}
             </span>
-            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-rose-200 text-rose-800">
-              {totalInitialAll > 0 ? ((totalSpentAll / totalInitialAll) * 100).toFixed(0) : 0}% Spent
+            <span className="text-xs sm:text-base font-black text-stone-900 font-mono block mt-0.5">
+              {sym}{totalSpentAll.toFixed(0)}
+            </span>
+            <span className="text-[9px] text-stone-400 font-medium">
+              {allPurchases.length} {isBn ? 'টি এন্ট্রি' : 'items'}
             </span>
           </div>
-          <span className="text-2xl font-black text-rose-600 font-mono block">
-            {sym}
-            {totalSpentAll.toFixed(2)}
-          </span>
-          <p className="text-[10px] text-rose-600/80 mt-0.5">
-            {language === 'bn' ? 'মাল কেনা, গাড়ি ভাড়া ও বিবিধ খরচ' : 'Spent on goods, transport & expenses'}
-          </p>
-        </div>
 
-        {/* Card 3: Remaining Balance (অবশিষ্ট ক্যাশ) */}
-        <div className="p-4 rounded-2xl bg-emerald-50/80 border border-emerald-200">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[11px] font-bold text-emerald-700 flex items-center gap-1.5">
-              <DollarSign className="w-4 h-4 text-emerald-600" />
-              <span>{t.remainingCashCard}</span>
+          {/* Total Cash Carried / Allocated */}
+          <div className="p-2.5 rounded-2xl bg-blue-50 border border-blue-200/80">
+            <span className="block text-[10px] uppercase font-bold text-blue-700">
+              {isBn ? 'বরাদ্দকৃত ক্যাশ' : 'Cash Carried'}
+            </span>
+            <span className="text-xs sm:text-base font-black text-blue-700 font-mono block mt-0.5">
+              {sym}{totalInitialAll.toFixed(0)}
+            </span>
+            <span className="text-[9px] text-blue-600 font-medium">
+              {trips.length} {isBn ? 'ট্রিপ' : 'trips'}
+            </span>
+          </div>
+
+          {/* Remaining Cash */}
+          <div className="p-2.5 rounded-2xl bg-emerald-50 border border-emerald-200/80">
+            <span className="block text-[10px] uppercase font-bold text-emerald-700">
+              {isBn ? 'অবশিষ্ট ক্যাশ' : 'Cash Left'}
             </span>
             <span
-              className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full ${
-                totalRemainingAll >= 0
-                  ? 'bg-emerald-200 text-emerald-800'
-                  : 'bg-rose-200 text-rose-800'
+              className={`text-xs sm:text-base font-black font-mono block mt-0.5 ${
+                totalRemainingAll >= 0 ? 'text-emerald-700' : 'text-rose-700'
               }`}
             >
-              {totalRemainingAll >= 0
-                ? language === 'bn'
-                  ? 'উদ্বৃত্ত ক্যাশ'
-                  : 'Cash Left'
-                : language === 'bn'
-                ? 'বাজেট অতিরিক্ত'
-                : 'Over Budget'}
+              {sym}{totalRemainingAll.toFixed(0)}
+            </span>
+            <span className="text-[9px] text-emerald-600 font-medium">
+              {totalRemainingAll >= 0 ? (isBn ? 'উদ্বৃত্ত' : 'Balance') : (isBn ? 'ঘাটতি' : 'Over')}
             </span>
           </div>
-          <span
-            className={`text-2xl font-black font-mono block ${
-              totalRemainingAll >= 0 ? 'text-emerald-700' : 'text-rose-700'
+        </div>
+
+        {/* View Mode Toggle: Purchases Ledger vs Shopping Trips */}
+        <div className="grid grid-cols-2 gap-1 bg-stone-100 p-1 rounded-2xl text-xs font-bold">
+          <button
+            type="button"
+            onClick={() => setActiveView('purchases')}
+            className={`py-1.5 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+              activeView === 'purchases'
+                ? 'bg-white text-stone-900 shadow-2xs'
+                : 'text-stone-500 hover:text-stone-800'
             }`}
           >
-            {sym}
-            {totalRemainingAll.toFixed(2)}
-          </span>
-          <p className="text-[10px] text-emerald-600/80 mt-0.5">
-            {language === 'bn' ? 'খরচের পর ক্যাশে ফেরত আসবে' : 'Cash remaining after shopping'}
-          </p>
+            <Tag className="w-3.5 h-3.5" />
+            <span>{isBn ? 'পণ্য ও সাপ্লায়ার লেজার' : 'Purchase Items'} ({allPurchases.length})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveView('trips')}
+            className={`py-1.5 rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+              activeView === 'trips'
+                ? 'bg-white text-stone-900 shadow-2xs'
+                : 'text-stone-500 hover:text-stone-800'
+            }`}
+          >
+            <ShoppingBag className="w-3.5 h-3.5" />
+            <span>{isBn ? 'বাজার ট্রিপ তালিকা' : 'Market Trips'} ({trips.length})</span>
+          </button>
         </div>
       </div>
 
-      {/* 3. ACTIVE SHOPPING TRIPS (চলমান ট্রিপ) */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-bold text-stone-900 flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span>{t.activeTripsHeading}</span>
-            <span className="text-xs font-normal text-stone-500">({activeTrips.length})</span>
-          </h2>
+      {/* 2. SEARCH & CATEGORY FILTER BAR */}
+      <div className="space-y-2">
+        <div className="relative">
+          <Search className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder={
+              isBn
+                ? 'সাপ্লায়ার, পণ্যের বিবরণ বা মার্কেট দিয়ে খুঁজুন...'
+                : 'Search by Supplier, item, or market...'
+            }
+            className="w-full pl-10 pr-9 py-2.5 bg-white border border-stone-200 rounded-2xl text-xs sm:text-sm font-medium focus:outline-none focus:border-blue-500 shadow-2xs transition-all"
+          />
+          {searchTerm && (
+            <button
+              onClick={() => setSearchTerm('')}
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700 text-sm font-bold cursor-pointer"
+            >
+              ×
+            </button>
+          )}
         </div>
 
-        {activeTrips.length === 0 ? (
-          <div className="bg-white rounded-2xl border border-stone-200 p-8 text-center space-y-3">
-            <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
-              <ShoppingBag className="w-6 h-6" />
-            </div>
-            <p className="text-xs text-stone-500 max-w-md mx-auto">{t.noActiveTrips}</p>
+        {/* Category filter pills for purchases view */}
+        {activeView === 'purchases' && (
+          <div className="flex items-center gap-1 overflow-x-auto pb-0.5">
             <button
-              onClick={() => setIsNewTripModalOpen(true)}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
+              type="button"
+              onClick={() => setCategoryFilter('all')}
+              className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                categoryFilter === 'all'
+                  ? 'bg-stone-900 text-white shadow-2xs'
+                  : 'bg-white border border-stone-200 text-stone-600 hover:bg-stone-100'
+              }`}
             >
-              <Plus className="w-3.5 h-3.5" />
-              <span>{t.startNewTripBtn}</span>
+              {isBn ? 'সব কেনাকাটা' : 'All Purchases'}
             </button>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {activeTrips.map((trip) => {
-              const isExpanded = expandedTripId === trip.id;
-              const spendPercentage =
-                trip.initialCash > 0
-                  ? Math.min(100, Math.round((trip.totalSpent / trip.initialCash) * 100))
-                  : 0;
-
-              return (
-                <div
-                  key={trip.id}
-                  className="bg-white rounded-2xl border-2 border-blue-500/80 shadow-xs overflow-hidden transition-all"
-                >
-                  {/* Trip Header */}
-                  <div className="p-4 sm:p-5 bg-gradient-to-r from-blue-50/50 via-white to-stone-50 border-b border-stone-200">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                      <div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-600 text-white flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping"></span>
-                            <span>{t.tripStatusActive}</span>
-                          </span>
-                          <span className="font-extrabold text-stone-900 text-sm sm:text-base">
-                            {trip.title}
-                          </span>
-                          {trip.marketLocation && (
-                            <span className="text-xs text-stone-600 flex items-center gap-1 bg-stone-100 px-2 py-0.5 rounded-md">
-                              <MapPin className="w-3 h-3 text-stone-400" />
-                              {trip.marketLocation}
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-3 text-xs text-stone-400 mt-1">
-                          <span className="flex items-center gap-1">
-                            <Clock className="w-3 h-3" />
-                            {trip.dateFormatted}
-                          </span>
-                          {trip.note && <span>• {trip.note}</span>}
-                        </div>
-                      </div>
-
-                      {/* Action buttons */}
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActiveExpenseTrip(trip);
-                            setExpTitle('');
-                            setExpAmount('');
-                            setExpCategory('goods');
-                            setExpVendor('');
-                            setExpNote('');
-                          }}
-                          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer shadow-2xs"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          <span>{t.addExpenseBtn}</span>
-                        </button>
-
-                        {/* Edit Trip & Cash Button */}
-                        <button
-                          type="button"
-                          onClick={() => openEditTripModal(trip)}
-                          className="px-2.5 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
-                          title={language === 'bn' ? 'টাকার পরিমাণ বা ট্রিপ সংশোধন করুন' : 'Edit cash amount or trip details'}
-                        >
-                          <Edit2 className="w-3.5 h-3.5 text-blue-600" />
-                          <span>{t.editTripBtn}</span>
-                        </button>
-
-                        {/* Quick Add Extra Cash Button */}
-                        <button
-                          type="button"
-                          onClick={() => openAddCashModal(trip)}
-                          className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
-                          title={language === 'bn' ? 'ক্যাশ টাকা আরো যোগ করুন' : 'Add additional cash'}
-                        >
-                          <Coins className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>{t.addCashBtn}</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handlePrintSlip(trip)}
-                          className="p-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl transition-colors cursor-pointer"
-                          title={t.printTripSlipBtn}
-                        >
-                          <Printer className="w-4 h-4" />
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => onUpdateTripStatus(trip.id, 'completed')}
-                          className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
-                          title="কেনাকাটা সম্পন্ন হিসেবে চিহ্নিত করুন"
-                        >
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>{t.finishTripBtn}</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (confirm(t.deleteTripConfirm)) {
-                              onDeleteTrip(trip.id);
-                            }
-                          }}
-                          className="p-2 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
-                          title={t.deleteTripBtn}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setExpandedTripId(isExpanded ? null : trip.id)}
-                          className="p-2 text-stone-400 hover:text-stone-700 rounded-xl transition-colors cursor-pointer"
-                        >
-                          {isExpanded ? (
-                            <ChevronUp className="w-4 h-4" />
-                          ) : (
-                            <ChevronDown className="w-4 h-4" />
-                          )}
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Progress Bar & Amount breakdown */}
-                    <div className="mt-4 pt-3 border-t border-stone-200/80">
-                      <div className="grid grid-cols-3 gap-2 text-center sm:text-left mb-2.5">
-                        <div className="bg-white/80 p-2.5 rounded-xl border border-stone-200">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[10px] text-stone-400 font-semibold block">
-                              {t.cashTakenCard}
-                            </span>
-                            <div className="flex items-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => openEditTripModal(trip)}
-                                className="text-[10px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-1.5 py-0.5 rounded cursor-pointer flex items-center gap-0.5"
-                                title={language === 'bn' ? 'ক্যাশ সংশোধন করুন' : 'Edit cash amount'}
-                              >
-                                <Edit2 className="w-2.5 h-2.5" />
-                                <span>{language === 'bn' ? 'সংশোধন' : 'Edit'}</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => openAddCashModal(trip)}
-                                className="text-[10px] font-bold text-emerald-600 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-1.5 py-0.5 rounded cursor-pointer flex items-center gap-0.5"
-                                title={language === 'bn' ? 'আরো ক্যাশ যোগ করুন' : 'Add more cash'}
-                              >
-                                <Plus className="w-2.5 h-2.5" />
-                                <span>{language === 'bn' ? '+ক্যাশ' : '+Cash'}</span>
-                              </button>
-                            </div>
-                          </div>
-                          <span className="text-base sm:text-lg font-black font-mono text-blue-700 block mt-0.5">
-                            {sym}
-                            {trip.initialCash.toFixed(2)}
-                          </span>
-                        </div>
-                        <div className="bg-white/80 p-2.5 rounded-xl border border-stone-200">
-                          <span className="text-[10px] text-stone-400 font-semibold block">
-                            {t.totalSpentCard}
-                          </span>
-                          <span className="text-base sm:text-lg font-black font-mono text-rose-600">
-                            {sym}
-                            {trip.totalSpent.toFixed(2)}
-                          </span>
-                        </div>
-                        <div className="bg-white/80 p-2.5 rounded-xl border border-stone-200">
-                          <span className="text-[10px] text-stone-400 font-semibold block">
-                            {t.remainingCashCard}
-                          </span>
-                          <span
-                            className={`text-base sm:text-lg font-black font-mono ${
-                              trip.remainingCash >= 0 ? 'text-emerald-700' : 'text-rose-700'
-                            }`}
-                          >
-                            {sym}
-                            {trip.remainingCash.toFixed(2)}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Visual Spending Progress Track */}
-                      <div className="w-full bg-stone-100 rounded-full h-2.5 overflow-hidden border border-stone-200">
-                        <div
-                          className={`h-full transition-all duration-300 ${
-                            spendPercentage > 95
-                              ? 'bg-rose-500'
-                              : spendPercentage > 75
-                              ? 'bg-amber-500'
-                              : 'bg-blue-600'
-                          }`}
-                          style={{ width: `${Math.min(100, spendPercentage)}%` }}
-                        />
-                      </div>
-                      <div className="flex justify-between items-center text-[10px] text-stone-400 mt-1 font-mono">
-                        <span>{spendPercentage}% Spent</span>
-                        <span>
-                          {trip.remainingCash >= 0 ? 'Left' : 'Over'}: {sym}
-                          {Math.abs(trip.remainingCash).toFixed(2)}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Itemized Expenses (কোথায় কত খরচ হলো) */}
-                  {isExpanded && (
-                    <div className="p-4 sm:p-5 bg-stone-50/50 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
-                          <Store className="w-4 h-4 text-blue-600" />
-                          <span>{t.whereSpent}</span>
-                          <span className="text-[11px] font-normal text-stone-400">
-                            ({trip.expenses?.length || 0} টি এন্ট্রি)
-                          </span>
-                        </h3>
-
-                        <button
-                          onClick={() => {
-                            setActiveExpenseTrip(trip);
-                            setExpTitle('');
-                            setExpAmount('');
-                            setExpCategory('goods');
-                            setExpVendor('');
-                            setExpNote('');
-                          }}
-                          className="text-xs text-blue-600 hover:text-blue-800 font-bold flex items-center gap-1 cursor-pointer"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          <span>{t.addExpenseBtn}</span>
-                        </button>
-                      </div>
-
-                      {!trip.expenses || trip.expenses.length === 0 ? (
-                        <div className="p-6 text-center bg-white rounded-xl border border-stone-200 text-stone-400 text-xs">
-                          <p>{t.noExpensesYet}</p>
-                          <button
-                            onClick={() => setActiveExpenseTrip(trip)}
-                            className="mt-2 text-blue-600 hover:underline font-bold text-xs inline-flex items-center gap-1"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                            <span>{t.addExpenseBtn}</span>
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          {trip.expenses.map((expense) => {
-                            const badge = getCategoryBadge(expense.category, language);
-                            return (
-                              <div
-                                key={expense.id}
-                                className="p-3 bg-white rounded-xl border border-stone-200/90 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 hover:border-stone-300 transition-colors"
-                              >
-                                <div>
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <span
-                                      className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${badge.className}`}
-                                    >
-                                      {badge.label}
-                                    </span>
-                                    <span className="text-xs font-bold text-stone-900">
-                                      {expense.title}
-                                    </span>
-                                    {expense.vendorOrPlace && (
-                                      <span className="text-[11px] text-stone-600 flex items-center gap-1 bg-stone-100 px-2 py-0.5 rounded-md font-medium">
-                                        <Store className="w-3 h-3 text-stone-400" />
-                                        <span>{expense.vendorOrPlace}</span>
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center gap-2 text-[10px] text-stone-400 mt-1">
-                                    <span className="font-mono">{expense.dateFormatted}</span>
-                                    {expense.note && <span>• {expense.note}</span>}
-                                  </div>
-                                </div>
-
-                                <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
-                                  <span className="text-sm font-black font-mono text-rose-600">
-                                    {sym}
-                                    {expense.amount.toFixed(2)}
-                                  </span>
-                                  <button
-                                    onClick={() => {
-                                      if (confirm('এই খরচের এন্ট্রি মুছে ফেলতে চান?')) {
-                                        onDeleteExpense(trip.id, expense.id);
-                                      }
-                                    }}
-                                    className="p-1 text-stone-300 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                                    title="খরচ মুছুন"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      {/* Cashbook Sync & Thermal Print Action Bar */}
-                      <div className="pt-2 flex flex-wrap items-center justify-between gap-2 border-t border-stone-200">
-                        <div className="flex items-center gap-2">
-                          {trip.syncedCashEntryId ? (
-                            <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full flex items-center gap-1">
-                              <CheckCircle2 className="w-3 h-3" />
-                              <span>{t.syncedBadge}</span>
-                            </span>
-                          ) : (
-                            <button
-                              onClick={() => onSyncTripToCashbook(trip)}
-                              className="text-xs font-bold text-stone-700 hover:text-stone-900 bg-stone-200/80 hover:bg-stone-300 px-3 py-1.5 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
-                              title="ক্যাশবুকে মোট খরচ এক ক্লিকে রেকর্ড করুন"
-                            >
-                              <FileSpreadsheet className="w-3.5 h-3.5 text-blue-600" />
-                              <span>{t.syncToCashbookBtn}</span>
-                            </button>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            onClick={() => handlePrintSlip(trip)}
-                            className="text-xs font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-xl border border-blue-200 transition-colors cursor-pointer flex items-center gap-1"
-                          >
-                            <Printer className="w-3.5 h-3.5" />
-                            <span>{t.printTripSlipBtn}</span>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+            <button
+              type="button"
+              onClick={() => setCategoryFilter('goods')}
+              className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                categoryFilter === 'goods'
+                  ? 'bg-blue-600 text-white shadow-2xs'
+                  : 'bg-white border border-blue-200 text-blue-700 hover:bg-blue-50'
+              }`}
+            >
+              {isBn ? 'মাল / কাপড় (Goods)' : 'Goods'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setCategoryFilter('transport')}
+              className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                categoryFilter === 'transport'
+                  ? 'bg-amber-600 text-white shadow-2xs'
+                  : 'bg-white border border-stone-200 text-stone-600 hover:bg-stone-100'
+              }`}
+            >
+              {isBn ? 'পরিবহন' : 'Transport'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setCategoryFilter('labour')}
+              className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                categoryFilter === 'labour'
+                  ? 'bg-purple-600 text-white shadow-2xs'
+                  : 'bg-white border border-stone-200 text-stone-600 hover:bg-stone-100'
+              }`}
+            >
+              {isBn ? 'লেবার / কুলি' : 'Labour'}
+            </button>
           </div>
         )}
       </div>
 
-      {/* 4. COMPLETED TRIPS (সম্পন্ন কেনাকাটা রেকর্ড) */}
-      {completedTrips.length > 0 && (
-        <div className="space-y-3 pt-4 border-t border-stone-200">
-          <h2 className="text-sm font-bold text-stone-800 flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-stone-500" />
-            <span>{t.completedTripsHeading}</span>
-            <span className="text-xs font-normal text-stone-400">
-              ({completedTrips.length})
-            </span>
-          </h2>
+      {/* 3. MAIN VIEW: SUPPLIER / PURCHASE LEDGER LIST */}
+      {activeView === 'purchases' ? (
+        <div className="space-y-2">
+          {filteredPurchases.length === 0 ? (
+            <div className="bg-white rounded-3xl p-10 text-center border border-stone-200 space-y-2">
+              <ShoppingBag className="w-10 h-10 text-stone-300 mx-auto" />
+              <p className="text-xs font-bold text-stone-700">
+                {isBn ? 'কোনো ক্রয়ের এন্ট্রি পাওয়া যায়নি' : 'No purchase entries found'}
+              </p>
+              <p className="text-[11px] text-stone-400">
+                {isBn
+                  ? 'নিচের "+ কেনাকাটা যোগ" বোতাম দিয়ে পণ্য বা খরচ এন্ট্রি করুন'
+                  : 'Tap "+ ADD PURCHASE" button below to log items bought'}
+              </p>
+            </div>
+          ) : (
+            filteredPurchases.map((purchase) => {
+              const catMeta = getCatMeta(purchase.category);
 
-          <div className="space-y-3">
-            {completedTrips.map((trip) => {
+              return (
+                <div
+                  key={purchase.id}
+                  className="bg-white rounded-2xl border border-stone-200/90 hover:border-stone-300 p-3 sm:p-3.5 shadow-2xs transition-all flex items-center justify-between gap-3"
+                >
+                  <div className="min-w-0 flex-1">
+                    {/* Supplier / Vendor Name & Category */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs sm:text-sm font-bold text-stone-900 truncate">
+                        {purchase.vendorOrPlace || (isBn ? 'পাইকারি সাপ্লায়ার' : 'Wholesale Supplier')}
+                      </span>
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.2 rounded-md ${catMeta.color}`}
+                      >
+                        {catMeta.label}
+                      </span>
+                    </div>
+
+                    {/* Item Description & Trip */}
+                    <p className="text-xs font-semibold text-stone-700 mt-0.5 truncate">
+                      {purchase.title}
+                    </p>
+
+                    <div className="flex items-center gap-2 text-[11px] text-stone-400 mt-0.5">
+                      <span>{purchase.dateFormatted}</span>
+                      <span>•</span>
+                      <span className="text-stone-500 font-medium truncate max-w-[150px]">
+                        {purchase.tripTitle}
+                      </span>
+                      {purchase.note && (
+                        <>
+                          <span>•</span>
+                          <span className="truncate max-w-[120px]">{purchase.note}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Right: Amount & Delete */}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <div className="text-right">
+                      <div className="text-sm sm:text-base font-black text-rose-600 font-mono tracking-tight">
+                        -{sym}{purchase.amount.toFixed(2)}
+                      </div>
+                      <span className="text-[10px] text-emerald-600 font-bold block -mt-0.5">
+                        {isBn ? 'নগদ পরিশোধ' : 'Paid'}
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => onDeleteExpense(purchase.tripId, purchase.id)}
+                      className="p-1.5 rounded-xl text-stone-300 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                      title={isBn ? 'ডিলিট করুন' : 'Delete'}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      ) : (
+        /* 4. TRIPS ACCORDION VIEW */
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-stone-600">
+              {isBn ? 'বাজার ট্রিপ তালিকা' : 'Market Trips List'} ({trips.length})
+            </span>
+            <button
+              type="button"
+              onClick={() => setIsNewTripModalOpen(true)}
+              className="text-xs font-bold text-blue-600 hover:underline flex items-center gap-1 cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>{isBn ? '+ নতুন ট্রিপ' : '+ Start Trip'}</span>
+            </button>
+          </div>
+
+          {trips.length === 0 ? (
+            <div className="bg-white rounded-3xl p-8 text-center border border-stone-200 text-xs text-stone-400">
+              {isBn ? 'কোনো ট্রিপ নেই' : 'No trips started'}
+            </div>
+          ) : (
+            trips.map((trip) => {
               const isExpanded = expandedTripId === trip.id;
+              const isActive = trip.status === 'active';
 
               return (
                 <div
                   key={trip.id}
-                  className="bg-white rounded-2xl border border-stone-200 overflow-hidden shadow-2xs"
+                  className={`bg-white rounded-2xl border shadow-xs overflow-hidden transition-all ${
+                    isActive ? 'border-blue-400 ring-1 ring-blue-400/30' : 'border-stone-200'
+                  }`}
                 >
-                  <div className="p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div>
+                  <div className="p-3.5 flex items-center justify-between gap-2.5">
+                    <div
+                      onClick={() => setExpandedTripId(isExpanded ? null : trip.id)}
+                      className="cursor-pointer min-w-0 flex-1"
+                    >
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-stone-100 text-stone-600 border border-stone-200">
-                          {t.tripStatusCompleted}
+                        <span className="text-xs font-bold text-stone-900">{trip.title}</span>
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.2 rounded-full ${
+                            isActive
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-stone-100 text-stone-600'
+                          }`}
+                        >
+                          {isActive ? (isBn ? 'চলমান ট্রিপ' : 'Active') : (isBn ? 'সম্পন্ন' : 'Completed')}
                         </span>
-                        <span className="font-bold text-stone-900 text-sm">{trip.title}</span>
                         {trip.marketLocation && (
-                          <span className="text-[11px] text-stone-500 font-medium">
-                            • {trip.marketLocation}
+                          <span className="text-[11px] text-stone-500 flex items-center gap-1 bg-stone-50 px-1.5 py-0.2 rounded">
+                            <MapPin className="w-3 h-3 text-stone-400" />
+                            {trip.marketLocation}
                           </span>
                         )}
                       </div>
-                      <div className="flex items-center gap-2 text-[10px] text-stone-400 mt-0.5">
+
+                      <div className="flex items-center gap-2 text-[11px] text-stone-400 mt-1">
                         <span>{trip.dateFormatted}</span>
-                        <span>
-                          • {trip.expenses?.length || 0} {language === 'bn' ? 'টি খরচ' : 'items'}
-                        </span>
+                        <span>•</span>
+                        <span>{trip.expenses.length} {isBn ? 'টি আইটেম' : 'expenses'}</span>
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between sm:justify-end gap-3">
-                      <div className="text-right">
-                        <span className="text-xs text-stone-400 block -mb-0.5 font-mono">
-                          {sym}
-                          {trip.initialCash} → {sym}
-                          {trip.totalSpent}
-                        </span>
-                        <span
-                          className={`text-sm font-black font-mono ${
-                            trip.remainingCash >= 0 ? 'text-emerald-700' : 'text-rose-700'
-                          }`}
-                        >
-                          {language === 'bn' ? 'ফেরত' : 'Left'}: {sym}
-                          {trip.remainingCash.toFixed(2)}
-                        </span>
+                    <div className="text-right shrink-0">
+                      <div className="text-xs font-bold text-stone-500">
+                        {isBn ? 'খরচ:' : 'Spent:'}{' '}
+                        <span className="text-rose-600 font-mono font-black">{sym}{trip.totalSpent.toFixed(0)}</span>
                       </div>
-
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => handlePrintSlip(trip)}
-                          className="p-1.5 text-stone-600 hover:text-stone-900 hover:bg-stone-100 rounded-lg cursor-pointer"
-                          title={t.printTripSlipBtn}
-                        >
-                          <Printer className="w-4 h-4" />
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => openEditTripModal(trip)}
-                          className="p-1.5 text-stone-600 hover:text-blue-600 hover:bg-stone-100 rounded-lg cursor-pointer"
-                          title={t.editTripBtn}
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => onUpdateTripStatus(trip.id, 'active')}
-                          className="px-2 py-1 text-xs font-bold text-stone-600 hover:text-stone-900 hover:bg-stone-100 rounded-lg border border-stone-200 cursor-pointer"
-                          title="পুনরায় সক্রিয় করুন"
-                        >
-                          {t.reopenTripBtn}
-                        </button>
-
-                        <button
-                          onClick={() => setExpandedTripId(isExpanded ? null : trip.id)}
-                          className="p-1.5 text-stone-400 hover:text-stone-700 rounded-lg cursor-pointer"
-                        >
-                          {isExpanded ? (
-                            <ChevronUp className="w-4 h-4" />
-                          ) : (
-                            <ChevronDown className="w-4 h-4" />
-                          )}
-                        </button>
-
-                        <button
-                          onClick={() => {
-                            if (confirm('এই ট্রিপ সম্পূর্ণ মুছে ফেলতে চান?')) {
-                              onDeleteTrip(trip.id);
-                            }
-                          }}
-                          className="p-1.5 text-stone-300 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                      <div className="text-[11px] text-stone-400">
+                        {isBn ? 'ক্যাশ অবশিষ্ট:' : 'Left:'}{' '}
+                        <span className="text-emerald-600 font-mono font-bold">{sym}{trip.remainingCash.toFixed(0)}</span>
                       </div>
                     </div>
                   </div>
 
-                  {/* Expanded Breakdown for Completed Trip */}
-                  {isExpanded && (
-                    <div className="p-3.5 sm:p-4 bg-stone-50 border-t border-stone-200 space-y-2">
-                      <div className="space-y-1.5">
-                        {trip.expenses?.map((exp) => (
-                          <div
-                            key={exp.id}
-                            className="p-2 bg-white rounded-lg border border-stone-200/80 flex items-center justify-between text-xs"
-                          >
-                            <div className="flex items-center gap-2">
-                              <span className="font-semibold text-stone-800">{exp.title}</span>
-                              {exp.vendorOrPlace && (
-                                <span className="text-[11px] text-stone-500">
-                                  ({exp.vendorOrPlace})
-                                </span>
-                              )}
-                            </div>
-                            <span className="font-mono font-bold text-stone-900">
-                              {sym}
-                              {exp.amount.toFixed(2)}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
+                  {/* Actions bar */}
+                  <div className="px-3.5 py-2 bg-stone-50 border-t border-stone-100 flex items-center justify-between gap-1 flex-wrap text-xs">
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTargetTripId(trip.id);
+                          setIsAddPurchaseModalOpen(true);
+                        }}
+                        className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold flex items-center gap-1 cursor-pointer"
+                      >
+                        <Plus className="w-3 h-3" />
+                        <span>{isBn ? '+ আইটেম' : '+ Item'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAddCashTrip(trip);
+                        }}
+                        className="px-2.5 py-1 bg-white border border-stone-200 text-stone-700 hover:bg-stone-100 rounded-xl font-bold cursor-pointer"
+                      >
+                        + {isBn ? 'ক্যাশ যোগ' : 'Cash'}
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => handlePrintSlip(trip)}
+                        className="p-1.5 rounded-xl text-stone-500 hover:text-stone-800 hover:bg-stone-200 cursor-pointer"
+                        title={isBn ? 'স্লিপ প্রিন্ট করুন' : 'Print Slip'}
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleSyncToCashbook(trip)}
+                        className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl font-bold text-[11px] cursor-pointer"
+                        title={isBn ? 'ডেবুকে খরচ সিঙ্ক করুন' : 'Sync to Daybook'}
+                      >
+                        {syncFeedback === trip.id ? 'Synced!' : 'Daybook'}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onUpdateTripStatus(trip.id, isActive ? 'completed' : 'active')
+                        }
+                        className={`px-2 py-1 rounded-xl font-bold text-[11px] cursor-pointer ${
+                          isActive
+                            ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                            : 'bg-stone-200 text-stone-700'
+                        }`}
+                      >
+                        {isActive ? (isBn ? 'সম্পন্ন করুন' : 'Finish') : (isBn ? 'পুনরায় চালু' : 'Reopen')}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Expanded Items */}
+                  {isExpanded && trip.expenses.length > 0 && (
+                    <div className="p-3 bg-stone-50/50 border-t border-dashed border-stone-200 space-y-1 text-xs">
+                      {trip.expenses.map((e) => (
+                        <div key={e.id} className="flex justify-between items-center py-1">
+                          <span className="font-medium text-stone-800">
+                            {e.title} {e.vendorOrPlace && <span className="text-stone-400">({e.vendorOrPlace})</span>}
+                          </span>
+                          <span className="font-mono font-bold text-rose-600">
+                            -{sym}{e.amount.toFixed(2)}
+                          </span>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
               );
-            })}
-          </div>
+            })
+          )}
         </div>
       )}
 
-      {/* 5. START NEW TRIP MODAL */}
+      {/* 5. FLOATING "+ ADD PURCHASE" BUTTON (Khatabook Style) */}
+      <button
+        id="floating-add-purchase-btn"
+        type="button"
+        onClick={() => setIsAddPurchaseModalOpen(true)}
+        className="fixed bottom-20 right-4 sm:right-8 z-30 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs sm:text-sm px-4 py-3 rounded-full shadow-xl flex items-center gap-2 border-2 border-white cursor-pointer transition-all animate-in fade-in duration-200"
+      >
+        <Plus className="w-5 h-5 stroke-[2.5]" />
+        <span>{isBn ? '+ কেনাকাটা যোগ' : '+ ADD PURCHASE'}</span>
+      </button>
+
+      {/* 6. MODAL: ADD PURCHASE / EXPENSE ENTRY (WITH EMBEDDED KHATABOOK CALCULATOR) */}
+      {isAddPurchaseModalOpen && (
+        <KhatabookEntryModal
+          isOpen={isAddPurchaseModalOpen}
+          onClose={() => setIsAddPurchaseModalOpen(false)}
+          onSave={(payload: KhatabookEntryPayload) => {
+            const currentTrip = targetTrip || trips[0];
+            if (!currentTrip) {
+              const defaultTitle = isBn ? 'পাইকারি কেনাকাটা' : 'Stock Purchases';
+              onCreateTrip(defaultTitle, payload.amount * 2, payload.vendorOrParty || (isBn ? 'পাইকারি মার্কেট' : 'Wholesale Market'));
+              setIsAddPurchaseModalOpen(false);
+              return;
+            }
+            const category = (payload.category as PurchaseExpenseCategory) || 'goods';
+            const details = payload.details || (isBn ? 'পাইকারি কেনাকাটা' : 'Stock Purchase');
+            onAddExpense(currentTrip.id, {
+              title: details,
+              category,
+              amount: payload.amount,
+              vendorOrPlace: payload.vendorOrParty || undefined,
+            });
+            setIsAddPurchaseModalOpen(false);
+          }}
+          entryType="purchase"
+          settings={settings}
+          language={language}
+          tripTitle={targetTrip?.title || trips[0]?.title}
+        />
+      )}
+
+      {/* 7. MODAL: START NEW PURCHASE / MARKET TRIP */}
       {isNewTripModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl shadow-2xl border border-stone-200 w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-150">
-            <div className="p-5 border-b border-stone-100 bg-gradient-to-r from-blue-50/80 via-white to-stone-50 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
-                  <ShoppingBag className="w-5 h-5" />
-                </div>
-                <div>
-                  <h2 className="text-base font-bold text-stone-900">
-                    {language === 'bn' ? 'নতুন মাল কেনাকাটা / বাজার ট্রিপ' : 'New Stock Purchase Trip'}
-                  </h2>
-                  <p className="text-xs text-stone-500">
-                    {language === 'bn'
-                      ? 'সাথে কত টাকা নিয়ে বের হচ্ছেন তা এন্ট্রি করুন'
-                      : 'Record cash taken before heading out'}
-                  </p>
-                </div>
+        <div
+          id="new-trip-modal-backdrop"
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-stone-950/60 backdrop-blur-xs animate-in fade-in duration-150"
+        >
+          <div
+            id="new-trip-modal-card"
+            className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-stone-200 overflow-hidden animate-in zoom-in-95 duration-150 flex flex-col max-h-[90vh]"
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-stone-100 bg-stone-50">
+              <div className="flex items-center gap-2">
+                <Wallet className="w-5 h-5 text-blue-600" />
+                <h3 className="text-sm font-bold text-stone-900">
+                  {isBn ? 'নতুন বাজার ট্রিপ শুরু করুন' : 'Start New Purchase Trip'}
+                </h3>
               </div>
               <button
+                type="button"
                 onClick={() => setIsNewTripModalOpen(false)}
-                className="p-2 rounded-xl text-stone-400 hover:text-stone-700 hover:bg-stone-100 cursor-pointer"
+                className="p-1.5 rounded-xl text-stone-400 hover:text-stone-700 cursor-pointer"
               >
-                ✕
+                <X className="w-5 h-5" />
               </button>
             </div>
 
             <form onSubmit={handleCreateTripSubmit} className="p-5 space-y-3.5">
               <div>
                 <label className="block text-xs font-bold text-stone-700 mb-1">
-                  {t.tripTitleLabel}
+                  {isBn ? 'ট্রিপের নাম বা বিবরণ *' : 'Trip Title *'}
                 </label>
                 <input
                   type="text"
                   required
                   value={newTripTitle}
                   onChange={(e) => setNewTripTitle(e.target.value)}
-                  placeholder={t.tripTitlePlaceholder}
-                  className="w-full border border-stone-200 bg-stone-50/80 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-semibold focus:outline-none focus:border-blue-600"
+                  placeholder={isBn ? 'উদাঃ চকবাজার থেকে পাইকারি শাড়ি কেনা' : 'e.g. Wholesale Cloth Shopping'}
+                  className="w-full px-3.5 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs sm:text-sm font-semibold focus:outline-none focus:border-blue-500"
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-stone-700 mb-1">
-                  {t.initialCashLabel}
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs font-mono font-bold">
-                    {sym}
-                  </span>
-                  <input
-                    type="number"
-                    required
-                    min="1"
-                    step="any"
-                    value={newTripInitialCash}
-                    onChange={(e) => setNewTripInitialCash(e.target.value)}
-                    placeholder={t.initialCashPlaceholder}
-                    className="w-full border border-stone-200 bg-stone-50/80 pl-8 pr-3 py-2.5 rounded-xl text-sm sm:text-base font-mono font-bold focus:outline-none focus:border-blue-600 text-blue-700"
-                  />
-                </div>
-
-                {/* Quick amount suggestion chips */}
-                <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                  <span className="text-[10px] text-stone-400">দ্রুত নির্বাচন:</span>
-                  {[5000, 10000, 15000, 20000, 50000].map((amt) => (
-                    <button
-                      key={amt}
-                      type="button"
-                      onClick={() => setNewTripInitialCash(amt.toString())}
-                      className="text-[10px] font-mono px-2 py-0.5 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold transition-colors cursor-pointer"
-                    >
-                      {sym}
-                      {amt.toLocaleString()}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-stone-700 mb-1">
-                  {t.tripMarketLabel}
+                  {isBn ? 'মার্কেট বা বাজারের নাম' : 'Market Location'}
                 </label>
                 <input
                   type="text"
                   value={newTripMarket}
                   onChange={(e) => setNewTripMarket(e.target.value)}
-                  placeholder={t.tripMarketPlaceholder}
-                  className="w-full border border-stone-200 bg-stone-50/80 px-3 py-2 rounded-xl text-xs focus:outline-none focus:border-blue-600"
+                  placeholder={isBn ? 'উদাঃ চকবাজার / ইসলামপুর' : 'e.g. Islampur Market'}
+                  className="w-full px-3.5 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs sm:text-sm focus:outline-none focus:border-blue-500"
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-stone-700 mb-1">
-                  {t.tripNoteLabel}
+                  {isBn ? 'সাথে নেওয়া ক্যাশ টাকা (বাজেট) *' : 'Initial Cash Carried *'}
                 </label>
-                <input
-                  type="text"
-                  value={newTripNote}
-                  onChange={(e) => setNewTripNote(e.target.value)}
-                  placeholder={t.tripNotePlaceholder}
-                  className="w-full border border-stone-200 bg-stone-50/80 px-3 py-2 rounded-xl text-xs focus:outline-none focus:border-blue-600"
-                />
-              </div>
-
-              <div className="flex gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsNewTripModalOpen(false)}
-                  className="flex-1 py-2.5 rounded-xl border border-stone-200 text-xs font-semibold text-stone-600 hover:bg-stone-100"
-                >
-                  {t.cancel}
-                </button>
-                <button
-                  type="submit"
-                  className="flex-2 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <span>{t.startTripSubmit}</span>
-                  <ArrowRight className="w-4 h-4" />
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* 6. ADD EXPENSE MODAL (কোথায় খরচ হলো যোগ করুন) */}
-      {activeExpenseTrip && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl shadow-2xl border border-stone-200 w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-150">
-            <div className="p-5 border-b border-stone-100 bg-gradient-to-r from-rose-50/70 via-white to-stone-50 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-2xl bg-rose-600 text-white flex items-center justify-center shadow-xs">
-                  <TrendingDown className="w-5 h-5" />
-                </div>
-                <div>
-                  <h2 className="text-base font-bold text-stone-900">
-                    {t.addExpenseModalTitle}
-                  </h2>
-                  <p className="text-xs text-stone-500 font-medium truncate max-w-[240px]">
-                    {activeExpenseTrip.title}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setActiveExpenseTrip(null)}
-                className="p-2 rounded-xl text-stone-400 hover:text-stone-700 hover:bg-stone-100 cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            <form onSubmit={handleAddExpenseSubmit} className="p-5 space-y-3.5">
-              {/* Trip Current Remaining Cash Banner */}
-              <div className="p-3 bg-emerald-50 border border-emerald-200/80 rounded-xl flex items-center justify-between text-xs">
-                <span className="font-semibold text-emerald-800">
-                  {language === 'bn' ? 'বর্তমান সাথে থাকা ক্যাশ:' : 'Current Cash in Hand:'}
-                </span>
-                <span className="font-bold font-mono text-emerald-700 text-sm">
-                  {sym}
-                  {activeExpenseTrip.remainingCash.toFixed(2)}
-                </span>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-stone-700 mb-1">
-                  {t.expenseTitleLabel}
-                </label>
-                <input
-                  type="text"
-                  required
-                  autoFocus
-                  value={expTitle}
-                  onChange={(e) => setExpTitle(e.target.value)}
-                  placeholder={t.expenseTitlePlaceholder}
-                  className="w-full border border-stone-200 bg-stone-50/80 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold focus:outline-none focus:border-rose-600"
-                />
-              </div>
-
-              {/* Quick suggestion tags */}
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-[10px] text-stone-400">{t.quickItemsTitle}</span>
-                {[
-                  { tag: t.tagGoodsSaree, cat: 'goods' as const },
-                  { tag: t.tagFabric, cat: 'goods' as const },
-                  { tag: t.tagTransport, cat: 'transport' as const },
-                  { tag: t.tagSnacks, cat: 'food' as const },
-                  { tag: t.tagLabour, cat: 'labour' as const },
-                ].map(({ tag, cat }) => (
-                  <button
-                    key={tag}
-                    type="button"
-                    onClick={() => {
-                      setExpTitle(tag);
-                      setExpCategory(cat);
-                    }}
-                    className="text-[10px] px-2 py-0.5 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-600 transition-colors cursor-pointer"
-                  >
-                    + {tag}
-                  </button>
-                ))}
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                <div>
-                  <label className="block text-xs font-bold text-stone-700 mb-1">
-                    {t.expenseAmountLabel}
-                  </label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs font-mono font-bold">
-                      {sym}
-                    </span>
-                    <input
-                      type="number"
-                      required
-                      min="0.01"
-                      step="any"
-                      value={expAmount}
-                      onChange={(e) => setExpAmount(e.target.value)}
-                      placeholder="0.00"
-                      className="w-full border border-stone-200 bg-stone-50/80 pl-8 pr-3 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-rose-600 text-rose-600"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-stone-700 mb-1">
-                    {t.expenseCategoryLabel}
-                  </label>
-                  <select
-                    value={expCategory}
-                    onChange={(e) => setExpCategory(e.target.value as PurchaseExpenseCategory)}
-                    className="w-full border border-stone-200 bg-stone-50/80 px-2.5 py-2 rounded-xl text-xs font-medium focus:outline-none focus:border-rose-600"
-                  >
-                    <option value="goods">{t.catGoods}</option>
-                    <option value="transport">{t.catTransport}</option>
-                    <option value="food">{t.catFood}</option>
-                    <option value="labour">{t.catLabour}</option>
-                    <option value="packing">{t.catPacking}</option>
-                    <option value="other">{t.catOther}</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-stone-700 mb-1">
-                  {t.expenseVendorLabel}
-                </label>
-                <input
-                  type="text"
-                  value={expVendor}
-                  onChange={(e) => setExpVendor(e.target.value)}
-                  placeholder={t.expenseVendorPlaceholder}
-                  className="w-full border border-stone-200 bg-stone-50/80 px-3 py-2 rounded-xl text-xs focus:outline-none focus:border-rose-600"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-stone-700 mb-1">
-                  {t.expenseNoteLabel}
-                </label>
-                <input
-                  type="text"
-                  value={expNote}
-                  onChange={(e) => setExpNote(e.target.value)}
-                  placeholder={t.expenseNotePlaceholder}
-                  className="w-full border border-stone-200 bg-stone-50/80 px-3 py-2 rounded-xl text-xs focus:outline-none focus:border-rose-600"
-                />
-              </div>
-
-              <div className="flex gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setActiveExpenseTrip(null)}
-                  className="flex-1 py-2.5 rounded-xl border border-stone-200 text-xs font-semibold text-stone-600 hover:bg-stone-100"
-                >
-                  {t.cancel}
-                </button>
-                <button
-                  type="submit"
-                  className="flex-2 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <span>{t.saveExpenseBtn}</span>
-                  <ArrowRight className="w-4 h-4" />
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* 7. EDIT TRIP & CASH MODAL (ট্রিপ ও ক্যাশ টাকা সংশোধন করুন) */}
-      {editingTrip && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl shadow-2xl border border-stone-200 w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-150">
-            <div className="p-5 border-b border-stone-100 bg-gradient-to-r from-blue-50/90 via-white to-stone-50 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
-                  <Edit2 className="w-5 h-5" />
-                </div>
-                <div>
-                  <h2 className="text-base font-bold text-stone-900">
-                    {t.editTripModalTitle}
-                  </h2>
-                  <p className="text-xs text-stone-500">
-                    {language === 'bn'
-                      ? 'ভুলবশত লেখা ক্যাশ টাকা ঠিক করুন বা ট্রিপের তথ্য পরিবর্তন করুন'
-                      : 'Correct mistyped cash amount or trip details'}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setEditingTrip(null)}
-                className="p-2 rounded-xl text-stone-400 hover:text-stone-700 hover:bg-stone-100 cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            <form onSubmit={handleEditTripSubmit} className="p-5 space-y-3.5">
-              <div>
-                <label className="block text-xs font-bold text-stone-700 mb-1">
-                  {t.tripTitleLabel}
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={editTripTitle}
-                  onChange={(e) => setEditTripTitle(e.target.value)}
-                  placeholder={t.tripTitlePlaceholder}
-                  className="w-full border border-stone-200 bg-stone-50/80 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-semibold focus:outline-none focus:border-blue-600"
-                />
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-bold text-blue-900">
-                    {t.initialCashLabel}
-                  </label>
-                  <span className="text-[10px] text-blue-600 font-semibold">
-                    {language === 'bn' ? 'শুরুতে সাথে নেওয়া টাকা' : 'Initial cash budget'}
-                  </span>
-                </div>
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs font-mono font-bold">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 font-mono font-bold text-stone-400 text-sm">
                     {sym}
                   </span>
                   <input
@@ -1250,94 +829,41 @@ export const PurchaseTripTab: React.FC<PurchaseTripTabProps> = ({
                     required
                     min="0"
                     step="any"
-                    autoFocus
-                    value={editTripInitialCash}
-                    onChange={(e) => setEditTripInitialCash(e.target.value)}
-                    placeholder={t.initialCashPlaceholder}
-                    className="w-full border-2 border-blue-400 bg-blue-50/30 pl-8 pr-3 py-2.5 rounded-xl text-base sm:text-lg font-mono font-black focus:outline-none focus:border-blue-600 text-blue-700 shadow-xs"
+                    value={newTripInitialCash}
+                    onChange={(e) => setNewTripInitialCash(e.target.value)}
+                    placeholder="10000"
+                    className="w-full pl-8 pr-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-base font-mono font-black focus:outline-none focus:border-blue-500"
                   />
                 </div>
-                <p className="text-[11px] text-stone-500 mt-1">
-                  {language === 'bn'
-                    ? 'আগে দেওয়া ক্যাশ টাকায় ভুল হয়ে থাকলে এখানে সঠিক টাকার পরিমাণ লিখুন।'
-                    : 'If you typed the initial cash incorrectly, enter the exact correct amount here.'}
-                </p>
-
-                {/* Quick amount suggestion chips */}
-                <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                  <span className="text-[10px] text-stone-400">
-                    {language === 'bn' ? 'দ্রুত নির্বাচন:' : 'Quick:'}
-                  </span>
-                  {[5000, 10000, 15000, 20000, 50000, 100000].map((amt) => (
-                    <button
-                      key={amt}
-                      type="button"
-                      onClick={() => setEditTripInitialCash(amt.toString())}
-                      className="text-[10px] font-mono px-2 py-0.5 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold transition-colors cursor-pointer"
-                    >
-                      {sym}
-                      {amt.toLocaleString()}
-                    </button>
-                  ))}
-                </div>
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-stone-700 mb-1">
-                  {t.tripMarketLabel}
+                  {isBn ? 'নোট' : 'Note (Optional)'}
                 </label>
                 <input
                   type="text"
-                  value={editTripMarket}
-                  onChange={(e) => setEditTripMarket(e.target.value)}
-                  placeholder={t.tripMarketPlaceholder}
-                  className="w-full border border-stone-200 bg-stone-50/80 px-3 py-2 rounded-xl text-xs focus:outline-none focus:border-blue-600"
+                  value={newTripNote}
+                  onChange={(e) => setNewTripNote(e.target.value)}
+                  placeholder={isBn ? 'উদাঃ ঈদের কালেকশন' : 'e.g. Festive Collection'}
+                  className="w-full px-3.5 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs sm:text-sm focus:outline-none focus:border-blue-500"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-stone-700 mb-1">
-                  {t.tripNoteLabel}
-                </label>
-                <input
-                  type="text"
-                  value={editTripNote}
-                  onChange={(e) => setEditTripNote(e.target.value)}
-                  placeholder={t.tripNotePlaceholder}
-                  className="w-full border border-stone-200 bg-stone-50/80 px-3 py-2 rounded-xl text-xs focus:outline-none focus:border-blue-600"
-                />
-              </div>
-
-              {/* Recalculation preview note */}
-              {editingTrip && !isNaN(parseFloat(editTripInitialCash)) && (
-                <div className="p-3 bg-stone-100 rounded-xl text-xs space-y-1">
-                  <div className="flex justify-between text-stone-600">
-                    <span>{t.totalSpentCard}:</span>
-                    <span className="font-mono font-bold text-rose-600">{sym}{editingTrip.totalSpent.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between font-bold">
-                    <span className="text-stone-800">{language === 'bn' ? 'সংশোধনের পর অবশিষ্ট থাকবে:' : 'New Remaining Cash:'}</span>
-                    <span className={`font-mono ${parseFloat(editTripInitialCash) - editingTrip.totalSpent >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                      {sym}{(parseFloat(editTripInitialCash) - editingTrip.totalSpent).toFixed(2)}
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              <div className="flex gap-2 pt-2">
+              <div className="pt-2 flex items-center justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setEditingTrip(null)}
-                  className="flex-1 py-2.5 rounded-xl border border-stone-200 text-xs font-semibold text-stone-600 hover:bg-stone-100 cursor-pointer"
+                  onClick={() => setIsNewTripModalOpen(false)}
+                  className="px-4 py-2.5 rounded-xl border border-stone-200 text-stone-600 text-xs font-bold cursor-pointer"
                 >
-                  {t.cancel}
+                  {isBn ? 'বাতিল' : 'Cancel'}
                 </button>
                 <button
                   type="submit"
-                  className="flex-2 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer flex items-center gap-1.5"
                 >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>{t.saveChangesBtn}</span>
+                  <Plus className="w-4 h-4" />
+                  <span>{isBn ? 'ট্রিপ শুরু করুন' : 'Start Trip'}</span>
                 </button>
               </div>
             </form>
@@ -1345,120 +871,20 @@ export const PurchaseTripTab: React.FC<PurchaseTripTabProps> = ({
         </div>
       )}
 
-      {/* 8. ADD EXTRA CASH MODAL (এই ট্রিপে আরো ক্যাশ টাকা যুক্ত করুন) */}
+      {/* 8. MODAL: ADD ADDITIONAL CASH TO TRIP (WITH EMBEDDED KHATABOOK CALCULATOR) */}
       {addCashTrip && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl shadow-2xl border border-stone-200 w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-150">
-            <div className="p-5 border-b border-stone-100 bg-gradient-to-r from-emerald-50/90 via-white to-stone-50 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shadow-xs">
-                  <Coins className="w-5 h-5" />
-                </div>
-                <div>
-                  <h2 className="text-base font-bold text-stone-900">
-                    {t.addMoreCashModalTitle}
-                  </h2>
-                  <p className="text-xs text-stone-500 font-medium truncate max-w-[240px]">
-                    {addCashTrip.title}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setAddCashTrip(null)}
-                className="p-2 rounded-xl text-stone-400 hover:text-stone-700 hover:bg-stone-100 cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            <form onSubmit={handleAddCashSubmit} className="p-5 space-y-3.5">
-              {/* Current Status Box */}
-              <div className="grid grid-cols-2 gap-2 bg-stone-50 p-3 rounded-2xl border border-stone-200 text-xs">
-                <div>
-                  <span className="text-stone-500 block text-[10px]">{t.cashTakenCard}</span>
-                  <span className="font-mono font-bold text-blue-700 text-sm">
-                    {sym}{addCashTrip.initialCash.toFixed(2)}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-stone-500 block text-[10px]">{t.remainingCashCard}</span>
-                  <span className="font-mono font-bold text-emerald-700 text-sm">
-                    {sym}{addCashTrip.remainingCash.toFixed(2)}
-                  </span>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-stone-700 mb-1">
-                  {t.extraCashAmountLabel} *
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs font-mono font-bold">
-                    {sym}
-                  </span>
-                  <input
-                    type="number"
-                    required
-                    min="1"
-                    step="any"
-                    autoFocus
-                    value={additionalCashAmount}
-                    onChange={(e) => setAdditionalCashAmount(e.target.value)}
-                    placeholder="যেমন: 5000"
-                    className="w-full border-2 border-emerald-400 bg-emerald-50/30 pl-8 pr-3 py-2.5 rounded-xl text-base sm:text-lg font-mono font-black focus:outline-none focus:border-emerald-600 text-emerald-800 shadow-xs"
-                  />
-                </div>
-
-                {/* Quick Add Buttons */}
-                <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                  <span className="text-[10px] text-stone-400">
-                    {language === 'bn' ? 'দ্রুত যোগ করুন:' : 'Quick add:'}
-                  </span>
-                  {[500, 1000, 2000, 5000, 10000].map((amt) => (
-                    <button
-                      key={amt}
-                      type="button"
-                      onClick={() => setAdditionalCashAmount(amt.toString())}
-                      className="text-[10px] font-mono px-2 py-0.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold border border-emerald-200 transition-colors cursor-pointer"
-                    >
-                      +{sym}{amt.toLocaleString()}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Total preview */}
-              {additionalCashAmount && !isNaN(parseFloat(additionalCashAmount)) && parseFloat(additionalCashAmount) > 0 && (
-                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs flex items-center justify-between">
-                  <span className="text-emerald-800 font-medium">
-                    {language === 'bn' ? 'মোট নতুন ক্যাশ হবে:' : 'New Total Cash will be:'}
-                  </span>
-                  <span className="font-mono font-black text-emerald-700 text-base">
-                    {sym}{(addCashTrip.initialCash + parseFloat(additionalCashAmount)).toFixed(2)}
-                  </span>
-                </div>
-              )}
-
-              <div className="flex gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setAddCashTrip(null)}
-                  className="flex-1 py-2.5 rounded-xl border border-stone-200 text-xs font-semibold text-stone-600 hover:bg-stone-100 cursor-pointer"
-                >
-                  {t.cancel}
-                </button>
-                <button
-                  type="submit"
-                  className="flex-2 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <Coins className="w-4 h-4" />
-                  <span>{t.addCashBtn}</span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <KhatabookEntryModal
+          isOpen={!!addCashTrip}
+          onClose={() => setAddCashTrip(null)}
+          onSave={(payload: KhatabookEntryPayload) => {
+            onAddCashToTrip(addCashTrip.id, payload.amount);
+            setAddCashTrip(null);
+          }}
+          entryType="add_cash"
+          partyName={addCashTrip.title}
+          settings={settings}
+          language={language}
+        />
       )}
     </div>
   );

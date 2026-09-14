@@ -14,6 +14,7 @@ import {
   QrCode,
   CreditCard,
   Clock,
+  Calculator,
 } from 'lucide-react';
 import {
   BillItem,
@@ -24,6 +25,7 @@ import {
   Language,
 } from '../types';
 import { translations } from '../utils/i18n';
+import { KhatabookEntryModal, KhatabookEntryPayload } from './KhatabookEntryModal';
 
 interface BillingTabProps {
   billItems: BillItem[];
@@ -34,6 +36,7 @@ interface BillingTabProps {
   onPrintBill: (bill: BillInvoice) => void;
   onClearBill: () => void;
   language?: Language;
+  onOpenCalculator?: () => void;
 }
 
 export const BillingTab: React.FC<BillingTabProps> = ({
@@ -45,6 +48,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   onPrintBill,
   onClearBill,
   language = 'bn',
+  onOpenCalculator,
 }) => {
   const t = translations[language];
   const isBn = language === 'bn';
@@ -61,6 +65,10 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   const [discountValue, setDiscountValue] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
   const [paidAmount, setPaidAmount] = useState('');
+
+  // Khatabook Calculator Modal State
+  const [isCalculatorModalOpen, setIsCalculatorModalOpen] = useState(false);
+  const [calculatorTarget, setCalculatorTarget] = useState<'item' | 'paid' | 'discount'>('item');
 
   const nameInputRef = useRef<HTMLInputElement>(null);
 
@@ -79,6 +87,43 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   const grandTotal = Math.max(0, subtotal - discountAmount);
   const paidNum = parseFloat(paidAmount) || 0;
   const changeAmount = Math.max(0, paidNum - grandTotal);
+
+  // Khatabook Calculator Save Handler
+  const handleCalculatorSave = (payload: KhatabookEntryPayload) => {
+    if (calculatorTarget === 'item') {
+      const name =
+        payload.details.trim() || itemName.trim() || (isBn ? 'বিক্রয় আইটেম' : 'Sale Item');
+      const finalPrice = payload.amount;
+      const validQty = parseInt(itemQty, 10) > 0 ? parseInt(itemQty, 10) : 1;
+
+      const newItem: BillItem = {
+        id: 'item-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+        name,
+        price: finalPrice,
+        qty: validQty,
+        total: finalPrice * validQty,
+      };
+
+      setBillItems((prev) => [...prev, newItem]);
+      setItemName('');
+      setItemPrice('');
+      setItemQty('1');
+      setIsCalculatorModalOpen(false);
+      return;
+    }
+
+    if (calculatorTarget === 'paid') {
+      setPaidAmount(payload.amount.toString());
+      setIsCalculatorModalOpen(false);
+      return;
+    }
+
+    if (calculatorTarget === 'discount') {
+      setDiscountValue(payload.amount.toString());
+      setIsCalculatorModalOpen(false);
+      return;
+    }
+  };
 
   // Add Item to Bill on-the-fly
   const handleAddItem = (e?: React.FormEvent) => {
@@ -240,7 +285,21 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             <Receipt className="w-4 h-4 text-blue-600" />
             <span>{t.instantItemEntry}</span>
           </h2>
-          <span className="text-[11px] text-stone-400 font-medium">{t.typeAndAddDirectly}</span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setCalculatorTarget('item');
+                setIsCalculatorModalOpen(true);
+              }}
+              className="px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all shadow-2xs"
+              title={isBn ? 'ক্যালকুলেটর দিয়ে যোগ করুন' : 'Add with Calculator'}
+            >
+              <Calculator className="w-3.5 h-3.5 text-blue-700" />
+              <span>{isBn ? 'ক্যালকুলেটর দিয়ে যোগ' : 'Add with Calculator'}</span>
+            </button>
+            <span className="text-[11px] text-stone-400 font-medium hidden sm:inline">{t.typeAndAddDirectly}</span>
+          </div>
         </div>
 
         <form onSubmit={handleAddItem} className="space-y-2.5">
@@ -269,8 +328,19 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 value={itemPrice}
                 onChange={(e) => setItemPrice(e.target.value)}
                 placeholder={t.unitPrice}
-                className="w-full border border-stone-200 bg-stone-50/80 pl-7 pr-3 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
+                className="w-full border border-stone-200 bg-stone-50/80 pl-7 pr-8 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
               />
+              <button
+                type="button"
+                onClick={() => {
+                  setCalculatorTarget('item');
+                  setIsCalculatorModalOpen(true);
+                }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400 hover:text-blue-600 p-1 rounded-md transition-colors cursor-pointer"
+                title={isBn ? 'ক্যালকুলেটর খুলুন' : 'Open Calculator'}
+              >
+                <Calculator className="w-3.5 h-3.5" />
+              </button>
             </div>
 
             <div className="w-1/2">
@@ -286,14 +356,28 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             </div>
           </div>
 
-          <button
-            type="submit"
-            id="btn-add-item"
-            className="w-full bg-blue-600 hover:bg-blue-500 active:scale-[0.99] text-white py-2.5 rounded-xl font-bold text-xs sm:text-sm shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-          >
-            <Plus className="w-4 h-4 stroke-[3]" />
-            <span>{t.addItemToBill}</span>
-          </button>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <button
+              type="submit"
+              id="btn-add-item"
+              className="w-full bg-blue-600 hover:bg-blue-500 active:scale-[0.99] text-white py-2.5 rounded-xl font-bold text-xs sm:text-sm shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <Plus className="w-4 h-4 stroke-[3]" />
+              <span>{t.addItemToBill}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setCalculatorTarget('item');
+                setIsCalculatorModalOpen(true);
+              }}
+              className="w-full bg-[#0052cc] hover:bg-[#0047b3] active:scale-[0.99] text-white py-2.5 rounded-xl font-bold text-xs sm:text-sm shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <Calculator className="w-4 h-4 stroke-[2.5]" />
+              <span>{isBn ? 'ক্যালকুলেটরে যোগ' : 'Add with Calculator'}</span>
+            </button>
+          </div>
         </form>
       </div>
 
@@ -439,8 +523,19 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 value={discountValue}
                 onChange={(e) => setDiscountValue(e.target.value)}
                 placeholder={discountType === 'fixed' ? '0.00' : '0'}
-                className="w-full border border-stone-200 bg-stone-50/80 pl-8 pr-3 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
+                className="w-full border border-stone-200 bg-stone-50/80 pl-8 pr-8 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
               />
+              <button
+                type="button"
+                onClick={() => {
+                  setCalculatorTarget('discount');
+                  setIsCalculatorModalOpen(true);
+                }}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-blue-600 p-0.5 rounded cursor-pointer"
+                title={isBn ? 'ক্যালকুলেটর দিয়ে ছাড় হিসাব করুন' : 'Calculate Discount'}
+              >
+                <Calculator className="w-3.5 h-3.5" />
+              </button>
             </div>
 
             {discountValue && (
@@ -556,15 +651,28 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             )}
           </div>
 
-          <input
-            type="number"
-            min="0"
-            step="any"
-            value={paidAmount}
-            onChange={(e) => setPaidAmount(e.target.value)}
-            placeholder={grandTotal > 0 ? grandTotal.toFixed(2) : '0.00'}
-            className="w-full border border-stone-200 bg-stone-50/80 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
-          />
+          <div className="relative">
+            <input
+              type="number"
+              min="0"
+              step="any"
+              value={paidAmount}
+              onChange={(e) => setPaidAmount(e.target.value)}
+              placeholder={grandTotal > 0 ? grandTotal.toFixed(2) : '0.00'}
+              className="w-full border border-stone-200 bg-stone-50/80 pl-3.5 pr-9 py-2.5 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                setCalculatorTarget('paid');
+                setIsCalculatorModalOpen(true);
+              }}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-blue-600 p-1 rounded-md cursor-pointer transition-colors"
+              title={isBn ? 'ক্যালকুলেটর দিয়ে ক্যাশ হিসাব করুন' : 'Calculate Cash'}
+            >
+              <Calculator className="w-4 h-4" />
+            </button>
+          </div>
 
           {paidNum > grandTotal && (
             <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-900 text-xs font-bold flex items-center justify-between">
@@ -635,6 +743,37 @@ export const BillingTab: React.FC<BillingTabProps> = ({
           {t.printTaxInvoiceSub}
         </p>
       </div>
+
+      {/* KHATABOOK / VYAPAR ENTRY MODAL FOR BILLING WITH FULL 5-ROW CALCULATOR */}
+      <KhatabookEntryModal
+        isOpen={isCalculatorModalOpen}
+        onClose={() => setIsCalculatorModalOpen(false)}
+        onSave={handleCalculatorSave}
+        entryType={calculatorTarget === 'item' ? 'bill_item' : 'calculate_value'}
+        initialAmount={
+          calculatorTarget === 'item'
+            ? parseFloat(itemPrice) || undefined
+            : calculatorTarget === 'paid'
+            ? parseFloat(paidAmount) || (grandTotal > 0 ? grandTotal : undefined)
+            : parseFloat(discountValue) || undefined
+        }
+        initialDetails={calculatorTarget === 'item' ? itemName : ''}
+        customSaveLabel={
+          calculatorTarget === 'item'
+            ? isBn
+              ? 'বিলে আইটেম যোগ করুন'
+              : 'ADD ITEM TO BILL'
+            : calculatorTarget === 'paid'
+            ? isBn
+              ? 'প্রাপ্ত ক্যাশ বসান'
+              : 'APPLY RECEIVED CASH'
+            : isBn
+            ? 'ডিসকাউন্ট বসান'
+            : 'APPLY DISCOUNT'
+        }
+        settings={settings}
+        language={language}
+      />
     </div>
   );
 };

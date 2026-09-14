@@ -13,6 +13,7 @@ import {
   Mail,
   CheckCircle2,
   ChevronRight,
+  Calculator,
 } from 'lucide-react';
 import {
   ThermalPrinterSettings,
@@ -32,6 +33,7 @@ interface HeaderProps {
   onOpenLogin: () => void;
   language: Language;
   onToggleLanguage: () => void;
+  onOpenCalculator: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -45,6 +47,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenLogin,
   language,
   onToggleLanguage,
+  onOpenCalculator,
 }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -134,6 +137,21 @@ export const Header: React.FC<HeaderProps> = ({
                 : bluetoothStatus.isConnecting
                 ? 'Connecting...'
                 : 'Printer Offline'}
+            </span>
+          </button>
+
+          {/* Quick Calculator Header Button */}
+          <button
+            id="header-calculator-btn"
+            type="button"
+            onClick={onOpenCalculator}
+            aria-label="Open Calculator"
+            title={language === 'bn' ? 'ক্যালকুলেটর খুলুন' : 'Open Calculator'}
+            className="p-2 rounded-xl text-stone-700 hover:text-blue-600 hover:bg-blue-50 active:bg-blue-100 border border-stone-200/80 bg-stone-50/80 transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs group"
+          >
+            <Calculator className="w-5 h-5 text-stone-600 group-hover:text-blue-600 transition-colors" />
+            <span className="hidden md:inline text-xs font-bold text-stone-700 group-hover:text-blue-600">
+              {language === 'bn' ? 'ক্যালকুলেটর' : 'Calculator'}
             </span>
           </button>
 
@@ -266,7 +284,27 @@ export const Header: React.FC<HeaderProps> = ({
                 )}
               </div>
 
-              {/* Section 2: Language Switcher */}
+              {/* Section 2: Quick Tools (Calculator) */}
+              <div className="p-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMenuOpen(false);
+                    onOpenCalculator();
+                  }}
+                  className="w-full text-left px-3 py-2 rounded-xl text-xs font-semibold text-stone-800 hover:bg-stone-100 flex items-center justify-between cursor-pointer transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <Calculator className="w-4 h-4 text-blue-600" />
+                    <span>{language === 'bn' ? 'ক্যালকুলেটর (পাইকারি ও খুচরা)' : 'Calculator (Wholesale & Retail)'}</span>
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md bg-blue-50 text-[10px] font-bold text-blue-700 border border-blue-200">
+                    {language === 'bn' ? 'খুলুন' : 'Open'}
+                  </span>
+                </button>
+              </div>
+
+              {/* Section 3: Language Switcher */}
               <div className="p-2">
                 <button
                   type="button"

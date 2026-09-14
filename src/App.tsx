@@ -28,6 +28,7 @@ import { PrintReceiptModal } from './components/PrintReceiptModal';
 import { SettingsModal } from './components/SettingsModal';
 import { LoginModal } from './components/LoginModal';
 import { OnboardingModal } from './components/OnboardingModal';
+import { CalculatorModal } from './components/CalculatorModal';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('billing');
@@ -41,6 +42,7 @@ export default function App() {
   const [purchaseTrips, setPurchaseTrips] = useState<PurchaseTrip[]>(storageService.getPurchaseTrips());
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
+  const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
   const [receiptBill, setReceiptBill] = useState<BillInvoice | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isPrintingBill, setIsPrintingBill] = useState(false);
@@ -426,6 +428,7 @@ export default function App() {
         onOpenLogin={() => setIsLoginModalOpen(true)}
         language={language}
         onToggleLanguage={handleToggleLanguage}
+        onOpenCalculator={() => setIsCalculatorOpen(true)}
       />
 
       {/* Main Workspace with proper bottom padding to prevent overlap with bottom bar */}
@@ -440,6 +443,7 @@ export default function App() {
             onPrintBill={handlePrintBill}
             onClearBill={handleClearBill}
             language={language}
+            onOpenCalculator={() => setIsCalculatorOpen(true)}
           />
         )}
 
@@ -481,6 +485,7 @@ export default function App() {
             trips={purchaseTrips}
             settings={settings}
             language={language}
+            onOpenCalculator={() => setIsCalculatorOpen(true)}
             onCreateTrip={handleCreatePurchaseTrip}
             onUpdateTrip={handleUpdatePurchaseTrip}
             onAddCashToTrip={handleAddCashToTrip}
@@ -564,6 +569,14 @@ export default function App() {
       <OnboardingModal
         isOpen={isOnboardingOpen}
         onSave={handleSaveOnboarding}
+        language={language}
+      />
+
+      {/* POS & Wholesale Quick Calculator Modal */}
+      <CalculatorModal
+        isOpen={isCalculatorOpen}
+        onClose={() => setIsCalculatorOpen(false)}
+        settings={settings}
         language={language}
       />
 

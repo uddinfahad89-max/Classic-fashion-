@@ -9,6 +9,18 @@ export const translations = {
     tabDue: 'বাকি খাতা',
     tabPurchases: 'কেনাকাটা',
 
+    // Calculator
+    calculator: 'ক্যালকুলেটর',
+    quickCalculator: 'ক্যালকুলেটর',
+    calculatorSubtitle: 'পাইকারি হিসাব, ডজন, পিস ও নগদ হিসাব',
+    dozenShortcut: 'ডজন (×12)',
+    pieceShortcut: 'পিস (÷12)',
+    copyResult: 'কপি করুন',
+    copied: 'কপি হয়েছে!',
+    history: 'হিস্ট্রি',
+    clearHistory: 'হিস্ট্রি মুছুন',
+    noHistory: 'কোনো পূর্ববর্তী হিসাব নেই',
+
     // Header & Actions
     appName: 'পিওএস ও বিল প্রিন্টার',
     printerReady: 'প্রিন্টার প্রস্তুত',
@@ -254,6 +266,18 @@ export const translations = {
     tabCashbook: 'Daybook',
     tabInvoices: 'Invoices',
     tabPurchases: 'Purchases',
+
+    // Calculator
+    calculator: 'Calculator',
+    quickCalculator: 'Calculator',
+    calculatorSubtitle: 'Wholesale, dozen, piece & quick cash calculations',
+    dozenShortcut: 'Dozen (×12)',
+    pieceShortcut: 'Piece (÷12)',
+    copyResult: 'Copy',
+    copied: 'Copied!',
+    history: 'History',
+    clearHistory: 'Clear History',
+    noHistory: 'No calculation history yet',
 
     // Header & Actions
     appName: 'POS & Thermal Printer',

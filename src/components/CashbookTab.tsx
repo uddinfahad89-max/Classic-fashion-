@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   BookOpen,
   ArrowDownLeft,
@@ -8,9 +8,22 @@ import {
   Receipt,
   CheckCircle,
   TrendingUp,
+  Search,
+  Calendar,
+  Filter,
+  Plus,
+  Minus,
+  X,
+  CreditCard,
+  Banknote,
+  Smartphone,
+  Clock,
+  ChevronRight,
+  Tag,
 } from 'lucide-react';
 import { CashEntry, CashEntryType, ThermalPrinterSettings, BillInvoice, Language } from '../types';
 import { translations } from '../utils/i18n';
+import { KhatabookEntryModal, KhatabookEntryPayload } from './KhatabookEntryModal';
 
 interface CashbookTabProps {
   entries: CashEntry[];
@@ -20,6 +33,8 @@ interface CashbookTabProps {
   onDeleteEntry: (id: string) => void;
   language?: Language;
 }
+
+type DaybookDateFilter = 'today' | 'yesterday' | 'week' | 'all' | 'custom';
 
 export const CashbookTab: React.FC<CashbookTabProps> = ({
   entries,
@@ -31,389 +46,481 @@ export const CashbookTab: React.FC<CashbookTabProps> = ({
 }) => {
   const t = translations[language];
   const isBn = language === 'bn';
-
-  const [cashType, setCashType] = useState<CashEntryType>('Expense');
-  const [cashAmount, setCashAmount] = useState('');
-  const [cashNote, setCashNote] = useState('');
-  const [savedFeedback, setSavedFeedback] = useState(false);
-  const [activeSubTab, setActiveSubTab] = useState<'entries' | 'bills'>('entries');
-
   const sym = settings.currencySymbol || '₹';
 
-  // Helper to check if a timestamp is today
-  const isToday = (timestamp: number) => {
+  // Filters
+  const [dateFilter, setDateFilter] = useState<DaybookDateFilter>('today');
+  const [customDate, setCustomDate] = useState<string>('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<'all' | 'Income' | 'Expense'>('all');
+
+  // Modal State for Cash In & Cash Out
+  const [activeModalType, setActiveModalType] = useState<CashEntryType | null>(null);
+
+  // Helper date matchers
+  const isSameDay = (timestamp: number, target: Date) => {
     const d = new Date(timestamp);
-    const now = new Date();
     return (
-      d.getFullYear() === now.getFullYear() &&
-      d.getMonth() === now.getMonth() &&
-      d.getDate() === now.getDate()
+      d.getFullYear() === target.getFullYear() &&
+      d.getMonth() === target.getMonth() &&
+      d.getDate() === target.getDate()
     );
   };
 
-  // 1. Calculate Today's Invoiced Sales
-  const todaysBills = bills.filter((b) => isToday(b.timestamp));
-  const todaysPaidBills = todaysBills.filter((b) => b.paymentMethod !== 'due');
-  const todaysDueBills = todaysBills.filter((b) => b.paymentMethod === 'due');
+  // 1. Filtered Bills based on date filter
+  const filteredBills = useMemo(() => {
+    return bills.filter((b) => {
+      // only paid bills count towards daily cash sales
+      if (b.paymentMethod === 'due') return false;
 
-  const todaysBilledSales = todaysPaidBills.reduce((sum, b) => sum + b.grandTotal, 0);
-  const todaysDueSales = todaysDueBills.reduce((sum, b) => sum + b.grandTotal, 0);
+      if (dateFilter === 'today') {
+        return isSameDay(b.timestamp, new Date());
+      } else if (dateFilter === 'yesterday') {
+        const y = new Date();
+        y.setDate(y.getDate() - 1);
+        return isSameDay(b.timestamp, y);
+      } else if (dateFilter === 'week') {
+        const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+        return b.timestamp >= sevenDaysAgo;
+      } else if (dateFilter === 'custom' && customDate) {
+        const [year, month, day] = customDate.split('-').map(Number);
+        const target = new Date(year, month - 1, day);
+        return isSameDay(b.timestamp, target);
+      }
+      return true; // 'all'
+    });
+  }, [bills, dateFilter, customDate]);
 
-  // By payment mode today
-  const cashSales = todaysPaidBills
-    .filter((b) => b.paymentMethod === 'cash')
-    .reduce((sum, b) => sum + b.grandTotal, 0);
-  const upiSales = todaysPaidBills
-    .filter((b) => b.paymentMethod === 'upi')
-    .reduce((sum, b) => sum + b.grandTotal, 0);
-  const cardSales = todaysPaidBills
-    .filter((b) => b.paymentMethod === 'card')
-    .reduce((sum, b) => sum + b.grandTotal, 0);
+  // 2. Filtered Manual Cash Entries based on date filter
+  const filteredEntries = useMemo(() => {
+    return entries.filter((e) => {
+      if (e.note?.startsWith('POS ')) return false; // ignore auto-pos mirrors to prevent double counting
 
-  // 2. Manual cashbook entries (ignore entries with 'POS ' prefix if any to prevent double-counting)
-  const manualIncomeEntries = entries.filter(
-    (e) => e.type === 'Income' && !e.note?.startsWith('POS ')
-  );
-  const manualIncome = manualIncomeEntries.reduce((sum, e) => sum + e.amount, 0);
+      if (dateFilter === 'today') {
+        return isSameDay(e.timestamp, new Date());
+      } else if (dateFilter === 'yesterday') {
+        const y = new Date();
+        y.setDate(y.getDate() - 1);
+        return isSameDay(e.timestamp, y);
+      } else if (dateFilter === 'week') {
+        const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+        return e.timestamp >= sevenDaysAgo;
+      } else if (dateFilter === 'custom' && customDate) {
+        const [year, month, day] = customDate.split('-').map(Number);
+        const target = new Date(year, month - 1, day);
+        return isSameDay(e.timestamp, target);
+      }
+      return true;
+    });
+  }, [entries, dateFilter, customDate]);
 
-  // Total Daily Income = All Today's Invoiced Paid Sales + Other Manual Income
-  const totalIncome = todaysBilledSales + manualIncome;
+  // Calculations for the selected period
+  const totalBilledSales = useMemo(() => {
+    return filteredBills.reduce((sum, b) => sum + b.grandTotal, 0);
+  }, [filteredBills]);
 
-  const totalExpense = entries
-    .filter((e) => e.type === 'Expense')
-    .reduce((sum, e) => sum + e.amount, 0);
+  const totalManualIncome = useMemo(() => {
+    return filteredEntries
+      .filter((e) => e.type === 'Income')
+      .reduce((sum, e) => sum + e.amount, 0);
+  }, [filteredEntries]);
 
-  const netBalance = totalIncome - totalExpense;
+  // 1. TOTAL CASH IN (Sales + Manual Income)
+  const totalCashIn = totalBilledSales + totalManualIncome;
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const amount = parseFloat(cashAmount);
-    if (!amount || amount <= 0) return;
+  // 2. TOTAL CASH OUT / EXPENSE
+  const totalCashOut = useMemo(() => {
+    return filteredEntries
+      .filter((e) => e.type === 'Expense')
+      .reduce((sum, e) => sum + e.amount, 0);
+  }, [filteredEntries]);
 
-    onAddEntry(cashType, amount, cashNote);
+  // 3. NET CASH BALANCE
+  const netBalance = totalCashIn - totalCashOut;
 
-    setCashAmount('');
-    setCashNote('');
-    setSavedFeedback(true);
-    setTimeout(() => setSavedFeedback(false), 2000);
-  };
+  // Combine Bills & Manual Entries into a unified timeline
+  interface TimelineItem {
+    id: string;
+    type: 'Income' | 'Expense';
+    title: string;
+    tag: string;
+    amount: number;
+    timestamp: number;
+    timeFormatted: string;
+    isBill?: boolean;
+    rawBill?: BillInvoice;
+    rawEntry?: CashEntry;
+  }
+
+  const timelineItems: TimelineItem[] = useMemo(() => {
+    const list: TimelineItem[] = [];
+
+    // Add bills as income items
+    filteredBills.forEach((b) => {
+      const d = new Date(b.timestamp);
+      list.push({
+        id: 'bill-' + b.id,
+        type: 'Income',
+        title: b.customerName
+          ? `${isBn ? 'বিক্রয় রশিদ' : 'Billed Sale'}: ${b.customerName} (#${b.invoiceNo})`
+          : `${isBn ? 'নগদ বিক্রয়' : 'Sale'} #${b.invoiceNo}`,
+        tag: b.paymentMethod.toUpperCase(),
+        amount: b.grandTotal,
+        timestamp: b.timestamp,
+        timeFormatted: d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isBill: true,
+        rawBill: b,
+      });
+    });
+
+    // Add manual cash entries
+    filteredEntries.forEach((e) => {
+      const d = new Date(e.timestamp);
+      // detect if note contains payment tag like [UPI], [Card]
+      let tag = 'CASH';
+      let cleanNote = e.note || '';
+      if (cleanNote.includes('[UPI]')) {
+        tag = 'UPI';
+        cleanNote = cleanNote.replace('[UPI]', '').trim();
+      } else if (cleanNote.includes('[Card]')) {
+        tag = 'CARD';
+        cleanNote = cleanNote.replace('[Card]', '').trim();
+      } else if (cleanNote.includes('[Bank]')) {
+        tag = 'BANK';
+        cleanNote = cleanNote.replace('[Bank]', '').trim();
+      }
+
+      list.push({
+        id: e.id,
+        type: e.type,
+        title:
+          cleanNote ||
+          (e.type === 'Income'
+            ? isBn
+              ? 'অন্যান্য জমা'
+              : 'Cash In'
+            : isBn
+            ? 'দোকান খরচ'
+            : 'General Expense'),
+        tag,
+        amount: e.amount,
+        timestamp: e.timestamp,
+        timeFormatted: d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isBill: false,
+        rawEntry: e,
+      });
+    });
+
+    // Sort descending by timestamp
+    list.sort((a, b) => b.timestamp - a.timestamp);
+
+    // Filter by search keyword and category
+    return list.filter((item) => {
+      if (categoryFilter !== 'all' && item.type !== categoryFilter) return false;
+      if (!searchTerm.trim()) return true;
+      const q = searchTerm.toLowerCase().trim();
+      return (
+        item.title.toLowerCase().includes(q) ||
+        item.tag.toLowerCase().includes(q) ||
+        item.amount.toString().includes(q)
+      );
+    });
+  }, [filteredBills, filteredEntries, categoryFilter, searchTerm, isBn]);
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-4 sm:py-6 space-y-4">
-      {/* Daybook Header Banner */}
-      <div className="flex items-center justify-between pb-2 border-b border-stone-200">
-        <div>
-          <h2 className="text-base font-bold text-stone-900 flex items-center gap-2">
-            <BookOpen className="w-5 h-5 text-blue-600" />
-            <span>{isBn ? 'ডেবুক (দৈনিক সেলস ও খরচ রেজিস্টার)' : 'Daybook (Daily Sales & Expense Register)'}</span>
-          </h2>
-          <p className="text-xs text-stone-500 font-medium">
-            {isBn ? 'আজকের বিক্রয়, নগদ জমা ও খরচের হিসাব' : 'Daily sales income, cash in/out and expense tracking'}
-          </p>
-        </div>
-      </div>
-
-      {/* 1. TODAY'S SALES & CASH SUMMARY CARDS */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between px-1">
-          <span className="text-xs font-bold text-stone-600">{t.todaySummary}</span>
-          <span className="text-[11px] font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md">
-            {todaysPaidBills.length} {t.invoicesPaidToday}
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          {/* Total Income */}
-          <div className="p-3 bg-emerald-50 border border-emerald-200/80 rounded-2xl text-emerald-800 space-y-1">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <div className="w-7 h-7 rounded-lg bg-emerald-200/70 flex items-center justify-center">
-                  <ArrowDownLeft className="w-4 h-4 text-emerald-700 stroke-[2.5]" />
-                </div>
-                <span className="text-xs font-bold">{t.totalSalesIn}</span>
-              </div>
-              <span id="totalIncome" className="text-base font-bold font-mono text-emerald-700">
-                {sym}
-                {totalIncome.toFixed(2)}
-              </span>
+    <div className="max-w-2xl mx-auto px-3 sm:px-4 py-3 sm:py-5 space-y-3.5 pb-28">
+      {/* 1. KHATABOOK TOP SUMMARY: 3 COMPACT METRICS (CASH IN, CASH OUT, NET BALANCE) */}
+      <div className="bg-white rounded-3xl shadow-sm border border-stone-200/90 overflow-hidden">
+        <div className="grid grid-cols-3 divide-x divide-stone-200/80 p-3 sm:p-4 text-center">
+          {/* Metric 1: Total Cash In */}
+          <div className="p-1 sm:p-2">
+            <span className="text-[10px] sm:text-[11px] font-bold text-stone-500 uppercase tracking-wider flex items-center justify-center gap-1">
+              <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-600" />
+              <span>{isBn ? 'ক্যাশ ইন' : 'Total In'}</span>
+            </span>
+            <div className="text-sm sm:text-xl font-black text-emerald-600 font-mono mt-1 tracking-tight">
+              +{sym}{totalCashIn.toFixed(0)}
             </div>
-            <div className="text-[10px] text-emerald-600 flex justify-between font-medium pt-1 border-t border-emerald-200/50">
-              <span>{t.billedSales} {sym}{todaysBilledSales.toFixed(0)}</span>
-              <span>{t.manualIncomeText} {sym}{manualIncome.toFixed(0)}</span>
-            </div>
+            <span className="text-[9px] sm:text-[10px] text-stone-400 font-medium truncate block">
+              {filteredBills.length} {isBn ? 'বিল' : 'sales'} + {isBn ? 'জমা' : 'in'}
+            </span>
           </div>
 
-          {/* Total Expense */}
-          <div className="p-3 bg-rose-50 border border-rose-200/80 rounded-2xl text-rose-800 space-y-1">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <div className="w-7 h-7 rounded-lg bg-rose-200/70 flex items-center justify-center">
-                  <ArrowUpRight className="w-4 h-4 text-rose-700 stroke-[2.5]" />
-                </div>
-                <span className="text-xs font-bold">{t.totalExpenseText}</span>
-              </div>
-              <span id="totalExpense" className="text-base font-bold font-mono text-rose-700">
-                {sym}
-                {totalExpense.toFixed(2)}
-              </span>
+          {/* Metric 2: Total Cash Out / Expense */}
+          <div className="p-1 sm:p-2">
+            <span className="text-[10px] sm:text-[11px] font-bold text-stone-500 uppercase tracking-wider flex items-center justify-center gap-1">
+              <ArrowUpRight className="w-3.5 h-3.5 text-rose-600" />
+              <span>{isBn ? 'ক্যাশ আউট' : 'Total Out'}</span>
+            </span>
+            <div className="text-sm sm:text-xl font-black text-rose-600 font-mono mt-1 tracking-tight">
+              -{sym}{totalCashOut.toFixed(0)}
             </div>
-            <div className="text-[10px] text-rose-500 font-medium pt-1 border-t border-rose-200/50">
-              {t.shopCosts}
-            </div>
+            <span className="text-[9px] sm:text-[10px] text-stone-400 font-medium truncate block">
+              {isBn ? 'দোকানের খরচ' : 'Expenses'}
+            </span>
           </div>
 
-          {/* Net Balance */}
-          <div className="p-3 bg-stone-50 border border-stone-200 rounded-2xl text-stone-800 space-y-1">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <div className="w-7 h-7 rounded-lg bg-stone-200 flex items-center justify-center">
-                  <Wallet className="w-4 h-4 text-stone-700" />
-                </div>
-                <span className="text-xs font-bold">{t.netBalanceText}</span>
-              </div>
-              <span
-                className={`text-base font-bold font-mono ${
-                  netBalance >= 0 ? 'text-stone-900' : 'text-rose-600'
+          {/* Metric 3: Net Cash Balance */}
+          <div className="p-1 sm:p-2">
+            <span className="text-[10px] sm:text-[11px] font-bold text-stone-500 uppercase tracking-wider flex items-center justify-center gap-1">
+              <Wallet className="w-3.5 h-3.5 text-blue-600" />
+              <span>{isBn ? 'নেট ক্যাশ' : 'Net Cash'}</span>
+            </span>
+            <div
+              className={`text-sm sm:text-xl font-black font-mono mt-1 tracking-tight ${
+                netBalance >= 0 ? 'text-stone-900' : 'text-rose-600'
+              }`}
+            >
+              {netBalance >= 0 ? '+' : ''}
+              {sym}{netBalance.toFixed(0)}
+            </div>
+            <span className="text-[9px] sm:text-[10px] text-stone-400 font-medium truncate block">
+              {isBn ? 'অবশিষ্ট উদ্বৃত্ত' : 'Net Balance'}
+            </span>
+          </div>
+        </div>
+
+        {/* Date Filter Bar */}
+        <div className="bg-stone-50/80 px-3 py-2 border-t border-stone-200/80 flex items-center justify-between gap-1 overflow-x-auto">
+          <div className="flex items-center gap-1">
+            {(['today', 'yesterday', 'week', 'all', 'custom'] as DaybookDateFilter[]).map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setDateFilter(f)}
+                className={`px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all cursor-pointer capitalize ${
+                  dateFilter === f
+                    ? 'bg-blue-600 text-white shadow-2xs'
+                    : 'text-stone-600 hover:bg-stone-200/60'
                 }`}
               >
-                {sym}
-                {netBalance.toFixed(2)}
-              </span>
-            </div>
-            <div className="text-[10px] text-stone-500 font-medium pt-1 border-t border-stone-200/50">
-              {t.netBalanceSub}
-            </div>
+                {f === 'today'
+                  ? isBn
+                    ? 'আজ'
+                    : 'Today'
+                  : f === 'yesterday'
+                  ? isBn
+                    ? 'গতকাল'
+                    : 'Yesterday'
+                  : f === 'week'
+                  ? isBn
+                    ? '৭ দিন'
+                    : 'Week'
+                  : f === 'all'
+                  ? isBn
+                    ? 'সব'
+                    : 'All'
+                  : isBn
+                  ? 'তারিখ'
+                  : 'Custom'}
+              </button>
+            ))}
           </div>
-        </div>
 
-        {/* Breakdown of Today's Invoiced Sales by Payment Mode */}
-        {todaysPaidBills.length > 0 && (
-          <div className="p-3 bg-white rounded-2xl border border-stone-200 text-xs shadow-2xs space-y-1.5">
-            <div className="flex items-center justify-between text-[11px] font-bold text-stone-500 uppercase tracking-wider">
-              <span>{t.todaysBilledBreakdown}</span>
-              <span className="text-stone-700 font-mono font-bold">
-                {sym}{todaysBilledSales.toFixed(2)}
-              </span>
-            </div>
-            <div className="grid grid-cols-4 gap-1 text-center font-mono">
-              <div className="bg-stone-50 p-1.5 rounded-lg border border-stone-100">
-                <span className="block text-[10px] text-stone-400 font-sans">{t.modeCash}</span>
-                <span className="text-xs font-bold text-stone-800">{sym}{cashSales.toFixed(0)}</span>
-              </div>
-              <div className="bg-stone-50 p-1.5 rounded-lg border border-stone-100">
-                <span className="block text-[10px] text-stone-400 font-sans">{t.modeUpi}</span>
-                <span className="text-xs font-bold text-blue-700">{sym}{upiSales.toFixed(0)}</span>
-              </div>
-              <div className="bg-stone-50 p-1.5 rounded-lg border border-stone-100">
-                <span className="block text-[10px] text-stone-400 font-sans">{t.modeCard}</span>
-                <span className="text-xs font-bold text-purple-700">{sym}{cardSales.toFixed(0)}</span>
-              </div>
-              <div className="bg-rose-50/70 p-1.5 rounded-lg border border-rose-100">
-                <span className="block text-[10px] text-rose-500 font-sans">{t.dueBillsLabel}</span>
-                <span className="text-xs font-bold text-rose-700">{sym}{todaysDueSales.toFixed(0)}</span>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* 2. CASH ENTRY FORM */}
-      <div className="bg-white rounded-2xl p-4 sm:p-5 shadow-xs border border-stone-200">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-bold text-stone-900 flex items-center gap-1.5">
-            <BookOpen className="w-4 h-4 text-indigo-600" />
-            <span>{t.recordCashEntry}</span>
-          </h2>
-          {savedFeedback && (
-            <span className="text-[11px] font-bold text-emerald-600 flex items-center gap-1 animate-pulse">
-              <CheckCircle className="w-3 h-3" /> {t.entrySaved}
-            </span>
+          {dateFilter === 'custom' && (
+            <input
+              type="date"
+              value={customDate}
+              onChange={(e) => setCustomDate(e.target.value)}
+              className="text-xs bg-white border border-stone-200 rounded-lg px-2 py-0.5 font-mono"
+            />
           )}
         </div>
-
-        <form onSubmit={handleSubmit} className="space-y-2.5">
-          <div>
-            <select
-              id="cashType"
-              value={cashType}
-              onChange={(e) => setCashType(e.target.value as CashEntryType)}
-              className="w-full border border-stone-200 bg-stone-50/80 px-3 py-2 rounded-xl text-xs sm:text-sm font-bold focus:outline-none focus:border-indigo-500"
-            >
-              <option value="Expense">{t.expenseOption}</option>
-              <option value="Income">{t.incomeOption}</option>
-            </select>
-          </div>
-
-          <div>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs font-mono">
-                {sym}
-              </span>
-              <input
-                type="number"
-                id="cashAmount"
-                required
-                min="0.01"
-                step="any"
-                value={cashAmount}
-                onChange={(e) => setCashAmount(e.target.value)}
-                placeholder={`${t.cashAmountPlaceholder} (${sym})`}
-                className="w-full border border-stone-200 bg-stone-50/80 pl-7 pr-3 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-indigo-500"
-              />
-            </div>
-          </div>
-
-          <div>
-            <input
-              type="text"
-              id="cashNote"
-              value={cashNote}
-              onChange={(e) => setCashNote(e.target.value)}
-              placeholder={t.cashNotePlaceholder}
-              className="w-full border border-stone-200 bg-stone-50/80 px-3 py-2 rounded-xl text-xs sm:text-sm focus:outline-none focus:border-indigo-500"
-            />
-          </div>
-
-          <button
-            type="submit"
-            className="w-full bg-indigo-600 hover:bg-indigo-500 active:scale-[0.99] text-white py-2.5 rounded-xl font-bold text-xs sm:text-sm shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-          >
-            <span>{t.saveEntryBtn}</span>
-          </button>
-        </form>
       </div>
 
-      {/* 3. ENTRIES & TODAY'S INVOICES TABS */}
-      <div className="bg-white rounded-2xl shadow-xs border border-stone-200 overflow-hidden">
-        <div className="p-2 border-b border-stone-200 bg-stone-50/70 flex items-center justify-between">
-          <div className="flex gap-1">
-            <button
-              onClick={() => setActiveSubTab('entries')}
-              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                activeSubTab === 'entries'
-                  ? 'bg-white text-indigo-700 shadow-2xs'
-                  : 'text-stone-500 hover:text-stone-800'
-              }`}
-            >
-              {t.cashEntriesTab} ({entries.length})
-            </button>
-            <button
-              onClick={() => setActiveSubTab('bills')}
-              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                activeSubTab === 'bills'
-                  ? 'bg-white text-indigo-700 shadow-2xs'
-                  : 'text-stone-500 hover:text-stone-800'
-              }`}
-            >
-              {t.todaysBillsTab} ({todaysBills.length})
-            </button>
-          </div>
-
-          <span className="text-[11px] text-stone-400 font-mono pr-2">
-            {activeSubTab === 'entries' ? t.manualBookLabel : t.autoCountedLabel}
-          </span>
+      {/* 2. SEARCH & CATEGORY CHIPS */}
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search className="w-3.5 h-3.5 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder={isBn ? 'বিবরণ বা ট্যাগ দিয়ে খুঁজুন...' : 'Search entries...'}
+            className="w-full pl-8 pr-3 py-2 bg-white border border-stone-200 rounded-xl text-xs font-medium focus:outline-none focus:border-blue-500"
+          />
         </div>
 
-        {activeSubTab === 'entries' ? (
-          entries.length === 0 ? (
-            <div className="p-8 text-center text-stone-400 text-xs">
-              {t.noEntriesYet}
-            </div>
-          ) : (
-            <div className="divide-y divide-stone-100 max-h-80 overflow-y-auto">
-              {entries.map((entry) => {
-                const isIncome = entry.type === 'Income';
-                return (
-                  <div
-                    key={entry.id}
-                    className="p-3 sm:p-3.5 flex items-center justify-between hover:bg-stone-50/80 transition-colors"
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <span
-                        className={`text-[11px] font-bold px-2 py-0.5 rounded-md ${
-                          isIncome
-                            ? 'bg-green-100 text-green-700'
-                            : 'bg-red-100 text-red-700'
-                        }`}
-                      >
-                        {isIncome ? (isBn ? 'আয়' : 'Income') : (isBn ? 'খরচ' : 'Expense')}
-                      </span>
-                      <div>
-                        <div className="text-xs sm:text-sm font-semibold text-stone-900">
-                          {entry.note}
-                        </div>
-                        <div className="text-[10px] text-stone-400 font-mono">
-                          {entry.dateFormatted}
-                        </div>
-                      </div>
-                    </div>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setCategoryFilter('all')}
+            className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+              categoryFilter === 'all'
+                ? 'bg-stone-900 text-white'
+                : 'bg-white border border-stone-200 text-stone-600'
+            }`}
+          >
+            {isBn ? 'সব' : 'All'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setCategoryFilter('Income')}
+            className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1 ${
+              categoryFilter === 'Income'
+                ? 'bg-emerald-600 text-white'
+                : 'bg-white border border-emerald-200 text-emerald-700'
+            }`}
+          >
+            <ArrowDownLeft className="w-3 h-3" />
+            <span>{isBn ? 'জমা' : 'In'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setCategoryFilter('Expense')}
+            className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1 ${
+              categoryFilter === 'Expense'
+                ? 'bg-rose-600 text-white'
+                : 'bg-white border border-rose-200 text-rose-700'
+            }`}
+          >
+            <ArrowUpRight className="w-3 h-3" />
+            <span>{isBn ? 'খরচ' : 'Out'}</span>
+          </button>
+        </div>
+      </div>
 
-                    <div className="flex items-center gap-2.5">
-                      <span
-                        className={`text-xs sm:text-sm font-bold font-mono ${
-                          isIncome ? 'text-green-600' : 'text-red-600'
-                        }`}
-                      >
-                        {isIncome ? '+' : '-'}
-                        {sym}
-                        {entry.amount.toFixed(2)}
-                      </span>
-
-                      <button
-                        onClick={() => onDeleteEntry(entry.id)}
-                        className="p-1 rounded text-stone-300 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
-                        title={isBn ? 'মুছে ফেলুন' : 'Delete'}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )
-        ) : todaysBills.length === 0 ? (
-          <div className="p-8 text-center text-stone-400 text-xs">
-            {t.noBillsToday}
+      {/* 3. MAIN VIEW: CLEAN TIMELINE CARDS */}
+      <div className="space-y-2">
+        {timelineItems.length === 0 ? (
+          <div className="bg-white rounded-3xl p-10 text-center border border-stone-200 space-y-2">
+            <BookOpen className="w-10 h-10 text-stone-300 mx-auto" />
+            <p className="text-xs font-bold text-stone-700">
+              {isBn ? 'নির্বাচিত দিনে কোনো ক্যাশ এন্ট্রি নেই' : 'No cashbook entries for this period'}
+            </p>
+            <p className="text-[11px] text-stone-400">
+              {isBn
+                ? 'নিচের "+ ক্যাশ ইন" বা "- ক্যাশ আউট" চেপে এন্ট্রি করুন'
+                : 'Use "+ CASH IN" or "- CASH OUT" buttons below to record an entry'}
+            </p>
           </div>
         ) : (
-          <div className="divide-y divide-stone-100 max-h-80 overflow-y-auto">
-            {todaysBills.map((b) => (
+          timelineItems.map((item) => {
+            const isIncome = item.type === 'Income';
+
+            return (
               <div
-                key={b.id}
-                className="p-3 flex items-center justify-between hover:bg-stone-50/80 transition-colors text-xs"
+                key={item.id}
+                className="bg-white rounded-2xl border border-stone-200/90 hover:border-stone-300 p-3 sm:p-3.5 shadow-2xs transition-all flex items-center justify-between gap-3"
               >
-                <div className="space-y-0.5">
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-bold text-stone-800 font-mono">#{b.invoiceNo}</span>
-                    <span
-                      className={`text-[10px] font-bold px-1.5 py-0.2 rounded uppercase ${
-                        b.paymentMethod === 'due'
-                          ? 'bg-rose-100 text-rose-700'
-                          : 'bg-emerald-100 text-emerald-800'
-                      }`}
-                    >
-                      {b.paymentMethod}
-                    </span>
+                {/* Left: Indicator Icon & Title & Time */}
+                <div className="flex items-center gap-3 min-w-0">
+                  <div
+                    className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 border ${
+                      isIncome
+                        ? 'bg-emerald-50 text-emerald-600 border-emerald-200'
+                        : 'bg-rose-50 text-rose-600 border-rose-200'
+                    }`}
+                  >
+                    {isIncome ? (
+                      <ArrowDownLeft className="w-5 h-5 stroke-[2.5]" />
+                    ) : (
+                      <ArrowUpRight className="w-5 h-5 stroke-[2.5]" />
+                    )}
                   </div>
-                  <div className="text-[11px] text-stone-400">
-                    {b.customerName || t.walkInCustomer} • {b.items.length} {t.items}
+
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-xs sm:text-sm font-bold text-stone-900 truncate">
+                        {item.title}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 text-[11px] text-stone-400 mt-0.5">
+                      <span className="flex items-center gap-1 font-mono text-stone-500">
+                        <Clock className="w-3 h-3 text-stone-400" />
+                        {item.timeFormatted}
+                      </span>
+                      <span>•</span>
+                      <span className="px-1.5 py-0.2 rounded-md bg-stone-100 font-mono font-bold text-[10px] text-stone-600 border border-stone-200/60">
+                        {item.tag}
+                      </span>
+                      {item.isBill && (
+                        <span className="text-[10px] text-blue-600 font-bold bg-blue-50 px-1.5 py-0.2 rounded border border-blue-200">
+                          {isBn ? 'বিল্ড সেল' : 'Billed'}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                <div className="text-right font-mono">
-                  <span className="text-xs font-bold text-stone-900">
-                    {sym}{b.grandTotal.toFixed(2)}
-                  </span>
-                  {b.discount > 0 && (
-                    <div className="text-[10px] text-rose-500">Disc: -{sym}{b.discount}</div>
+                {/* Right: Amount & Delete button */}
+                <div className="flex items-center gap-2 shrink-0">
+                  <div className="text-right">
+                    <span
+                      className={`text-sm sm:text-base font-black font-mono tracking-tight ${
+                        isIncome ? 'text-emerald-600' : 'text-rose-600'
+                      }`}
+                    >
+                      {isIncome ? '+' : '-'}
+                      {sym}{item.amount.toFixed(2)}
+                    </span>
+                    <span className="text-[10px] text-stone-400 block -mt-0.5">
+                      {isIncome ? (isBn ? 'জমা' : 'Cash In') : (isBn ? 'খরচ' : 'Expense')}
+                    </span>
+                  </div>
+
+                  {!item.isBill && (
+                    <button
+                      type="button"
+                      onClick={() => onDeleteEntry(item.id)}
+                      className="p-1.5 rounded-xl text-stone-300 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                      title={isBn ? 'এন্ট্রি মুছে ফেলুন' : 'Delete Entry'}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   )}
                 </div>
               </div>
-            ))}
-          </div>
+            );
+          })
         )}
       </div>
+
+      {/* 4. TWO FLOATING BOTTOM ACTION BUTTONS: + CASH IN & - CASH OUT (Khatabook Style) */}
+      <div className="fixed bottom-20 left-0 right-0 z-30 pointer-events-none flex justify-center px-4">
+        <div className="w-full max-w-sm flex items-center justify-between gap-3 pointer-events-auto">
+          {/* + CASH IN (Green) */}
+          <button
+            id="floating-cash-in-btn"
+            type="button"
+            onClick={() => setActiveModalType('Income')}
+            className="flex-1 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs sm:text-sm py-3 px-3 rounded-2xl shadow-xl flex items-center justify-center gap-2 border-2 border-white cursor-pointer transition-all"
+          >
+            <Plus className="w-4 h-4 stroke-[3]" />
+            <span>{isBn ? '+ ক্যাশ ইন (জমা)' : '+ CASH IN'}</span>
+          </button>
+
+          {/* - CASH OUT (Red) */}
+          <button
+            id="floating-cash-out-btn"
+            type="button"
+            onClick={() => setActiveModalType('Expense')}
+            className="flex-1 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white font-bold text-xs sm:text-sm py-3 px-3 rounded-2xl shadow-xl flex items-center justify-center gap-2 border-2 border-white cursor-pointer transition-all"
+          >
+            <Minus className="w-4 h-4 stroke-[3]" />
+            <span>{isBn ? '- ক্যাশ আউট (খরচ)' : '- CASH OUT'}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* 5. FAST ENTRY POP-UP MODAL (WITH EMBEDDED KHATABOOK CALCULATOR) */}
+      {activeModalType && (
+        <KhatabookEntryModal
+          isOpen={!!activeModalType}
+          onClose={() => setActiveModalType(null)}
+          onSave={(payload: KhatabookEntryPayload) => {
+            const noteWithTag = payload.details
+              ? `${payload.details} (${payload.paymentMode || 'Cash'})`
+              : (payload.paymentMode || 'Cash');
+            onAddEntry(activeModalType, payload.amount, noteWithTag);
+            setActiveModalType(null);
+          }}
+          entryType={activeModalType === 'Income' ? 'cash_in' : 'cash_out'}
+          settings={settings}
+          language={language}
+        />
+      )}
     </div>
   );
 };
