@@ -1,6 +1,6 @@
 {
   "name": "Thermal POS & Billing Manager",
-  "description": "Lightweight instant billing POS, daily cashbook, customer due ledger, stock purchase trip tracker with initial cash budget and expense breakdown, and dual English/Bengali interface.",
+  "description": "Ultra-lightweight instant billing POS, offline 2G/3G low-data mode, thermal printer connection, customer due ledger, daily cashbook, and multi-language interface.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

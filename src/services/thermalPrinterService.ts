@@ -223,12 +223,13 @@ export class ThermalPrinterService {
   }
 
   // Direct Web Bluetooth Connection (invoked directly from user gesture / Connect button)
-  async connectBluetooth(): Promise<{ success: boolean; message: string; deviceName?: string }> {
+  async connectBluetooth(): Promise<{ success: boolean; message: string; deviceName?: string; isUnsupported?: boolean }> {
     this.manualDisconnect = false;
 
     if (!this.isBluetoothSupported()) {
       return {
         success: false,
+        isUnsupported: true,
         message:
           'Web Bluetooth is not supported on this browser. Please use Google Chrome or Microsoft Edge on Windows, Mac, Android, or ChromeOS.',
       };
@@ -294,6 +295,7 @@ export class ThermalPrinterService {
       if (error?.name === 'SecurityError') {
         return {
           success: false,
+          isUnsupported: true,
           message:
             'Bluetooth access was restricted. If this app is in an iframe preview, please open it in a new tab to pair directly.',
         };

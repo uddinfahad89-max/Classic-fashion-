@@ -4,17 +4,34 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Thermal POS & Billing Manager</title>
-    <meta name="description" content="Lightweight instant billing POS, daily cashbook, customer due ledger, stock purchase trip tracker with initial cash budget and expense breakdown, and dual English/Bengali interface." />
+    <meta name="description" content="Ultra-lightweight instant billing POS, offline 2G/3G low-data mode, thermal printer connection, customer due ledger, daily cashbook, and multi-language interface." />
     <meta property="og:title" content="Thermal POS & Billing Manager" />
-    <meta property="og:description" content="Lightweight instant billing POS, daily cashbook, customer due ledger, stock purchase trip tracker with initial cash budget and expense breakdown, and dual English/Bengali interface." />
+    <meta property="og:description" content="Ultra-lightweight instant billing POS, offline 2G/3G low-data mode, thermal printer connection, customer due ledger, daily cashbook, and multi-language interface." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#1d4ed8" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Store POS" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@600;700&family=Hind+Siliguri:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   </head>
   <body class="bg-stone-100 text-stone-900 antialiased selection:bg-amber-100 selection:text-amber-900">
     <div id="root"></div>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function() {
+          navigator.serviceWorker.register('/sw.js').catch(function(err) {
+            console.log('SW registration note:', err);
+          });
+        });
+      }
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -1,10 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Store, Phone, MapPin, Volume2, Sparkles, CheckCircle2 } from 'lucide-react';
+import { Store, Phone, MapPin, Volume2, Sparkles, CheckCircle2, Mail, Lock } from 'lucide-react';
 import { Language } from '../types';
 
 interface OnboardingModalProps {
   isOpen: boolean;
-  onSave: (data: { storeName: string; storePhone: string; storeAddress: string }) => void;
+  onSave: (data: {
+    storeName: string;
+    storePhone: string;
+    storeAddress: string;
+    ownerEmail?: string;
+    ownerPin?: string;
+    ownerName?: string;
+  }) => void;
   language?: Language;
 }
 
@@ -15,7 +22,10 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
 }) => {
   const isBn = language === 'bn';
   const [storeName, setStoreName] = useState('');
-  const [storePhone, setStorePhone] = useState('');
+  const [storePhone, setStorePhone] = useState('9707502246');
+  const [ownerEmail, setOwnerEmail] = useState('uddinfahad89@gmail.com');
+  const [ownerPin, setOwnerPin] = useState('1234');
+  const [ownerName, setOwnerName] = useState('Fahad Uddin');
   const [storeAddress, setStoreAddress] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -48,7 +58,6 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
   useEffect(() => {
     if (isOpen && !hasSpokenRef.current) {
       hasSpokenRef.current = true;
-      // Slight delay to allow browser rendering & user awareness
       const timer = setTimeout(() => {
         playVoiceAlert();
       }, 500);
@@ -74,6 +83,9 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
       storeName: storeName.trim(),
       storePhone: storePhone.trim(),
       storeAddress: storeAddress.trim(),
+      ownerEmail: ownerEmail.trim(),
+      ownerPin: ownerPin.trim() || '1234',
+      ownerName: ownerName.trim() || 'Fahad Uddin',
     });
   };
 
@@ -83,11 +95,11 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
       className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200"
     >
       <div
-        className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-stone-200 overflow-hidden"
+        className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-stone-200 overflow-hidden max-h-[92vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Banner Header */}
-        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-5 py-4 sm:py-5 text-white">
+        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-5 py-4 sm:py-5 text-white shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <div className="w-10 h-10 rounded-2xl bg-white/15 backdrop-blur-xs flex items-center justify-center text-white border border-white/20 shadow-xs">
@@ -95,10 +107,10 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
               </div>
               <div>
                 <h2 className="text-base sm:text-lg font-bold tracking-tight">
-                  {isBn ? 'স্বাগতম! দোকান সেটআপ' : 'Welcome! Shop Setup'}
+                  {isBn ? 'স্বাগতম! ১ম বার দোকান ও লগইন সেটআপ' : 'Welcome! First-Time Shop & Login'}
                 </h2>
                 <p className="text-xs text-blue-100 font-medium">
-                  {isBn ? 'আপনার দোকানের তথ্য দিয়ে শুরু করুন' : 'Enter your store details to begin'}
+                  {isBn ? 'মোবাইল নম্বর ও ইমেল দিয়ে শুরু করুন' : 'Setup your store with Mobile & Email'}
                 </p>
               </div>
             </div>
@@ -131,7 +143,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-5 space-y-4">
+        <form onSubmit={handleSubmit} className="p-5 space-y-3.5 overflow-y-auto">
           {error && (
             <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-center gap-2">
               <span>⚠️</span>
@@ -154,36 +166,83 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                 setStoreName(e.target.value);
                 if (error) setError(null);
               }}
-              placeholder={isBn ? 'যেমন: মেসার্স রহিম বস্ত্রালয়' : 'e.g., Metro Superstore'}
+              placeholder={isBn ? 'যেমন: Classic fashion' : 'e.g., Classic fashion'}
               className="w-full px-3.5 py-2.5 text-sm bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-blue-500 focus:bg-white font-medium"
             />
           </div>
 
-          {/* 2. Mobile Number */}
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
-              <Phone className="w-3.5 h-3.5 text-blue-600" />
-              <span>{isBn ? 'মোবাইল নম্বর (Mobile Number) *' : 'Mobile Number *'}</span>
-            </label>
-            <input
-              type="tel"
-              required
-              value={storePhone}
-              onChange={(e) => {
-                setStorePhone(e.target.value);
-                if (error) setError(null);
-              }}
-              placeholder={isBn ? 'যেমন: 017XXXXXXXX' : 'e.g., +880 1712 345678'}
-              className="w-full px-3.5 py-2.5 text-sm bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-blue-500 focus:bg-white font-medium font-mono"
-            />
+          {/* 2. Mobile Number & Email Row */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
+                <Phone className="w-3.5 h-3.5 text-blue-600" />
+                <span>{isBn ? 'মোবাইল নম্বর (Mobile) *' : 'Mobile Number *'}</span>
+              </label>
+              <input
+                type="tel"
+                required
+                value={storePhone}
+                onChange={(e) => {
+                  setStorePhone(e.target.value);
+                  if (error) setError(null);
+                }}
+                placeholder="9707502246"
+                className="w-full px-3.5 py-2 text-sm bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-blue-500 focus:bg-white font-medium font-mono"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
+                <Mail className="w-3.5 h-3.5 text-blue-600" />
+                <span>{isBn ? 'মালিকের ইমেল (Email)' : 'Owner Email'}</span>
+              </label>
+              <input
+                type="email"
+                value={ownerEmail}
+                onChange={(e) => setOwnerEmail(e.target.value)}
+                placeholder="uddinfahad89@gmail.com"
+                className="w-full px-3.5 py-2 text-sm bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-blue-500 focus:bg-white font-medium font-mono"
+              />
+            </div>
           </div>
 
-          {/* 3. Shop Address (Optional) */}
+          {/* 3. Owner Name & PIN */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-stone-800">
+                {isBn ? 'মালিকের নাম (Owner Name)' : 'Owner Name'}
+              </label>
+              <input
+                type="text"
+                value={ownerName}
+                onChange={(e) => setOwnerName(e.target.value)}
+                placeholder="Fahad Uddin"
+                className="w-full px-3.5 py-2 text-sm bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-blue-500 focus:bg-white font-medium"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-stone-800 flex items-center gap-1">
+                <Lock className="w-3.5 h-3.5 text-blue-600" />
+                <span>{isBn ? '৪-ডিজিট পিন (PIN)' : '4-Digit PIN'}</span>
+              </label>
+              <input
+                type="password"
+                maxLength={4}
+                value={ownerPin}
+                onChange={(e) => setOwnerPin(e.target.value.replace(/\D/g, ''))}
+                placeholder="1234"
+                className="w-full px-3.5 py-2 text-sm bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-blue-500 focus:bg-white font-mono font-bold tracking-widest"
+              />
+            </div>
+          </div>
+
+          {/* 4. Shop Address (Optional) */}
           <div className="space-y-1">
             <label className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
               <MapPin className="w-3.5 h-3.5 text-stone-500" />
               <span>
-                {isBn ? 'ঠিকানা (Address - ঐচ্ছিক)' : 'Store Address (Optional)'}
+                {isBn ? 'দোকানের ঠিকানা (Shop Address - ঐচ্ছিক)' : 'Store Address (Optional)'}
               </span>
             </label>
             <input
@@ -197,8 +256,8 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
 
           <p className="text-[11px] text-stone-500 font-medium">
             💡 {isBn
-              ? 'এই তথ্যগুলো আপনার ক্যাশ মেমো, ইনভয়েস ও রসিদে প্রিন্ট হবে। পরবর্তীতে টপ মেনু থেকে পরিবর্তন করা যাবে।'
-              : 'These details will appear on your tax invoices and receipts. You can edit them anytime from the 3-dot menu.'}
+              ? 'মোবাইল নম্বর ও ইমেল দিয়ে আপনার নিরাপদ অ্যাকাউন্ট তৈরি হবে এবং রসিদে প্রিন্ট হবে।'
+              : 'Your mobile & email will create your secure account and print on bills.'}
           </p>
 
           {/* Submit Action */}
@@ -208,7 +267,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
               className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-xs cursor-pointer transition-all active:scale-[0.98]"
             >
               <CheckCircle2 className="w-4 h-4" />
-              <span>{isBn ? 'সংরক্ষণ করুন এবং শুরু করুন' : 'Save & Start Billing'}</span>
+              <span>{isBn ? 'লগইন ও সেটআপ সম্পন্ন করুন' : 'Complete Setup & Fast Login'}</span>
             </button>
           </div>
         </form>

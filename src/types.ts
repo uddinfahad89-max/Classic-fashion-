@@ -6,7 +6,7 @@ export type PaymentStatus = 'PAID' | 'DUE' | 'PARTIAL';
 
 export type ActiveTab = 'billing' | 'invoices' | 'cashbook' | 'due' | 'purchases';
 
-export type Language = 'bn' | 'en';
+export type Language = 'bn' | 'en' | 'hi';
 
 export interface BillItem {
   id: string;
@@ -83,6 +83,8 @@ export interface UserProfile {
   isAppLockEnabled?: boolean;
   securityQuestion?: string;
   securityAnswer?: string;
+  otpVerified?: boolean;
+  loginMethod?: 'email_pin' | 'otp';
 }
 
 export interface ThermalPrinterSettings {
@@ -97,6 +99,16 @@ export interface ThermalPrinterSettings {
   footerNote: string;
   autoPrintOnCheckout: boolean;
   defaultInvoiceFormat?: 'tax_invoice' | 'thermal';
+  isDataSaverEnabled?: boolean;
+}
+
+export interface NetworkStatusInfo {
+  isOnline: boolean;
+  effectiveType: '4g' | '3g' | '2g' | 'slow-2g' | 'offline';
+  saveData: boolean;
+  isLowBandwidth: boolean;
+  downlink?: number;
+  rtt?: number;
 }
 
 export interface SavedPrinterInfo {

@@ -45,6 +45,7 @@ const DEFAULT_SETTINGS: ThermalPrinterSettings = {
   footerNote: 'Thank you for shopping with us! Visit again.',
   autoPrintOnCheckout: true,
   defaultInvoiceFormat: 'tax_invoice',
+  isDataSaverEnabled: false,
 };
 
 class StorageService {
@@ -534,29 +535,38 @@ class StorageService {
   }
 
   loginUser(
-    email: string,
+    emailOrIdentifier: string,
     name?: string,
     pin?: string,
     role?: 'Owner' | 'Manager' | 'Cashier',
-    phone?: string
+    phone?: string,
+    loginMethod?: 'email_pin' | 'otp',
+    otpVerified?: boolean
   ): UserProfile {
-    const cleanEmail = email.trim();
+    const raw = emailOrIdentifier.trim();
     const current = this.getUserProfile();
+
+    const isEmail = raw.includes('@');
+    const cleanEmail = isEmail ? raw : (current.email || 'uddinfahad89@gmail.com');
+    const cleanPhone = phone?.trim() || (!isEmail ? raw : (current.phone || '9707502246'));
+
     const inferredName =
       name?.trim() ||
       (cleanEmail.toLowerCase().includes('fahad')
         ? 'Fahad Uddin'
-        : cleanEmail.split('@')[0]);
+        : cleanEmail.split('@')[0] || 'Store Owner');
 
     const updated: UserProfile = {
       ...current,
       email: cleanEmail,
       name: inferredName,
-      phone: phone?.trim() || current.phone || '9707502246',
+      phone: cleanPhone,
       role: role || current.role || 'Owner',
       pin: pin?.trim() || current.pin || '1234',
       isLoggedIn: true,
       loginTime: Date.now(),
+      loginMethod: loginMethod || current.loginMethod || 'email_pin',
+      otpVerified: otpVerified !== undefined ? otpVerified : current.otpVerified,
     };
     this.saveUserProfile(updated);
     return updated;
@@ -578,9 +588,13 @@ class StorageService {
     return enteredPin.trim() === currentPin.trim();
   }
 
-  resetPin(email: string, newPin: string): boolean {
+  resetPin(emailOrPhone: string, newPin: string): boolean {
     const profile = this.getUserProfile();
-    if (profile.email.toLowerCase() === email.trim().toLowerCase()) {
+    const target = emailOrPhone.trim().toLowerCase().replace(/[\s+-]/g, '');
+    const currentEmail = (profile.email || '').toLowerCase().replace(/[\s+-]/g, '');
+    const currentPhone = (profile.phone || '').toLowerCase().replace(/[\s+-]/g, '');
+
+    if (target === currentEmail || target === currentPhone) {
       this.updateUserSecurity({ pin: newPin.trim() });
       return true;
     }
@@ -627,7 +641,7 @@ class StorageService {
   getLanguage(): Language {
     try {
       const lang = localStorage.getItem(STORAGE_KEYS.LANG);
-      if (lang === 'en' || lang === 'bn') {
+      if (lang === 'en' || lang === 'bn' || lang === 'hi') {
         return lang;
       }
       return 'bn'; // Default to Bengali as requested
@@ -869,6 +883,46 @@ class StorageService {
   deletePurchaseTrip(tripId: string): void {
     const trips = this.getPurchaseTrips().filter((t) => t.id !== tripId);
     this.savePurchaseTrips(trips);
+  }
+
+  // --- OFFLINE BACKUP & EXPORT ---
+  exportAllDataOffline(): string {
+    const backupData = {
+      version: '2.0',
+      exportedAt: new Date().toISOString(),
+      bills: this.getBills(),
+      customerDues: this.getCustomerDues(),
+      cashEntries: this.getCashEntries(),
+      purchaseTrips: this.getPurchaseTrips(),
+      settings: this.getSettings(),
+      user: this.getUserProfile(),
+      language: this.getLanguage(),
+    };
+    return JSON.stringify(backupData, null, 2);
+  }
+
+  importAllDataOffline(jsonString: string): boolean {
+    try {
+      const data = JSON.parse(jsonString);
+      if (data.bills && Array.isArray(data.bills)) {
+        localStorage.setItem(STORAGE_KEYS.BILLS, JSON.stringify(data.bills));
+      }
+      if (data.customerDues && Array.isArray(data.customerDues)) {
+        localStorage.setItem(STORAGE_KEYS.DUES, JSON.stringify(data.customerDues));
+      }
+      if (data.cashEntries && Array.isArray(data.cashEntries)) {
+        localStorage.setItem(STORAGE_KEYS.CASHBOOK, JSON.stringify(data.cashEntries));
+      }
+      if (data.purchaseTrips && Array.isArray(data.purchaseTrips)) {
+        localStorage.setItem(STORAGE_KEYS.PURCHASES, JSON.stringify(data.purchaseTrips));
+      }
+      if (data.settings && typeof data.settings === 'object') {
+        localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(data.settings));
+      }
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 

@@ -17,7 +17,7 @@ import {
 } from './types';
 import { storageService } from './services/storageService';
 import { thermalPrinterService } from './services/thermalPrinterService';
-import { Header } from './components/Header';
+import { Header, SortOption } from './components/Header';
 import { BottomNav } from './components/BottomNav';
 import { BillingTab } from './components/BillingTab';
 import { InvoicesTab } from './components/InvoicesTab';
@@ -30,9 +30,15 @@ import { LoginModal } from './components/LoginModal';
 import { AppLockScreen } from './components/AppLockScreen';
 import { OnboardingModal } from './components/OnboardingModal';
 import { CalculatorModal } from './components/CalculatorModal';
+import { DataSaverModal } from './components/DataSaverModal';
+import { BluetoothHelpModal } from './components/BluetoothHelpModal';
+import { useNetworkStatus } from './utils/useNetworkStatus';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<ActiveTab>('billing');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('invoices');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortOption, setSortOption] = useState<SortOption>('date-desc');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [bills, setBills] = useState<BillInvoice[]>([]);
   const [billItems, setBillItems] = useState<BillItem[]>([]);
   const [cashEntries, setCashEntries] = useState<CashEntry[]>([]);
@@ -45,9 +51,13 @@ export default function App() {
   const [isAppLocked, setIsAppLocked] = useState(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
+  const [isDataSaverOpen, setIsDataSaverOpen] = useState(false);
+  const [isBluetoothHelpOpen, setIsBluetoothHelpOpen] = useState(false);
   const [receiptBill, setReceiptBill] = useState<BillInvoice | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isPrintingBill, setIsPrintingBill] = useState(false);
+
+  const networkStatus = useNetworkStatus();
   const [toast, setToast] = useState<{
     id: string;
     message: string;
@@ -97,7 +107,14 @@ export default function App() {
     }
   }, []);
 
-  const handleSaveOnboarding = (data: { storeName: string; storePhone: string; storeAddress: string }) => {
+  const handleSaveOnboarding = (data: {
+    storeName: string;
+    storePhone: string;
+    storeAddress: string;
+    ownerEmail?: string;
+    ownerPin?: string;
+    ownerName?: string;
+  }) => {
     const updated: ThermalPrinterSettings = {
       ...settings,
       storeName: data.storeName,
@@ -106,11 +123,23 @@ export default function App() {
     };
     storageService.saveSettings(updated);
     setSettings(updated);
+
+    if (data.ownerEmail || data.storePhone) {
+      const loggedIn = storageService.loginUser(
+        data.ownerEmail || 'uddinfahad89@gmail.com',
+        data.ownerName || 'Fahad Uddin',
+        data.ownerPin || '1234',
+        'Owner',
+        data.storePhone
+      );
+      setUserProfile(loggedIn);
+    }
+
     setIsOnboardingOpen(false);
     showToast(
       language === 'bn'
-        ? `দোকানের তথ্য সংরক্ষিত হয়েছে: ${data.storeName}`
-        : `Shop setup completed: ${data.storeName}`,
+        ? `দোকান ও অ্যাকাউন্ট সেটআপ সম্পন্ন: ${data.storeName}`
+        : `Shop & account setup completed: ${data.storeName}`,
       'success'
     );
   };
@@ -120,6 +149,14 @@ export default function App() {
     const res = await thermalPrinterService.connectBluetooth();
     if (res.success) {
       showToast(`Connected to ${res.deviceName || 'Thermal Printer'}! Silent print ready.`, 'success');
+    } else if (res.isUnsupported) {
+      setIsBluetoothHelpOpen(true);
+      showToast(
+        language === 'bn'
+          ? 'ব্রাউজারে সরাসরি ব্লুটুথ সাপোর্ট করেনি — সমাধান গাইড দেখুন'
+          : res.message,
+        'info'
+      );
     } else if (res.message && !res.message.includes('cancelled')) {
       showToast(res.message, 'info');
     }
@@ -142,20 +179,30 @@ export default function App() {
     pin?: string,
     role?: 'Owner' | 'Manager' | 'Cashier',
     phone?: string,
-    isAppLockEnabled?: boolean
+    isAppLockEnabled?: boolean,
+    loginMethod?: 'email_pin' | 'otp'
   ) => {
-    const updated = storageService.loginUser(email, name, pin, role, phone);
+    const updated = storageService.loginUser(
+      email,
+      name,
+      pin,
+      role,
+      phone,
+      loginMethod,
+      loginMethod === 'otp' ? true : undefined
+    );
     if (isAppLockEnabled !== undefined) {
       storageService.updateUserSecurity({ isAppLockEnabled });
       updated.isAppLockEnabled = isAppLockEnabled;
     }
     setUserProfile(updated);
-    showToast(
+    const welcomeMsg =
       language === 'bn'
-        ? `স্বাগতম, ${updated.name}! (${updated.role || 'Owner'})`
-        : `Welcome, ${updated.name}! (${updated.role || 'Owner'})`,
-      'success'
-    );
+        ? `স্বাগতম, ${updated.name}! (${loginMethod === 'otp' ? 'মোবাইল ওটিপি ভেরিফাইড' : updated.role || 'Owner'})`
+        : language === 'hi'
+        ? `स्वागत है, ${updated.name}! (${loginMethod === 'otp' ? 'मोबाइल ओटीपी सत्यापित' : updated.role || 'Owner'})`
+        : `Welcome, ${updated.name}! (${loginMethod === 'otp' ? 'OTP Verified' : updated.role || 'Owner'})`;
+    showToast(welcomeMsg, 'success');
   };
 
   const handleUpdateSecurity = (updates: Partial<UserProfile>) => {
@@ -263,6 +310,15 @@ export default function App() {
     );
   };
 
+  const handleUpdateBill = (updatedBill: BillInvoice) => {
+    storageService.saveBill(updatedBill);
+    setBills(storageService.getBills());
+    showToast(
+      language === 'bn' ? 'বিল সফলভাবে আপডেট হয়েছে' : 'Bill updated successfully',
+      'success'
+    );
+  };
+
   const handleClearBill = () => {
     setBillItems([]);
   };
@@ -328,17 +384,22 @@ export default function App() {
     setCustomerDues(storageService.getCustomerDues());
   };
 
-  // 4. LANGUAGE TOGGLE HANDLER
-  const handleToggleLanguage = () => {
-    const nextLang: Language = language === 'bn' ? 'en' : 'bn';
+  // 4. LANGUAGE SELECT & TOGGLE HANDLER
+  const handleSelectLanguage = (nextLang: Language) => {
     storageService.setLanguage(nextLang);
     setLanguage(nextLang);
-    showToast(
+    const msg =
       nextLang === 'bn'
         ? 'বাংলা ভাষা সক্রিয় করা হয়েছে'
-        : 'Switched to English language',
-      'info'
-    );
+        : nextLang === 'hi'
+        ? 'हिन्दी भाषा सक्रिय की गई है'
+        : 'Switched to English language';
+    showToast(msg, 'info');
+  };
+
+  const handleToggleLanguage = () => {
+    const nextLang: Language = language === 'bn' ? 'en' : language === 'en' ? 'hi' : 'bn';
+    handleSelectLanguage(nextLang);
   };
 
   // 5. STOCK PURCHASE / SHOPPING TRIP HANDLERS
@@ -477,7 +538,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-stone-100/70 text-stone-900 flex flex-col font-sans">
-      {/* Minimal Top Header with Vyapar-style 3-Dot (⋮) Menu */}
+      {/* Google Sheets / Workspace Top Header & Sub-header */}
       <Header
         settings={settings}
         bluetoothStatus={bluetoothStatus}
@@ -489,8 +550,21 @@ export default function App() {
         onOpenLogin={() => setIsLoginModalOpen(true)}
         language={language}
         onToggleLanguage={handleToggleLanguage}
+        onSelectLanguage={handleSelectLanguage}
         onOpenCalculator={() => setIsCalculatorOpen(true)}
         onLockApp={handleLockApp}
+        activeTab={activeTab}
+        onSelectTab={(tab) => setActiveTab(tab)}
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+        sortOption={sortOption}
+        onSortChange={setSortOption}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        totalInvoicesCount={bills.length}
+        networkStatus={networkStatus}
+        onOpenDataSaver={() => setIsDataSaverOpen(true)}
+        onOpenBluetoothHelp={() => setIsBluetoothHelpOpen(true)}
       />
 
       {/* Main Workspace with proper bottom padding to prevent overlap with bottom bar */}
@@ -516,6 +590,11 @@ export default function App() {
             language={language}
             onViewReceipt={(bill) => setReceiptBill(bill)}
             onDeleteBill={handleDeleteBill}
+            onUpdateBill={handleUpdateBill}
+            externalSearchTerm={searchTerm}
+            viewMode={viewMode}
+            sortOption={sortOption}
+            onNavigateToBilling={() => setActiveTab('billing')}
           />
         )}
 
@@ -637,7 +716,18 @@ export default function App() {
         onConnectBluetooth={handleConnectBluetooth}
         onDisconnectBluetooth={handleDisconnectBluetooth}
         onTestPrint={handleTestPrint}
+        onOpenBluetoothHelp={() => setIsBluetoothHelpOpen(true)}
         language={language}
+      />
+
+      {/* Bluetooth Setup & Troubleshooting Guide Modal */}
+      <BluetoothHelpModal
+        isOpen={isBluetoothHelpOpen}
+        onClose={() => setIsBluetoothHelpOpen(false)}
+        language={language}
+        onSystemPrintFallback={() => {
+          window.print();
+        }}
       />
 
       {/* First-Time Onboarding Modal with Voice Prompt */}
@@ -653,6 +743,17 @@ export default function App() {
         onClose={() => setIsCalculatorOpen(false)}
         settings={settings}
         language={language}
+      />
+
+      {/* Ultra Low-Data & Offline Engine Modal */}
+      <DataSaverModal
+        isOpen={isDataSaverOpen}
+        onClose={() => setIsDataSaverOpen(false)}
+        networkStatus={networkStatus}
+        settings={settings}
+        onUpdateSettings={handleSaveSettings}
+        language={language}
+        onShowToast={showToast}
       />
 
       {/* Instant Notification Toast */}

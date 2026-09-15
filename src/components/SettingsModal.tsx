@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, X, Save, Check, Bluetooth, Power, Trash2, FileText, CheckCircle2 } from 'lucide-react';
+import { Settings, X, Save, Check, Bluetooth, Power, Trash2, FileText, CheckCircle2, Zap, HelpCircle } from 'lucide-react';
 import { ThermalPrinterSettings, BluetoothDeviceInfo, Language } from '../types';
 import { translations } from '../utils/i18n';
 
@@ -12,6 +12,7 @@ interface SettingsModalProps {
   onConnectBluetooth?: () => void;
   onDisconnectBluetooth?: (forget?: boolean) => void;
   onTestPrint?: () => void;
+  onOpenBluetoothHelp?: () => void;
   language?: Language;
 }
 
@@ -24,6 +25,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onConnectBluetooth,
   onDisconnectBluetooth,
   onTestPrint,
+  onOpenBluetoothHelp,
   language = 'bn',
 }) => {
   const t = translations[language];
@@ -104,14 +106,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
             <div className="flex flex-wrap gap-1.5 pt-1">
               {!bluetoothStatus?.connected ? (
-                <button
-                  type="button"
-                  onClick={onConnectBluetooth}
-                  className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
-                >
-                  <Bluetooth className="w-3.5 h-3.5" />
-                  <span>{isBn ? 'প্রিন্টার কানেক্ট করুন' : 'Connect / Pair Printer'}</span>
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={onConnectBluetooth}
+                    className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                  >
+                    <Bluetooth className="w-3.5 h-3.5" />
+                    <span>{isBn ? 'প্রিন্টার কানেক্ট করুন' : 'Connect / Pair Printer'}</span>
+                  </button>
+
+                  {onOpenBluetoothHelp && (
+                    <button
+                      type="button"
+                      onClick={onOpenBluetoothHelp}
+                      className="px-2.5 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 font-medium text-[11px] flex items-center gap-1 cursor-pointer transition-colors"
+                      title="Bluetooth Troubleshooting Guide"
+                    >
+                      <HelpCircle className="w-3.5 h-3.5 text-blue-600" />
+                      <span>{isBn ? 'ব্লুটুথ নট সাপোর্ট সমাধান?' : 'Bluetooth Fix Guide'}</span>
+                    </button>
+                  )}
+                </>
               ) : (
                 <>
                   <button
@@ -239,6 +255,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 80mm Roll (Wide Receipt)
               </button>
             </div>
+          </div>
+
+          {/* Data Saver Mode in Settings */}
+          <div className="p-3 bg-emerald-50/70 rounded-2xl border border-emerald-200 flex items-center justify-between gap-3">
+            <div>
+              <div className="font-bold text-emerald-950 text-xs flex items-center gap-1.5">
+                <Zap className="w-3.5 h-3.5 text-amber-600 fill-amber-500" />
+                <span>{isBn ? 'আল্ট্রা লো-ডাটা সেভার (কম ইন্টারনেট / ২জি ডাটা)' : 'Ultra Low-Data Saver (2G/3G Mode)'}</span>
+              </div>
+              <div className="text-[11px] text-emerald-800">
+                {isBn
+                  ? 'সীমিত মেগাবাইট বা দুর্বল ডাটা সিগন্যালেও সুপার-ফাস্ট গতি নিশ্চিত করে।'
+                  : 'Ensures fastest speed and lowest battery/data usage on mobile networks.'}
+              </div>
+            </div>
+            <input
+              type="checkbox"
+              checked={Boolean(form.isDataSaverEnabled)}
+              onChange={(e) => setForm({ ...form, isDataSaverEnabled: e.target.checked })}
+              className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+            />
           </div>
 
           <div>
