@@ -126,9 +126,9 @@ export default function App() {
 
     if (data.ownerEmail || data.storePhone) {
       const loggedIn = storageService.loginUser(
-        data.ownerEmail || 'uddinfahad89@gmail.com',
-        data.ownerName || 'Fahad Uddin',
-        data.ownerPin || '1234',
+        data.ownerEmail || 'email ID please',
+        data.ownerName || 'name please',
+        data.ownerPin || 'pin number',
         'Owner',
         data.storePhone
       );
