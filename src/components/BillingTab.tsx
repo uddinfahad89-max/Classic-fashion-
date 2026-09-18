@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Printer,
   Plus,
@@ -64,11 +64,26 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   // Checkout meta
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
-  const [customInvoiceNo, setCustomInvoiceNo] = useState('');
+  // Automatically generated sequential invoice number
+  const [invoiceNo, setInvoiceNo] = useState(() => storageService.getNextInvoiceNumber());
+  const [isManualInvoice, setIsManualInvoice] = useState(false);
   const [discountType, setDiscountType] = useState<'fixed' | 'percent'>('fixed');
   const [discountValue, setDiscountValue] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
   const [paidAmount, setPaidAmount] = useState('');
+
+  // Synchronize when settings prefix or sequence updates, if not manually edited
+  useEffect(() => {
+    if (!isManualInvoice) {
+      setInvoiceNo(storageService.getNextInvoiceNumber());
+    }
+  }, [settings.invoicePrefix, settings.nextInvoiceNumber, isManualInvoice]);
+
+  const handleResetToAutoInvoice = () => {
+    const next = storageService.getNextInvoiceNumber();
+    setInvoiceNo(next);
+    setIsManualInvoice(false);
+  };
 
   // Khatabook Calculator Modal State
   const [isCalculatorModalOpen, setIsCalculatorModalOpen] = useState(false);
@@ -199,10 +214,10 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       hour12: true,
     });
 
-    // Use custom entered invoice number, or automatically generate correct sequential invoice number
-    let invoiceNo = customInvoiceNo.trim();
-    if (!invoiceNo) {
-      invoiceNo = storageService.getNextInvoiceNumber();
+    // Use the invoice number (guaranteed sequential and automatically populated)
+    let finalInvoiceNo = invoiceNo.trim();
+    if (!finalInvoiceNo) {
+      finalInvoiceNo = storageService.getNextInvoiceNumber();
     }
 
     const actualPaid = paidNum > 0 ? paidNum : (paymentMethod === 'due' ? 0 : grandTotal);
@@ -210,7 +225,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
 
     const bill: BillInvoice = {
       id: 'inv-' + Date.now(),
-      invoiceNo,
+      invoiceNo: finalInvoiceNo,
       date: dateFormatted,
       time: timeFormatted,
       timestamp: Date.now(),
@@ -233,9 +248,15 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     onPrintBill(bill);
     setCustomerName('');
     setCustomerPhone('');
-    setCustomInvoiceNo('');
     setDiscountValue('');
     setPaidAmount('');
+
+    // Automatically generate and load the next sequential invoice number for the next bill
+    setTimeout(() => {
+      const nextInv = storageService.getNextInvoiceNumber();
+      setInvoiceNo(nextInv);
+      setIsManualInvoice(false);
+    }, 50);
   };
 
   const sym = settings.currencySymbol || '₹';
@@ -247,58 +268,94 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-bold text-stone-900 flex items-center gap-1.5">
             <User className="w-4 h-4 text-blue-600" />
-            <span>{isBn ? 'ক্রেতার বিবরণ (ঐচ্ছিক)' : 'Customer Details (Optional)'}</span>
+            <span>{isBn ? 'ক্রেতার বিবরণ ও ইনভয়েস' : 'Customer Details & Invoice'}</span>
           </h2>
-          <span className="text-[11px] text-stone-400 font-medium">
-            {isBn ? 'ইনভয়েস ও বাকি খাতার জন্য' : 'For invoice & due ledger'}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-mono font-bold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-lg border border-blue-200">
+              #{invoiceNo || storageService.getNextInvoiceNumber()}
+            </span>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {/* Customer Name */}
-          <div className="relative">
-            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none">
-              <User className="w-4 h-4" />
+          <div>
+            <label className="block text-[11px] font-semibold text-stone-600 mb-1">
+              {isBn ? 'ক্রেতার নাম (ঐচ্ছিক)' : 'Customer Name'}
+            </label>
+            <div className="relative">
+              <div className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none">
+                <User className="w-4 h-4" />
+              </div>
+              <input
+                type="text"
+                id="billing-customer-name"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                placeholder={t.customerNameOptionalPlaceholder}
+                className="w-full border border-stone-200 bg-stone-50/80 pl-9 pr-3 py-2 rounded-xl text-xs sm:text-sm font-medium focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
+              />
             </div>
-            <input
-              type="text"
-              id="billing-customer-name"
-              value={customerName}
-              onChange={(e) => setCustomerName(e.target.value)}
-              placeholder={t.customerNameOptionalPlaceholder}
-              className="w-full border border-stone-200 bg-stone-50/80 pl-9 pr-3 py-2 rounded-xl text-xs sm:text-sm font-medium focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
-            />
           </div>
 
           {/* Customer Phone / Mobile */}
-          <div className="relative">
-            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none">
-              <Phone className="w-4 h-4" />
+          <div>
+            <label className="block text-[11px] font-semibold text-stone-600 mb-1">
+              {isBn ? 'মোবাইল নম্বর (ঐচ্ছিক)' : 'Mobile Phone'}
+            </label>
+            <div className="relative">
+              <div className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none">
+                <Phone className="w-4 h-4" />
+              </div>
+              <input
+                type="tel"
+                id="billing-customer-phone"
+                value={customerPhone}
+                onChange={(e) => setCustomerPhone(e.target.value)}
+                placeholder={t.customerPhoneOptionalPlaceholder}
+                className="w-full border border-stone-200 bg-stone-50/80 pl-9 pr-3 py-2 rounded-xl text-xs sm:text-sm font-mono font-medium focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
+              />
             </div>
-            <input
-              type="tel"
-              id="billing-customer-phone"
-              value={customerPhone}
-              onChange={(e) => setCustomerPhone(e.target.value)}
-              placeholder={t.customerPhoneOptionalPlaceholder}
-              className="w-full border border-stone-200 bg-stone-50/80 pl-9 pr-3 py-2 rounded-xl text-xs sm:text-sm font-mono font-medium focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
-            />
           </div>
 
-          {/* Optional Custom/Override Invoice Number */}
-          <div className="relative">
-            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none">
-              <Hash className="w-4 h-4 text-blue-500" />
+          {/* Automatic Invoice Number Field */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-[11px] font-semibold text-stone-600 flex items-center gap-1">
+                <Hash className="w-3.5 h-3.5 text-blue-600" />
+                <span>{isBn ? 'ইনভয়েস নম্বর' : 'Invoice Number'}</span>
+              </label>
+              <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border inline-flex items-center gap-1 ${
+                isManualInvoice
+                  ? 'bg-amber-50 text-amber-700 border-amber-200'
+                  : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+              }`}>
+                {!isManualInvoice && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>}
+                {isManualInvoice ? (isBn ? 'কাস্টম' : 'Custom') : (isBn ? 'স্বয়ংক্রিয়' : 'Auto')}
+              </span>
             </div>
-            <input
-              type="text"
-              id="billing-custom-invoice-no"
-              value={customInvoiceNo}
-              onChange={(e) => setCustomInvoiceNo(e.target.value)}
-              placeholder={isBn ? `ইনভয়েস: ${storageService.getNextInvoiceNumber()}` : `Inv #: ${storageService.getNextInvoiceNumber()}`}
-              title={isBn ? 'খালি রাখলে স্বয়ংক্রিয় পরবর্তী ক্রমিক নম্বর বসবে' : 'Leave empty for automatic sequential number'}
-              className="w-full border border-stone-200 bg-stone-50/80 pl-9 pr-3 py-2 rounded-xl text-xs sm:text-sm font-mono font-semibold focus:outline-none focus:border-blue-500 focus:bg-white transition-all text-blue-700 placeholder:text-stone-400"
-            />
+            <div className="relative">
+              <input
+                type="text"
+                id="billing-invoice-no"
+                value={invoiceNo}
+                onChange={(e) => {
+                  setInvoiceNo(e.target.value);
+                  setIsManualInvoice(true);
+                }}
+                placeholder={storageService.getNextInvoiceNumber()}
+                title={isBn ? 'ইনভয়েস নম্বর স্বয়ংক্রিয়ভাবে তৈরি হয়েছে' : 'Invoice number automatically added'}
+                className="w-full border border-blue-200 bg-blue-50/40 pl-3 pr-8 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold text-blue-900 focus:outline-none focus:border-blue-500 focus:bg-white transition-all shadow-2xs"
+              />
+              <button
+                type="button"
+                onClick={handleResetToAutoInvoice}
+                title={isBn ? 'স্বয়ংক্রিয় পরবর্তী নম্বরে রিসেট করুন' : 'Reset to next auto sequential invoice number'}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400 hover:text-blue-600 p-1 rounded-lg transition-colors cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -760,6 +817,9 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             <>
               <Printer className="w-5 h-5" />
               <span>{t.printTaxInvoiceBtn}</span>
+              <span className="opacity-90 font-mono text-xs bg-white/20 px-2 py-0.5 rounded-md font-semibold">
+                #{invoiceNo || storageService.getNextInvoiceNumber()}
+              </span>
             </>
           )}
         </button>

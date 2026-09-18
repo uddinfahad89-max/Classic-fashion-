@@ -246,11 +246,26 @@ class StorageService {
       bill.paymentStatus = bill.paymentMethod === 'due' ? 'DUE' : 'PAID';
     }
 
-    // Match strictly by unique bill.id. If bill has no id (should never happen), fallback to invoiceNo
+    // Match strictly by unique bill.id.
     const existingIndex = bills.findIndex((b) => b.id === bill.id);
     if (existingIndex >= 0) {
+      // Ensure bill has an invoice number
+      if (!bill.invoiceNo || !bill.invoiceNo.trim()) {
+        bill.invoiceNo = bills[existingIndex].invoiceNo || this.getNextInvoiceNumber();
+      }
       bills[existingIndex] = { ...bills[existingIndex], ...bill };
     } else {
+      // Auto-assign invoice number if empty or whitespace
+      if (!bill.invoiceNo || !bill.invoiceNo.trim()) {
+        bill.invoiceNo = this.getNextInvoiceNumber();
+      } else {
+        // If an invoice with the exact same invoiceNo exists, generate the next unique sequence
+        const duplicateInvoice = bills.find((b) => b.invoiceNo === bill.invoiceNo);
+        if (duplicateInvoice) {
+          bill.invoiceNo = this.getNextInvoiceNumber();
+        }
+      }
+
       bills.unshift(bill);
 
       // Increment nextInvoiceNumber in settings if this invoice used the sequence

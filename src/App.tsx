@@ -254,6 +254,7 @@ export default function App() {
     // 1. Save bill in history
     storageService.saveBill(bill);
     setBills(storageService.getBills());
+    setSettings(storageService.getSettings());
 
     // 2. If paid via Cash or UPI, automatically record as Income in Cashbook
     if (bill.paymentMethod === 'cash' || bill.paymentMethod === 'upi' || bill.paymentMethod === 'card') {
