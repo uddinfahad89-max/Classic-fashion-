@@ -536,7 +536,7 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
                     </div>
                   </div>
 
-                  {/* Card Bottom Meta & Badges (Shared/Clock icon as seen in Google Sheets) */}
+                  {/* Card Bottom Meta & Badges */}
                   <div className="pt-2 flex items-center justify-between text-[10px] text-stone-400">
                     <div className="flex items-center gap-1 font-mono">
                       <Clock className="w-3 h-3 text-stone-400" />
@@ -565,6 +565,66 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
                           <User className="w-2.5 h-2.5 text-stone-600" />
                         </div>
                       )}
+                    </div>
+                  </div>
+
+                  {/* Direct Card Action Buttons: Edit, Delete, Print, Share */}
+                  <div
+                    className="pt-2 mt-1.5 border-t border-stone-100 flex items-center justify-between gap-1"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingBill(bill);
+                        }}
+                        className="px-2 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                        title={isBn ? 'ইনভয়েস এডিট করুন' : 'Edit Invoice'}
+                      >
+                        <Edit2 className="w-3 h-3 text-blue-600" />
+                        <span>{isBn ? 'এডিট' : 'Edit'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDelete(bill);
+                        }}
+                        className="px-2 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                        title={isBn ? 'ইনভয়েস মুছুন' : 'Delete Invoice'}
+                      >
+                        <Trash2 className="w-3 h-3 text-rose-600" />
+                        <span>{isBn ? 'মুছুন' : 'Delete'}</span>
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onViewReceipt(bill);
+                        }}
+                        className="p-1 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-700 transition-colors cursor-pointer"
+                        title={isBn ? 'প্রিন্ট ও চালান ভিউ' : 'View & Print'}
+                      >
+                        <Printer className="w-3 h-3" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleWhatsAppShare(bill);
+                        }}
+                        className="p-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition-colors cursor-pointer"
+                        title="WhatsApp"
+                      >
+                        <MessageCircle className="w-3 h-3 text-emerald-600" />
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -744,11 +804,22 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
       {editingBill && (
         <EditInvoiceModal
           bill={editingBill}
+          isOpen={Boolean(editingBill)}
           settings={settings}
           language={language}
           onClose={() => setEditingBill(null)}
           onSave={(updated) => {
             if (onUpdateBill) onUpdateBill(updated);
+            setEditingBill(null);
+          }}
+          onDelete={(id) => {
+            onDeleteBill(id);
+            setEditingBill(null);
+          }}
+          onLoadInBilling={(bill) => {
+            if (onLoadIntoBilling) {
+              onLoadIntoBilling(bill);
+            }
             setEditingBill(null);
           }}
         />

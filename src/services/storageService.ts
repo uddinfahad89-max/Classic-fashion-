@@ -23,13 +23,13 @@ const STORAGE_KEYS = {
 };
 
 const DEFAULT_USER: UserProfile = {
-  email: 'uddinfahad89@gmail.com',
-  name: 'Fahad Uddin',
-  phone: '9707502246',
+  email: '',
+  name: '',
+  phone: '',
   role: 'Owner',
   pin: '1234',
   isAppLockEnabled: false,
-  isLoggedIn: true,
+  isLoggedIn: false,
   loginTime: Date.now(),
 };
 
@@ -46,6 +46,8 @@ const DEFAULT_SETTINGS: ThermalPrinterSettings = {
   autoPrintOnCheckout: true,
   defaultInvoiceFormat: 'tax_invoice',
   isDataSaverEnabled: false,
+  invoicePrefix: 'INV-',
+  nextInvoiceNumber: 1001,
 };
 
 class StorageService {
@@ -91,7 +93,7 @@ class StorageService {
           time: '02:58 PM',
           timestamp: new Date('2026-08-22T14:58:00').getTime(),
           customerName: 'RUMANA BEGAM',
-          customerPhone: '9707502246',
+          customerPhone: '9876543210',
           items: [
             { id: 'it-306-1', name: 'Ganji set', price: 200.0, qty: 2, total: 400.0 },
             { id: 'it-306-2', name: 'Seka ganji', price: 20.0, qty: 4, total: 80.0 },
@@ -209,6 +211,34 @@ class StorageService {
     }
   }
 
+  // Get next sequential invoice number ensuring no duplicate
+  getNextInvoiceNumber(): string {
+    const settings = this.getSettings();
+    const prefix = settings.invoicePrefix ?? 'INV-';
+    const bills = this.getBills();
+
+    // Extract all existing invoice numeric counters to find the true max
+    let maxNum = 1000;
+    if (typeof settings.nextInvoiceNumber === 'number' && settings.nextInvoiceNumber > maxNum) {
+      maxNum = settings.nextInvoiceNumber - 1;
+    }
+
+    for (const b of bills) {
+      if (!b.invoiceNo) continue;
+      // Extract trailing digits
+      const match = b.invoiceNo.match(/(\d+)$/);
+      if (match) {
+        const n = parseInt(match[1], 10);
+        if (!isNaN(n) && n > maxNum) {
+          maxNum = n;
+        }
+      }
+    }
+
+    const nextNum = maxNum + 1;
+    return `${prefix}${nextNum}`;
+  }
+
   saveBill(bill: BillInvoice): void {
     const bills = this.getBills();
     // Ensure payment status is set
@@ -216,11 +246,30 @@ class StorageService {
       bill.paymentStatus = bill.paymentMethod === 'due' ? 'DUE' : 'PAID';
     }
 
-    const existingIndex = bills.findIndex((b) => b.id === bill.id || b.invoiceNo === bill.invoiceNo);
+    // Match strictly by unique bill.id. If bill has no id (should never happen), fallback to invoiceNo
+    const existingIndex = bills.findIndex((b) => b.id === bill.id);
     if (existingIndex >= 0) {
       bills[existingIndex] = { ...bills[existingIndex], ...bill };
     } else {
       bills.unshift(bill);
+
+      // Increment nextInvoiceNumber in settings if this invoice used the sequence
+      try {
+        const settings = this.getSettings();
+        const match = bill.invoiceNo.match(/(\d+)$/);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num)) {
+            const currentNext = settings.nextInvoiceNumber || 1001;
+            if (num >= currentNext) {
+              settings.nextInvoiceNumber = num + 1;
+              this.saveSettings(settings);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to advance invoice counter in settings:', err);
+      }
     }
 
     // Keep up to 500 invoices for durable history
@@ -231,7 +280,7 @@ class StorageService {
   }
 
   deleteBill(id: string): void {
-    const bills = this.getBills().filter((b) => b.id !== id && b.invoiceNo !== id);
+    const bills = this.getBills().filter((b) => b.id !== id);
     this.saveBillsList(bills);
   }
 
@@ -524,7 +573,17 @@ class StorageService {
         this.saveUserProfile(DEFAULT_USER);
         return DEFAULT_USER;
       }
-      return JSON.parse(data);
+      const parsed: UserProfile = JSON.parse(data);
+      // Clean up legacy hardcoded developer credentials from user devices
+      if (
+        (parsed.email === 'uddinfahad89@gmail.com' || parsed.phone === '9707502246') &&
+        (!localStorage.getItem(STORAGE_KEYS.SETTINGS) ||
+          !JSON.parse(localStorage.getItem(STORAGE_KEYS.SETTINGS) || '{}').storeName)
+      ) {
+        this.saveUserProfile(DEFAULT_USER);
+        return DEFAULT_USER;
+      }
+      return parsed;
     } catch {
       return DEFAULT_USER;
     }
@@ -547,14 +606,13 @@ class StorageService {
     const current = this.getUserProfile();
 
     const isEmail = raw.includes('@');
-    const cleanEmail = isEmail ? raw : (current.email || 'uddinfahad89@gmail.com');
-    const cleanPhone = phone?.trim() || (!isEmail ? raw : (current.phone || '9707502246'));
+    const cleanEmail = isEmail ? raw : (current.email || '');
+    const cleanPhone = phone?.trim() || (!isEmail ? raw : (current.phone || ''));
 
     const inferredName =
       name?.trim() ||
-      (cleanEmail.toLowerCase().includes('fahad')
-        ? 'Fahad Uddin'
-        : cleanEmail.split('@')[0] || 'Store Owner');
+      (cleanEmail ? cleanEmail.split('@')[0] : '') ||
+      (cleanPhone ? `User ${cleanPhone.slice(-4)}` : 'Store Owner');
 
     const updated: UserProfile = {
       ...current,

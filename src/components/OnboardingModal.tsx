@@ -22,10 +22,10 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
 }) => {
   const isBn = language === 'bn';
   const [storeName, setStoreName] = useState('');
-  const [storePhone, setStorePhone] = useState('9707502246');
-  const [ownerEmail, setOwnerEmail] = useState('uddinfahad89@gmail.com');
-  const [ownerPin, setOwnerPin] = useState('1234');
-  const [ownerName, setOwnerName] = useState('Fahad Uddin');
+  const [storePhone, setStorePhone] = useState('');
+  const [ownerEmail, setOwnerEmail] = useState('');
+  const [ownerPin, setOwnerPin] = useState('');
+  const [ownerName, setOwnerName] = useState('');
   const [storeAddress, setStoreAddress] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -85,7 +85,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
       storeAddress: storeAddress.trim(),
       ownerEmail: ownerEmail.trim(),
       ownerPin: ownerPin.trim() || '1234',
-      ownerName: ownerName.trim() || 'Fahad Uddin',
+      ownerName: ownerName.trim() || storeName.trim() || (isBn ? 'দোকানের মালিক' : 'Store Owner'),
     });
   };
 
@@ -186,7 +186,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                   setStorePhone(e.target.value);
                   if (error) setError(null);
                 }}
-                placeholder="9707502246"
+                placeholder={isBn ? '০১XXXXXXXXX / ৯৮XXXXXXXX' : 'e.g. 01700000000'}
                 className="w-full px-3.5 py-2 text-sm bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-blue-500 focus:bg-white font-medium font-mono"
               />
             </div>
@@ -200,7 +200,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                 type="email"
                 value={ownerEmail}
                 onChange={(e) => setOwnerEmail(e.target.value)}
-                placeholder="uddinfahad89@gmail.com"
+                placeholder={isBn ? 'owner@example.com (ঐচ্ছিক)' : 'owner@example.com (optional)'}
                 className="w-full px-3.5 py-2 text-sm bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-blue-500 focus:bg-white font-medium font-mono"
               />
             </div>
@@ -216,7 +216,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                 type="text"
                 value={ownerName}
                 onChange={(e) => setOwnerName(e.target.value)}
-                placeholder="Fahad Uddin"
+                placeholder={isBn ? 'আপনার নাম লিখুন' : 'Enter your name'}
                 className="w-full px-3.5 py-2 text-sm bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-blue-500 focus:bg-white font-medium"
               />
             </div>

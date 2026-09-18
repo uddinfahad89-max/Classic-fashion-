@@ -25,9 +25,10 @@ import { translations } from '../utils/i18n';
 
 interface EditInvoiceModalProps {
   bill: BillInvoice | null;
-  isOpen: boolean;
+  isOpen?: boolean;
   onClose: () => void;
   onSave: (updatedBill: BillInvoice) => void;
+  onDelete?: (id: string) => void;
   onLoadInBilling?: (bill: BillInvoice) => void;
   settings: ThermalPrinterSettings;
   language?: Language;
@@ -35,9 +36,10 @@ interface EditInvoiceModalProps {
 
 export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
   bill,
-  isOpen,
+  isOpen = true,
   onClose,
   onSave,
+  onDelete,
   onLoadInBilling,
   settings,
   language = 'bn',
@@ -54,6 +56,8 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
   const [discountValue, setDiscountValue] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
   const [paidAmount, setPaidAmount] = useState('');
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   // New item quick entry
   const [newItemName, setNewItemName] = useState('');
@@ -139,9 +143,10 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
 
   const handleRemoveItem = (id: string) => {
     if (items.length <= 1) {
-      alert(language === 'bn' ? 'ইনভয়েসে অন্তত একটি পণ্য থাকতে হবে।' : 'Invoice must have at least one item.');
+      setValidationError(language === 'bn' ? 'ইনভয়েসে অন্তত একটি পণ্য থাকতে হবে।' : 'Invoice must have at least one item.');
       return;
     }
+    setValidationError(null);
     setItems((prev) => prev.filter((it) => it.id !== id));
   };
 
@@ -152,10 +157,11 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
     const qty = parseInt(newItemQty, 10) || 1;
 
     if (!name || isNaN(price) || price <= 0) {
-      alert(language === 'bn' ? 'সঠিক পণ্যের নাম ও দর লিখুন' : 'Please enter valid item name and price');
+      setValidationError(language === 'bn' ? 'সঠিক পণ্যের নাম ও দর লিখুন' : 'Please enter valid item name and price');
       return;
     }
 
+    setValidationError(null);
     const newItem: BillItem = {
       id: 'item-edit-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
       name,
@@ -175,9 +181,11 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
     e.preventDefault();
 
     if (items.length === 0) {
-      alert(language === 'bn' ? 'ইনভয়েসে অন্তত একটি পণ্য থাকতে হবে।' : 'Invoice must have at least one item.');
+      setValidationError(language === 'bn' ? 'ইনভয়েসে অন্তত একটি পণ্য থাকতে হবে।' : 'Invoice must have at least one item.');
       return;
     }
+
+    setValidationError(null);
 
     // Determine status
     let paymentStatus: 'PAID' | 'DUE' | 'PARTIAL' = 'PAID';
@@ -186,6 +194,9 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
     } else {
       paymentStatus = 'PAID';
     }
+
+    const finalPaid = paymentMethod === 'due' && paidNum === 0 ? 0 : paidNum > 0 ? paidNum : grandTotal;
+    const finalBalance = Math.max(0, grandTotal - finalPaid);
 
     const updatedBill: BillInvoice = {
       ...bill,
@@ -200,8 +211,10 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
       grandTotal,
       paymentMethod,
       paymentStatus,
-      paidAmount: paymentMethod === 'due' && paidNum === 0 ? 0 : paidNum > 0 ? paidNum : grandTotal,
+      paidAmount: finalPaid,
       changeAmount: paymentMethod === 'due' ? 0 : changeAmount,
+      balance: finalBalance,
+      currentBalance: finalBalance,
     };
 
     onSave(updatedBill);
@@ -210,7 +223,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 sm:p-4 overflow-y-auto animate-in fade-in duration-200">
-      <div className="bg-white rounded-3xl shadow-2xl border border-stone-200 w-full max-w-2xl overflow-hidden my-auto animate-in zoom-in-95 duration-150 flex flex-col max-h-[92vh]">
+      <div className="bg-white rounded-3xl shadow-2xl border border-stone-200 w-full max-w-2xl overflow-hidden my-auto animate-in zoom-in-95 duration-150 flex flex-col max-h-[92vh] relative">
         {/* Header */}
         <div className="p-4 sm:p-5 border-b border-stone-200 bg-gradient-to-r from-blue-50/90 via-white to-stone-50 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
@@ -241,6 +254,72 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {/* Validation Error Alert */}
+        {validationError && (
+          <div className="bg-rose-50 border-b border-rose-200 px-4 py-2 text-rose-800 text-xs font-bold flex items-center justify-between animate-in fade-in">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>{validationError}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setValidationError(null)}
+              className="text-rose-500 hover:text-rose-800 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Delete Confirmation Overlay inside Edit Modal */}
+        {showDeleteConfirm && (
+          <div className="absolute inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+            <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-2xl border border-stone-200 text-center space-y-4">
+              <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-stone-900">
+                  {language === 'bn' ? 'ইনভয়েস মুছে ফেলতে চান?' : 'Delete this Invoice?'}
+                </h3>
+                <p className="text-xs text-stone-500 font-mono mt-1">
+                  #{bill.invoiceNo} • {sym}{grandTotal.toFixed(2)}
+                </p>
+                {customerName && (
+                  <p className="text-xs text-stone-600 font-medium mt-0.5">{customerName}</p>
+                )}
+                <p className="text-[11px] text-rose-600 mt-2">
+                  {language === 'bn'
+                    ? 'সতর্কতা: এটি মুছে ফেললে আর পুনরুদ্ধার করা যাবে না।'
+                    : 'Warning: This action is permanent and cannot be undone.'}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="flex-1 py-2.5 rounded-xl border border-stone-200 text-xs font-bold text-stone-700 hover:bg-stone-50 transition-colors cursor-pointer"
+                >
+                  {language === 'bn' ? 'বাতিল' : 'Cancel'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowDeleteConfirm(false);
+                    if (onDelete) {
+                      onDelete(bill.id);
+                    }
+                    onClose();
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-md shadow-rose-600/20 transition-colors cursor-pointer"
+                >
+                  {language === 'bn' ? 'হ্যাঁ, মুছুন' : 'Delete'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Scrollable Form Body */}
         <form onSubmit={handleSave} className="overflow-y-auto p-4 sm:p-6 space-y-5 flex-1">
@@ -598,6 +677,18 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
               >
                 <ExternalLink className="w-3.5 h-3.5" />
                 <span>{t.loadInBillingBtn}</span>
+              </button>
+            )}
+
+            {onDelete && (
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(true)}
+                className="py-2.5 px-3 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                title={language === 'bn' ? 'এই ইনভয়েস মুছে ফেলুন' : 'Delete this invoice'}
+              >
+                <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                <span>{language === 'bn' ? 'মুছে ফেলুন' : 'Delete'}</span>
               </button>
             )}
 

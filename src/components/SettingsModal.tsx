@@ -229,6 +229,53 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             />
           </div>
 
+          {/* Invoice Number Formatting & Sequence */}
+          <div className="p-3 bg-stone-50 rounded-2xl border border-stone-200 space-y-2.5">
+            <div className="font-bold text-stone-900 text-xs flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <FileText className="w-3.5 h-3.5 text-blue-600" />
+                <span>{isBn ? 'ইনভয়েস নম্বর ও সিরিয়াল সেটিংস' : 'Invoice Numbering & Sequence'}</span>
+              </span>
+              <span className="text-[10px] text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full font-mono font-bold">
+                {(form.invoicePrefix || 'INV-') + (form.nextInvoiceNumber || 1001)}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-[11px] text-stone-600 font-medium mb-1">
+                  {isBn ? 'ইনভয়েস প্রিফিক্স' : 'Prefix'}
+                </label>
+                <input
+                  type="text"
+                  value={form.invoicePrefix ?? 'INV-'}
+                  onChange={(e) => setForm({ ...form, invoicePrefix: e.target.value })}
+                  placeholder="e.g. INV-, BILL-"
+                  className="w-full border border-stone-200 bg-white p-2 rounded-xl text-xs font-mono font-bold focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] text-stone-600 font-medium mb-1">
+                  {isBn ? 'পরবর্তী ইনভয়েস নম্বর' : 'Next Invoice #'}
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  value={form.nextInvoiceNumber ?? 1001}
+                  onChange={(e) => setForm({ ...form, nextInvoiceNumber: Math.max(1, parseInt(e.target.value, 10) || 1) })}
+                  placeholder="1001"
+                  className="w-full border border-stone-200 bg-white p-2 rounded-xl text-xs font-mono font-bold focus:outline-none focus:border-blue-500"
+                />
+              </div>
+            </div>
+            <p className="text-[10px] text-stone-400 leading-tight">
+              {isBn
+                ? 'প্রতিটি নতুন বিলে এই ক্রম অনুযায়ী সঠিক ইনভয়েস নম্বর স্বয়ংক্রিয়ভাবে তৈরি হবে।'
+                : 'Every new invoice will automatically follow this exact sequence without errors.'}
+            </p>
+          </div>
+
           <div>
             <label className="block text-stone-700 font-semibold mb-1">{t.paperWidthLabel}</label>
             <div className="grid grid-cols-2 gap-2">

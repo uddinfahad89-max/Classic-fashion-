@@ -100,6 +100,8 @@ export interface ThermalPrinterSettings {
   autoPrintOnCheckout: boolean;
   defaultInvoiceFormat?: 'tax_invoice' | 'thermal';
   isDataSaverEnabled?: boolean;
+  invoicePrefix?: string;
+  nextInvoiceNumber?: number;
 }
 
 export interface NetworkStatusInfo {

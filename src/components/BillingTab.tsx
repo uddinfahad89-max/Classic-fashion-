@@ -15,6 +15,8 @@ import {
   CreditCard,
   Clock,
   Calculator,
+  Hash,
+  FileText,
 } from 'lucide-react';
 import {
   BillItem,
@@ -24,6 +26,7 @@ import {
   BluetoothDeviceInfo,
   Language,
 } from '../types';
+import { storageService } from '../services/storageService';
 import { translations } from '../utils/i18n';
 import { KhatabookEntryModal, KhatabookEntryPayload } from './KhatabookEntryModal';
 
@@ -61,6 +64,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   // Checkout meta
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  const [customInvoiceNo, setCustomInvoiceNo] = useState('');
   const [discountType, setDiscountType] = useState<'fixed' | 'percent'>('fixed');
   const [discountValue, setDiscountValue] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
@@ -195,7 +199,11 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       hour12: true,
     });
 
-    const invoiceNo = String(Math.floor(100 + Math.random() * 900));
+    // Use custom entered invoice number, or automatically generate correct sequential invoice number
+    let invoiceNo = customInvoiceNo.trim();
+    if (!invoiceNo) {
+      invoiceNo = storageService.getNextInvoiceNumber();
+    }
 
     const actualPaid = paidNum > 0 ? paidNum : (paymentMethod === 'due' ? 0 : grandTotal);
     const balanceAmount = paymentMethod === 'due' ? Math.max(0, grandTotal - actualPaid) : 0;
@@ -225,6 +233,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     onPrintBill(bill);
     setCustomerName('');
     setCustomerPhone('');
+    setCustomInvoiceNo('');
     setDiscountValue('');
     setPaidAmount('');
   };
@@ -245,7 +254,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
           </span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
           {/* Customer Name */}
           <div className="relative">
             <div className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none">
@@ -273,6 +282,22 @@ export const BillingTab: React.FC<BillingTabProps> = ({
               onChange={(e) => setCustomerPhone(e.target.value)}
               placeholder={t.customerPhoneOptionalPlaceholder}
               className="w-full border border-stone-200 bg-stone-50/80 pl-9 pr-3 py-2 rounded-xl text-xs sm:text-sm font-mono font-medium focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
+            />
+          </div>
+
+          {/* Optional Custom/Override Invoice Number */}
+          <div className="relative">
+            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none">
+              <Hash className="w-4 h-4 text-blue-500" />
+            </div>
+            <input
+              type="text"
+              id="billing-custom-invoice-no"
+              value={customInvoiceNo}
+              onChange={(e) => setCustomInvoiceNo(e.target.value)}
+              placeholder={isBn ? `ইনভয়েস: ${storageService.getNextInvoiceNumber()}` : `Inv #: ${storageService.getNextInvoiceNumber()}`}
+              title={isBn ? 'খালি রাখলে স্বয়ংক্রিয় পরবর্তী ক্রমিক নম্বর বসবে' : 'Leave empty for automatic sequential number'}
+              className="w-full border border-stone-200 bg-stone-50/80 pl-9 pr-3 py-2 rounded-xl text-xs sm:text-sm font-mono font-semibold focus:outline-none focus:border-blue-500 focus:bg-white transition-all text-blue-700 placeholder:text-stone-400"
             />
           </div>
         </div>

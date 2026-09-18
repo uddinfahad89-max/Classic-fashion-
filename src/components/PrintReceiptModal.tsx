@@ -4,6 +4,7 @@ import {
   Download,
   X,
   Edit2,
+  Trash2,
   Image as ImageIcon,
   Share2,
   FileCheck,
@@ -21,6 +22,7 @@ interface PrintReceiptModalProps {
   onConnectBluetooth?: () => void;
   onUpdatePaperWidth?: (width: '58mm' | '80mm') => void;
   onEditBill?: (bill: BillInvoice) => void;
+  onDeleteBill?: (id: string) => void;
   language?: Language;
 }
 
@@ -29,11 +31,13 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
   onClose,
   settings,
   onEditBill,
+  onDeleteBill,
   language = 'bn',
 }) => {
   const [isSavingPdf, setIsSavingPdf] = useState(false);
   const [isSavingImage, setIsSavingImage] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const sheetRef = useRef<HTMLDivElement>(null);
 
@@ -161,10 +165,22 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
                   onEditBill(bill);
                 }}
                 className="px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
-                title="Edit Invoice"
+                title={language === 'bn' ? 'ইনভয়েস এডিট করুন' : 'Edit Invoice'}
               >
                 <Edit2 className="w-3.5 h-3.5 text-amber-700" />
                 <span className="hidden sm:inline">{language === 'bn' ? 'এডিট' : 'Edit'}</span>
+              </button>
+            )}
+
+            {onDeleteBill && (
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(true)}
+                className="px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                title={language === 'bn' ? 'ইনভয়েস মুছুন' : 'Delete Invoice'}
+              >
+                <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                <span className="hidden sm:inline">{language === 'bn' ? 'মুছুন' : 'Delete'}</span>
               </button>
             )}
 
@@ -177,7 +193,7 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
           </div>
         </div>
 
-        {/* 2. Clean Action Toolbar (Print, Save PDF, Image, WhatsApp) */}
+        {/* 2. Clean Action Toolbar (Print, Save PDF, Image, WhatsApp, Edit, Delete) */}
         <div className="p-2.5 sm:p-3 bg-stone-50 border-b border-stone-200 flex flex-wrap items-center justify-between gap-2">
           <div className="text-xs font-bold text-stone-700 flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-[#8C8EE8]"></span>
@@ -235,8 +251,88 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
               <Share2 className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">WhatsApp</span>
             </button>
+
+            {/* 5. EDIT BUTTON */}
+            {onEditBill && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onEditBill(bill);
+                }}
+                className="px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
+                title={language === 'bn' ? 'ইনভয়েস এডিট করুন' : 'Edit Bill'}
+              >
+                <Edit2 className="w-3.5 h-3.5 text-blue-600" />
+                <span>{language === 'bn' ? 'এডিট' : 'Edit'}</span>
+              </button>
+            )}
+
+            {/* 6. DELETE BUTTON */}
+            {onDeleteBill && (
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(true)}
+                className="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
+                title={language === 'bn' ? 'ইনভয়েস মুছুন' : 'Delete Bill'}
+              >
+                <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                <span>{language === 'bn' ? 'মুছুন' : 'Delete'}</span>
+              </button>
+            )}
           </div>
         </div>
+
+        {/* Delete Confirmation Modal inside PrintReceiptModal */}
+        {showDeleteConfirm && (
+          <div className="fixed inset-0 z-60 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+            <div className="bg-white rounded-3xl max-w-sm w-full p-5 shadow-2xl space-y-4 border border-stone-200 text-center">
+              <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-stone-900">
+                  {language === 'bn' ? 'ইনভয়েস মুছে ফেলতে চান?' : 'Delete this Invoice?'}
+                </h3>
+                <p className="text-xs text-stone-500 font-mono">
+                  #{bill.invoiceNo} • {settings.currencySymbol || '₹'}{(bill.grandTotal || 0).toFixed(2)}
+                </p>
+                {bill.customerName && (
+                  <p className="text-xs text-stone-600 font-medium">
+                    {bill.customerName}
+                  </p>
+                )}
+                <p className="text-[11px] text-rose-600 pt-1">
+                  {language === 'bn'
+                    ? 'স্থায়ীভাবে এই ইনভয়েস মুছে যাবে।'
+                    : 'This invoice will be permanently removed.'}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="flex-1 py-2.5 rounded-xl border border-stone-200 text-xs font-bold text-stone-700 hover:bg-stone-50 transition-colors cursor-pointer"
+                >
+                  {language === 'bn' ? 'বাতিল' : 'Cancel'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowDeleteConfirm(false);
+                    if (onDeleteBill) {
+                      onDeleteBill(bill.id);
+                    }
+                    onClose();
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-rose-600 text-white text-xs font-bold hover:bg-rose-700 shadow-md shadow-rose-600/20 transition-colors cursor-pointer"
+                >
+                  {language === 'bn' ? 'হ্যাঁ, মুছুন' : 'Delete'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Feedback Alert if saving or printing */}
         {feedbackMessage && (

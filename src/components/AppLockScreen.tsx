@@ -55,7 +55,7 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
 
   // OTP Unlock modal
   const [showOtpModal, setShowOtpModal] = useState(false);
-  const [otpPhoneInput, setOtpPhoneInput] = useState(userProfile.phone || '9707502246');
+  const [otpPhoneInput, setOtpPhoneInput] = useState(userProfile.phone || '');
   const [generatedOtp, setGeneratedOtp] = useState<string | null>(null);
   const [enteredOtp, setEnteredOtp] = useState('');
   const [otpSending, setOtpSending] = useState(false);
@@ -333,7 +333,7 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
             type="button"
             onClick={() => {
               setShowOtpModal(true);
-              setOtpPhoneInput(userProfile.phone || '9707502246');
+              setOtpPhoneInput(userProfile.phone || '');
               setGeneratedOtp(null);
               setEnteredOtp('');
               setOtpError(null);
@@ -414,7 +414,7 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
                     required
                     value={otpPhoneInput}
                     onChange={(e) => setOtpPhoneInput(e.target.value)}
-                    placeholder="9707502246"
+                    placeholder={isBn ? '০১XXXXXXXXX / ৯৮XXXXXXXX' : 'Enter mobile number'}
                     className="flex-1 px-3 py-2 bg-stone-800 border border-stone-700 rounded-xl text-xs sm:text-sm text-white focus:outline-none focus:border-blue-500 font-mono"
                   />
                   <button
@@ -507,7 +507,7 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
                   required
                   value={forgotEmail}
                   onChange={(e) => setForgotEmail(e.target.value)}
-                  placeholder="uddinfahad89@gmail.com"
+                  placeholder="owner@example.com"
                   className="w-full px-3 py-2 bg-stone-800 border border-stone-700 rounded-xl text-xs sm:text-sm text-white focus:outline-none focus:border-blue-500"
                 />
               </div>

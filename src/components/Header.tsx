@@ -375,11 +375,13 @@ export const Header: React.FC<HeaderProps> = ({
                     {userInitial}
                   </div>
                   <h3 className="text-sm font-bold text-stone-900 truncate">
-                    {userProfile.name || 'Store Owner'}
+                    {userProfile.name || (isBn ? 'দোকানের মালিক' : 'Store Owner')}
                   </h3>
-                  <p className="text-xs text-stone-500 font-mono truncate">
-                    {userProfile.email || 'uddinfahad89@gmail.com'}
-                  </p>
+                  {userProfile.email && (
+                    <p className="text-xs text-stone-500 font-mono truncate">
+                      {userProfile.email}
+                    </p>
+                  )}
                   {userProfile.phone && (
                     <p className="text-[11px] text-stone-500 font-mono mt-0.5">
                       📞 {userProfile.phone}
@@ -682,11 +684,13 @@ export const Header: React.FC<HeaderProps> = ({
                 </div>
                 <div>
                   <h2 className="text-base font-bold truncate">
-                    {settings.storeName || 'Classic fashion'}
+                    {settings.storeName || (isBn ? 'আমার দোকান' : 'My Store')}
                   </h2>
-                  <p className="text-xs text-emerald-100 font-mono truncate">
-                    {userProfile.email || 'uddinfahad89@gmail.com'}
-                  </p>
+                  {userProfile.email && (
+                    <p className="text-xs text-emerald-100 font-mono truncate">
+                      {userProfile.email}
+                    </p>
+                  )}
                   {settings.storePhone && (
                     <p className="text-[11px] text-emerald-200 font-mono mt-0.5">
                       📞 {settings.storePhone}

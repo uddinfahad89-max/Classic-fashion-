@@ -71,17 +71,17 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const [loginMethodTab, setLoginMethodTab] = useState<'otp' | 'email_pin'>('otp');
 
   // Email/PIN Login Form States
-  const [email, setEmail] = useState(userProfile.email || 'uddinfahad89@gmail.com');
-  const [name, setName] = useState(userProfile.name || 'Fahad Uddin');
-  const [phone, setPhone] = useState(userProfile.phone || '9707502246');
+  const [email, setEmail] = useState(userProfile.email || '');
+  const [name, setName] = useState(userProfile.name || '');
+  const [phone, setPhone] = useState(userProfile.phone || '');
   const [role, setRole] = useState<'Owner' | 'Manager' | 'Cashier'>(userProfile.role || 'Owner');
-  const [pin, setPin] = useState(userProfile.pin || '1234');
+  const [pin, setPin] = useState(userProfile.pin || '');
   const [showPin, setShowPin] = useState(false);
   const [appLockEnabled, setAppLockEnabled] = useState(userProfile.isAppLockEnabled ?? false);
   const [loginError, setLoginError] = useState<string | null>(null);
 
   // OTP Login Specific States
-  const [otpPhone, setOtpPhone] = useState(userProfile.phone || '9707502246');
+  const [otpPhone, setOtpPhone] = useState(userProfile.phone || '');
   const [otpStep, setOtpStep] = useState<'request' | 'verify'>('request');
   const [otpCode, setOtpCode] = useState('');
   const [generatedOtp, setGeneratedOtp] = useState<string | null>(null);
@@ -178,7 +178,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
       const inferredName =
         name.trim() ||
-        (cleanPhone.includes('9707502246') ? 'Fahad Uddin' : userProfile.name || 'Store Owner');
+        userProfile.name ||
+        (cleanPhone ? `User ${cleanPhone.slice(-4)}` : 'Store Owner');
 
       onLogin(
         inferredEmail,
@@ -639,49 +640,51 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 </button>
               </div>
 
-              {/* Quick Preset Banner */}
-              <div className="p-3 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200/80 rounded-2xl">
-                <span className="text-[11px] font-bold text-blue-900 block mb-1.5 flex items-center gap-1">
-                  <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-                  <span>{t('দ্রুত লগইন করুন (Quick Preset):', 'Quick Verified Login:', 'त्वरित लॉगिन:')}</span>
-                </span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleQuickSelectPreset(
-                      'uddinfahad89@gmail.com',
-                      'Fahad Uddin',
-                      'Owner',
-                      '9707502246',
-                      '1234'
-                    )
-                  }
-                  className="w-full text-left p-2.5 rounded-xl bg-white hover:bg-blue-50 border border-blue-200 transition-all flex items-center justify-between cursor-pointer group shadow-2xs"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-xl bg-blue-600 text-white font-bold text-xs flex items-center justify-center shadow-xs">
-                      F
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-bold text-stone-900 group-hover:text-blue-700">
-                          Fahad Uddin
-                        </span>
-                        <span className="text-[10px] font-bold bg-blue-100 text-blue-800 px-1.5 py-0.2 rounded">
-                          Owner
+              {/* Quick Preset Banner (Only if this device has an existing saved profile) */}
+              {(userProfile.phone || userProfile.email) && (
+                <div className="p-3 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200/80 rounded-2xl">
+                  <span className="text-[11px] font-bold text-blue-900 block mb-1.5 flex items-center gap-1">
+                    <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                    <span>{t('আগের অ্যাকাউন্ট দিয়ে লগইন:', 'Saved Profile Login:', 'सहेजे गए खाते से लॉगिन:')}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleQuickSelectPreset(
+                        userProfile.email || '',
+                        userProfile.name || (isBn ? 'দোকানের মালিক' : 'Store Owner'),
+                        userProfile.role || 'Owner',
+                        userProfile.phone || '',
+                        userProfile.pin || '1234'
+                      )
+                    }
+                    className="w-full text-left p-2.5 rounded-xl bg-white hover:bg-blue-50 border border-blue-200 transition-all flex items-center justify-between cursor-pointer group shadow-2xs"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-blue-600 text-white font-bold text-xs flex items-center justify-center shadow-xs">
+                        {(userProfile.name || 'U').charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-bold text-stone-900 group-hover:text-blue-700">
+                            {userProfile.name || 'Store Owner'}
+                          </span>
+                          <span className="text-[10px] font-bold bg-blue-100 text-blue-800 px-1.5 py-0.2 rounded">
+                            {userProfile.role || 'Owner'}
+                          </span>
+                        </div>
+                        <span className="block text-[11px] font-mono text-stone-500">
+                          {[userProfile.phone, userProfile.email].filter(Boolean).join(' • ')}
                         </span>
                       </div>
-                      <span className="block text-[11px] font-mono text-stone-500">
-                        9707502246 • uddinfahad89@gmail.com
-                      </span>
                     </div>
-                  </div>
-                  <span className="text-xs font-bold text-blue-600 group-hover:translate-x-0.5 transition-transform flex items-center gap-1">
-                    <span>{t('সিলেক্ট', 'Select', 'चुनें')}</span>
-                    <ArrowRight className="w-3 h-3" />
-                  </span>
-                </button>
-              </div>
+                    <span className="text-xs font-bold text-blue-600 group-hover:translate-x-0.5 transition-transform flex items-center gap-1">
+                      <span>{t('সিলেক্ট', 'Select', 'चुनें')}</span>
+                      <ArrowRight className="w-3 h-3" />
+                    </span>
+                  </button>
+                </div>
+              )}
 
               {/* ----------------- TAB A: MOBILE OTP LOGIN ----------------- */}
               {loginMethodTab === 'otp' ? (
@@ -711,7 +714,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                             setOtpCode('');
                             setGeneratedOtp(null);
                           }}
-                          placeholder="9707502246"
+                          placeholder={isBn ? '০১XXXXXXXXX / ৯৮XXXXXXXX' : 'Enter 10-digit phone number'}
                           className="w-full pl-9 pr-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs sm:text-sm font-mono font-medium focus:outline-none focus:border-blue-600 focus:bg-white transition-all"
                         />
                       </div>
@@ -883,7 +886,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                         required
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
-                        placeholder="uddinfahad89@gmail.com"
+                        placeholder="owner@example.com"
                         className="w-full pl-9 pr-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs sm:text-sm font-medium focus:outline-none focus:border-blue-600 focus:bg-white transition-all"
                       />
                     </div>
@@ -901,7 +904,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                           type="text"
                           value={name}
                           onChange={(e) => setName(e.target.value)}
-                          placeholder="Fahad Uddin"
+                          placeholder={t('আপনার নাম', 'Your full name', 'आपका नाम')}
                           className="w-full pl-9 pr-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs sm:text-sm font-medium focus:outline-none focus:border-blue-600 focus:bg-white transition-all"
                         />
                       </div>
@@ -917,7 +920,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                           type="tel"
                           value={phone}
                           onChange={(e) => setPhone(e.target.value)}
-                          placeholder="9707502246"
+                          placeholder={isBn ? '০১XXXXXXXXX / ৯৮XXXXXXXX' : 'Mobile phone number'}
                           className="w-full pl-9 pr-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs sm:text-sm font-mono font-medium focus:outline-none focus:border-blue-600 focus:bg-white transition-all"
                         />
                       </div>

@@ -25,6 +25,7 @@ import { CashbookTab } from './components/CashbookTab';
 import { CustomerDueTab } from './components/CustomerDueTab';
 import { PurchaseTripTab } from './components/PurchaseTripTab';
 import { PrintReceiptModal } from './components/PrintReceiptModal';
+import { EditInvoiceModal } from './components/EditInvoiceModal';
 import { SettingsModal } from './components/SettingsModal';
 import { LoginModal } from './components/LoginModal';
 import { AppLockScreen } from './components/AppLockScreen';
@@ -54,6 +55,7 @@ export default function App() {
   const [isDataSaverOpen, setIsDataSaverOpen] = useState(false);
   const [isBluetoothHelpOpen, setIsBluetoothHelpOpen] = useState(false);
   const [receiptBill, setReceiptBill] = useState<BillInvoice | null>(null);
+  const [editingBill, setEditingBill] = useState<BillInvoice | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isPrintingBill, setIsPrintingBill] = useState(false);
 
@@ -126,9 +128,9 @@ export default function App() {
 
     if (data.ownerEmail || data.storePhone) {
       const loggedIn = storageService.loginUser(
-        data.ownerEmail || 'email ID please',
-        data.ownerName || 'name please',
-        data.ownerPin || 'pin number',
+        data.ownerEmail || '',
+        data.ownerName || data.storeName || 'Store Owner',
+        data.ownerPin || '1234',
         'Owner',
         data.storePhone
       );
@@ -302,6 +304,12 @@ export default function App() {
     storageService.deleteBill(id);
     const updatedBills = storageService.getBills();
     setBills(updatedBills);
+    if (receiptBill && (receiptBill.id === id || receiptBill.invoiceNo === id)) {
+      setReceiptBill(null);
+    }
+    if (editingBill && (editingBill.id === id || editingBill.invoiceNo === id)) {
+      setEditingBill(null);
+    }
     showToast(
       language === 'bn'
         ? 'ইনভয়েস সফলভাবে ডিলিট করা হয়েছে'
@@ -312,7 +320,11 @@ export default function App() {
 
   const handleUpdateBill = (updatedBill: BillInvoice) => {
     storageService.saveBill(updatedBill);
-    setBills(storageService.getBills());
+    const freshBills = storageService.getBills();
+    setBills(freshBills);
+    if (receiptBill && (receiptBill.id === updatedBill.id || receiptBill.invoiceNo === updatedBill.invoiceNo)) {
+      setReceiptBill(updatedBill);
+    }
     showToast(
       language === 'bn' ? 'বিল সফলভাবে আপডেট হয়েছে' : 'Bill updated successfully',
       'success'
@@ -591,6 +603,17 @@ export default function App() {
             onViewReceipt={(bill) => setReceiptBill(bill)}
             onDeleteBill={handleDeleteBill}
             onUpdateBill={handleUpdateBill}
+            onEditBill={(bill) => setEditingBill(bill)}
+            onLoadIntoBilling={(bill) => {
+              setBillItems(bill.items);
+              setActiveTab('billing');
+              showToast(
+                language === 'bn'
+                  ? 'আইটেমগুলো বিলিং কাউন্টারে লোড করা হয়েছে'
+                  : 'Items loaded into billing counter',
+                'info'
+              );
+            }}
             externalSearchTerm={searchTerm}
             viewMode={viewMode}
             sortOption={sortOption}
@@ -703,8 +726,46 @@ export default function App() {
         bluetoothStatus={bluetoothStatus}
         onConnectBluetooth={handleConnectBluetooth}
         onUpdatePaperWidth={handleUpdatePaperWidth}
+        onEditBill={(bill) => {
+          setReceiptBill(null);
+          setEditingBill(bill);
+        }}
+        onDeleteBill={(id) => {
+          handleDeleteBill(id);
+          setReceiptBill(null);
+        }}
         language={language}
       />
+
+      {/* Global Edit Invoice Modal */}
+      {editingBill && (
+        <EditInvoiceModal
+          bill={editingBill}
+          isOpen={Boolean(editingBill)}
+          settings={settings}
+          language={language}
+          onClose={() => setEditingBill(null)}
+          onSave={(updated) => {
+            handleUpdateBill(updated);
+            setEditingBill(null);
+          }}
+          onDelete={(id) => {
+            handleDeleteBill(id);
+            setEditingBill(null);
+          }}
+          onLoadInBilling={(bill) => {
+            setBillItems(bill.items);
+            setActiveTab('billing');
+            setEditingBill(null);
+            showToast(
+              language === 'bn'
+                ? 'আইটেমগুলো বিলিং কাউন্টারে লোড করা হয়েছে'
+                : 'Items loaded into billing counter',
+              'info'
+            );
+          }}
+        />
+      )}
 
       {/* Settings Modal */}
       <SettingsModal
