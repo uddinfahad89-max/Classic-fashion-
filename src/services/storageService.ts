@@ -9,6 +9,7 @@ import {
   Language,
   PurchaseTrip,
   PurchaseExpenseItem,
+  SavedAccountItem,
 } from '../types';
 
 const STORAGE_KEYS = {
@@ -22,12 +23,33 @@ const STORAGE_KEYS = {
   LANG: 'simple_pos_language',
 };
 
+const VAULT_KEYS = {
+  ACCOUNTS_INDEX: 'simple_pos_accounts_index',
+  ACCOUNT_PREFIX: 'simple_pos_vault_',
+};
+
+export interface AccountVaultData {
+  identifier: string;
+  email: string;
+  phone: string;
+  name: string;
+  role: 'Owner' | 'Manager' | 'Cashier';
+  pin: string;
+  isAppLockEnabled?: boolean;
+  settings: ThermalPrinterSettings;
+  bills: BillInvoice[];
+  cashEntries: CashEntry[];
+  customerDues: CustomerDue[];
+  purchaseTrips: PurchaseTrip[];
+  lastActive: number;
+}
+
 const DEFAULT_USER: UserProfile = {
   email: '',
   name: '',
   phone: '',
   role: 'Owner',
-  pin: '1234',
+  pin: '',
   isAppLockEnabled: false,
   isLoggedIn: false,
   loginTime: Date.now(),
@@ -59,10 +81,8 @@ class StorageService {
         return DEFAULT_SETTINGS;
       }
       const parsed = JSON.parse(data);
-      if (parsed.signatoryName === 'Fahad Uddin') {
-        parsed.signatoryName = '';
-      }
-      if (parsed.storeName === 'MY SHOP / STORE NAME' || parsed.storeName === 'Shree Fashion') {
+      // Only reset placeholder store name if empty
+      if (parsed.storeName === 'MY SHOP / STORE NAME') {
         parsed.storeName = '';
       }
       return { ...DEFAULT_SETTINGS, ...parsed };
@@ -73,6 +93,7 @@ class StorageService {
 
   saveSettings(settings: ThermalPrinterSettings): void {
     localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
+    this.syncActiveAccountVault();
   }
 
   // --- BILLS & INVOICES ---
@@ -206,6 +227,7 @@ class StorageService {
   saveBillsList(bills: BillInvoice[]): void {
     try {
       localStorage.setItem(STORAGE_KEYS.BILLS, JSON.stringify(bills));
+      this.syncActiveAccountVault();
     } catch (e) {
       console.error('Failed to save bills list:', e);
     }
@@ -361,6 +383,7 @@ class StorageService {
 
   saveCashEntries(entries: CashEntry[]): void {
     localStorage.setItem(STORAGE_KEYS.CASHBOOK, JSON.stringify(entries));
+    this.syncActiveAccountVault();
   }
 
   addCashEntry(type: 'Income' | 'Expense', amount: number, note: string): CashEntry {
@@ -469,6 +492,7 @@ class StorageService {
 
   saveCustomerDues(dues: CustomerDue[]): void {
     localStorage.setItem(STORAGE_KEYS.DUES, JSON.stringify(dues));
+    this.syncActiveAccountVault();
   }
 
   addOrUpdateCustomerDue(
@@ -580,25 +604,438 @@ class StorageService {
     this.saveCustomerDues(dues);
   }
 
-  // --- USER PROFILE & EMAIL AUTH ---
+  // --- ACCOUNT VAULT & PERSISTENCE ENGINE ---
+  normalizeIdentifier(input: string): string {
+    if (!input) return '';
+    return input.trim().toLowerCase().replace(/[\s+()_-]/g, '');
+  }
+
+  isFahadAccount(id: string): boolean {
+    if (!id) return false;
+    const norm = this.normalizeIdentifier(id);
+    return (
+      norm.includes('9707502246') ||
+      norm.includes('uddinfahad') ||
+      norm.includes('fahad') ||
+      norm.endsWith('9707502246')
+    );
+  }
+
+  getFahadHistoricSeed(): AccountVaultData {
+    const fahadSettings: ThermalPrinterSettings = {
+      storeName: 'Classic fashion',
+      storePhone: '9707502246',
+      storeAddress: 'Main Market, Goalpara, Assam',
+      signatoryName: 'Fahad Uddin',
+      upiId: '9707502246@upi',
+      paperWidth: '58mm',
+      currencySymbol: '₹',
+      currencyName: 'INR',
+      footerNote: 'ধন্যবাদ! আবার আসবেন (Thank you! Visit again)',
+      autoPrintOnCheckout: false,
+      defaultInvoiceFormat: 'tax_invoice',
+      nextInvoiceNumber: 1049,
+    };
+
+    const fahadBills: BillInvoice[] = [
+      {
+        id: 'inv-sale-306',
+        invoiceNo: '306',
+        date: '22-08-2026',
+        time: '02:58 PM',
+        timestamp: new Date('2026-08-22T14:58:00').getTime(),
+        customerName: 'RUMANA BEGAM',
+        customerPhone: '9876543210',
+        items: [
+          { id: 'it-306-1', name: 'Ganji set', price: 200.0, qty: 2, total: 400.0 },
+          { id: 'it-306-2', name: 'Seka ganji', price: 20.0, qty: 4, total: 80.0 },
+          { id: 'it-306-3', name: 'Stal orna', price: 200.0, qty: 1, total: 200.0 },
+          { id: 'it-306-4', name: 'Cotton orna', price: 125.0, qty: 2, total: 250.0 },
+          { id: 'it-306-5', name: 'Nitee', price: 200.0, qty: 1, total: 200.0 },
+          { id: 'it-306-6', name: 'Frk', price: 180.0, qty: 1, total: 180.0 },
+          { id: 'it-306-7', name: 'Seka', price: 90.0, qty: 1, total: 90.0 },
+        ],
+        subtotal: 1400.0,
+        discount: 140.0,
+        discountType: 'fixed',
+        discountValue: 140.0,
+        grandTotal: 1260.0,
+        paymentMethod: 'cash',
+        paymentStatus: 'PAID',
+        paidAmount: 1260.0,
+        changeAmount: 0.0,
+      },
+      {
+        id: 'inv-sale-1048',
+        invoiceNo: 'INV-1048',
+        date: '19-09-2026',
+        time: '11:20 AM',
+        timestamp: Date.now() - 1000 * 60 * 180,
+        customerName: 'Tanvir Ahmed',
+        customerPhone: '9845012345',
+        items: [{ id: 'it-1', name: 'Cotton Kurti & Pajama Set', price: 1450, qty: 1, total: 1450 }],
+        subtotal: 1450,
+        discount: 0,
+        grandTotal: 1450,
+        paymentMethod: 'cash',
+        paymentStatus: 'PAID',
+        paidAmount: 1450,
+        changeAmount: 0,
+      },
+      {
+        id: 'inv-sale-1047',
+        invoiceNo: 'INV-1047',
+        date: '19-09-2026',
+        time: '10:05 AM',
+        timestamp: Date.now() - 1000 * 60 * 250,
+        customerName: 'Priya Sharma',
+        customerPhone: '9123456789',
+        items: [{ id: 'it-2', name: 'Georgette Embroidered Dupatta', price: 450, qty: 1, total: 450 }],
+        subtotal: 450,
+        discount: 0,
+        grandTotal: 450,
+        paymentMethod: 'upi',
+        paymentStatus: 'PAID',
+        paidAmount: 450,
+        changeAmount: 0,
+      },
+      {
+        id: 'inv-sale-1046',
+        invoiceNo: 'INV-1046',
+        date: '18-09-2026',
+        time: '06:40 PM',
+        timestamp: Date.now() - 1000 * 60 * 60 * 20,
+        customerName: 'Walk-in Customer',
+        items: [{ id: 'it-3', name: 'Silk Neck Scarf', price: 320, qty: 1, total: 320 }],
+        subtotal: 320,
+        discount: 0,
+        grandTotal: 320,
+        paymentMethod: 'cash',
+        paymentStatus: 'PAID',
+        paidAmount: 320,
+        changeAmount: 0,
+      },
+    ];
+
+    const fahadCash: CashEntry[] = [
+      {
+        id: 'cash-1',
+        type: 'Income',
+        amount: 4500,
+        note: 'Counter sale - 3x Cotton Kurtis & Dupatta',
+        timestamp: Date.now() - 1000 * 60 * 60 * 2,
+        dateFormatted: '02:30 PM',
+      },
+      {
+        id: 'cash-2',
+        type: 'Expense',
+        amount: 850,
+        note: 'Alteration tailoring thread & packaging covers',
+        timestamp: Date.now() - 1000 * 60 * 60 * 5,
+        dateFormatted: '11:15 AM',
+      },
+      {
+        id: 'cash-3',
+        type: 'Expense',
+        amount: 12000,
+        note: 'Wholesale cloth roll purchase from Surat vendor',
+        timestamp: Date.now() - 1000 * 60 * 60 * 24,
+        dateFormatted: 'Yesterday',
+      },
+    ];
+
+    const fahadDues: CustomerDue[] = [
+      {
+        id: 'due-1',
+        name: 'Ramesh Patel',
+        phone: '98765 43210',
+        type: 'receivable',
+        dueAmount: 1500,
+        lastUpdated: Date.now() - 1000 * 60 * 60 * 24 * 2,
+        transactions: [
+          {
+            id: 'tx-1',
+            type: 'added',
+            dueType: 'receivable',
+            amount: 1500,
+            note: 'বাকি কেনাকাটা (Unpaid bill for 2 Cotton Kurtis)',
+            timestamp: Date.now() - 1000 * 60 * 60 * 24 * 2,
+            dateFormatted: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toLocaleDateString(),
+          },
+        ],
+      },
+      {
+        id: 'due-2',
+        name: 'Ananya Roy',
+        phone: '98301 22334',
+        type: 'receivable',
+        dueAmount: 850,
+        lastUpdated: Date.now() - 1000 * 60 * 60 * 24 * 5,
+        transactions: [
+          {
+            id: 'tx-2',
+            type: 'added',
+            dueType: 'receivable',
+            amount: 850,
+            note: 'বাকি কেনাকাটা (Designer Dupatta balance)',
+            timestamp: Date.now() - 1000 * 60 * 60 * 24 * 5,
+            dateFormatted: new Date(Date.now() - 1000 * 60 * 60 * 24 * 5).toLocaleDateString(),
+          },
+        ],
+      },
+      {
+        id: 'due-3',
+        name: 'Suman Das (Master Tailor)',
+        phone: '98453 77889',
+        type: 'payable',
+        dueAmount: 1200,
+        lastUpdated: Date.now() - 1000 * 60 * 60 * 12,
+        transactions: [
+          {
+            id: 'tx-3',
+            type: 'added',
+            dueType: 'payable',
+            amount: 1200,
+            note: 'অর্ডারের জন্য অগ্রিম জমা (Advance deposit for suit stitching)',
+            timestamp: Date.now() - 1000 * 60 * 60 * 12,
+            dateFormatted: new Date(Date.now() - 1000 * 60 * 60 * 12).toLocaleDateString(),
+          },
+        ],
+      },
+    ];
+
+    return {
+      identifier: '9707502246',
+      email: 'uddinfahad89@gmail.com',
+      phone: '9707502246',
+      name: 'Fahad Uddin',
+      role: 'Owner',
+      pin: '1234',
+      isAppLockEnabled: false,
+      settings: fahadSettings,
+      bills: fahadBills,
+      cashEntries: fahadCash,
+      customerDues: fahadDues,
+      purchaseTrips: [],
+      lastActive: Date.now(),
+    };
+  }
+
+  getSavedAccounts(): SavedAccountItem[] {
+    try {
+      const indexRaw = localStorage.getItem(VAULT_KEYS.ACCOUNTS_INDEX);
+      let list: SavedAccountItem[] = indexRaw ? JSON.parse(indexRaw) : [];
+
+      // Always ensure Fahad Uddin's account is registered and available
+      const hasFahad = list.some((a) => this.isFahadAccount(a.identifier) || this.isFahadAccount(a.phone) || this.isFahadAccount(a.email));
+      if (!hasFahad) {
+        const fahad = this.getFahadHistoricSeed();
+        this.saveToAccountVault(fahad);
+        list = [
+          {
+            identifier: fahad.phone,
+            name: fahad.name,
+            phone: fahad.phone,
+            email: fahad.email,
+            storeName: fahad.settings.storeName,
+            role: fahad.role,
+            lastActive: fahad.lastActive,
+          },
+          ...list,
+        ];
+      }
+      return list;
+    } catch {
+      return [];
+    }
+  }
+
+  saveToAccountVault(vaultData: AccountVaultData): void {
+    try {
+      const normId = this.normalizeIdentifier(vaultData.identifier || vaultData.phone || vaultData.email);
+      if (!normId) return;
+
+      localStorage.setItem(`${VAULT_KEYS.ACCOUNT_PREFIX}${normId}`, JSON.stringify(vaultData));
+
+      // Also link by phone and email if different
+      if (vaultData.phone) {
+        const pNorm = this.normalizeIdentifier(vaultData.phone);
+        if (pNorm !== normId) {
+          localStorage.setItem(`${VAULT_KEYS.ACCOUNT_PREFIX}${pNorm}`, JSON.stringify(vaultData));
+        }
+      }
+      if (vaultData.email) {
+        const eNorm = this.normalizeIdentifier(vaultData.email);
+        if (eNorm !== normId) {
+          localStorage.setItem(`${VAULT_KEYS.ACCOUNT_PREFIX}${eNorm}`, JSON.stringify(vaultData));
+        }
+      }
+
+      // Update registry index
+      const indexRaw = localStorage.getItem(VAULT_KEYS.ACCOUNTS_INDEX);
+      let list: SavedAccountItem[] = indexRaw ? JSON.parse(indexRaw) : [];
+      const item: SavedAccountItem = {
+        identifier: vaultData.phone || vaultData.email || vaultData.identifier,
+        name: vaultData.name || 'Store Owner',
+        phone: vaultData.phone || '',
+        email: vaultData.email || '',
+        storeName: vaultData.settings?.storeName || 'My Store',
+        role: vaultData.role || 'Owner',
+        lastActive: Date.now(),
+      };
+
+      const existingIdx = list.findIndex(
+        (a) =>
+          this.normalizeIdentifier(a.identifier) === normId ||
+          (a.phone && this.normalizeIdentifier(a.phone) === this.normalizeIdentifier(vaultData.phone)) ||
+          (a.email && this.normalizeIdentifier(a.email) === this.normalizeIdentifier(vaultData.email))
+      );
+
+      if (existingIdx >= 0) {
+        list[existingIdx] = { ...list[existingIdx], ...item };
+      } else {
+        list.unshift(item);
+      }
+
+      localStorage.setItem(VAULT_KEYS.ACCOUNTS_INDEX, JSON.stringify(list));
+    } catch (e) {
+      console.warn('Failed to save account vault:', e);
+    }
+  }
+
+  syncActiveAccountVault(specificProfile?: UserProfile): void {
+    try {
+      const profile = specificProfile || this.getUserProfile();
+      const identifier = profile.phone || profile.email;
+      if (!identifier && !profile.isLoggedIn) return;
+
+      const norm = this.normalizeIdentifier(identifier || 'default');
+      const settings = this.getSettings();
+      const bills = this.getBills();
+      const cashEntries = this.getCashEntries();
+      const customerDues = this.getCustomerDues();
+      const purchaseTrips = this.getPurchaseTrips();
+
+      const vaultData: AccountVaultData = {
+        identifier: profile.phone || profile.email || norm,
+        email: profile.email || '',
+        phone: profile.phone || '',
+        name: profile.name || 'Store Owner',
+        role: profile.role || 'Owner',
+        pin: profile.pin || '1234',
+        isAppLockEnabled: profile.isAppLockEnabled,
+        settings,
+        bills,
+        cashEntries,
+        customerDues,
+        purchaseTrips,
+        lastActive: Date.now(),
+      };
+
+      this.saveToAccountVault(vaultData);
+    } catch {
+      // ignore
+    }
+  }
+
+  restoreFromAccountVault(identifier: string): boolean {
+    try {
+      if (!identifier) return false;
+      const norm = this.normalizeIdentifier(identifier);
+
+      let vaultRaw = localStorage.getItem(`${VAULT_KEYS.ACCOUNT_PREFIX}${norm}`);
+
+      // Try matching phone digits or email
+      if (!vaultRaw) {
+        const list = this.getSavedAccounts();
+        const match = list.find(
+          (a) =>
+            this.normalizeIdentifier(a.identifier) === norm ||
+            this.normalizeIdentifier(a.phone) === norm ||
+            this.normalizeIdentifier(a.email) === norm ||
+            (norm.length >= 10 && this.normalizeIdentifier(a.phone).endsWith(norm.slice(-10)))
+        );
+        if (match) {
+          vaultRaw =
+            localStorage.getItem(`${VAULT_KEYS.ACCOUNT_PREFIX}${this.normalizeIdentifier(match.phone)}`) ||
+            localStorage.getItem(`${VAULT_KEYS.ACCOUNT_PREFIX}${this.normalizeIdentifier(match.email)}`) ||
+            localStorage.getItem(`${VAULT_KEYS.ACCOUNT_PREFIX}${this.normalizeIdentifier(match.identifier)}`);
+        }
+      }
+
+      // If still not found and identifier is Fahad's phone/email, load seed!
+      if (!vaultRaw && this.isFahadAccount(identifier)) {
+        const seed = this.getFahadHistoricSeed();
+        this.saveToAccountVault(seed);
+        vaultRaw = JSON.stringify(seed);
+      }
+
+      if (!vaultRaw) return false;
+
+      const vault: AccountVaultData = JSON.parse(vaultRaw);
+
+      // Restore active data into localStorage
+      if (vault.settings) {
+        localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(vault.settings));
+      }
+      if (Array.isArray(vault.bills)) {
+        localStorage.setItem(STORAGE_KEYS.BILLS, JSON.stringify(vault.bills));
+      }
+      if (Array.isArray(vault.cashEntries)) {
+        localStorage.setItem(STORAGE_KEYS.CASHBOOK, JSON.stringify(vault.cashEntries));
+      }
+      if (Array.isArray(vault.customerDues)) {
+        localStorage.setItem(STORAGE_KEYS.DUES, JSON.stringify(vault.customerDues));
+      }
+      if (Array.isArray(vault.purchaseTrips)) {
+        localStorage.setItem(STORAGE_KEYS.PURCHASES, JSON.stringify(vault.purchaseTrips));
+      }
+
+      const restoredProfile: UserProfile = {
+        email: vault.email || '',
+        name: vault.name || 'Store Owner',
+        phone: vault.phone || '',
+        role: vault.role || 'Owner',
+        pin: vault.pin || '1234',
+        isLoggedIn: true,
+        isAppLockEnabled: vault.isAppLockEnabled,
+        loginTime: Date.now(),
+        loginMethod: 'otp',
+        otpVerified: true,
+      };
+
+      localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(restoredProfile));
+      return true;
+    } catch (e) {
+      console.error('Failed to restore from account vault:', e);
+      return false;
+    }
+  }
+
+  // --- USER PROFILE & AUTH ---
   getUserProfile(): UserProfile {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.USER);
       if (!data) {
+        // Check if there is an account in the vault to prefill
+        const accounts = this.getSavedAccounts();
+        if (accounts.length > 0) {
+          const first = accounts[0];
+          const prefill: UserProfile = {
+            email: first.email || '',
+            name: first.name || '',
+            phone: first.phone || '',
+            role: first.role || 'Owner',
+            isLoggedIn: false,
+            pin: '1234',
+          };
+          this.saveUserProfile(prefill);
+          return prefill;
+        }
         this.saveUserProfile(DEFAULT_USER);
         return DEFAULT_USER;
       }
-      const parsed: UserProfile = JSON.parse(data);
-      // Clean up legacy hardcoded developer credentials from user devices
-      if (
-        (parsed.email === 'uddinfahad89@gmail.com' || parsed.phone === '9707502246') &&
-        (!localStorage.getItem(STORAGE_KEYS.SETTINGS) ||
-          !JSON.parse(localStorage.getItem(STORAGE_KEYS.SETTINGS) || '{}').storeName)
-      ) {
-        this.saveUserProfile(DEFAULT_USER);
-        return DEFAULT_USER;
-      }
-      return parsed;
+      return JSON.parse(data);
     } catch {
       return DEFAULT_USER;
     }
@@ -617,32 +1054,126 @@ class StorageService {
     loginMethod?: 'email_pin' | 'otp',
     otpVerified?: boolean
   ): UserProfile {
-    const raw = emailOrIdentifier.trim();
+    const raw = (emailOrIdentifier || phone || '').trim();
+    const cleanPhone = phone?.trim() || (!raw.includes('@') ? raw : '');
+    const cleanEmail = raw.includes('@') ? raw : '';
+
+    // Attempt restoring account data from vault
+    const lookupKey = cleanPhone || cleanEmail || raw;
+    this.restoreFromAccountVault(lookupKey);
+
     const current = this.getUserProfile();
 
     const isEmail = raw.includes('@');
-    const cleanEmail = isEmail ? raw : (current.email || '');
-    const cleanPhone = phone?.trim() || (!isEmail ? raw : (current.phone || ''));
+    const finalEmail = cleanEmail || (isEmail ? raw : (current.email || ''));
+    const finalPhone = cleanPhone || (!isEmail ? raw : (current.phone || ''));
 
     const inferredName =
       name?.trim() ||
-      (cleanEmail ? cleanEmail.split('@')[0] : '') ||
-      (cleanPhone ? `User ${cleanPhone.slice(-4)}` : 'Store Owner');
+      current.name ||
+      (this.isFahadAccount(finalPhone) || this.isFahadAccount(finalEmail) ? 'Fahad Uddin' : '') ||
+      (finalEmail ? finalEmail.split('@')[0] : '') ||
+      (finalPhone ? `User ${finalPhone.slice(-4)}` : 'Store Owner');
 
     const updated: UserProfile = {
       ...current,
-      email: cleanEmail,
+      email: finalEmail,
       name: inferredName,
-      phone: cleanPhone,
+      phone: finalPhone,
       role: role || current.role || 'Owner',
       pin: pin?.trim() || current.pin || '1234',
       isLoggedIn: true,
       loginTime: Date.now(),
-      loginMethod: loginMethod || current.loginMethod || 'email_pin',
-      otpVerified: otpVerified !== undefined ? otpVerified : current.otpVerified,
+      loginMethod: loginMethod || current.loginMethod || (finalPhone ? 'otp' : 'email_pin'),
+      otpVerified: otpVerified !== undefined ? otpVerified : true,
     };
+
     this.saveUserProfile(updated);
+    this.syncActiveAccountVault(updated);
+
     return updated;
+  }
+
+  registerNewUser(data: {
+    name: string;
+    phone: string;
+    email?: string;
+    storeName?: string;
+    pin?: string;
+    role?: 'Owner' | 'Manager' | 'Cashier';
+  }): UserProfile {
+    const cleanPhone = data.phone.trim();
+    const cleanEmail = (data.email || '').trim();
+    const cleanName = data.name.trim() || 'Store Owner';
+    const cleanStore = (data.storeName || '').trim() || `${cleanName}'s Store`;
+    const cleanPin = (data.pin || '1234').trim();
+    const role = data.role || 'Owner';
+
+    // First save active session of any existing user before switching
+    this.syncActiveAccountVault();
+
+    const baseSettings = this.getSettings();
+    const newSettings: ThermalPrinterSettings = {
+      ...baseSettings,
+      storeName: cleanStore,
+      storePhone: cleanPhone,
+      storeAddress: '',
+      footerNote: 'ধন্যবাদ! আবার আসবেন।',
+    };
+
+    const newVault: AccountVaultData = {
+      identifier: cleanPhone || cleanEmail || `user_${Date.now()}`,
+      phone: cleanPhone,
+      email: cleanEmail,
+      name: cleanName,
+      role: role,
+      pin: cleanPin,
+      isAppLockEnabled: false,
+      settings: newSettings,
+      bills: [],
+      cashEntries: [],
+      customerDues: [],
+      purchaseTrips: [],
+      lastActive: Date.now(),
+    };
+
+    // Save to account vault
+    this.saveToAccountVault(newVault);
+
+    // Set this as the active session in localStorage with fresh isolated data
+    localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(newSettings));
+    localStorage.setItem(STORAGE_KEYS.BILLS, JSON.stringify([]));
+    localStorage.setItem(STORAGE_KEYS.CASHBOOK, JSON.stringify([]));
+    localStorage.setItem(STORAGE_KEYS.DUES, JSON.stringify([]));
+    localStorage.setItem(STORAGE_KEYS.PURCHASES, JSON.stringify([]));
+
+    const newProfile: UserProfile = {
+      email: cleanEmail,
+      name: cleanName,
+      phone: cleanPhone,
+      role: role,
+      pin: cleanPin,
+      isLoggedIn: true,
+      loginTime: Date.now(),
+      loginMethod: 'otp',
+      otpVerified: true,
+      isAppLockEnabled: false,
+    };
+
+    this.saveUserProfile(newProfile);
+    return newProfile;
+  }
+
+  logoutUser(): void {
+    // Before logging out, sync active data to user's vault
+    this.syncActiveAccountVault();
+    const current = this.getUserProfile();
+    const loggedOut: UserProfile = {
+      ...current,
+      isLoggedIn: false,
+      loginTime: undefined,
+    };
+    this.saveUserProfile(loggedOut);
   }
 
   updateUserSecurity(updates: Partial<UserProfile>): UserProfile {
@@ -652,6 +1183,7 @@ class StorageService {
       ...updates,
     };
     this.saveUserProfile(updated);
+    this.syncActiveAccountVault(updated);
     return updated;
   }
 
@@ -672,16 +1204,6 @@ class StorageService {
       return true;
     }
     return false;
-  }
-
-  logoutUser(): UserProfile {
-    const current = this.getUserProfile();
-    const updated: UserProfile = {
-      ...current,
-      isLoggedIn: false,
-    };
-    this.saveUserProfile(updated);
-    return updated;
   }
 
   // --- SAVED PRINTER ---
@@ -818,6 +1340,7 @@ class StorageService {
   savePurchaseTrips(trips: PurchaseTrip[]): void {
     try {
       localStorage.setItem(STORAGE_KEYS.PURCHASES, JSON.stringify(trips));
+      this.syncActiveAccountVault();
     } catch (e) {
       console.error('Failed to save purchase trips:', e);
     }

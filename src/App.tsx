@@ -17,6 +17,7 @@ import {
 } from './types';
 import { storageService } from './services/storageService';
 import { thermalPrinterService } from './services/thermalPrinterService';
+import { otpService } from './services/otpService';
 import { Header, SortOption } from './components/Header';
 import { BottomNav } from './components/BottomNav';
 import { BillingTab } from './components/BillingTab';
@@ -182,8 +183,26 @@ export default function App() {
     role?: 'Owner' | 'Manager' | 'Cashier',
     phone?: string,
     isAppLockEnabled?: boolean,
-    loginMethod?: 'email_pin' | 'otp'
-  ) => {
+    loginMethod?: 'email_pin' | 'otp',
+    otpCode?: string
+  ): boolean => {
+    // 1. Verify OTP with mock OTP service if logging in via OTP
+    if (loginMethod === 'otp') {
+      const targetPhoneOrId = (phone || email).trim();
+      const otpValidation = otpService.validateOtp(targetPhoneOrId, otpCode || '');
+      if (!otpValidation.success) {
+        showToast(
+          otpValidation.message ||
+            (language === 'bn'
+              ? 'ওটিপি কোড সঠিক নয়! অনুগ্রহ করে ৪ ডিজিটের সঠিক কোড দিন'
+              : 'Invalid OTP code! Please enter the correct 4-digit code'),
+          'error'
+        );
+        return false;
+      }
+    }
+
+    // 2. Perform account login and vault restoration
     const updated = storageService.loginUser(
       email,
       name,
@@ -193,18 +212,35 @@ export default function App() {
       loginMethod,
       loginMethod === 'otp' ? true : undefined
     );
+
     if (isAppLockEnabled !== undefined) {
       storageService.updateUserSecurity({ isAppLockEnabled });
       updated.isAppLockEnabled = isAppLockEnabled;
     }
     setUserProfile(updated);
+
+    // 3. Immediately refresh bills, daybook, dues, purchases, and settings into React state
+    const restoredBills = storageService.getBills();
+    const restoredCash = storageService.getCashEntries();
+    const restoredDues = storageService.getCustomerDues();
+    const restoredPurchases = storageService.getPurchaseTrips();
+    const restoredSettings = storageService.getSettings();
+
+    setBills(restoredBills);
+    setCashEntries(restoredCash);
+    setCustomerDues(restoredDues);
+    setPurchaseTrips(restoredPurchases);
+    setSettings(restoredSettings);
+    setIsOnboardingOpen(false);
+
     const welcomeMsg =
       language === 'bn'
-        ? `স্বাগতম, ${updated.name}! (${loginMethod === 'otp' ? 'মোবাইল ওটিপি ভেরিফাইড' : updated.role || 'Owner'})`
+        ? `স্বাগতম, ${updated.name}! আপনার সংরক্ষিত অ্যাকাউন্ট, পুরানো ${restoredBills.length}টি ইনভয়েস ও ডে-বুক লোড হয়েছে।`
         : language === 'hi'
-        ? `स्वागत है, ${updated.name}! (${loginMethod === 'otp' ? 'मोबाइल ओटीपी सत्यापित' : updated.role || 'Owner'})`
-        : `Welcome, ${updated.name}! (${loginMethod === 'otp' ? 'OTP Verified' : updated.role || 'Owner'})`;
+        ? `स्वागत है, ${updated.name}! आपके खाते के पुराने इनवॉइस और डे-बुक लोड हो गए हैं।`
+        : `Welcome, ${updated.name}! Loaded ${restoredBills.length} saved invoices & daybook data.`;
     showToast(welcomeMsg, 'success');
+    return true;
   };
 
   const handleUpdateSecurity = (updates: Partial<UserProfile>) => {
@@ -247,6 +283,33 @@ export default function App() {
     const updated = storageService.logoutUser();
     setUserProfile(updated);
     showToast('লগআউট সফল হয়েছে', 'info');
+  };
+
+  const handleRegisterUser = (data: {
+    name: string;
+    phone: string;
+    email?: string;
+    storeName?: string;
+    pin?: string;
+    role?: 'Owner' | 'Manager' | 'Cashier';
+  }): boolean => {
+    const newProfile = storageService.registerNewUser(data);
+    setUserProfile(newProfile);
+
+    // Refresh isolated states for the newly registered account
+    setBills(storageService.getBills());
+    setCashEntries(storageService.getCashEntries());
+    setCustomerDues(storageService.getCustomerDues());
+    setPurchaseTrips(storageService.getPurchaseTrips());
+    setSettings(storageService.getSettings());
+    setIsOnboardingOpen(false);
+
+    const welcomeMsg =
+      language === 'bn'
+        ? `অভিনন্দন ${newProfile.name}! "${data.storeName || 'দোকান'}" এর জন্য আপনার নতুন অ্যাকাউন্ট সফলভাবে তৈরি হয়েছে।`
+        : `Congratulations ${newProfile.name}! New account created for "${data.storeName || 'Store'}".`;
+    showToast(welcomeMsg, 'success');
+    return true;
   };
 
   // 1. BILLING HANDLERS
@@ -703,6 +766,7 @@ export default function App() {
         onClose={() => setIsLoginModalOpen(false)}
         userProfile={userProfile}
         onLogin={handleLoginUser}
+        onRegister={handleRegisterUser}
         onLogout={handleLogoutUser}
         onUpdateSecurity={handleUpdateSecurity}
         onLockApp={handleLockApp}

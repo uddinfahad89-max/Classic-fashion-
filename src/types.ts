@@ -87,6 +87,16 @@ export interface UserProfile {
   loginMethod?: 'email_pin' | 'otp';
 }
 
+export interface SavedAccountItem {
+  identifier: string;
+  name: string;
+  phone: string;
+  email: string;
+  storeName: string;
+  role: 'Owner' | 'Manager' | 'Cashier';
+  lastActive: number;
+}
+
 export interface ThermalPrinterSettings {
   storeName: string;
   storePhone: string;

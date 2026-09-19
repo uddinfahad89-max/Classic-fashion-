@@ -21,8 +21,15 @@ import {
   MessageSquare,
   BadgeCheck,
   Key,
+  Database,
+  Store,
+  History,
+  UserPlus,
+  LogIn,
 } from 'lucide-react';
-import { UserProfile, Language } from '../types';
+import { UserProfile, Language, SavedAccountItem } from '../types';
+import { otpService } from '../services/otpService';
+import { storageService } from '../services/storageService';
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -35,8 +42,17 @@ interface LoginModalProps {
     role?: 'Owner' | 'Manager' | 'Cashier',
     phone?: string,
     isAppLockEnabled?: boolean,
-    loginMethod?: 'email_pin' | 'otp'
-  ) => void;
+    loginMethod?: 'email_pin' | 'otp',
+    otpCode?: string
+  ) => boolean | void;
+  onRegister?: (data: {
+    name: string;
+    phone: string;
+    email?: string;
+    storeName?: string;
+    pin?: string;
+    role?: 'Owner' | 'Manager' | 'Cashier';
+  }) => boolean | void;
   onLogout: () => void;
   onUpdateSecurity?: (updates: Partial<UserProfile>) => void;
   onLockApp?: () => void;
@@ -48,6 +64,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   onClose,
   userProfile,
   onLogin,
+  onRegister,
   onLogout,
   onUpdateSecurity,
   onLockApp,
@@ -67,8 +84,21 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     userProfile.isLoggedIn ? 'view' : 'edit_login'
   );
 
+  // Top-Level Auth Choice: 'login' | 'signup'
+  const [authActionTab, setAuthActionTab] = useState<'login' | 'signup'>('login');
+
   // Login Method Tab: 'otp' | 'email_pin'
   const [loginMethodTab, setLoginMethodTab] = useState<'otp' | 'email_pin'>('otp');
+
+  // Sign Up Form States
+  const [signupName, setSignupName] = useState('');
+  const [signupStoreName, setSignupStoreName] = useState('');
+  const [signupPhone, setSignupPhone] = useState('');
+  const [signupEmail, setSignupEmail] = useState('');
+  const [signupPin, setSignupPin] = useState('1234');
+  const [signupShowPin, setSignupShowPin] = useState(false);
+  const [signupRole, setSignupRole] = useState<'Owner' | 'Manager' | 'Cashier'>('Owner');
+  const [signupError, setSignupError] = useState<string | null>(null);
 
   // Email/PIN Login Form States
   const [email, setEmail] = useState(userProfile.email || '');
@@ -79,6 +109,9 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const [showPin, setShowPin] = useState(false);
   const [appLockEnabled, setAppLockEnabled] = useState(userProfile.isAppLockEnabled ?? false);
   const [loginError, setLoginError] = useState<string | null>(null);
+
+  // Saved accounts from storage vault
+  const [savedAccounts, setSavedAccounts] = useState<SavedAccountItem[]>([]);
 
   // OTP Login Specific States
   const [otpPhone, setOtpPhone] = useState(userProfile.phone || '');
@@ -97,6 +130,20 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const [pinChangeError, setPinChangeError] = useState<string | null>(null);
   const [pinChangeSuccess, setPinChangeSuccess] = useState(false);
 
+  // Load saved accounts when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      const list = storageService.getSavedAccounts();
+      setSavedAccounts(list);
+      // Pre-fill phone if available and current input is empty
+      if (!otpPhone && userProfile.phone) {
+        setOtpPhone(userProfile.phone);
+      } else if (!otpPhone && list.length > 0) {
+        setOtpPhone(list[0].phone || list[0].identifier);
+      }
+    }
+  }, [isOpen]);
+
   // Countdown timer for OTP resend
   useEffect(() => {
     let timer: NodeJS.Timeout;
@@ -110,7 +157,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Handle Request OTP
+  // Handle Request 4-Digit Mock OTP
   const handleSendOtp = () => {
     setOtpError(null);
     const cleanPhone = otpPhone.trim().replace(/[^\d+]/g, '');
@@ -127,20 +174,20 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
     setOtpSending(true);
     setTimeout(() => {
-      // Generate realistic 6-digit OTP code
-      const randomCode = Math.floor(100000 + Math.random() * 900000).toString();
+      // Generate 4-digit mock OTP code via otpService
+      const randomCode = otpService.generateOtp(cleanPhone);
       setGeneratedOtp(randomCode);
       setOtpStep('verify');
       setOtpSending(false);
       setOtpCountdown(60);
       setOtpSuccessMsg(
         t(
-          `আপনার মোবাইল নম্বরে (${cleanPhone}) একটি ওটিপি কোড পাঠানো হয়েছে!`,
-          `A 6-digit OTP verification code has been sent to ${cleanPhone}!`,
-          `आपके मोबाइल नंबर (${cleanPhone}) पर एक ओटीपी कोड भेजा गया है!`
+          `আপনার মোবাইল নম্বরে (${cleanPhone}) ৪-ডিজিটের ওটিপি কোড পাঠানো হয়েছে!`,
+          `A 4-digit OTP verification code has been sent to ${cleanPhone}!`,
+          `आपके मोबाइल नंबर (${cleanPhone}) पर 4-अंकीय ओटीपी कोड भेजा गया है!`
         )
       );
-    }, 600);
+    }, 350);
   };
 
   // Auto-fill OTP
@@ -148,59 +195,72 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     if (generatedOtp) {
       setOtpCode(generatedOtp);
       setOtpError(null);
+    } else {
+      const active = otpService.getOtp(otpPhone);
+      if (active) {
+        setOtpCode(active);
+        setOtpError(null);
+      }
     }
   };
 
-  // Handle Verify OTP and Login
+  // Handle Verify 4-Digit OTP and Login
   const handleVerifyOtp = (e: React.FormEvent) => {
     e.preventDefault();
     setOtpError(null);
 
     const cleanInputOtp = otpCode.trim();
-    if (!cleanInputOtp || cleanInputOtp.length < 4) {
+    if (!cleanInputOtp || cleanInputOtp.length !== 4) {
       setOtpError(
         t(
-          'অনুগ্রহ করে ওটিপি কোডটি সঠিকভাবে লিখুন',
-          'Please enter the complete OTP code',
-          'कृपया पूरा ओटीपी कोड दर्ज करें'
+          'অনুগ্রহ করে ৪-ডিজিটের ওটিপি কোডটি লিখুন (যেমন: ১২৩৪ বা SMS কোড)',
+          'Please enter the 4-digit OTP code (e.g. 1234 or SMS code)',
+          'कृपया 4-अंकीय पूरा ओटीपी कोड दर्ज करें'
         )
       );
       return;
     }
 
-    // Check OTP against generated OTP or master demo code '123456'
-    if (cleanInputOtp === generatedOtp || cleanInputOtp === '123456') {
-      const cleanPhone = otpPhone.trim();
-      const inferredEmail =
-        userProfile.email && userProfile.email.includes('@')
-          ? userProfile.email
-          : `${cleanPhone.replace(/[^\d]/g, '')}@posstore.com`;
-
-      const inferredName =
-        name.trim() ||
-        userProfile.name ||
-        (cleanPhone ? `User ${cleanPhone.slice(-4)}` : 'Store Owner');
-
-      onLogin(
-        inferredEmail,
-        inferredName,
-        userProfile.pin || '1234',
-        role,
-        cleanPhone,
-        appLockEnabled,
-        'otp'
+    const cleanPhone = otpPhone.trim();
+    // Validate OTP using otpService
+    const validation = otpService.validateOtp(cleanPhone, cleanInputOtp);
+    if (!validation.success) {
+      setOtpError(
+        validation.message ||
+          t(
+            'ওটিপি কোডটি মেলেনি! অনুগ্রহ করে সঠিক কোড দিন অথবা অটো-ফিল চাপুন।',
+            'Invalid OTP code! Please enter the correct code or click Auto-Fill.',
+            'अमान्य ओटीपी कोड! कृपया सही कोड दर्ज करें या ऑटो-फिल दबाएं।'
+          )
       );
+      return;
+    }
 
+    const inferredEmail =
+      userProfile.email && userProfile.email.includes('@')
+        ? userProfile.email
+        : `${cleanPhone.replace(/[^\d]/g, '')}@posstore.com`;
+
+    const inferredName =
+      name.trim() ||
+      userProfile.name ||
+      (cleanPhone.includes('9707502246') ? 'Fahad Uddin' : '') ||
+      (cleanPhone ? `User ${cleanPhone.slice(-4)}` : 'Store Owner');
+
+    const result = onLogin(
+      inferredEmail,
+      inferredName,
+      userProfile.pin || '1234',
+      role,
+      cleanPhone,
+      appLockEnabled,
+      'otp',
+      cleanInputOtp
+    );
+
+    if (result !== false) {
       setMode('view');
       onClose();
-    } else {
-      setOtpError(
-        t(
-          'ওটিপি কোডটি মেলেনি! অনুগ্রহ করে সঠিক কোড দিন অথবা অটো-ফিল চাপুন।',
-          'Invalid OTP code! Please enter the correct code or click Auto-Fill.',
-          'अमान्य ओटीपी कोड! कृपया सही कोड दर्ज करें या ऑटो-फिल दबाएं।'
-        )
-      );
     }
   };
 
@@ -210,9 +270,9 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     setLoginError(null);
 
     const cleanEmail = email.trim();
-    if (!cleanEmail || !cleanEmail.includes('@')) {
+    if (!cleanEmail) {
       setLoginError(
-        t('সঠিক ইমেল ঠিকানা লিখুন', 'Please enter a valid email address', 'कृपया सही ईमेल पता दर्ज करें')
+        t('ইমেল বা মোবাইল নম্বর লিখুন', 'Please enter email or phone number', 'कृपया ईमेल या मोबाइल नंबर दर्ज करें')
       );
       return;
     }
@@ -225,27 +285,127 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       return;
     }
 
-    onLogin(cleanEmail, name.trim(), cleanPin, role, phone.trim(), appLockEnabled, 'email_pin');
-    setMode('view');
-    onClose();
+    const result = onLogin(
+      cleanEmail,
+      name.trim(),
+      cleanPin,
+      role,
+      phone.trim() || (!cleanEmail.includes('@') ? cleanEmail : ''),
+      appLockEnabled,
+      'email_pin'
+    );
+
+    if (result !== false) {
+      setMode('view');
+      onClose();
+    }
   };
 
-  // Quick preset login
-  const handleQuickSelectPreset = (
-    quickEmail: string,
-    quickName: string,
-    quickRole: 'Owner' | 'Manager' | 'Cashier',
-    quickPhone: string,
-    quickPin: string
-  ) => {
-    setEmail(quickEmail);
-    setName(quickName);
-    setRole(quickRole);
-    setPhone(quickPhone);
-    setOtpPhone(quickPhone);
-    setPin(quickPin);
+  // Handle Sign Up (New User / Store Owner Registration)
+  const handleSignUpSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setSignupError(null);
+
+    const cleanName = signupName.trim();
+    const cleanStore = signupStoreName.trim();
+    const cleanPhone = signupPhone.trim().replace(/[^\d+]/g, '');
+    const cleanEmail = signupEmail.trim();
+    const cleanPin = signupPin.trim();
+
+    if (!cleanName) {
+      setSignupError(
+        t('দয়া করে আপনার নাম লিখুন', 'Please enter your name', 'कृपया अपना नाम दर्ज करें')
+      );
+      return;
+    }
+    if (!cleanStore) {
+      setSignupError(
+        t('দয়া করে দোকানের নাম লিখুন', 'Please enter shop/store name', 'कृपया दुकान का नाम दर्ज करें')
+      );
+      return;
+    }
+    if (cleanPhone.length < 8) {
+      setSignupError(
+        t(
+          'অনুগ্রহ করে সঠিক মোবাইল নম্বর লিখুন (কমপক্ষে ৮-১০ ডিজিট)',
+          'Please enter a valid mobile number (min 8-10 digits)',
+          'कृपया सही मोबाइल नंबर दर्ज करें'
+        )
+      );
+      return;
+    }
+    if (cleanPin.length !== 4 || !/^\d{4}$/.test(cleanPin)) {
+      setSignupError(
+        t(
+          '৪-সংখ্যার সংখ্যাসূচক পিন দিন (যেমন ১২৩৪)',
+          'Please enter a 4-digit numeric PIN (e.g. 1234)',
+          '4-अंकीय पिन दर्ज करें'
+        )
+      );
+      return;
+    }
+
+    if (onRegister) {
+      const ok = onRegister({
+        name: cleanName,
+        storeName: cleanStore,
+        phone: cleanPhone,
+        email: cleanEmail,
+        pin: cleanPin,
+        role: signupRole,
+      });
+      if (ok !== false) {
+        setMode('view');
+        onClose();
+      }
+    }
+  };
+
+  // Quick select or restore account
+  const handleRestoreAccount = (acc: SavedAccountItem, directLogin: boolean = false) => {
+    const accPhone = acc.phone || acc.identifier;
+    const accEmail = acc.email || `${accPhone}@posstore.com`;
+
+    setOtpPhone(accPhone);
+    setEmail(accEmail);
+    setName(acc.name || '');
+    setRole(acc.role || 'Owner');
+    setPhone(accPhone);
+    setPin('1234');
     setLoginError(null);
     setOtpError(null);
+
+    if (directLogin) {
+      // 1-Click login & instant data restoration
+      const res = onLogin(
+        accEmail,
+        acc.name,
+        '1234',
+        acc.role,
+        accPhone,
+        appLockEnabled,
+        'otp',
+        '1234'
+      );
+      if (res !== false) {
+        setMode('view');
+        onClose();
+      }
+    } else {
+      setLoginMethodTab('otp');
+      // Trigger 4-digit mock OTP
+      const code = otpService.generateOtp(accPhone);
+      setGeneratedOtp(code);
+      setOtpStep('verify');
+      setOtpCountdown(60);
+      setOtpSuccessMsg(
+        t(
+          `আপনার অ্যাকাউন্ট (${acc.name} - ${accPhone}) এর জন্য ৪-ডিজিটের ওটিপি কোড তৈরি হয়েছে!`,
+          `A 4-digit OTP code generated for ${acc.name} (${accPhone})!`,
+          `आपके खाते (${acc.name}) के लिए 4-अंकीय ओटीपी कोड तैयार है!`
+        )
+      );
+    }
   };
 
   // Handle PIN Change
@@ -482,23 +642,41 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   type="button"
                   onClick={() => {
                     setMode('edit_login');
+                    setAuthActionTab('login');
                     setLoginError(null);
                     setOtpError(null);
                   }}
                   className="py-2.5 px-3 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
                 >
-                  <User className="w-3.5 h-3.5" />
-                  <span>{t('লগইন পরিবর্তন / OTP', 'Switch / OTP Login', 'लॉगिन बदलें / OTP')}</span>
+                  <LogIn className="w-3.5 h-3.5" />
+                  <span>{t('লগইন পরিবর্তন (Switch)', 'Switch Account', 'लॉगिन बदलें')}</span>
+                </button>
+              </div>
+
+              {/* Sign Up New Account Option for another person */}
+              <div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode('edit_login');
+                    setAuthActionTab('signup');
+                    setSignupError(null);
+                  }}
+                  className="w-full py-2.5 px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                >
+                  <UserPlus className="w-4 h-4 text-emerald-600" />
+                  <span>{t('অন্য ব্যক্তির জন্য নতুন সাইন আপ (New Sign Up)', 'Sign Up Another Account', 'अन्य व्यक्ति के लिए नया साइन अप')}</span>
                 </button>
               </div>
 
               {/* Logout Button */}
-              <div className="pt-1">
+              <div className="pt-0.5">
                 <button
                   type="button"
                   onClick={() => {
                     onLogout();
                     setMode('edit_login');
+                    setAuthActionTab('login');
                   }}
                   className="w-full py-2.5 px-4 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl font-bold text-xs border border-rose-200/80 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                 >
@@ -603,45 +781,381 @@ export const LoginModal: React.FC<LoginModalProps> = ({
               </div>
             </form>
           ) : (
-            /* VIEW 3: LOGIN FORM WITH OTP AND EMAIL/PIN TABS */
-            <div className="space-y-3.5">
-              {/* Login Method Switcher Tabs */}
-              <div className="p-1 bg-stone-100 rounded-2xl flex items-center gap-1 border border-stone-200/80">
+            /* VIEW 3: AUTHENTICATION (LOGIN VS SIGN UP) */
+            <div className="space-y-4">
+              {/* Top-Level Auth Choice Tabs: Login vs Sign Up */}
+              <div className="grid grid-cols-2 p-1.5 bg-stone-100/90 rounded-2xl border border-stone-200/90 gap-1.5 shadow-inner">
                 <button
                   type="button"
                   onClick={() => {
-                    setLoginMethodTab('otp');
+                    setAuthActionTab('login');
+                    setLoginError(null);
                     setOtpError(null);
+                    setSignupError(null);
                   }}
-                  className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                    loginMethodTab === 'otp'
-                      ? 'bg-white text-blue-700 shadow-xs ring-1 ring-blue-500/20'
-                      : 'text-stone-600 hover:text-stone-900'
+                  className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                    authActionTab === 'login'
+                      ? 'bg-blue-600 text-white shadow-sm ring-2 ring-blue-400/40'
+                      : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/60'
                   }`}
                 >
-                  <Smartphone className="w-3.5 h-3.5" />
-                  <span>{t('মোবাইল ওটিপি (OTP)', 'Mobile OTP', 'मोबाइल ओटीपी (OTP)')}</span>
+                  <LogIn className="w-4 h-4" />
+                  <span>{t('১. লগইন করুন (Login)', '1. Login', '1. लॉगिन करें')}</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => {
-                    setLoginMethodTab('email_pin');
+                    setAuthActionTab('signup');
                     setLoginError(null);
+                    setOtpError(null);
+                    setSignupError(null);
                   }}
-                  className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                    loginMethodTab === 'email_pin'
-                      ? 'bg-white text-blue-700 shadow-xs ring-1 ring-blue-500/20'
-                      : 'text-stone-600 hover:text-stone-900'
+                  className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                    authActionTab === 'signup'
+                      ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-400/40'
+                      : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/60'
                   }`}
                 >
-                  <KeyRound className="w-3.5 h-3.5" />
-                  <span>{t('ইমেল ও পিন', 'Email & PIN', 'ईमेल व पिन')}</span>
+                  <UserPlus className="w-4 h-4" />
+                  <span>{t('২. নতুন সাইন আপ (Sign Up)', '2. New Sign Up', '2. नया साइन अप')}</span>
                 </button>
               </div>
 
-              {/* Quick Preset Banner (Only if this device has an existing saved profile) */}
-              {(userProfile.phone || userProfile.email) && (
+              {authActionTab === 'signup' ? (
+                /* ------------------- SIGN UP (NEW STORE OWNER) ------------------- */
+                <form onSubmit={handleSignUpSubmit} className="space-y-3.5">
+                  <div className="p-3 bg-gradient-to-r from-emerald-50 via-teal-50 to-green-50 border border-emerald-200/90 rounded-2xl text-xs text-emerald-950 flex items-start gap-2.5 shadow-2xs">
+                    <Sparkles className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="font-black text-emerald-950 text-xs sm:text-sm">
+                        {t('নতুন দোকান ও ব্যবহারকারী সাইন আপ (New Account)', 'Register New Store & Owner', 'नई दुकान और उपयोगकर्ता साइन अप')}
+                      </h4>
+                      <p className="text-[11px] text-emerald-800/90 mt-0.5 leading-snug">
+                        {t(
+                          'আপনি ছাড়া অন্য যে কেউ নিজের মোবাইল নম্বর ও দোকানের নাম দিয়ে নতুন অ্যাকাউন্ট খুলতে পারবেন। প্রত্যেকের ইনভয়েস, ডে-বুক ও হিসেব সম্পূর্ণ আলাদা ও ব্যক্তিগত থাকবে।',
+                          'Anyone can register their own store and mobile. Invoices, daybook, and data are strictly isolated for each store.',
+                          'कोई भी अपने मोबाइल नंबर और दुकान के नाम से नया खाता खोल सकता है। सभी का हिसाब अलग और सुरक्षित रहेगा।'
+                        )}
+                      </p>
+                    </div>
+                  </div>
+
+                  {signupError && (
+                    <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      <span>{signupError}</span>
+                    </div>
+                  )}
+
+                  {/* Full Name */}
+                  <div>
+                    <label className="block text-xs font-bold text-stone-700 mb-1">
+                      {t('আপনার নাম (Full Name) *', 'Your Name *', 'आपका नाम *')}
+                    </label>
+                    <div className="relative">
+                      <User className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        required
+                        value={signupName}
+                        onChange={(e) => setSignupName(e.target.value)}
+                        placeholder={isBn ? 'উদা: মোঃ ফাহাদ উদ্দিন' : 'e.g. Fahad Uddin'}
+                        className="w-full pl-9 pr-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs sm:text-sm font-semibold focus:outline-none focus:border-emerald-600 focus:bg-white transition-all"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Store Name */}
+                  <div>
+                    <label className="block text-xs font-bold text-stone-700 mb-1">
+                      {t('দোকানের নাম (Shop / Business Name) *', 'Shop / Store Name *', 'दुकान का नाम *')}
+                    </label>
+                    <div className="relative">
+                      <Store className="w-4 h-4 text-emerald-600 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        required
+                        value={signupStoreName}
+                        onChange={(e) => setSignupStoreName(e.target.value)}
+                        placeholder={isBn ? 'উদা: সততা ডিপার্টমেন্টাল স্টোর' : 'e.g. Modern Mart'}
+                        className="w-full pl-9 pr-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs sm:text-sm font-semibold focus:outline-none focus:border-emerald-600 focus:bg-white transition-all"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Mobile Phone */}
+                  <div>
+                    <label className="block text-xs font-bold text-stone-700 mb-1">
+                      {t('মোবাইল নম্বর (Mobile Number) *', 'Mobile Number (10 Digits) *', 'मोबाइल नंबर *')}
+                    </label>
+                    <div className="relative">
+                      <Smartphone className="w-4 h-4 text-blue-600 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="tel"
+                        required
+                        value={signupPhone}
+                        onChange={(e) => setSignupPhone(e.target.value)}
+                        placeholder={isBn ? '017XXXXXXXX বা 9707502246' : 'e.g. 9707502246'}
+                        className="w-full pl-9 pr-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs sm:text-sm font-mono font-semibold focus:outline-none focus:border-emerald-600 focus:bg-white transition-all"
+                      />
+                    </div>
+                    {/* Inline alert if this phone already belongs to a registered account */}
+                    {signupPhone.trim().length >= 8 &&
+                      savedAccounts.some(
+                        (a) =>
+                          storageService.normalizeIdentifier(a.phone) ===
+                            storageService.normalizeIdentifier(signupPhone) ||
+                          storageService.normalizeIdentifier(a.identifier) ===
+                            storageService.normalizeIdentifier(signupPhone)
+                      ) && (
+                        <div className="mt-1.5 p-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-[11px] flex items-center justify-between">
+                          <span>
+                            {t(
+                              'এই নম্বরে ইতিমধ্যে অ্যাকাউন্ট খোলা আছে!',
+                              'An account already exists with this phone!',
+                              'इस नंबर से पहले से खाता मौजूद है!'
+                            )}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOtpPhone(signupPhone);
+                              setAuthActionTab('login');
+                              setLoginMethodTab('otp');
+                            }}
+                            className="text-xs font-bold text-blue-700 hover:text-blue-900 underline cursor-pointer"
+                          >
+                            {t('লগইন করুন', 'Login instead', 'लॉगिन करें')}
+                          </button>
+                        </div>
+                      )}
+                  </div>
+
+                  {/* Email Address (Optional) */}
+                  <div>
+                    <label className="block text-xs font-bold text-stone-700 mb-1">
+                      {t('ইমেল ঠিকানা (Email Address - ঐচ্ছিক)', 'Email Address (Optional)', 'ईमेल पता (वैकल्पिक)')}
+                    </label>
+                    <div className="relative">
+                      <Mail className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="email"
+                        value={signupEmail}
+                        onChange={(e) => setSignupEmail(e.target.value)}
+                        placeholder="owner@example.com"
+                        className="w-full pl-9 pr-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs sm:text-sm font-medium focus:outline-none focus:border-emerald-600 focus:bg-white transition-all"
+                      />
+                    </div>
+                  </div>
+
+                  {/* 4-Digit Security PIN & Role */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-xs font-bold text-stone-700 flex items-center gap-1">
+                          <KeyRound className="w-3.5 h-3.5 text-amber-600" />
+                          <span>{t('৪-সংখ্যার পিন *', '4-Digit PIN *', '4-अंकीय पिन *')}</span>
+                        </label>
+                        <span className="text-[10px] text-stone-400">ডিফল্ট: 1234</span>
+                      </div>
+                      <div className="relative">
+                        <input
+                          type={signupShowPin ? 'text' : 'password'}
+                          maxLength={4}
+                          inputMode="numeric"
+                          required
+                          value={signupPin}
+                          onChange={(e) => setSignupPin(e.target.value.replace(/\D/g, ''))}
+                          placeholder="1234"
+                          className="w-full pl-3 pr-8 py-2 bg-stone-50 border border-stone-200 rounded-xl text-sm font-mono font-bold tracking-widest focus:outline-none focus:border-emerald-600 focus:bg-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setSignupShowPin(!signupShowPin)}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700 p-0.5"
+                        >
+                          {signupShowPin ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-stone-700 mb-1">
+                        {t('আপনার পদবী (Role)', 'Role', 'पद (Role)')}
+                      </label>
+                      <div className="grid grid-cols-3 gap-1">
+                        {(['Owner', 'Manager', 'Cashier'] as const).map((r) => (
+                          <button
+                            key={r}
+                            type="button"
+                            onClick={() => setSignupRole(r)}
+                            className={`py-2 px-1 text-[11px] font-bold rounded-lg border transition-all cursor-pointer ${
+                              signupRole === r
+                                ? 'bg-emerald-600 text-white border-emerald-700 shadow-2xs'
+                                : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'
+                            }`}
+                          >
+                            {r === 'Owner' ? t('মালিক', 'Owner', 'मालिक') : r === 'Manager' ? t('ম্যানেজার', 'Manager', 'प्रबंधक') : t('ক্যাশিয়ার', 'Cashier', 'कैशियर')}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Submit Sign Up Button */}
+                  <div className="flex gap-2 pt-2">
+                    {userProfile.isLoggedIn && (
+                      <button
+                        type="button"
+                        onClick={() => setMode('view')}
+                        className="py-3 px-4 rounded-xl text-xs text-stone-600 hover:bg-stone-100 font-bold"
+                      >
+                        {t('বাতিল', 'Cancel', 'रद्द करें')}
+                      </button>
+                    )}
+                    <button
+                      type="submit"
+                      className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white rounded-xl font-bold text-xs sm:text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <CheckCircle2 className="w-4 h-4 stroke-[2.5]" />
+                      <span>{t('নতুন অ্যাকাউন্ট তৈরি ও সরাসরি প্রবেশ করুন', 'Create Account & Sign In Now', 'नया खाता बनाएं और सीधे प्रवेश करें')}</span>
+                    </button>
+                  </div>
+
+                  {/* Switch to Login link */}
+                  <div className="p-2.5 bg-stone-50 rounded-xl border border-stone-200 text-center">
+                    <span className="text-xs text-stone-600">
+                      {t('আগে থেকেই অ্যাকাউন্ট খোলা আছে?', 'Already have an account?', 'क्या आपके पास पहले से खाता है?')}
+                    </span>{' '}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAuthActionTab('login');
+                        setSignupError(null);
+                      }}
+                      className="text-xs font-bold text-blue-600 hover:text-blue-800 underline cursor-pointer ml-1"
+                    >
+                      {t('এখানে লগইন করুন (Login)', 'Login here', 'यहाँ लॉगिन करें')}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                /* ------------------- TAB A: LOGIN (OTP / EMAIL / SAVED) ------------------- */
+                <div className="space-y-3.5">
+                  {/* Login Method Switcher Tabs */}
+                  <div className="p-1 bg-stone-100 rounded-2xl flex items-center gap-1 border border-stone-200/80">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLoginMethodTab('otp');
+                        setOtpError(null);
+                      }}
+                      className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                        loginMethodTab === 'otp'
+                          ? 'bg-white text-blue-700 shadow-xs ring-1 ring-blue-500/20'
+                          : 'text-stone-600 hover:text-stone-900'
+                      }`}
+                    >
+                      <Smartphone className="w-3.5 h-3.5" />
+                      <span>{t('মোবাইল ওটিপি (OTP)', 'Mobile OTP', 'मोबाइल ओटीपी (OTP)')}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLoginMethodTab('email_pin');
+                        setLoginError(null);
+                      }}
+                      className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                        loginMethodTab === 'email_pin'
+                          ? 'bg-white text-blue-700 shadow-xs ring-1 ring-blue-500/20'
+                          : 'text-stone-600 hover:text-stone-900'
+                      }`}
+                    >
+                      <KeyRound className="w-3.5 h-3.5" />
+                      <span>{t('ইমেল ও পিন', 'Email & PIN', 'ईमेल व पिन')}</span>
+                    </button>
+                  </div>
+
+              {/* Saved Accounts from Vault (All previously logged-in accounts) */}
+              {savedAccounts.length > 0 ? (
+                <div className="p-3 bg-gradient-to-r from-blue-50/90 via-indigo-50/80 to-sky-50/90 border border-blue-200/90 rounded-2xl shadow-2xs space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-blue-950 flex items-center gap-1.5">
+                      <History className="w-3.5 h-3.5 text-blue-600" />
+                      <span>{t('সংরক্ষিত অ্যাকাউন্ট ও বায়োডাটা (Saved Accounts)', 'Saved Accounts & Invoices', 'सहेजे गए खाते')}</span>
+                    </span>
+                    <span className="text-[10px] font-bold text-blue-700 bg-blue-100/80 px-2 py-0.5 rounded-full">
+                      {savedAccounts.length} {t('টি অ্যাকাউন্ট', 'Accounts', 'खाते')}
+                    </span>
+                  </div>
+
+                  <p className="text-[11px] text-blue-800/90 leading-tight">
+                    {t(
+                      'নিচের যেকোনো অ্যাকাউন্টে চাপলে পুরানো সব ইনভয়েস, ডে-বুক ও হিসেব তাৎক্ষণিক ফিরে আসবে:',
+                      'Click below to instantly restore old invoices, daybook & records:',
+                      'पुराने इनवॉइस और डे-बुक तुरंत लोड करने के लिए नीचे क्लिक करें:'
+                    )}
+                  </p>
+
+                  <div className="space-y-1.5 pt-1">
+                    {savedAccounts.map((acc) => (
+                      <div
+                        key={acc.identifier}
+                        className="p-2.5 rounded-xl bg-white border border-blue-200/80 hover:border-blue-400 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-2xs group"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="w-8 h-8 rounded-xl bg-blue-600 text-white font-bold text-xs flex items-center justify-center shadow-xs shrink-0">
+                            {(acc.name || 'U').charAt(0).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-xs font-bold text-stone-900 truncate">
+                                {acc.name || 'Store Owner'}
+                              </span>
+                              {acc.storeName && (
+                                <span className="text-[10px] font-semibold text-emerald-800 bg-emerald-100/90 px-1.5 py-0.2 rounded flex items-center gap-0.5">
+                                  <Store className="w-2.5 h-2.5" />
+                                  <span>{acc.storeName}</span>
+                                </span>
+                              )}
+                              <span className="text-[10px] font-bold bg-blue-100 text-blue-800 px-1.5 py-0.2 rounded">
+                                {acc.role || 'Owner'}
+                              </span>
+                            </div>
+                            <span className="block text-[11px] font-mono text-stone-600 truncate">
+                              {[acc.phone, acc.email].filter(Boolean).join(' • ')}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
+                          <button
+                            type="button"
+                            onClick={() => handleRestoreAccount(acc, true)}
+                            className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer shadow-2xs"
+                            title={t('পুরানো ডেটা সহ ১-ক্লিকে লগইন', '1-Click Login & Restore Data', '1-क्लिक लॉगिन')}
+                          >
+                            <Database className="w-3 h-3" />
+                            <span>{t('১-ক্লিকে রিস্টোর ও প্রবেশ', '1-Click Restore', '1-क्लिक रिस्टोर')}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleRestoreAccount(acc, false)}
+                            className="px-2 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer"
+                            title={t('মোবাইল ওটিপি কোড দিয়ে লগইন', 'Login via OTP', 'ओटीपी से लॉगिन')}
+                          >
+                            <Smartphone className="w-3 h-3 text-blue-600" />
+                            <span>{t('ওটিপি', 'OTP', 'ओटीपी')}</span>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (userProfile.phone || userProfile.email) ? (
                 <div className="p-3 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200/80 rounded-2xl">
                   <span className="text-[11px] font-bold text-blue-900 block mb-1.5 flex items-center gap-1">
                     <Sparkles className="w-3.5 h-3.5 text-blue-600" />
@@ -649,15 +1163,12 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   </span>
                   <button
                     type="button"
-                    onClick={() =>
-                      handleQuickSelectPreset(
-                        userProfile.email || '',
-                        userProfile.name || (isBn ? 'দোকানের মালিক' : 'Store Owner'),
-                        userProfile.role || 'Owner',
-                        userProfile.phone || '',
-                        userProfile.pin || '1234'
-                      )
-                    }
+                    onClick={() => {
+                      setOtpPhone(userProfile.phone || '');
+                      setEmail(userProfile.email || '');
+                      setName(userProfile.name || '');
+                      setRole(userProfile.role || 'Owner');
+                    }}
                     className="w-full text-left p-2.5 rounded-xl bg-white hover:bg-blue-50 border border-blue-200 transition-all flex items-center justify-between cursor-pointer group shadow-2xs"
                   >
                     <div className="flex items-center gap-2.5">
@@ -684,7 +1195,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                     </span>
                   </button>
                 </div>
-              )}
+              ) : null}
 
               {/* ----------------- TAB A: MOBILE OTP LOGIN ----------------- */}
               {loginMethodTab === 'otp' ? (
@@ -752,14 +1263,14 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                             </span>
                             <p className="text-[11px] text-emerald-700">
                               {t(
-                                'যাচাইয়ের জন্য নিচের কোডটি লিখুন বা অটো-ফিল বাটনে চাপুন',
-                                'Enter code below or click Auto-fill to test immediately',
-                                'नीचे कोड दर्ज करें या तुरंत ऑटो-फिल पर क्लिक करें'
+                                'যাচাইয়ের জন্য নিচের ৪-ডিজিট কোডটি লিখুন বা অটো-ফিল চাপুন',
+                                'Enter 4-digit code below or click Auto-fill to test immediately',
+                                'नीचे 4-अंकीय कोड दर्ज करें या तुरंत ऑटो-फिल पर क्लिक करें'
                               )}
                             </p>
                           </div>
                         </div>
-                        <span className="text-sm font-mono font-black tracking-widest text-emerald-800 bg-white border border-emerald-300 px-2 py-0.5 rounded-lg shadow-2xs">
+                        <span className="text-base font-mono font-black tracking-widest text-emerald-800 bg-white border border-emerald-300 px-2.5 py-1 rounded-lg shadow-2xs">
                           {generatedOtp}
                         </span>
                       </div>
@@ -787,22 +1298,22 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                       <div className="flex items-center justify-between mb-1">
                         <label className="text-xs font-bold text-stone-700 flex items-center gap-1.5">
                           <Key className="w-3.5 h-3.5 text-blue-600" />
-                          <span>{t('৬-ডিজিট ওটিপি কোড (Enter 6-Digit OTP) *', 'Enter 6-Digit OTP Code *', '6-अंकीय ओटीपी दर्ज करें *')}</span>
+                          <span>{t('৪-ডিজিট ওটিপি কোড (Enter 4-Digit OTP) *', 'Enter 4-Digit OTP Code *', '4-अंकीय ओटीपी दर्ज करें *')}</span>
                         </label>
                         <span className="text-[10px] text-stone-400">
-                          {t('টেস্ট কোড: 123456 বা রিসিভড কোড', 'Test Code: 123456 or generated', 'टेस्ट कोड: 123456')}
+                          {t('টেস্ট কোড: 1234 বা এসএমএস কোড', 'Test Code: 1234 or generated', 'टेस्ट कोड: 1234')}
                         </span>
                       </div>
 
                       <input
                         type="text"
                         inputMode="numeric"
-                        maxLength={6}
+                        maxLength={4}
                         required
                         value={otpCode}
                         onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
-                        placeholder="••••••"
-                        className="w-full text-center tracking-[0.5em] font-mono font-bold text-lg py-2.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-all"
+                        placeholder="••••"
+                        className="w-full text-center tracking-[0.6em] font-mono font-bold text-xl py-2.5 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-blue-600 focus:bg-white transition-all"
                       />
                     </div>
 
@@ -1029,8 +1540,28 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   </div>
                 </form>
               )}
+
+              {/* Prompt to register new store if user is someone else */}
+              <div className="p-3 bg-emerald-50/80 rounded-2xl border border-emerald-200/90 text-center space-y-1">
+                <p className="text-xs text-stone-700 font-medium">
+                  {t('আপনি কি অন্য কোনো ব্যক্তি বা নতুন দোকানদার?', 'Are you another person or new store owner?', 'क्या आप अन्य व्यक्ति या नए दुकानदार हैं?')}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthActionTab('signup');
+                    setSignupError(null);
+                  }}
+                  className="text-xs font-bold text-emerald-700 hover:text-emerald-900 hover:underline flex items-center justify-center gap-1.5 mx-auto cursor-pointer"
+                >
+                  <UserPlus className="w-3.5 h-3.5" />
+                  <span>{t('নতুন অ্যাকাউন্ট তৈরি / সাইন আপ করুন (Sign Up)', 'Create New Account / Sign Up Here', 'नया खाता बनाएं / साइन अप करें')}</span>
+                </button>
+              </div>
             </div>
           )}
+        </div>
+      )}
         </div>
       </div>
     </div>
