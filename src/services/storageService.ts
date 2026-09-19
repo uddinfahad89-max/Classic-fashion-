@@ -314,6 +314,21 @@ class StorageService {
       bills.splice(500);
     }
     this.saveBillsList(bills);
+
+    // Direct backup of this bill to server disk
+    try {
+      const profile = this.getUserProfile();
+      const id = profile.phone || profile.email || '9707502246';
+      if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
+        fetch('/api/bills/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ identifier: id, bill }),
+        }).catch((e) => console.warn('Server bill backup notice:', e));
+      }
+    } catch {
+      // ignore
+    }
   }
 
   deleteBill(id: string): void {
@@ -898,6 +913,17 @@ class StorageService {
       }
 
       localStorage.setItem(VAULT_KEYS.ACCOUNTS_INDEX, JSON.stringify(list));
+
+      // Asynchronously backup to server disk so clearing client app data/cache never loses bills
+      if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
+        fetch('/api/vault/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(vaultData),
+        }).catch((err) => {
+          console.warn('Server vault sync notice:', err);
+        });
+      }
     } catch (e) {
       console.warn('Failed to save account vault:', e);
     }
@@ -906,10 +932,9 @@ class StorageService {
   syncActiveAccountVault(specificProfile?: UserProfile): void {
     try {
       const profile = specificProfile || this.getUserProfile();
-      const identifier = profile.phone || profile.email;
-      if (!identifier && !profile.isLoggedIn) return;
+      const identifier = profile.phone || profile.email || '9707502246';
 
-      const norm = this.normalizeIdentifier(identifier || 'default');
+      const norm = this.normalizeIdentifier(identifier);
       const settings = this.getSettings();
       const bills = this.getBills();
       const cashEntries = this.getCashEntries();
@@ -935,6 +960,78 @@ class StorageService {
       this.saveToAccountVault(vaultData);
     } catch {
       // ignore
+    }
+  }
+
+  // Asynchronous restore from server disk (works even after browser cache/storage is cleared)
+  async restoreFromAccountVaultAsync(identifier: string): Promise<boolean> {
+    try {
+      if (!identifier) return false;
+      const norm = this.normalizeIdentifier(identifier);
+
+      if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
+        try {
+          const res = await fetch(`/api/vault/${encodeURIComponent(norm)}`);
+          if (res.ok) {
+            const json = await res.json();
+            if (json.success && json.vault) {
+              const serverVault: AccountVaultData = json.vault;
+
+              // Merge server bills with any existing local bills
+              const localBills = this.getBills();
+              const serverBills = Array.isArray(serverVault.bills) ? serverVault.bills : [];
+              const billMap = new Map<string, BillInvoice>();
+              for (const b of serverBills) {
+                if (b && b.id) billMap.set(b.id, b);
+              }
+              for (const b of localBills) {
+                if (b && b.id) billMap.set(b.id, b);
+              }
+              const mergedBills = Array.from(billMap.values()).sort(
+                (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
+              );
+
+              serverVault.bills = mergedBills;
+              this.saveToAccountVault(serverVault);
+
+              if (serverVault.settings) {
+                localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(serverVault.settings));
+              }
+              localStorage.setItem(STORAGE_KEYS.BILLS, JSON.stringify(mergedBills));
+              if (Array.isArray(serverVault.cashEntries)) {
+                localStorage.setItem(STORAGE_KEYS.CASHBOOK, JSON.stringify(serverVault.cashEntries));
+              }
+              if (Array.isArray(serverVault.customerDues)) {
+                localStorage.setItem(STORAGE_KEYS.DUES, JSON.stringify(serverVault.customerDues));
+              }
+              if (Array.isArray(serverVault.purchaseTrips)) {
+                localStorage.setItem(STORAGE_KEYS.PURCHASES, JSON.stringify(serverVault.purchaseTrips));
+              }
+
+              const restoredProfile: UserProfile = {
+                email: serverVault.email || '',
+                name: serverVault.name || 'Store Owner',
+                phone: serverVault.phone || '',
+                role: serverVault.role || 'Owner',
+                pin: serverVault.pin || '1234',
+                isLoggedIn: true,
+                isAppLockEnabled: serverVault.isAppLockEnabled,
+                loginTime: Date.now(),
+                loginMethod: 'otp',
+                otpVerified: true,
+              };
+              localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(restoredProfile));
+              return true;
+            }
+          }
+        } catch (netErr) {
+          console.warn('Network vault lookup notice:', netErr);
+        }
+      }
+
+      return this.restoreFromAccountVault(identifier);
+    } catch {
+      return false;
     }
   }
 
@@ -1112,12 +1209,30 @@ class StorageService {
     // First save active session of any existing user before switching
     this.syncActiveAccountVault();
 
+    // Check if an existing vault or data already exists for this phone or email
+    const normPhone = this.normalizeIdentifier(cleanPhone);
+    const normEmail = this.normalizeIdentifier(cleanEmail);
+    let existingVault: AccountVaultData | null = null;
+    try {
+      const rawV =
+        (normPhone && localStorage.getItem(`${VAULT_KEYS.ACCOUNT_PREFIX}${normPhone}`)) ||
+        (normEmail && localStorage.getItem(`${VAULT_KEYS.ACCOUNT_PREFIX}${normEmail}`));
+      if (rawV) {
+        existingVault = JSON.parse(rawV);
+      }
+    } catch {}
+
+    const existingBills = existingVault?.bills?.length ? existingVault.bills : [];
+    const existingCash = existingVault?.cashEntries?.length ? existingVault.cashEntries : [];
+    const existingDues = existingVault?.customerDues?.length ? existingVault.customerDues : [];
+    const existingPurchases = existingVault?.purchaseTrips?.length ? existingVault.purchaseTrips : [];
+
     const baseSettings = this.getSettings();
     const newSettings: ThermalPrinterSettings = {
       ...baseSettings,
       storeName: cleanStore,
       storePhone: cleanPhone,
-      storeAddress: '',
+      storeAddress: existingVault?.settings?.storeAddress || '',
       footerNote: 'ধন্যবাদ! আবার আসবেন।',
     };
 
@@ -1130,22 +1245,22 @@ class StorageService {
       pin: cleanPin,
       isAppLockEnabled: false,
       settings: newSettings,
-      bills: [],
-      cashEntries: [],
-      customerDues: [],
-      purchaseTrips: [],
+      bills: existingBills,
+      cashEntries: existingCash,
+      customerDues: existingDues,
+      purchaseTrips: existingPurchases,
       lastActive: Date.now(),
     };
 
     // Save to account vault
     this.saveToAccountVault(newVault);
 
-    // Set this as the active session in localStorage with fresh isolated data
+    // Set this as the active session in localStorage
     localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(newSettings));
-    localStorage.setItem(STORAGE_KEYS.BILLS, JSON.stringify([]));
-    localStorage.setItem(STORAGE_KEYS.CASHBOOK, JSON.stringify([]));
-    localStorage.setItem(STORAGE_KEYS.DUES, JSON.stringify([]));
-    localStorage.setItem(STORAGE_KEYS.PURCHASES, JSON.stringify([]));
+    localStorage.setItem(STORAGE_KEYS.BILLS, JSON.stringify(existingBills));
+    localStorage.setItem(STORAGE_KEYS.CASHBOOK, JSON.stringify(existingCash));
+    localStorage.setItem(STORAGE_KEYS.DUES, JSON.stringify(existingDues));
+    localStorage.setItem(STORAGE_KEYS.PURCHASES, JSON.stringify(existingPurchases));
 
     const newProfile: UserProfile = {
       email: cleanEmail,

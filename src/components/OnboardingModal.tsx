@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Store, Phone, MapPin, Volume2, Sparkles, CheckCircle2, Mail, Lock } from 'lucide-react';
+import { Store, Phone, MapPin, Volume2, Sparkles, CheckCircle2, Mail, Lock, Globe } from 'lucide-react';
 import { Language } from '../types';
 
 interface OnboardingModalProps {
@@ -13,12 +13,14 @@ interface OnboardingModalProps {
     ownerName?: string;
   }) => void;
   language?: Language;
+  onSelectLanguage?: (lang: Language) => void;
 }
 
 export const OnboardingModal: React.FC<OnboardingModalProps> = ({
   isOpen,
   onSave,
   language = 'en',
+  onSelectLanguage,
 }) => {
   const isBn = language === 'bn';
   const [storeName, setStoreName] = useState('');
@@ -141,6 +143,57 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
             </span>
           </div>
         </div>
+
+        {/* Language Selection Bar (বাংলা | English | हिन्दी) */}
+        {onSelectLanguage && (
+          <div
+            id="onboarding-language-selector"
+            className="bg-stone-50 border-b border-stone-200/80 px-4 py-2 flex items-center justify-between shrink-0 gap-2"
+          >
+            <div className="flex items-center gap-1.5 text-xs font-bold text-stone-700">
+              <Globe className="w-4 h-4 text-blue-600 shrink-0" />
+              <span>{isBn ? 'ভাষা (Language):' : 'Language:'}</span>
+            </div>
+            <div className="flex items-center gap-1 bg-stone-200/80 p-0.5 rounded-xl text-xs font-bold">
+              <button
+                type="button"
+                id="onboarding-lang-bn"
+                onClick={() => onSelectLanguage('bn')}
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  language === 'bn'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-stone-700 hover:text-stone-900 hover:bg-white/70'
+                }`}
+              >
+                বাংলা
+              </button>
+              <button
+                type="button"
+                id="onboarding-lang-en"
+                onClick={() => onSelectLanguage('en')}
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  language === 'en'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-stone-700 hover:text-stone-900 hover:bg-white/70'
+                }`}
+              >
+                English
+              </button>
+              <button
+                type="button"
+                id="onboarding-lang-hi"
+                onClick={() => onSelectLanguage('hi')}
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  language === 'hi'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-stone-700 hover:text-stone-900 hover:bg-white/70'
+                }`}
+              >
+                हिन्दी
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-5 space-y-3.5 overflow-y-auto">

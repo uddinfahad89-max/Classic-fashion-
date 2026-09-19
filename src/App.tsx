@@ -93,9 +93,23 @@ export default function App() {
     if (!currentSettings.storeName || currentSettings.storeName.trim() === '') {
       setIsOnboardingOpen(true);
     }
-    setUserProfile(storageService.getUserProfile());
+    const prof = storageService.getUserProfile();
+    setUserProfile(prof);
     setLanguage(storageService.getLanguage());
     setPurchaseTrips(storageService.getPurchaseTrips());
+
+    // Auto sync from server if app data / browser cache was cleared
+    const syncId = prof.phone || prof.email || '9707502246';
+    storageService.restoreFromAccountVaultAsync(syncId).then((restored) => {
+      if (restored) {
+        setBills(storageService.getBills());
+        setCashEntries(storageService.getCashEntries());
+        setCustomerDues(storageService.getCustomerDues());
+        setPurchaseTrips(storageService.getPurchaseTrips());
+        setSettings(storageService.getSettings());
+        setUserProfile(storageService.getUserProfile());
+      }
+    });
 
     thermalPrinterService.setStatusListener((status) => {
       setBluetoothStatus(status);
@@ -176,7 +190,7 @@ export default function App() {
   };
 
   // Authentication & Security Handlers
-  const handleLoginUser = (
+  const handleLoginUser = async (
     email: string,
     name?: string,
     pin?: string,
@@ -185,10 +199,10 @@ export default function App() {
     isAppLockEnabled?: boolean,
     loginMethod?: 'email_pin' | 'otp',
     otpCode?: string
-  ): boolean => {
+  ): Promise<boolean> => {
     // 1. Verify OTP with mock OTP service if logging in via OTP
+    const targetPhoneOrId = (phone || email).trim();
     if (loginMethod === 'otp') {
-      const targetPhoneOrId = (phone || email).trim();
       const otpValidation = otpService.validateOtp(targetPhoneOrId, otpCode || '');
       if (!otpValidation.success) {
         showToast(
@@ -200,6 +214,11 @@ export default function App() {
         );
         return false;
       }
+    }
+
+    // Attempt restoring account and invoices from server disk if client storage was cleared
+    if (targetPhoneOrId) {
+      await storageService.restoreFromAccountVaultAsync(targetPhoneOrId);
     }
 
     // 2. Perform account login and vault restoration
@@ -237,7 +256,7 @@ export default function App() {
       language === 'bn'
         ? `স্বাগতম, ${updated.name}! আপনার সংরক্ষিত অ্যাকাউন্ট, পুরানো ${restoredBills.length}টি ইনভয়েস ও ডে-বুক লোড হয়েছে।`
         : language === 'hi'
-        ? `स्वागत है, ${updated.name}! आपके खाते के पुराने इनवॉइस और डे-बुक लोड हो गए हैं।`
+        ? `स्वागत है, ${updated.name}! आपके खाते के पुराने ইনভয়েস এবং ডে-বুক লোড হয়ে গেছে।`
         : `Welcome, ${updated.name}! Loaded ${restoredBills.length} saved invoices & daybook data.`;
     showToast(welcomeMsg, 'success');
     return true;
@@ -285,19 +304,26 @@ export default function App() {
     showToast('লগআউট সফল হয়েছে', 'info');
   };
 
-  const handleRegisterUser = (data: {
+  const handleRegisterUser = async (data: {
     name: string;
     phone: string;
     email?: string;
     storeName?: string;
     pin?: string;
     role?: 'Owner' | 'Manager' | 'Cashier';
-  }): boolean => {
+  }): Promise<boolean> => {
+    // If user already had data on server, restore first so it's not wiped
+    const lookupKey = data.phone || data.email || '';
+    if (lookupKey) {
+      await storageService.restoreFromAccountVaultAsync(lookupKey);
+    }
+
     const newProfile = storageService.registerNewUser(data);
     setUserProfile(newProfile);
 
     // Refresh isolated states for the newly registered account
-    setBills(storageService.getBills());
+    const restoredBills = storageService.getBills();
+    setBills(restoredBills);
     setCashEntries(storageService.getCashEntries());
     setCustomerDues(storageService.getCustomerDues());
     setPurchaseTrips(storageService.getPurchaseTrips());
@@ -306,8 +332,8 @@ export default function App() {
 
     const welcomeMsg =
       language === 'bn'
-        ? `অভিনন্দন ${newProfile.name}! "${data.storeName || 'দোকান'}" এর জন্য আপনার নতুন অ্যাকাউন্ট সফলভাবে তৈরি হয়েছে।`
-        : `Congratulations ${newProfile.name}! New account created for "${data.storeName || 'Store'}".`;
+        ? `অভিনন্দন ${newProfile.name}! "${data.storeName || 'দোকান'}" এর অ্যাকাউন্ট সক্রিয় হয়েছে (${restoredBills.length}টি ইনভয়েস পাওয়া গেছে)।`
+        : `Congratulations ${newProfile.name}! Account active for "${data.storeName || 'Store'}" (${restoredBills.length} invoices found).`;
     showToast(welcomeMsg, 'success');
     return true;
   };
@@ -771,6 +797,7 @@ export default function App() {
         onUpdateSecurity={handleUpdateSecurity}
         onLockApp={handleLockApp}
         language={language}
+        onSelectLanguage={handleSelectLanguage}
       />
 
       {/* App Lock Screen (4-Digit PIN Security Vault) */}
@@ -861,6 +888,7 @@ export default function App() {
         isOpen={isOnboardingOpen}
         onSave={handleSaveOnboarding}
         language={language}
+        onSelectLanguage={handleSelectLanguage}
       />
 
       {/* POS & Wholesale Quick Calculator Modal */}

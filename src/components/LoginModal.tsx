@@ -26,6 +26,7 @@ import {
   History,
   UserPlus,
   LogIn,
+  Globe,
 } from 'lucide-react';
 import { UserProfile, Language, SavedAccountItem } from '../types';
 import { otpService } from '../services/otpService';
@@ -44,7 +45,7 @@ interface LoginModalProps {
     isAppLockEnabled?: boolean,
     loginMethod?: 'email_pin' | 'otp',
     otpCode?: string
-  ) => boolean | void;
+  ) => boolean | void | Promise<boolean | void>;
   onRegister?: (data: {
     name: string;
     phone: string;
@@ -52,11 +53,12 @@ interface LoginModalProps {
     storeName?: string;
     pin?: string;
     role?: 'Owner' | 'Manager' | 'Cashier';
-  }) => boolean | void;
+  }) => boolean | void | Promise<boolean | void>;
   onLogout: () => void;
   onUpdateSecurity?: (updates: Partial<UserProfile>) => void;
   onLockApp?: () => void;
   language?: Language;
+  onSelectLanguage?: (lang: Language) => void;
 }
 
 export const LoginModal: React.FC<LoginModalProps> = ({
@@ -69,6 +71,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   onUpdateSecurity,
   onLockApp,
   language = 'bn',
+  onSelectLanguage,
 }) => {
   const isBn = language === 'bn';
   const isHi = language === 'hi';
@@ -77,6 +80,14 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     if (language === 'hi') return hi;
     if (language === 'bn') return bn;
     return en;
+  };
+
+  const handleLanguageChange = (nextLang: Language) => {
+    if (onSelectLanguage) {
+      onSelectLanguage(nextLang);
+    } else {
+      storageService.setLanguage(nextLang);
+    }
   };
 
   // Mode: 'view' | 'edit_login' | 'change_pin'
@@ -205,7 +216,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   };
 
   // Handle Verify 4-Digit OTP and Login
-  const handleVerifyOtp = (e: React.FormEvent) => {
+  const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     setOtpError(null);
 
@@ -247,7 +258,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       (cleanPhone.includes('9707502246') ? 'Fahad Uddin' : '') ||
       (cleanPhone ? `User ${cleanPhone.slice(-4)}` : 'Store Owner');
 
-    const result = onLogin(
+    const result = await onLogin(
       inferredEmail,
       inferredName,
       userProfile.pin || '1234',
@@ -265,7 +276,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   };
 
   // Handle Email & PIN Login submission
-  const handleSubmitEmailLogin = (e: React.FormEvent) => {
+  const handleSubmitEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError(null);
 
@@ -285,7 +296,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       return;
     }
 
-    const result = onLogin(
+    const result = await onLogin(
       cleanEmail,
       name.trim(),
       cleanPin,
@@ -302,7 +313,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   };
 
   // Handle Sign Up (New User / Store Owner Registration)
-  const handleSignUpSubmit = (e: React.FormEvent) => {
+  const handleSignUpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSignupError(null);
 
@@ -346,7 +357,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     }
 
     if (onRegister) {
-      const ok = onRegister({
+      const ok = await onRegister({
         name: cleanName,
         storeName: cleanStore,
         phone: cleanPhone,
@@ -362,7 +373,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   };
 
   // Quick select or restore account
-  const handleRestoreAccount = (acc: SavedAccountItem, directLogin: boolean = false) => {
+  const handleRestoreAccount = async (acc: SavedAccountItem, directLogin: boolean = false) => {
     const accPhone = acc.phone || acc.identifier;
     const accEmail = acc.email || `${accPhone}@posstore.com`;
 
@@ -377,7 +388,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
     if (directLogin) {
       // 1-Click login & instant data restoration
-      const res = onLogin(
+      const res = await onLogin(
         accEmail,
         acc.name,
         '1234',
@@ -502,6 +513,55 @@ export const LoginModal: React.FC<LoginModalProps> = ({
           >
             ✕
           </button>
+        </div>
+
+        {/* Language Selection Bar (বাংলা | English | हिन्दी) */}
+        <div
+          id="login-modal-language-selector"
+          className="bg-stone-50/95 border-b border-stone-200/80 px-4 py-2 flex items-center justify-between shrink-0 gap-2"
+        >
+          <div className="flex items-center gap-1.5 text-xs font-bold text-stone-700">
+            <Globe className="w-4 h-4 text-blue-600 shrink-0" />
+            <span>{t('ভাষা (Language):', 'Language:', 'भाषा (Language):')}</span>
+          </div>
+          <div className="flex items-center gap-1 bg-stone-200/80 p-0.5 rounded-xl text-xs font-bold">
+            <button
+              type="button"
+              id="login-lang-bn"
+              onClick={() => handleLanguageChange('bn')}
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                language === 'bn'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-stone-700 hover:text-stone-900 hover:bg-white/70'
+              }`}
+            >
+              বাংলা
+            </button>
+            <button
+              type="button"
+              id="login-lang-en"
+              onClick={() => handleLanguageChange('en')}
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                language === 'en'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-stone-700 hover:text-stone-900 hover:bg-white/70'
+              }`}
+            >
+              English
+            </button>
+            <button
+              type="button"
+              id="login-lang-hi"
+              onClick={() => handleLanguageChange('hi')}
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                language === 'hi'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-stone-700 hover:text-stone-900 hover:bg-white/70'
+              }`}
+            >
+              हिन्दी
+            </button>
+          </div>
         </div>
 
         {/* Modal Content Scrollable Area */}
