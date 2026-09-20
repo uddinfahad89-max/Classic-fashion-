@@ -595,28 +595,66 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </div>
 
-          {/* Center: Ultra Low-Data Saver Status Pill */}
-          {onOpenDataSaver && (
+          {/* Center: Bluetooth Quick Pill & Ultra Low-Data Saver Status Pill */}
+          <div className="flex items-center gap-2">
             <button
-              id="header-data-saver-pill-btn"
+              id="header-bluetooth-pill-btn"
               type="button"
-              onClick={onOpenDataSaver}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/80 text-[11px] font-bold transition-all cursor-pointer shadow-2xs group"
-              title={t(
-                'লো-ডাটা ও অফলাইন ইঞ্জিন: সামান্য ডাটা অন থাকলেই যথেষ্ট',
-                'Low-Data & Offline Engine: Works on minimal data',
-                'लो-डाटा व ऑफलाइन इंजन: कम डाटा पर भी सक्षम'
-              )}
+              onClick={bluetoothStatus.connected ? onTestPrint : onConnectBluetooth}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold transition-all cursor-pointer shadow-2xs border ${
+                bluetoothStatus.connected
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                  : 'bg-stone-50 text-stone-700 border-stone-200 hover:bg-stone-100'
+              }`}
+              title={
+                bluetoothStatus.connected
+                  ? `Bluetooth: ${bluetoothStatus.deviceName || 'Connected'} (Tap to Test Print)`
+                  : isBn
+                  ? 'ব্লুটুথ প্রিন্টার কানেক্ট করতে ট্যাপ করুন'
+                  : 'Tap to connect Bluetooth thermal printer'
+              }
             >
-              <Zap className="w-3 h-3 text-amber-500 fill-amber-500 shrink-0 group-hover:scale-110 transition-transform" />
-              <span className="hidden sm:inline">
-                {networkStatus?.isOnline
-                  ? t('লো-ডাটা মোড', 'Data Saver', 'लो-डाटा मोड')
-                  : t('অফলাইন মোড', 'Offline Mode', 'ऑफलाइन मोड')}
+              <Bluetooth
+                className={`w-3.5 h-3.5 ${
+                  bluetoothStatus.connected ? 'text-emerald-600' : 'text-stone-500'
+                }`}
+              />
+              <span className="hidden xs:inline sm:inline">
+                {bluetoothStatus.connected
+                  ? (bluetoothStatus.deviceName
+                      ? bluetoothStatus.deviceName.slice(0, 12)
+                      : (isBn ? 'প্রিন্টার OK' : 'Printer OK'))
+                  : (isBn ? 'ব্লুটুথ' : 'Bluetooth')}
               </span>
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+              <span
+                className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                  bluetoothStatus.connected ? 'bg-emerald-500 animate-pulse' : 'bg-stone-400'
+                }`}
+              />
             </button>
-          )}
+
+            {onOpenDataSaver && (
+              <button
+                id="header-data-saver-pill-btn"
+                type="button"
+                onClick={onOpenDataSaver}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200/80 text-[11px] font-bold transition-all cursor-pointer shadow-2xs group"
+                title={t(
+                  'লো-ডাটা ও অফলাইন ইঞ্জিন: সামান্য ডাটা অন থাকলেই যথেষ্ট',
+                  'Low-Data & Offline Engine: Works on minimal data',
+                  'लो-डाटा व ऑफलाइन इंजन: कम डाटा पर भी सक्षम'
+                )}
+              >
+                <Zap className="w-3 h-3 text-amber-500 fill-amber-500 shrink-0 group-hover:scale-110 transition-transform" />
+                <span className="hidden sm:inline">
+                  {networkStatus?.isOnline
+                    ? t('লো-ডাটা মোড', 'Data Saver', 'लो-डाटा मोड')
+                    : t('অফলাইন মোড', 'Offline Mode', 'ऑफलाइन मोड')}
+                </span>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+              </button>
+            )}
+          </div>
 
           {/* Right: List [≡] & Grid [⊞] View Toggle Pills (As seen in Google Sheets) */}
           <div className="flex items-center gap-1 bg-[#eef2f6] p-0.5 rounded-full border border-stone-200/60">

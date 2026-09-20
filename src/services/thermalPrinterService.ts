@@ -4,18 +4,24 @@ import { storageService } from './storageService';
 // Comprehensive list of standard Bluetooth Thermal Printer Service UUIDs
 export const POS_SERVICES = [
   '000018f0-0000-1000-8000-00805f9b34fb', // Standard POS Print Service
-  '0000ffe0-0000-1000-8000-00805f9b34fb', // Common HM-10 / Serial BLE
-  '0000ff00-0000-1000-8000-00805f9b34fb', // POS-58 / JP-QR73 / Zjiang / MPT-II
+  '0000ffe0-0000-1000-8000-00805f9b34fb', // Common HM-10 / CC2540 / POS-58 / JP-QR73 / MPT-II / Netum
+  '0000ff00-0000-1000-8000-00805f9b34fb', // POS-58 / Zjiang / POS-5802 / Xprinter
   '49535343-fe7d-4ae5-8fa9-9fafd205e455', // ISSC Transparent UART
   'e7810a71-73ae-499d-8c15-faa9aef0c3f2', // Rongta / Xprinter / Goojprt
   '6e400001-b5a3-f393-e0a9-e50e24dcca9e', // Nordic UART Service (NUS)
-  '0000ae30-0000-1000-8000-00805f9b34fb', // Milestone / Zebra BLE
   '0000fee7-0000-1000-8000-00805f9b34fb', // Tencent / BLE Serial
-  '000018f1-0000-1000-8000-00805f9b34fb',
-  '0000af30-0000-1000-8000-00805f9b34fb',
-  'd8c30001-9f93-4a6a-a238-d65e23631988',
-  '0000fff0-0000-1000-8000-00805f9b34fb',
   '0000fee0-0000-1000-8000-00805f9b34fb',
+  '0000fff0-0000-1000-8000-00805f9b34fb',
+  '0000ae30-0000-1000-8000-00805f9b34fb', // Milestone / Zebra BLE
+  '0000af30-0000-1000-8000-00805f9b34fb',
+  '0000abf0-0000-1000-8000-00805f9b34fb',
+  '0000e0ff-0000-1000-8000-00805f9b34fb',
+  '0000ffe5-0000-1000-8000-00805f9b34fb',
+  '0000ff12-0000-1000-8000-00805f9b34fb',
+  '000018f1-0000-1000-8000-00805f9b34fb',
+  '0000fef5-0000-1000-8000-00805f9b34fb',
+  'd8c30001-9f93-4a6a-a238-d65e23631988',
+  '00001101-0000-1000-8000-00805f9b34fb', // Serial Port Profile
   '00001800-0000-1000-8000-00805f9b34fb', // Generic Access
   '0000180a-0000-1000-8000-00805f9b34fb', // Device Info
 ];
@@ -110,35 +116,56 @@ export class ThermalPrinterService {
 
   private async setupCharacteristics(server: any): Promise<boolean> {
     try {
+      this.characteristic = null;
       let services: any[] = [];
+
+      // 1. Try listing all primary services advertised by GATT server
       try {
         services = await server.getPrimaryServices();
       } catch (e) {
-        console.warn('Could not list all services at once, will query known thermal services:', e);
+        console.warn('Could not list all services at once, will query known POS services:', e);
       }
 
-      // If services list is empty, query known POS services individually
-      if (!services || services.length === 0) {
-        for (const uuid of POS_SERVICES) {
+      // First pass: inspect already discovered services
+      if (services && services.length > 0) {
+        for (const service of services) {
           try {
-            const s = await server.getPrimaryService(uuid);
-            if (s) services.push(s);
-          } catch {
-            // Service not present
+            const characteristics = await service.getCharacteristics();
+            for (const char of characteristics) {
+              const props = char.properties;
+              if (props?.writeWithoutResponse || props?.write) {
+                this.characteristic = char;
+                console.log(
+                  'Found writable BLE characteristic in discovered service:',
+                  service.uuid,
+                  char.uuid,
+                  'writeWithoutResponse:',
+                  !!props?.writeWithoutResponse,
+                  'write:',
+                  !!props?.write
+                );
+                return true;
+              }
+            }
+          } catch (e) {
+            // Service characteristic query error, continue to next
           }
         }
       }
 
-      // Look for characteristic with writeWithoutResponse or write properties
-      for (const service of services) {
+      // Second pass: specifically query each known POS UUID
+      for (const uuid of POS_SERVICES) {
         try {
+          const service = await server.getPrimaryService(uuid);
+          if (!service) continue;
           const characteristics = await service.getCharacteristics();
           for (const char of characteristics) {
             const props = char.properties;
             if (props?.writeWithoutResponse || props?.write) {
               this.characteristic = char;
               console.log(
-                'Found writable BLE characteristic:',
+                'Found writable BLE characteristic via targeted POS UUID:',
+                uuid,
                 char.uuid,
                 'writeWithoutResponse:',
                 !!props?.writeWithoutResponse,
@@ -148,8 +175,8 @@ export class ThermalPrinterService {
               return true;
             }
           }
-        } catch (e) {
-          console.warn('Could not query characteristics for service:', service.uuid, e);
+        } catch {
+          // Service not present on this device
         }
       }
 
@@ -259,6 +286,15 @@ export class ThermalPrinterService {
 
       if (!foundChar) {
         console.warn('Connected to device, but no writable POS characteristic was found.');
+        this.isConnected = false;
+        this.characteristic = null;
+        this.isConnecting = false;
+        this.notifyStatus();
+        return {
+          success: false,
+          deviceName: device.name,
+          message: `Connected to "${device.name || 'Device'}", but no writable POS print channel was found. Please ensure your Bluetooth Thermal POS printer is on and in pairing mode.`,
+        };
       }
 
       this.bluetoothDevice = device;
@@ -481,8 +517,8 @@ export class ThermalPrinterService {
     bill: BillInvoice,
     settings: ThermalPrinterSettings
   ): Promise<{ success: boolean; message: string; deviceName?: string }> {
-    // 1. Check if Bluetooth is connected
-    if (!this.isConnected || !this.characteristic) {
+    // 1. Check if Bluetooth is connected and characteristic is writable
+    if (!this.isConnected || !this.characteristic || !this.bluetoothDevice?.gatt?.connected) {
       // Try silent auto-reconnect if device reference or saved printer exists
       const reconnected = await this.autoReconnect();
       if (!reconnected || !this.characteristic) {
@@ -506,12 +542,24 @@ export class ThermalPrinterService {
 
       for (let i = 0; i < data.length; i += CHUNK_SIZE) {
         const chunk = data.slice(i, i + CHUNK_SIZE);
-        if (canWriteWithoutResponse) {
-          await this.characteristic.writeValueWithoutResponse(chunk);
-        } else if (typeof this.characteristic.writeValue === 'function') {
-          await this.characteristic.writeValue(chunk);
-        } else if (typeof this.characteristic.writeValueWithResponse === 'function') {
-          await this.characteristic.writeValueWithResponse(chunk);
+        let written = false;
+        let attempts = 0;
+
+        while (!written && attempts < 2) {
+          attempts++;
+          try {
+            if (canWriteWithoutResponse) {
+              await this.characteristic.writeValueWithoutResponse(chunk);
+            } else if (typeof this.characteristic.writeValueWithResponse === 'function') {
+              await this.characteristic.writeValueWithResponse(chunk);
+            } else if (typeof this.characteristic.writeValue === 'function') {
+              await this.characteristic.writeValue(chunk);
+            }
+            written = true;
+          } catch (chunkErr) {
+            if (attempts >= 2) throw chunkErr;
+            await new Promise((r) => setTimeout(r, 25));
+          }
         }
         // Small 15ms buffer drainage delay between BLE packets to prevent thermal printer buffer overrun
         await new Promise((r) => setTimeout(r, 15));
