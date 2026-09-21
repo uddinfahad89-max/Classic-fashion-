@@ -49,24 +49,43 @@ export class ThermalPrinterService {
     }
   }
 
+  private statusListeners: Array<(status: BluetoothDeviceInfo) => void> = [];
+
   setStatusListener(callback: (status: BluetoothDeviceInfo) => void) {
     this.onStatusChangeCallback = callback;
     this.notifyStatus();
   }
 
+  addStatusListener(callback: (status: BluetoothDeviceInfo) => void): () => void {
+    this.statusListeners.push(callback);
+    this.notifyStatus();
+    return () => {
+      this.statusListeners = this.statusListeners.filter((cb) => cb !== callback);
+    };
+  }
+
   private notifyStatus() {
+    const saved = storageService.getSavedPrinter();
+    const info: BluetoothDeviceInfo = {
+      connected: this.isConnected,
+      isConnecting: this.isConnecting,
+      deviceName:
+        this.bluetoothDevice?.name ||
+        (this.isConnected ? (saved?.name || 'Thermal POS Printer') : undefined),
+      deviceId: this.bluetoothDevice?.id || saved?.id,
+      savedPrinter: saved,
+    };
+
     if (this.onStatusChangeCallback) {
-      const saved = storageService.getSavedPrinter();
-      this.onStatusChangeCallback({
-        connected: this.isConnected,
-        isConnecting: this.isConnecting,
-        deviceName:
-          this.bluetoothDevice?.name ||
-          (this.isConnected ? (saved?.name || 'Thermal POS Printer') : undefined),
-        deviceId: this.bluetoothDevice?.id || saved?.id,
-        savedPrinter: saved,
-      });
+      this.onStatusChangeCallback(info);
     }
+    this.statusListeners.forEach((cb) => {
+      try {
+        cb(info);
+      } catch (err) {
+        console.error('Error in statusListener:', err);
+      }
+    });
   }
 
   isBluetoothSupported(): boolean {
@@ -352,6 +371,11 @@ export class ThermalPrinterService {
         message: error?.message || 'Failed to connect to Bluetooth printer.',
       };
     }
+  }
+
+  // Alias for connectBluetooth
+  async connect(): Promise<{ success: boolean; message: string; deviceName?: string; isUnsupported?: boolean }> {
+    return this.connectBluetooth();
   }
 
   // Connect directly to a specific paired printer from the Vyapar list
@@ -654,30 +678,7 @@ export class ThermalPrinterService {
         `Streaming ${data.length} bytes of ESC/POS data to ${this.bluetoothDevice?.name || 'printer'}...`
       );
 
-      for (let i = 0; i < data.length; i += CHUNK_SIZE) {
-        const chunk = data.slice(i, i + CHUNK_SIZE);
-        let written = false;
-        let attempts = 0;
-
-        while (!written && attempts < 2) {
-          attempts++;
-          try {
-            if (canWriteWithoutResponse) {
-              await this.characteristic.writeValueWithoutResponse(chunk);
-            } else if (typeof this.characteristic.writeValueWithResponse === 'function') {
-              await this.characteristic.writeValueWithResponse(chunk);
-            } else if (typeof this.characteristic.writeValue === 'function') {
-              await this.characteristic.writeValue(chunk);
-            }
-            written = true;
-          } catch (chunkErr) {
-            if (attempts >= 2) throw chunkErr;
-            await new Promise((r) => setTimeout(r, 25));
-          }
-        }
-        // Small 15ms buffer drainage delay between BLE packets to prevent thermal printer buffer overrun
-        await new Promise((r) => setTimeout(r, 15));
-      }
+      await this.writeRawChunks(data);
 
       return {
         success: true,
@@ -693,6 +694,211 @@ export class ThermalPrinterService {
         success: false,
         message: `Bluetooth write failed: ${e?.message || 'Connection interrupted'}`,
       };
+    }
+  }
+
+  // Safe chunked BLE writer for raw ESC/POS binary buffers
+  async writeRawChunks(data: Uint8Array): Promise<void> {
+    if (!this.characteristic) {
+      throw new Error('Bluetooth printer characteristic not found');
+    }
+
+    const CHUNK_SIZE = 64;
+    const canWriteWithoutResponse =
+      this.characteristic.properties?.writeWithoutResponse &&
+      typeof this.characteristic.writeValueWithoutResponse === 'function';
+
+    for (let i = 0; i < data.length; i += CHUNK_SIZE) {
+      const chunk = data.slice(i, i + CHUNK_SIZE);
+      let written = false;
+      let attempts = 0;
+
+      while (!written && attempts < 2) {
+        attempts++;
+        try {
+          if (canWriteWithoutResponse) {
+            await this.characteristic.writeValueWithoutResponse(chunk);
+          } else if (typeof this.characteristic.writeValueWithResponse === 'function') {
+            await this.characteristic.writeValueWithResponse(chunk);
+          } else if (typeof this.characteristic.writeValue === 'function') {
+            await this.characteristic.writeValue(chunk);
+          }
+          written = true;
+        } catch (chunkErr) {
+          if (attempts >= 2) throw chunkErr;
+          await new Promise((r) => setTimeout(r, 25));
+        }
+      }
+      // Small 15ms buffer drainage delay between BLE packets
+      await new Promise((r) => setTimeout(r, 15));
+    }
+  }
+
+  // Convert HTMLCanvasElement into ESC/POS monochrome raster image (GS v 0)
+  convertCanvasToEscPosRaster(
+    canvas: HTMLCanvasElement,
+    targetWidthDots: number = 384,
+    darknessThreshold: number = 165
+  ): Uint8Array {
+    const targetWidth = Math.min(targetWidthDots, 576);
+    const scale = targetWidth / canvas.width;
+    const targetHeight = Math.round(canvas.height * scale);
+
+    const offscreen = document.createElement('canvas');
+    offscreen.width = targetWidth;
+    offscreen.height = targetHeight;
+    const ctx = offscreen.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return new Uint8Array();
+
+    // Fill pure white background
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, targetWidth, targetHeight);
+    // Draw canvas image
+    ctx.drawImage(canvas, 0, 0, targetWidth, targetHeight);
+
+    const imgData = ctx.getImageData(0, 0, targetWidth, targetHeight);
+    const data = imgData.data;
+
+    // width in bytes:
+    const widthBytes = Math.ceil(targetWidth / 8);
+    const totalRasterBytes = widthBytes * targetHeight;
+
+    // GS v 0 0 xL xH yL yH
+    const xL = widthBytes & 0xFF;
+    const xH = (widthBytes >> 8) & 0xFF;
+    const yL = targetHeight & 0xFF;
+    const yH = (targetHeight >> 8) & 0xFF;
+
+    const header = [
+      0x1B, 0x40,             // ESC @: Initialize printer
+      0x1B, 0x61, 0x01,       // ESC a 1: Center justify
+      0x1D, 0x76, 0x30, 0x00, // GS v 0 0: Raster bit image normal mode
+      xL, xH, yL, yH
+    ];
+
+    const body = new Uint8Array(totalRasterBytes);
+    let byteIndex = 0;
+
+    for (let y = 0; y < targetHeight; y++) {
+      for (let xByte = 0; xByte < widthBytes; xByte++) {
+        let byteVal = 0;
+        for (let bit = 0; bit < 8; bit++) {
+          const x = xByte * 8 + bit;
+          if (x < targetWidth) {
+            const pixelIdx = (y * targetWidth + x) * 4;
+            const r = data[pixelIdx];
+            const g = data[pixelIdx + 1];
+            const b = data[pixelIdx + 2];
+            const a = data[pixelIdx + 3];
+
+            // Standard luminance calculation
+            const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+            // Thermal printing: 1 = black burn dot, 0 = white paper
+            if (a > 120 && lum < darknessThreshold) {
+              byteVal |= (1 << (7 - bit));
+            }
+          }
+        }
+        body[byteIndex++] = byteVal;
+      }
+    }
+
+    // Trailing feed lines for clean label peel / tear
+    const footer = [0x0A, 0x0A, 0x0A];
+
+    const result = new Uint8Array(header.length + body.length + footer.length);
+    result.set(header, 0);
+    result.set(body, header.length);
+    result.set(footer, header.length + body.length);
+
+    return result;
+  }
+
+  // Direct Bluetooth Thermal Print for Barcode & Price Tag Sticker
+  async printLabelBitmapViaBluetooth(
+    canvas: HTMLCanvasElement,
+    copies: number = 1,
+    paperWidth: '58mm' | '80mm' = '58mm',
+    darknessThreshold: number = 165
+  ): Promise<{ success: boolean; message: string; deviceName?: string }> {
+    if (!this.isConnected || !this.characteristic || !this.bluetoothDevice?.gatt?.connected) {
+      const reconnected = await this.autoReconnect();
+      if (!reconnected || !this.characteristic) {
+        return {
+          success: false,
+          message: 'Bluetooth thermal printer is not connected. Please pair or connect your printer.',
+        };
+      }
+    }
+
+    try {
+      const printerWidthDots = paperWidth === '80mm' ? 576 : 384;
+      const rasterBytes = this.convertCanvasToEscPosRaster(canvas, printerWidthDots, darknessThreshold);
+
+      if (!rasterBytes || rasterBytes.length === 0) {
+        return { success: false, message: 'Failed to generate barcode raster image' };
+      }
+
+      const safeCopies = Math.max(1, Math.min(copies, 50));
+      for (let c = 0; c < safeCopies; c++) {
+        await this.writeRawChunks(rasterBytes);
+        if (c < safeCopies - 1) {
+          // 250ms buffer drainage delay between consecutive labels
+          await new Promise((r) => setTimeout(r, 250));
+        }
+      }
+
+      return {
+        success: true,
+        deviceName: this.bluetoothDevice?.name || 'Bluetooth Thermal Printer',
+        message: `${safeCopies} barcode label(s) printed directly via Bluetooth!`,
+      };
+    } catch (err: any) {
+      console.error('Bluetooth label print failed:', err);
+      this.isConnected = false;
+      this.characteristic = null;
+      this.notifyStatus();
+      return {
+        success: false,
+        message: `Bluetooth print failed: ${err?.message || 'Check printer connection'}`,
+      };
+    }
+  }
+
+  // Send raw barcode sticker image to RawBT App via Android Intent
+  printLabelViaRawBT(
+    canvas: HTMLCanvasElement,
+    copies: number = 1,
+    paperWidth: '58mm' | '80mm' = '58mm'
+  ): void {
+    try {
+      const printerWidthDots = paperWidth === '80mm' ? 576 : 384;
+      const rasterBytes = this.convertCanvasToEscPosRaster(canvas, printerWidthDots);
+      const safeCopies = Math.max(1, Math.min(copies, 20));
+
+      let allBytes: Uint8Array;
+      if (safeCopies === 1) {
+        allBytes = rasterBytes;
+      } else {
+        allBytes = new Uint8Array(rasterBytes.length * safeCopies);
+        for (let i = 0; i < safeCopies; i++) {
+          allBytes.set(rasterBytes, i * rasterBytes.length);
+        }
+      }
+
+      let binary = '';
+      const len = allBytes.byteLength;
+      for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(allBytes[i]);
+      }
+      const base64Data = btoa(binary);
+      const playStoreFallback = encodeURIComponent(
+        'https://play.google.com/store/apps/details?id=ru.a402d.rawbtprinter'
+      );
+      const intentUrl = `intent:base64,${base64Data}#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;S.browser_fallback_url=${playStoreFallback};end;`;
+      window.location.href = intentUrl;
+    } catch (e) {
+      console.error('RawBT label print failed:', e);
     }
   }
 

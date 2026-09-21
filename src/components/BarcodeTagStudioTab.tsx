@@ -18,6 +18,12 @@ import {
   Copy,
   CheckCircle2,
   Package,
+  Bluetooth,
+  BluetoothConnected,
+  BluetoothOff,
+  Zap,
+  Smartphone,
+  AlertCircle,
 } from 'lucide-react';
 import JsBarcode from 'jsbarcode';
 import QRCode from 'qrcode';
@@ -148,6 +154,24 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string>('');
   const [isGeneratingImg, setIsGeneratingImg] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
+
+  // Bluetooth Thermal Printer states
+  const [btConnected, setBtConnected] = useState(thermalPrinterService.getIsConnected());
+  const [btConnecting, setBtConnecting] = useState(thermalPrinterService.getIsConnecting());
+  const [btDeviceName, setBtDeviceName] = useState<string | undefined>(thermalPrinterService.getDeviceName());
+  const [isBtPrinting, setIsBtPrinting] = useState(false);
+  const [paperRollWidth, setPaperRollWidth] = useState<'58mm' | '80mm'>(settings.paperWidth || '58mm');
+  const [darknessMode, setDarknessMode] = useState<'normal' | 'dark' | 'extra_dark'>('dark');
+
+  // Reactively subscribe to Bluetooth printer connection status changes
+  useEffect(() => {
+    const unsub = thermalPrinterService.addStatusListener((status) => {
+      setBtConnected(status.connected);
+      setBtConnecting(status.isConnecting);
+      setBtDeviceName(status.deviceName);
+    });
+    return unsub;
+  }, []);
 
   const barcodeSvgRef = useRef<SVGSVGElement | null>(null);
   const labelPreviewRef = useRef<HTMLDivElement | null>(null);
@@ -447,6 +471,119 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
       window.print();
     } finally {
       setIsPrinting(false);
+    }
+  };
+
+  // Pair or Connect Bluetooth Thermal Printer
+  const handleConnectBt = async () => {
+    try {
+      const res = await thermalPrinterService.connect();
+      if (res.success) {
+        onShowToast(
+          isBn ? `প্রিন্টার সংযুক্ত: ${res.deviceName || 'Thermal Printer'}` : `Connected to: ${res.deviceName || 'Thermal Printer'}`,
+          'success'
+        );
+      } else {
+        onShowToast(res.message, 'error');
+      }
+    } catch (err: any) {
+      onShowToast(err?.message || 'Bluetooth connection failed', 'error');
+    }
+  };
+
+  // Quick test slip on thermal printer
+  const handleTestPrint = async () => {
+    try {
+      const res = await thermalPrinterService.printTestReceipt(settings);
+      if (res.success) {
+        onShowToast(isBn ? 'টেস্ট স্লিপ প্রিন্ট হয়েছে!' : 'Test slip printed!', 'success');
+      } else {
+        onShowToast(res.message, 'error');
+      }
+    } catch (e: any) {
+      onShowToast(e?.message || 'Test print failed', 'error');
+    }
+  };
+
+  // Direct Bluetooth BLE Stream to Thermal Printer (ESC/POS Raster Bitmap)
+  const handleBtThermalPrint = async () => {
+    if (!labelPreviewRef.current) return;
+    setIsBtPrinting(true);
+
+    try {
+      // 1. Auto-connect if not already connected
+      if (!thermalPrinterService.getIsConnected()) {
+        onShowToast(isBn ? 'ব্লুটুথ প্রিন্টার কানেক্ট করা হচ্ছে...' : 'Connecting to Bluetooth printer...', 'info');
+        const conn = await thermalPrinterService.connect();
+        if (!conn.success) {
+          onShowToast(
+            isBn ? 'প্রিন্টার কানেক্ট করা যায়নি। ব্লুটুথ অন করে প্রিন্টারটি পেয়ার করুন।' : 'Could not connect. Please pair your Bluetooth printer.',
+            'error'
+          );
+          setIsBtPrinting(false);
+          return;
+        }
+      }
+
+      onShowToast(
+        isBn
+          ? `ব্লুটুথ থার্মাল প্রিন্টারে ${labelConfig.quantity}টি স্টিকার পাঠানো হচ্ছে...`
+          : `Streaming ${labelConfig.quantity} label(s) to Bluetooth thermal printer...`,
+        'info'
+      );
+
+      // Render crisp canvas representation of the sticker
+      const canvas = await html2canvas(labelPreviewRef.current, {
+        scale: 2.5,
+        backgroundColor: '#ffffff',
+        useCORS: true,
+        logging: false,
+      });
+
+      // Darkness threshold:
+      // normal = 175, dark = 160, extra_dark = 145
+      const threshold = darknessMode === 'extra_dark' ? 145 : darknessMode === 'dark' ? 160 : 175;
+
+      const result = await thermalPrinterService.printLabelBitmapViaBluetooth(
+        canvas,
+        labelConfig.quantity,
+        paperRollWidth,
+        threshold
+      );
+
+      if (result.success) {
+        onShowToast(
+          isBn
+            ? `✅ ${labelConfig.quantity}টি বারকোড স্টিকার ব্লুটুথ প্রিন্টারে প্রিন্ট হয়েছে!`
+            : `✅ ${labelConfig.quantity} barcode label(s) printed via Bluetooth!`,
+          'success'
+        );
+      } else {
+        onShowToast(result.message, 'error');
+      }
+    } catch (e: any) {
+      console.error('Bluetooth thermal print error:', e);
+      onShowToast(isBn ? `প্রিন্ট সমস্যা: ${e?.message || 'ত্রুটি'}` : `Print failed: ${e?.message}`, 'error');
+    } finally {
+      setIsBtPrinting(false);
+    }
+  };
+
+  // Send raw ESC/POS image to RawBT Android app via Intent
+  const handleRawBTPrint = async () => {
+    if (!labelPreviewRef.current) return;
+    try {
+      onShowToast(isBn ? 'RawBT অ্যাপে পাঠানো হচ্ছে...' : 'Sending to RawBT app...', 'info');
+      const canvas = await html2canvas(labelPreviewRef.current, {
+        scale: 2.5,
+        backgroundColor: '#ffffff',
+        useCORS: true,
+        logging: false,
+      });
+      thermalPrinterService.printLabelViaRawBT(canvas, labelConfig.quantity, paperRollWidth);
+    } catch (e: any) {
+      console.error('RawBT print error:', e);
+      onShowToast(isBn ? 'RawBT ওপেন করতে সমস্যা হয়েছে' : 'RawBT open failed', 'error');
     }
   };
 
@@ -996,6 +1133,156 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
               </div>
             </div>
 
+            {/* Bluetooth Thermal Printer Integration Card */}
+            <div className="p-3.5 bg-linear-to-br from-indigo-50/90 via-blue-50/60 to-sky-50/90 rounded-2xl border border-indigo-200/90 space-y-2.5 shadow-xs">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div
+                    className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition-all ${
+                      btConnected
+                        ? 'bg-indigo-600 text-white shadow-indigo-200 shadow-sm'
+                        : 'bg-stone-200 text-stone-600'
+                    }`}
+                  >
+                    <Bluetooth className={`w-4 h-4 ${btConnected ? 'animate-pulse' : ''}`} />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-xs font-black text-stone-900">
+                        {isBn ? 'ব্লুটুথ থার্মাল প্রিন্টার' : 'Bluetooth Thermal Printer'}
+                      </span>
+                      {btConnected ? (
+                        <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping inline-block" />
+                          {isBn ? 'কানেক্টেড' : 'Connected'}
+                        </span>
+                      ) : (
+                        <span className="bg-stone-200 text-stone-700 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                          {isBn ? 'কানেক্ট নেই' : 'Disconnected'}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-stone-600 truncate max-w-[210px] font-medium">
+                      {btConnected
+                        ? (btDeviceName || 'Thermal POS Printer')
+                        : (isBn ? 'ওয়্যারলেস প্রিন্ট করতে প্রিন্টার পেয়ার করুন' : 'Pair printer to print wirelessly')}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1 shrink-0">
+                  {btConnected && (
+                    <button
+                      type="button"
+                      onClick={handleTestPrint}
+                      className="px-2 py-1 bg-white hover:bg-stone-50 active:scale-95 text-stone-700 border border-stone-200 text-[11px] font-bold rounded-lg transition-all cursor-pointer shadow-2xs"
+                      title={isBn ? 'টেস্ট স্লিপ প্রিন্ট দিন' : 'Test slip'}
+                    >
+                      {isBn ? 'টেস্ট' : 'Test'}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleConnectBt}
+                    disabled={btConnecting}
+                    className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all flex items-center gap-1 cursor-pointer shadow-2xs active:scale-95 ${
+                      btConnected
+                        ? 'bg-white hover:bg-stone-50 text-indigo-700 border border-indigo-200'
+                        : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                    }`}
+                  >
+                    <Bluetooth className="w-3 h-3" />
+                    <span>
+                      {btConnecting
+                        ? (isBn ? 'খোঁজা হচ্ছে...' : 'Pairing...')
+                        : btConnected
+                        ? (isBn ? 'পরিবর্তন' : 'Change')
+                        : (isBn ? 'কানেক্ট করুন' : 'Connect')}
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Roll Size & Darkness density controls */}
+              <div className="grid grid-cols-2 gap-2 pt-1 border-t border-indigo-100/80 text-[11px]">
+                {/* Roll Width (58mm vs 80mm) */}
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-stone-600">
+                    {isBn ? 'রোল সাইজ (Roll Width):' : 'Roll Width:'}
+                  </span>
+                  <div className="grid grid-cols-2 gap-1 bg-white/90 p-0.5 rounded-lg border border-indigo-100">
+                    <button
+                      type="button"
+                      onClick={() => setPaperRollWidth('58mm')}
+                      className={`py-1 rounded-md text-[10px] font-bold transition-all cursor-pointer ${
+                        paperRollWidth === '58mm'
+                          ? 'bg-indigo-600 text-white shadow-2xs'
+                          : 'text-stone-600 hover:bg-stone-50'
+                      }`}
+                    >
+                      58mm (2")
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPaperRollWidth('80mm')}
+                      className={`py-1 rounded-md text-[10px] font-bold transition-all cursor-pointer ${
+                        paperRollWidth === '80mm'
+                          ? 'bg-indigo-600 text-white shadow-2xs'
+                          : 'text-stone-600 hover:bg-stone-50'
+                      }`}
+                    >
+                      80mm (3")
+                    </button>
+                  </div>
+                </div>
+
+                {/* Print Density / Darkness for sharp barcodes */}
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-stone-600">
+                    {isBn ? 'বারকোড স্পষ্টতা (Burn):' : 'Darkness (Burn):'}
+                  </span>
+                  <div className="grid grid-cols-3 gap-0.5 bg-white/90 p-0.5 rounded-lg border border-indigo-100">
+                    <button
+                      type="button"
+                      onClick={() => setDarknessMode('normal')}
+                      className={`py-1 rounded-md text-[9px] font-bold transition-all cursor-pointer ${
+                        darknessMode === 'normal'
+                          ? 'bg-indigo-600 text-white shadow-2xs'
+                          : 'text-stone-600 hover:bg-stone-50'
+                      }`}
+                      title="স্বাভাবিক হিট"
+                    >
+                      {isBn ? 'স্বাভাবিক' : 'Norm'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDarknessMode('dark')}
+                      className={`py-1 rounded-md text-[9px] font-bold transition-all cursor-pointer ${
+                        darknessMode === 'dark'
+                          ? 'bg-indigo-600 text-white shadow-2xs'
+                          : 'text-stone-600 hover:bg-stone-50'
+                      }`}
+                      title="গাঢ় ও স্পষ্ট"
+                    >
+                      {isBn ? 'গাঢ়' : 'Dark'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDarknessMode('extra_dark')}
+                      className={`py-1 rounded-md text-[9px] font-bold transition-all cursor-pointer ${
+                        darknessMode === 'extra_dark'
+                          ? 'bg-indigo-600 text-white shadow-2xs'
+                          : 'text-stone-600 hover:bg-stone-50'
+                      }`}
+                      title="সর্বোচ্চ স্পষ্টতা (স্ক্যানার ফ্রেন্ডলি)"
+                    >
+                      {isBn ? 'খুব গাঢ়' : 'Max'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* Print Quantity Selector */}
             <div className="p-3 bg-stone-50 rounded-xl border border-stone-200 flex items-center justify-between">
               <span className="text-xs font-bold text-stone-700">
@@ -1007,9 +1294,9 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                     key={num}
                     type="button"
                     onClick={() => setLabelConfig((prev) => ({ ...prev, quantity: num }))}
-                    className={`px-2 py-1 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer ${
+                    className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer ${
                       labelConfig.quantity === num
-                        ? 'bg-blue-600 text-white shadow-xs'
+                        ? 'bg-indigo-600 text-white shadow-xs'
                         : 'bg-white text-stone-700 border border-stone-200 hover:bg-stone-100'
                     }`}
                   >
@@ -1031,21 +1318,52 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
 
             {/* Primary Action Buttons */}
             <div className="space-y-2 pt-1">
-              {/* Print Button */}
+              {/* HERO ACTION: Direct Bluetooth Thermal Print */}
               <button
                 type="button"
-                id="btn-print-labels"
-                onClick={handlePrintLabels}
-                disabled={isPrinting}
-                className="w-full bg-blue-600 hover:bg-blue-500 active:scale-[0.99] text-white py-3 rounded-xl font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                id="btn-bt-thermal-print"
+                onClick={handleBtThermalPrint}
+                disabled={isBtPrinting}
+                className="w-full bg-linear-to-r from-blue-600 via-indigo-600 to-indigo-700 hover:from-blue-500 hover:to-indigo-600 active:scale-[0.99] text-white py-3.5 px-4 rounded-xl font-black text-sm shadow-md transition-all flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-50"
               >
-                <Printer className="w-4 h-4 stroke-[2.5]" />
-                <span>
-                  {isBn
-                    ? `${labelConfig.quantity} টি স্টিকার প্রিন্ট করুন (Print)`
-                    : `Print ${labelConfig.quantity} Label(s)`}
+                <Bluetooth className={`w-5 h-5 ${isBtPrinting ? 'animate-spin' : ''}`} />
+                <span className="tracking-wide">
+                  {isBtPrinting
+                    ? (isBn ? 'প্রিন্টারে পাঠানো হচ্ছে...' : 'Streaming to printer...')
+                    : (isBn
+                        ? `ব্লুটুথ থার্মাল প্রিন্ট (${labelConfig.quantity}টি স্টিকার)`
+                        : `Bluetooth Thermal Print (${labelConfig.quantity} Label${labelConfig.quantity > 1 ? 's' : ''})`)}
+                </span>
+                <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded-full font-mono font-extrabold uppercase tracking-wider">
+                  ESC/POS
                 </span>
               </button>
+
+              {/* Secondary Row: RawBT 1-Tap & Standard System/USB Print */}
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  id="btn-rawbt-print"
+                  onClick={handleRawBTPrint}
+                  className="w-full bg-emerald-700 hover:bg-emerald-600 active:scale-[0.99] text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                  title="অ্যান্ড্রয়েড RawBT প্রিন্টার অ্যাপের মাধ্যমে ১-ক্লিকে প্রিন্ট"
+                >
+                  <Smartphone className="w-3.5 h-3.5 text-emerald-200" />
+                  <span>{isBn ? 'RawBT অ্যাপ প্রিন্ট' : 'RawBT App Print'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  id="btn-print-labels"
+                  onClick={handlePrintLabels}
+                  disabled={isPrinting}
+                  className="w-full bg-stone-700 hover:bg-stone-600 active:scale-[0.99] text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  title="কম্পিউটার বা ইউএসবি প্রিন্টার ডায়ালগ"
+                >
+                  <Printer className="w-3.5 h-3.5 text-stone-200" />
+                  <span>{isBn ? 'সিস্টেম / USB প্রিন্ট' : 'System / USB Print'}</span>
+                </button>
+              </div>
 
               {/* Download for 4Barcode App & PDF */}
               <div className="grid grid-cols-2 gap-2">
@@ -1055,7 +1373,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                   onClick={handleDownloadImage}
                   disabled={isGeneratingImg}
                   className="w-full bg-stone-900 hover:bg-stone-800 active:scale-[0.99] text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                  title="4Barcode বা গ্যালারিতে সেভ করুন"
+                  title="4Barcode অ্যাপ বা গ্যালারিতে সেভ করুন"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>{isBn ? '4Barcode ছবি সেভ' : 'Save as PNG'}</span>
