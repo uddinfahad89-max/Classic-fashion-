@@ -26,6 +26,7 @@ import {
   Users,
   BookOpen,
   Truck,
+  Barcode,
   Plus,
   ShoppingBag,
   Clock,
@@ -338,6 +339,22 @@ export const Header: React.FC<HeaderProps> = ({
                       >
                         <Truck className="w-4 h-4 text-teal-600" />
                         <span>{isBn ? 'মাল কেনাকাটা (Purchases)' : 'Purchase Trips'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onSelectTab('barcode');
+                          setIsFolderMenuOpen(false);
+                        }}
+                        className={`w-full text-left px-3 py-2 text-xs font-semibold flex items-center gap-2 transition-colors ${
+                          activeTab === 'barcode'
+                            ? 'bg-blue-50 text-blue-700'
+                            : 'text-stone-700 hover:bg-stone-50'
+                        }`}
+                      >
+                        <Barcode className="w-4 h-4 text-indigo-600" />
+                        <span>{isBn ? 'বারকোড ও প্রাইস ট্যাগ (4Barcode)' : 'Barcode & Tags'}</span>
                       </button>
                     </div>
                   </div>
@@ -829,6 +846,23 @@ export const Header: React.FC<HeaderProps> = ({
                 >
                   <Truck className="w-5 h-5 text-teal-600" />
                   <span>{isBn ? 'মাল কেনাকাটা (Purchases)' : 'Purchase Trips'}</span>
+                </button>
+
+                {/* 6. Barcode & Price Tags */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSelectTab('barcode');
+                    setIsDrawerOpen(false);
+                  }}
+                  className={`w-full text-left px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-bold flex items-center gap-3 transition-colors cursor-pointer ${
+                    activeTab === 'barcode'
+                      ? 'bg-indigo-50 text-indigo-800'
+                      : 'text-stone-700 hover:bg-stone-100'
+                  }`}
+                >
+                  <Barcode className="w-5 h-5 text-indigo-600" />
+                  <span>{isBn ? 'বারকোড ও প্রাইস ট্যাগ (4Barcode)' : 'Barcode & Price Tags'}</span>
                 </button>
 
                 <div className="h-px bg-stone-200 my-2" />

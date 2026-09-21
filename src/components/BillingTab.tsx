@@ -334,21 +334,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             <Receipt className="w-4 h-4 text-blue-600" />
             <span>{t.instantItemEntry}</span>
           </h2>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setCalculatorTarget('item');
-                setIsCalculatorModalOpen(true);
-              }}
-              className="px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all shadow-2xs"
-              title={isBn ? 'ক্যালকুলেটর দিয়ে যোগ করুন' : 'Add with Calculator'}
-            >
-              <Calculator className="w-3.5 h-3.5 text-blue-700" />
-              <span>{isBn ? 'ক্যালকুলেটর দিয়ে যোগ' : 'Add with Calculator'}</span>
-            </button>
-            <span className="text-[11px] text-stone-400 font-medium hidden sm:inline">{t.typeAndAddDirectly}</span>
-          </div>
+          <span className="text-[11px] text-stone-400 font-medium">{t.typeAndAddDirectly}</span>
         </div>
 
         <form onSubmit={handleAddItem} className="space-y-2.5">
@@ -379,7 +365,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 value={itemPrice}
                 onChange={(e) => setItemPrice(e.target.value)}
                 placeholder={t.unitPrice}
-                className={`w-full border border-stone-200 bg-stone-50/80 ${sym ? 'pl-7' : 'pl-3'} pr-8 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all`}
+                className={`w-full border border-stone-200 bg-stone-50/80 ${sym ? (sym.length > 2 ? 'pl-11' : 'pl-8') : 'pl-3'} pr-8 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all`}
               />
               <button
                 type="button"
@@ -407,28 +393,14 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <button
-              type="submit"
-              id="btn-add-item"
-              className="w-full bg-blue-600 hover:bg-blue-500 active:scale-[0.99] text-white py-2.5 rounded-xl font-bold text-xs sm:text-sm shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-            >
-              <Plus className="w-4 h-4 stroke-[3]" />
-              <span>{t.addItemToBill}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setCalculatorTarget('item');
-                setIsCalculatorModalOpen(true);
-              }}
-              className="w-full bg-[#0052cc] hover:bg-[#0047b3] active:scale-[0.99] text-white py-2.5 rounded-xl font-bold text-xs sm:text-sm shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-            >
-              <Calculator className="w-4 h-4 stroke-[2.5]" />
-              <span>{isBn ? 'ক্যালকুলেটরে যোগ' : 'Add with Calculator'}</span>
-            </button>
-          </div>
+          <button
+            type="submit"
+            id="btn-add-item"
+            className="w-full bg-blue-600 hover:bg-blue-500 active:scale-[0.99] text-white py-2.5 sm:py-3 rounded-xl font-bold text-xs sm:text-sm shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+          >
+            <Plus className="w-4 h-4 stroke-[3]" />
+            <span>{t.addItemToBill}</span>
+          </button>
         </form>
       </div>
 
@@ -576,7 +548,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 value={discountValue}
                 onChange={(e) => setDiscountValue(e.target.value)}
                 placeholder={discountType === 'fixed' ? '0.00' : '0'}
-                className={`w-full border border-stone-200 bg-stone-50/80 ${(discountType === 'percent' || sym) ? 'pl-8' : 'pl-3'} pr-8 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all`}
+                className={`w-full border border-stone-200 bg-stone-50/80 ${(discountType === 'percent' || sym) ? (discountType === 'fixed' && sym && sym.length > 2 ? 'pl-11' : 'pl-8') : 'pl-3'} pr-8 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all`}
               />
               <button
                 type="button"

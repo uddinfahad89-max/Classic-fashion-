@@ -5,6 +5,7 @@ import {
   BookOpen,
   Receipt,
   Truck,
+  Barcode,
 } from 'lucide-react';
 import { ActiveTab, Language } from '../types';
 
@@ -29,7 +30,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
 }) => {
   const isBn = language === 'bn';
 
-  // Strict 5-tab sequence: Billing -> Dues -> Daybook -> Invoices -> Purchases
+  // Strict 6-tab sequence: Billing -> Dues -> Daybook -> Invoices -> Purchases -> Barcode
   const navItems: {
     id: ActiveTab;
     label: string;
@@ -70,6 +71,11 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       badge: purchasesCount,
       badgeColor: 'bg-emerald-600 text-white',
     },
+    {
+      id: 'barcode',
+      label: isBn ? 'বারকোড' : 'Barcode',
+      icon: Barcode,
+    },
   ];
 
   return (
@@ -78,8 +84,8 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       aria-label="Bottom Navigation"
       className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-stone-200/90 shadow-[0_-4px_20px_rgba(0,0,0,0.06)]"
     >
-      <div className="max-w-xl mx-auto px-2 py-1.5 sm:py-2">
-        <div className="grid grid-cols-5 gap-1">
+      <div className="max-w-xl mx-auto px-1.5 py-1.5 sm:py-2">
+        <div className="grid grid-cols-6 gap-0.5 sm:gap-1">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
@@ -89,7 +95,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                 id={`bottom-nav-${item.id}`}
                 type="button"
                 onClick={() => setActiveTab(item.id)}
-                className={`relative flex flex-col items-center justify-center py-1.5 px-1 rounded-2xl transition-all cursor-pointer select-none ${
+                className={`relative flex flex-col items-center justify-center py-1.5 px-0.5 rounded-2xl transition-all cursor-pointer select-none ${
                   isActive
                     ? 'bg-blue-50/90 text-blue-700 font-extrabold shadow-2xs scale-[1.02]'
                     : 'text-stone-500 hover:text-stone-800 hover:bg-stone-100/70 font-medium'
@@ -112,7 +118,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                   )}
                 </div>
                 <span
-                  className={`text-[10px] sm:text-[11px] mt-1 tracking-tight leading-none ${
+                  className={`text-[9.5px] sm:text-[11px] mt-1 tracking-tight leading-none truncate ${
                     isActive ? 'text-blue-700 font-black' : 'text-stone-600'
                   }`}
                 >

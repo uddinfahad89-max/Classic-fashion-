@@ -4,7 +4,33 @@ export type PaymentMethod = 'cash' | 'upi' | 'card' | 'due';
 
 export type PaymentStatus = 'PAID' | 'DUE' | 'PARTIAL';
 
-export type ActiveTab = 'billing' | 'invoices' | 'cashbook' | 'due' | 'purchases';
+export type ActiveTab = 'billing' | 'invoices' | 'cashbook' | 'due' | 'purchases' | 'barcode';
+
+export type LabelSizePreset = '2x1' | '2x1.2' | '1.5x1' | '1x1' | '2x2' | 'custom';
+
+export interface BarcodeLabelConfig {
+  storeName: string;
+  storePhone?: string;
+  itemName: string;
+  barcodeValue: string;
+  barcodeType: 'CODE128' | 'EAN13' | 'QR';
+  mrp?: number;
+  salePrice: number;
+  sizeOrVariant?: string;
+  batchOrDate?: string;
+  footerNote?: string;
+  sizePreset: LabelSizePreset;
+  customWidthMm?: number;
+  customHeightMm?: number;
+  showStoreName: boolean;
+  showMrp: boolean;
+  showSalePrice: boolean;
+  showBarcode: boolean;
+  showSize: boolean;
+  showBatch: boolean;
+  showBorder: boolean;
+  quantity: number;
+}
 
 export type Language = 'bn' | 'en' | 'hi';
 

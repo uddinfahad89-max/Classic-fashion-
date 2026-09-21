@@ -8,6 +8,7 @@ export const translations = {
     tabCashbook: 'ডেবুক',
     tabDue: 'বাকি খাতা',
     tabPurchases: 'কেনাকাটা',
+    tabBarcode: 'বারকোড',
 
     // Calculator
     calculator: 'ক্যালকুলেটর',
@@ -266,6 +267,7 @@ export const translations = {
     tabCashbook: 'Daybook',
     tabInvoices: 'Invoices',
     tabPurchases: 'Purchases',
+    tabBarcode: 'Barcode',
 
     // Calculator
     calculator: 'Calculator',
@@ -524,6 +526,7 @@ export const translations = {
     tabCashbook: 'डेबुक (रोकड़)',
     tabInvoices: 'इनवॉइस',
     tabPurchases: 'खरीदारी',
+    tabBarcode: 'बारकोड',
 
     // Calculator
     calculator: 'कैलकुलेटर',

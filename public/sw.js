@@ -1,5 +1,5 @@
 // Service Worker for Thermal POS & Billing Manager (Ultra-Lightweight & Offline-First)
-const CACHE_NAME = 'thermal-pos-v4-offline';
+const CACHE_NAME = 'thermal-pos-v7-offline';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -10,9 +10,7 @@ const ASSETS_TO_CACHE = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS_TO_CACHE).catch(() => {
-        // Continue even if some optional assets are missed
-      });
+      return cache.addAll(ASSETS_TO_CACHE).catch(() => {});
     }).then(() => self.skipWaiting())
   );
 });
@@ -35,41 +33,17 @@ self.addEventListener('fetch', (event) => {
   const request = event.request;
   if (request.method !== 'GET') return;
 
-  const url = new URL(request.url);
-
-  // For HTML document navigation (Navigation requests)
-  if (request.mode === 'navigate' || request.destination === 'document') {
-    event.respondWith(
-      fetch(request)
-        .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            const clone = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
-          }
-          return networkResponse;
-        })
-        .catch(() => {
-          // If offline or weak 2G drops connection, return cached HTML instantly
-          return caches.match('/index.html').then((cached) => cached || caches.match('/'));
-        })
-    );
-    return;
-  }
-
-  // Stale-While-Revalidate for scripts, styles, fonts, images
+  // Network-First for real-time fresh updates, fallback to cache when offline
   event.respondWith(
-    caches.match(request).then((cachedResponse) => {
-      const fetchPromise = fetch(request)
-        .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
-            const clone = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
-          }
-          return networkResponse;
-        })
-        .catch(() => cachedResponse);
-
-      return cachedResponse || fetchPromise;
-    })
+    fetch(request)
+      .then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200) {
+          const clone = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+        }
+        return networkResponse;
+      })
+      .catch(() => caches.match(request).then((cached) => cached || caches.match('/index.html')))
   );
 });
+

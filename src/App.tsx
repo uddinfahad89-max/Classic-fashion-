@@ -25,6 +25,7 @@ import { InvoicesTab } from './components/InvoicesTab';
 import { CashbookTab } from './components/CashbookTab';
 import { CustomerDueTab } from './components/CustomerDueTab';
 import { PurchaseTripTab } from './components/PurchaseTripTab';
+import { BarcodeTagStudioTab } from './components/BarcodeTagStudioTab';
 import { PrintReceiptModal } from './components/PrintReceiptModal';
 import { EditInvoiceModal } from './components/EditInvoiceModal';
 import { SettingsModal } from './components/SettingsModal';
@@ -834,6 +835,15 @@ export default function App() {
             onDeleteTrip={handleDeletePurchaseTrip}
             onSyncTripToCashbook={handleSyncTripToCashbook}
             onPrintTripSlip={(bill) => setReceiptBill(bill)}
+          />
+        )}
+
+        {activeTab === 'barcode' && (
+          <BarcodeTagStudioTab
+            settings={settings}
+            language={language}
+            bills={bills}
+            onShowToast={showToast}
           />
         )}
       </main>
