@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { CashEntry, CashEntryType, ThermalPrinterSettings, BillInvoice, Language } from '../types';
 import { translations } from '../utils/i18n';
+import { useBackHandler } from '../utils/useBackHandler';
 import { KhatabookEntryModal, KhatabookEntryPayload } from './KhatabookEntryModal';
 
 interface CashbookTabProps {
@@ -56,6 +57,11 @@ export const CashbookTab: React.FC<CashbookTabProps> = ({
 
   // Modal State for Cash In & Cash Out
   const [activeModalType, setActiveModalType] = useState<CashEntryType | null>(null);
+
+  useBackHandler('cashbookActiveModal', Boolean(activeModalType), () => {
+    setActiveModalType(null);
+    return true;
+  }, 35);
 
   // Helper date matchers
   const isSameDay = (timestamp: number, target: Date) => {

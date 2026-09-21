@@ -106,6 +106,7 @@ export interface ThermalPrinterSettings {
   paperWidth: PaperWidth;
   currencySymbol: string;
   currencyName?: string;
+  hideCurrencySymbol?: boolean;
   footerNote: string;
   autoPrintOnCheckout: boolean;
   defaultInvoiceFormat?: 'tax_invoice' | 'thermal';
@@ -126,6 +127,8 @@ export interface NetworkStatusInfo {
 export interface SavedPrinterInfo {
   id: string;
   name: string;
+  macAddress?: string;
+  type?: 'bluetooth' | 'usb' | 'wifi';
   savedAt: number;
 }
 

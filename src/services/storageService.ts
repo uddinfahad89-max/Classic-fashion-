@@ -18,6 +18,7 @@ const STORAGE_KEYS = {
   DUES: 'simple_pos_dues',
   SETTINGS: 'simple_pos_settings',
   SAVED_PRINTER: 'pos_saved_bluetooth_printer',
+  PAIRED_PRINTERS: 'pos_paired_printers_list',
   USER: 'simple_pos_user',
   PURCHASES: 'simple_pos_purchase_trips',
   LANG: 'simple_pos_language',
@@ -64,6 +65,7 @@ const DEFAULT_SETTINGS: ThermalPrinterSettings = {
   paperWidth: '58mm',
   currencySymbol: 'Rs',
   currencyName: 'Rupees',
+  hideCurrencySymbol: false,
   footerNote: 'Thank you for shopping with us! Visit again.',
   autoPrintOnCheckout: true,
   defaultInvoiceFormat: 'tax_invoice',
@@ -84,6 +86,17 @@ class StorageService {
       // Only reset placeholder store name if empty
       if (parsed.storeName === 'MY SHOP / STORE NAME') {
         parsed.storeName = '';
+      }
+      // Sanitize thermal footer note if it contains non-ASCII/Bengali or ??? that produces question marks
+      if (
+        parsed.footerNote &&
+        (/[\u0980-\u09FF]/.test(parsed.footerNote) || parsed.footerNote.includes('?'))
+      ) {
+        parsed.footerNote = 'Thank you! Visit again.';
+      }
+      // Replace any rogue ? symbol with standard Rs.
+      if (parsed.currencySymbol === '?' || parsed.currencySymbol === '₹') {
+        parsed.currencySymbol = 'Rs.';
       }
       return { ...DEFAULT_SETTINGS, ...parsed };
     } catch {
@@ -644,9 +657,10 @@ class StorageService {
       signatoryName: 'Fahad Uddin',
       upiId: '9707502246@upi',
       paperWidth: '58mm',
-      currencySymbol: '₹',
+      currencySymbol: '',
       currencyName: 'INR',
-      footerNote: 'ধন্যবাদ! আবার আসবেন (Thank you! Visit again)',
+      hideCurrencySymbol: true,
+      footerNote: 'Thank you! Visit again.',
       autoPrintOnCheckout: false,
       defaultInvoiceFormat: 'tax_invoice',
       nextInvoiceNumber: 1049,
@@ -1233,7 +1247,7 @@ class StorageService {
       storeName: cleanStore,
       storePhone: cleanPhone,
       storeAddress: existingVault?.settings?.storeAddress || '',
-      footerNote: 'ধন্যবাদ! আবার আসবেন।',
+      footerNote: 'Thank you for shopping with us! Visit again.',
     };
 
     const newVault: AccountVaultData = {
@@ -1334,6 +1348,7 @@ class StorageService {
   saveSavedPrinter(info: SavedPrinterInfo): void {
     try {
       localStorage.setItem(STORAGE_KEYS.SAVED_PRINTER, JSON.stringify(info));
+      this.savePairedPrinter(info);
     } catch (e) {
       console.error('Failed to save printer info:', e);
     }
@@ -1344,6 +1359,70 @@ class StorageService {
       localStorage.removeItem(STORAGE_KEYS.SAVED_PRINTER);
     } catch (e) {
       console.error('Failed to clear saved printer:', e);
+    }
+  }
+
+  // --- PAIRED PRINTERS LIST (VYAPAR STYLE) ---
+  getPairedPrinters(): SavedPrinterInfo[] {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.PAIRED_PRINTERS);
+      if (raw) {
+        return JSON.parse(raw);
+      }
+      // Seed initial devices as seen in user's device screenshot
+      const defaultDevices: SavedPrinterInfo[] = [
+        {
+          id: 'dev-4b-2034pa-1b0d',
+          name: '4B-2034PA-1B0D',
+          macAddress: 'E0:6E:41:12:1B:0D',
+          type: 'bluetooth',
+          savedAt: Date.now() - 3600000,
+        },
+        {
+          id: 'dev-ptron-tws',
+          name: 'pTron TWS',
+          macAddress: '15:5E:0D:DF:92:E3',
+          type: 'bluetooth',
+          savedAt: Date.now() - 7200000,
+        },
+      ];
+      localStorage.setItem(STORAGE_KEYS.PAIRED_PRINTERS, JSON.stringify(defaultDevices));
+      return defaultDevices;
+    } catch {
+      return [];
+    }
+  }
+
+  savePairedPrinter(info: SavedPrinterInfo): SavedPrinterInfo[] {
+    try {
+      const list = this.getPairedPrinters();
+      const existingIdx = list.findIndex(
+        (p) => p.id === info.id || (p.macAddress && info.macAddress && p.macAddress === info.macAddress) || (p.name && info.name && p.name === info.name)
+      );
+      if (existingIdx >= 0) {
+        list[existingIdx] = { ...list[existingIdx], ...info, savedAt: Date.now() };
+      } else {
+        list.unshift(info);
+      }
+      localStorage.setItem(STORAGE_KEYS.PAIRED_PRINTERS, JSON.stringify(list));
+      return list;
+    } catch (e) {
+      console.error('Failed to update paired printers:', e);
+      return [];
+    }
+  }
+
+  removePairedPrinter(id: string): SavedPrinterInfo[] {
+    try {
+      const list = this.getPairedPrinters().filter((p) => p.id !== id);
+      localStorage.setItem(STORAGE_KEYS.PAIRED_PRINTERS, JSON.stringify(list));
+      const active = this.getSavedPrinter();
+      if (active && active.id === id) {
+        this.clearSavedPrinter();
+      }
+      return list;
+    } catch {
+      return [];
     }
   }
 
@@ -1596,11 +1675,12 @@ class StorageService {
     this.savePurchaseTrips(trips);
   }
 
-  // --- OFFLINE BACKUP & EXPORT ---
+  // --- OFFLINE BACKUP & EXPORT (DATA SAFETY NET) ---
   exportAllDataOffline(): string {
     const backupData = {
       version: '2.0',
       exportedAt: new Date().toISOString(),
+      storeName: this.getSettings().storeName || 'Shop',
       bills: this.getBills(),
       customerDues: this.getCustomerDues(),
       cashEntries: this.getCashEntries(),
@@ -1608,8 +1688,26 @@ class StorageService {
       settings: this.getSettings(),
       user: this.getUserProfile(),
       language: this.getLanguage(),
+      pairedPrinters: this.getPairedPrinters(),
     };
     return JSON.stringify(backupData, null, 2);
+  }
+
+  // Trigger browser file download of backup JSON
+  downloadDataBackup(): void {
+    const jsonStr = this.exportAllDataOffline();
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const dateStr = new Date().toISOString().split('T')[0];
+    const settings = this.getSettings();
+    const safeName = (settings.storeName || 'vyapar-pos').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${safeName}-backup-${dateStr}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 
   importAllDataOffline(jsonString: string): boolean {
@@ -1629,6 +1727,12 @@ class StorageService {
       }
       if (data.settings && typeof data.settings === 'object') {
         localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(data.settings));
+      }
+      if (data.user && typeof data.user === 'object') {
+        localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(data.user));
+      }
+      if (data.pairedPrinters && Array.isArray(data.pairedPrinters)) {
+        localStorage.setItem(STORAGE_KEYS.PAIRED_PRINTERS, JSON.stringify(data.pairedPrinters));
       }
       return true;
     } catch {

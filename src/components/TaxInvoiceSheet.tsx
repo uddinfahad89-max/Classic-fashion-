@@ -8,8 +8,12 @@ interface TaxInvoiceSheetProps {
 }
 
 export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({ bill, settings }) => {
-  const currencySymbol = settings.currencySymbol || 'Rs';
-  const currencyName = settings.currencyName || (currencySymbol === '₹' || currencySymbol.toLowerCase().includes('rs') ? 'Rupees' : 'Taka');
+  const rawSym = (settings.currencySymbol || '').replace(/\?/g, '').trim();
+  const isCurrencyHidden = settings.hideCurrencySymbol || !rawSym;
+  const currencyPrefix = isCurrencyHidden ? '' : `${rawSym} `;
+  const currencyName =
+    settings.currencyName ||
+    (rawSym.toLowerCase().includes('rs') || rawSym === '₹' ? 'Rupees' : 'Taka');
   const storeName = settings.storeName?.trim() || 'STORE / SHOP';
   const storeAddress = settings.storeAddress?.trim() || '';
   const storePhone = settings.storePhone?.trim() || '';
@@ -130,10 +134,10 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({ bill, settings
                   {item.qty}
                 </td>
                 <td className="py-2.5 px-3 text-right text-stone-900 font-medium whitespace-nowrap">
-                  {currencySymbol} {item.price.toFixed(1)}
+                  {item.price.toFixed(1)}
                 </td>
                 <td className="py-2.5 px-3 text-right text-stone-900 font-medium whitespace-nowrap">
-                  {currencySymbol} {item.total.toFixed(1)}
+                  {item.total.toFixed(1)}
                 </td>
               </tr>
             ))}
@@ -147,7 +151,7 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({ bill, settings
               </td>
               <td className="py-2.5 px-3"></td>
               <td className="py-2.5 px-3 text-right font-bold text-stone-900 text-sm sm:text-base whitespace-nowrap">
-                {currencySymbol} {bill.subtotal.toFixed(1)}
+                {currencyPrefix}{bill.subtotal.toFixed(1)}
               </td>
             </tr>
           </tfoot>
@@ -169,7 +173,7 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({ bill, settings
           <div className="flex justify-between items-center py-0.5">
             <span className="font-normal text-stone-800">Sub Total</span>
             <span className="font-normal text-stone-900">
-              {currencySymbol} {bill.subtotal.toFixed(1)}
+              {currencyPrefix}{bill.subtotal.toFixed(1)}
             </span>
           </div>
 
@@ -178,7 +182,7 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({ bill, settings
               Discount {discountPercent > 0 ? `(${discountPercent.toFixed(1)}%)` : ''}
             </span>
             <span className="font-normal text-stone-900">
-              {currencySymbol} {discountAmount.toFixed(1)}
+              {currencyPrefix}{discountAmount.toFixed(1)}
             </span>
           </div>
 
@@ -186,42 +190,42 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({ bill, settings
           <div className="bg-[#8C8EE8] text-white print:bg-[#8C8EE8] print:text-white font-bold py-1.5 px-3 flex justify-between items-center my-1 text-sm sm:text-base rounded-xs">
             <span>Total</span>
             <span>
-              {currencySymbol} {bill.grandTotal.toFixed(1)}
+              {currencyPrefix}{bill.grandTotal.toFixed(1)}
             </span>
           </div>
 
           <div className="flex justify-between items-center py-0.5">
             <span className="font-normal text-stone-800">Received</span>
             <span className="font-normal text-stone-900">
-              {currencySymbol} {paidAmount.toFixed(1)}
+              {currencyPrefix}{paidAmount.toFixed(1)}
             </span>
           </div>
 
           <div className="flex justify-between items-center py-0.5">
             <span className="font-normal text-stone-800">Balance</span>
             <span className="font-normal text-stone-900">
-              {currencySymbol} {balance.toFixed(1)}
+              {currencyPrefix}{balance.toFixed(1)}
             </span>
           </div>
 
           <div className="flex justify-between items-center py-0.5">
             <span className="font-normal text-stone-800">You Saved</span>
             <span className="font-normal text-stone-900">
-              {currencySymbol} {youSaved.toFixed(1)}
+              {currencyPrefix}{youSaved.toFixed(1)}
             </span>
           </div>
 
           <div className="flex justify-between items-center py-0.5">
             <span className="font-normal text-stone-800">Previous Balance</span>
             <span className="font-normal text-stone-900">
-              {currencySymbol} {previousBalance.toFixed(1)}
+              {currencyPrefix}{previousBalance.toFixed(1)}
             </span>
           </div>
 
           <div className="flex justify-between items-center py-0.5">
             <span className="font-normal text-stone-800">Current Balance</span>
             <span className="font-normal text-stone-900">
-              {currencySymbol} {currentBalance.toFixed(1)}
+              {currencyPrefix}{currentBalance.toFixed(1)}
             </span>
           </div>
           {/* Bottom underline under Current Balance */}

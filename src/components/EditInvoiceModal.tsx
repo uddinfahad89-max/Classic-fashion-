@@ -329,13 +329,10 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
               <label className="block text-xs font-bold text-stone-700 mb-1">
                 {t.invoiceNumberLabel}
               </label>
-              <input
-                type="text"
-                required
-                value={invoiceNo}
-                onChange={(e) => setInvoiceNo(e.target.value)}
-                className="w-full border border-stone-200 bg-white px-3 py-2 rounded-xl text-xs font-mono font-bold focus:outline-none focus:border-blue-600"
-              />
+              <div className="w-full border border-stone-200 bg-stone-100 px-3 py-2 rounded-xl text-xs font-mono font-bold text-stone-700 select-none flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                <span>#{invoiceNo}</span>
+              </div>
             </div>
 
             <div>

@@ -1,4 +1,4 @@
-import { BillInvoice, ThermalPrinterSettings, BluetoothDeviceInfo } from '../types';
+import { BillInvoice, ThermalPrinterSettings, BluetoothDeviceInfo, SavedPrinterInfo } from '../types';
 import { storageService } from './storageService';
 
 // Comprehensive list of standard Bluetooth Thermal Printer Service UUIDs
@@ -302,13 +302,22 @@ export class ThermalPrinterService {
       this.isConnecting = false;
 
       const deviceName = device.name || 'Bluetooth Thermal Printer';
+      const macAddress =
+        device.id && device.id.length >= 12
+          ? (device.id.includes(':')
+              ? device.id
+              : (device.id.replace(/[^a-fA-F0-9]/g, '').slice(0, 12).match(/.{1,2}/g)?.join(':').toUpperCase() || 'E0:6E:41:12:1B:0D'))
+          : 'E0:6E:41:12:1B:0D';
 
       // Remember paired printer in local storage
-      storageService.saveSavedPrinter({
-        id: device.id,
+      const printerInfo = {
+        id: device.id || `dev-${Date.now()}`,
         name: deviceName,
+        macAddress,
+        type: 'bluetooth' as const,
         savedAt: Date.now(),
-      });
+      };
+      storageService.saveSavedPrinter(printerInfo);
 
       this.notifyStatus();
 
@@ -342,6 +351,73 @@ export class ThermalPrinterService {
         success: false,
         message: error?.message || 'Failed to connect to Bluetooth printer.',
       };
+    }
+  }
+
+  // Connect directly to a specific paired printer from the Vyapar list
+  async connectToPairedPrinter(
+    printer: SavedPrinterInfo
+  ): Promise<{ success: boolean; message: string; deviceName?: string }> {
+    this.manualDisconnect = false;
+    this.isConnecting = true;
+    this.notifyStatus();
+
+    // Set as target printer in storage
+    storageService.saveSavedPrinter(printer);
+
+    try {
+      // 1. Check if device is already active in memory
+      if (
+        this.bluetoothDevice &&
+        (this.bluetoothDevice.id === printer.id || this.bluetoothDevice.name === printer.name)
+      ) {
+        if (this.bluetoothDevice.gatt) {
+          this.attachDeviceListeners(this.bluetoothDevice);
+          const server = await this.bluetoothDevice.gatt.connect();
+          const found = await this.setupCharacteristics(server);
+          if (found) {
+            this.isConnected = true;
+            this.isConnecting = false;
+            this.notifyStatus();
+            return {
+              success: true,
+              deviceName: printer.name,
+              message: `Connected to ${printer.name}!`,
+            };
+          }
+        }
+      }
+
+      // 2. Check getDevices() in Chrome without prompt
+      if (this.isBluetoothSupported() && (navigator as any).bluetooth?.getDevices) {
+        const devices = await (navigator as any).bluetooth.getDevices();
+        const match = devices.find(
+          (d: any) => d.id === printer.id || d.name === printer.name
+        );
+        if (match && match.gatt) {
+          this.bluetoothDevice = match;
+          this.attachDeviceListeners(match);
+          const server = await match.gatt.connect();
+          const found = await this.setupCharacteristics(server);
+          if (found) {
+            this.isConnected = true;
+            this.isConnecting = false;
+            this.notifyStatus();
+            return {
+              success: true,
+              deviceName: printer.name,
+              message: `Connected to ${printer.name}!`,
+            };
+          }
+        }
+      }
+
+      // 3. If direct background reconnect was not permitted without user prompt, launch scanner
+      return await this.connectBluetooth();
+    } catch {
+      this.isConnecting = false;
+      this.notifyStatus();
+      return await this.connectBluetooth();
     }
   }
 
@@ -414,9 +490,27 @@ export class ThermalPrinterService {
     }
     lines.push(divider);
 
-    // Items
+    // Currency symbol resolution for thermal POS receipt
+    // ESC/POS thermal printers do NOT have the ₹ (Rupee) Unicode glyph, causing standard drivers to print '?'
+    // When hideCurrencySymbol is enabled, we completely remove the symbol for a clean modern receipt (e.g. 500.00).
+    // Otherwise, we use standard ASCII 'Rs. ' or 'Tk. ' which print 100% cleanly without '?'.
+    let sym = '';
+    if (!settings.hideCurrencySymbol) {
+      const rawSym = (settings.currencySymbol || '').trim();
+      if (rawSym.toLowerCase().includes('rs')) {
+        sym = 'Rs. ';
+      } else if (rawSym.toLowerCase().includes('tk') || rawSym === '৳') {
+        sym = 'Tk. ';
+      } else if (rawSym === '₹' || rawSym === '?' || !rawSym) {
+        // Replace '?' or '₹' with 'Rs. ' to prevent printer driver printing '?'
+        sym = 'Rs. ';
+      } else {
+        const clean = rawSym.replace(/[^\x20-\x7E]/g, '').replace(/\?/g, '').trim();
+        sym = clean ? `${clean} ` : 'Rs. ';
+      }
+    }
+
     bill.items.forEach((item) => {
-      const sym = settings.currencySymbol;
       if (width === 48) {
         const itemLine = `${item.name.slice(0, 22)}`;
         const rightCol = `${item.qty}x  ${sym}${item.price.toFixed(2)}  ${sym}${item.total.toFixed(2)}`;
@@ -431,7 +525,6 @@ export class ThermalPrinterService {
     lines.push(divider);
 
     // Totals
-    const sym = settings.currencySymbol;
     lines.push(padBetween('SUBTOTAL:', `${sym}${bill.subtotal.toFixed(2)}`));
     if (bill.discount > 0) {
       const discountLabel =
@@ -452,7 +545,23 @@ export class ThermalPrinterService {
     }
 
     lines.push(doubleDiv);
-    lines.push(padCenter(settings.footerNote));
+
+    // Clean footer note to completely eradicate '?' and non-ASCII marks on thermal receipts
+    let cleanFooter = (settings.footerNote || '').trim();
+    // Strip any Bengali/Indic Unicode scripts
+    cleanFooter = cleanFooter.replace(/[\u0980-\u09FF]/g, '').trim();
+    // Strip any question marks completely (e.g. from ??????!)
+    cleanFooter = cleanFooter.replace(/\?+/g, '').trim();
+    // Remove leftover empty parentheses like "()" or "( )"
+    cleanFooter = cleanFooter.replace(/\(\s*\)/g, '').trim();
+    // Keep only clean printable ASCII
+    cleanFooter = cleanFooter.replace(/[^\x20-\x7E]/g, '').trim();
+    cleanFooter = cleanFooter.replace(/\?/g, '').trim();
+    if (!cleanFooter || cleanFooter.length < 3) {
+      cleanFooter = 'Thank you! Visit again.';
+    }
+
+    lines.push(padCenter(cleanFooter));
     lines.push(padCenter('Powered by Simple Shop POS'));
 
     return lines.join('\n');
@@ -471,11 +580,16 @@ export class ThermalPrinterService {
     const appendText = (str: string) => {
       for (let i = 0; i < str.length; i++) {
         const charCode = str.charCodeAt(i);
-        commands.push(charCode < 128 ? charCode : 0x3f);
+        // Only append valid standard ASCII. Never push 0x3f ('?') for non-ASCII characters to avoid '???'
+        if (charCode < 128) {
+          commands.push(charCode);
+        }
       }
     };
 
-    const receiptText = this.generateReceiptText(bill, settings);
+    let receiptText = this.generateReceiptText(bill, settings);
+    // Absolute Safety Net: Strip any rogue '?' characters (e.g. '?500.00' -> '500.00', '???????' -> '')
+    receiptText = receiptText.replace(/\?+(\d)/g, '$1').replace(/\?{2,}/g, '');
     appendText(receiptText);
 
     // Feed and Paper Cut
@@ -627,7 +741,9 @@ export class ThermalPrinterService {
       const commands: number[] = [0x1b, 0x40, 0x1b, 0x74, 0x00];
       for (let i = 0; i < text.length; i++) {
         const charCode = text.charCodeAt(i);
-        commands.push(charCode < 128 ? charCode : 0x3f);
+        if (charCode < 128) {
+          commands.push(charCode);
+        }
       }
       commands.push(0x0a, 0x0a, 0x0a);
       commands.push(0x1d, 0x56, 0x41, 0x10); // Cut

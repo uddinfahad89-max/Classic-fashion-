@@ -28,6 +28,7 @@ import {
 } from '../types';
 import { storageService } from '../services/storageService';
 import { translations } from '../utils/i18n';
+import { useBackHandler } from '../utils/useBackHandler';
 import { KhatabookEntryModal, KhatabookEntryPayload } from './KhatabookEntryModal';
 
 interface BillingTabProps {
@@ -64,30 +65,26 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   // Checkout meta
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
-  // Automatically generated sequential invoice number
+  // Automatically generated sequential invoice number (Vyapar style - fully automatic, manual input hidden)
   const [invoiceNo, setInvoiceNo] = useState(() => storageService.getNextInvoiceNumber());
-  const [isManualInvoice, setIsManualInvoice] = useState(false);
   const [discountType, setDiscountType] = useState<'fixed' | 'percent'>('fixed');
   const [discountValue, setDiscountValue] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
   const [paidAmount, setPaidAmount] = useState('');
 
-  // Synchronize when settings prefix or sequence updates, if not manually edited
+  // Synchronize when settings prefix or sequence updates
   useEffect(() => {
-    if (!isManualInvoice) {
-      setInvoiceNo(storageService.getNextInvoiceNumber());
-    }
-  }, [settings.invoicePrefix, settings.nextInvoiceNumber, isManualInvoice]);
-
-  const handleResetToAutoInvoice = () => {
-    const next = storageService.getNextInvoiceNumber();
-    setInvoiceNo(next);
-    setIsManualInvoice(false);
-  };
+    setInvoiceNo(storageService.getNextInvoiceNumber());
+  }, [settings.invoicePrefix, settings.nextInvoiceNumber]);
 
   // Khatabook Calculator Modal State
   const [isCalculatorModalOpen, setIsCalculatorModalOpen] = useState(false);
   const [calculatorTarget, setCalculatorTarget] = useState<'item' | 'paid' | 'discount'>('item');
+
+  useBackHandler('billingCalculatorModal', isCalculatorModalOpen, () => {
+    setIsCalculatorModalOpen(false);
+    return true;
+  }, 35);
 
   const nameInputRef = useRef<HTMLInputElement>(null);
 
@@ -255,11 +252,14 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     setTimeout(() => {
       const nextInv = storageService.getNextInvoiceNumber();
       setInvoiceNo(nextInv);
-      setIsManualInvoice(false);
     }, 50);
   };
 
-  const sym = settings.currencySymbol || '₹';
+  const hideCurrency =
+    settings.hideCurrencySymbol ||
+    settings.currencySymbol === '₹' ||
+    !settings.currencySymbol;
+  const sym = hideCurrency ? '' : settings.currencySymbol;
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-4 sm:py-6 space-y-4">
@@ -268,16 +268,23 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-bold text-stone-900 flex items-center gap-1.5">
             <User className="w-4 h-4 text-blue-600" />
-            <span>{isBn ? 'ক্রেতার বিবরণ ও ইনভয়েস' : 'Customer Details & Invoice'}</span>
+            <span>{isBn ? 'ক্রেতার বিবরণ' : 'Customer Details'}</span>
           </h2>
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-mono font-bold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-lg border border-blue-200">
-              #{invoiceNo || storageService.getNextInvoiceNumber()}
+          {/* Automatic Sequential Invoice Number Badge (Vyapar style - auto generated, manual input hidden) */}
+          <div className="flex items-center gap-1.5">
+            <span
+              id="billing-auto-invoice-badge"
+              title={isBn ? 'স্বয়ংক্রিয় পরবর্তী ইনভয়েস নম্বর' : 'Sequential Auto-Generated Invoice Number'}
+              className="text-[11px] font-mono font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200 shadow-2xs flex items-center gap-1.5"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span>#{invoiceNo || storageService.getNextInvoiceNumber()}</span>
+              <span className="text-[10px] text-blue-600 font-sans font-medium">({isBn ? 'অটো' : 'Auto'})</span>
             </span>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {/* Customer Name */}
           <div>
             <label className="block text-[11px] font-semibold text-stone-600 mb-1">
@@ -315,46 +322,6 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 placeholder={t.customerPhoneOptionalPlaceholder}
                 className="w-full border border-stone-200 bg-stone-50/80 pl-9 pr-3 py-2 rounded-xl text-xs sm:text-sm font-mono font-medium focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
               />
-            </div>
-          </div>
-
-          {/* Automatic Invoice Number Field */}
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-[11px] font-semibold text-stone-600 flex items-center gap-1">
-                <Hash className="w-3.5 h-3.5 text-blue-600" />
-                <span>{isBn ? 'ইনভয়েস নম্বর' : 'Invoice Number'}</span>
-              </label>
-              <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border inline-flex items-center gap-1 ${
-                isManualInvoice
-                  ? 'bg-amber-50 text-amber-700 border-amber-200'
-                  : 'bg-emerald-50 text-emerald-700 border-emerald-200'
-              }`}>
-                {!isManualInvoice && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>}
-                {isManualInvoice ? (isBn ? 'কাস্টম' : 'Custom') : (isBn ? 'স্বয়ংক্রিয়' : 'Auto')}
-              </span>
-            </div>
-            <div className="relative">
-              <input
-                type="text"
-                id="billing-invoice-no"
-                value={invoiceNo}
-                onChange={(e) => {
-                  setInvoiceNo(e.target.value);
-                  setIsManualInvoice(true);
-                }}
-                placeholder={storageService.getNextInvoiceNumber()}
-                title={isBn ? 'ইনভয়েস নম্বর স্বয়ংক্রিয়ভাবে তৈরি হয়েছে' : 'Invoice number automatically added'}
-                className="w-full border border-blue-200 bg-blue-50/40 pl-3 pr-8 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold text-blue-900 focus:outline-none focus:border-blue-500 focus:bg-white transition-all shadow-2xs"
-              />
-              <button
-                type="button"
-                onClick={handleResetToAutoInvoice}
-                title={isBn ? 'স্বয়ংক্রিয় পরবর্তী নম্বরে রিসেট করুন' : 'Reset to next auto sequential invoice number'}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400 hover:text-blue-600 p-1 rounded-lg transition-colors cursor-pointer"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-              </button>
             </div>
           </div>
         </div>
@@ -399,9 +366,11 @@ export const BillingTab: React.FC<BillingTabProps> = ({
 
           <div className="flex gap-2">
             <div className="w-1/2 relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs font-mono">
-                {sym}
-              </span>
+              {sym ? (
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs font-mono">
+                  {sym}
+                </span>
+              ) : null}
               <input
                 type="number"
                 id="itemPrice"
@@ -410,7 +379,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 value={itemPrice}
                 onChange={(e) => setItemPrice(e.target.value)}
                 placeholder={t.unitPrice}
-                className="w-full border border-stone-200 bg-stone-50/80 pl-7 pr-8 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
+                className={`w-full border border-stone-200 bg-stone-50/80 ${sym ? 'pl-7' : 'pl-3'} pr-8 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all`}
               />
               <button
                 type="button"
@@ -575,7 +544,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                     : 'text-stone-500 hover:text-stone-800'
                 }`}
               >
-                {t.discountFixedLabel} ({sym})
+                {sym ? `${t.discountFixedLabel} (${sym})` : t.discountFixedLabel}
               </button>
               <button
                 type="button"
@@ -594,9 +563,11 @@ export const BillingTab: React.FC<BillingTabProps> = ({
 
           <div className="flex gap-2">
             <div className="relative flex-1">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-xs text-stone-400">
-                {discountType === 'fixed' ? sym : '%'}
-              </span>
+              {(discountType === 'percent' || sym) ? (
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-xs text-stone-400">
+                  {discountType === 'fixed' ? sym : '%'}
+                </span>
+              ) : null}
               <input
                 type="number"
                 min="0"
@@ -605,7 +576,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 value={discountValue}
                 onChange={(e) => setDiscountValue(e.target.value)}
                 placeholder={discountType === 'fixed' ? '0.00' : '0'}
-                className="w-full border border-stone-200 bg-stone-50/80 pl-8 pr-8 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
+                className={`w-full border border-stone-200 bg-stone-50/80 ${(discountType === 'percent' || sym) ? 'pl-8' : 'pl-3'} pr-8 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all`}
               />
               <button
                 type="button"

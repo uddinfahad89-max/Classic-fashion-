@@ -26,6 +26,7 @@ import {
 import { CustomerDue, DueType, ThermalPrinterSettings, BillInvoice, Language } from '../types';
 import { translations } from '../utils/i18n';
 import { KhatabookEntryModal, KhatabookEntryPayload } from './KhatabookEntryModal';
+import { useBackHandler } from '../utils/useBackHandler';
 
 interface CustomerDueTabProps {
   dues: CustomerDue[];
@@ -85,6 +86,35 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
     isNewCustomer?: boolean;
   } | null>(null);
 
+  // Report Modal / Print
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+
+  // Native-like Android Back button handlers for CustomerDueTab
+  useBackHandler('dueKhatabookModal', Boolean(khatabookModal?.isOpen), () => {
+    setKhatabookModal(null);
+    return true;
+  }, 35);
+
+  useBackHandler('dueTxModal', Boolean(activeTxModal), () => {
+    setActiveTxModal(null);
+    return true;
+  }, 35);
+
+  useBackHandler('dueAddCustomerModal', isAddCustomerModalOpen, () => {
+    setIsAddCustomerModalOpen(false);
+    return true;
+  }, 35);
+
+  useBackHandler('dueReportModal', isReportModalOpen, () => {
+    setIsReportModalOpen(false);
+    return true;
+  }, 35);
+
+  useBackHandler('dueCustomerTimeline', Boolean(selectedCustomer), () => {
+    setSelectedCustomer(null);
+    return true;
+  }, 30);
+
   // Keep selectedCustomer in sync with updated dues
   useEffect(() => {
     if (selectedCustomer) {
@@ -94,9 +124,6 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
       }
     }
   }, [dues]);
-
-  // Report Modal / Print
-  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
 
   // Totals calculations
   const totalReceivable = useMemo(() => {

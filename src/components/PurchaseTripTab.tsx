@@ -40,6 +40,7 @@ import {
 } from '../types';
 import { translations, getCategoryBadge } from '../utils/i18n';
 import { KhatabookEntryModal, KhatabookEntryPayload } from './KhatabookEntryModal';
+import { useBackHandler } from '../utils/useBackHandler';
 
 interface PurchaseTripTabProps {
   trips: PurchaseTrip[];
@@ -102,6 +103,26 @@ export const PurchaseTripTab: React.FC<PurchaseTripTabProps> = ({
   const [isNewTripModalOpen, setIsNewTripModalOpen] = useState(false);
   const [editingTrip, setEditingTrip] = useState<PurchaseTrip | null>(null);
   const [addCashTrip, setAddCashTrip] = useState<PurchaseTrip | null>(null);
+
+  useBackHandler('purchaseAddExpenseModal', isAddPurchaseModalOpen, () => {
+    setIsAddPurchaseModalOpen(false);
+    return true;
+  }, 35);
+
+  useBackHandler('purchaseNewTripModal', isNewTripModalOpen, () => {
+    setIsNewTripModalOpen(false);
+    return true;
+  }, 35);
+
+  useBackHandler('purchaseEditTripModal', Boolean(editingTrip), () => {
+    setEditingTrip(null);
+    return true;
+  }, 35);
+
+  useBackHandler('purchaseAddCashModal', Boolean(addCashTrip), () => {
+    setAddCashTrip(null);
+    return true;
+  }, 35);
 
   // Target trip selector
   const [targetTripId, setTargetTripId] = useState<string>(

@@ -1,5 +1,5 @@
 // Service Worker for Thermal POS & Billing Manager (Ultra-Lightweight & Offline-First)
-const CACHE_NAME = 'thermal-pos-v2-offline';
+const CACHE_NAME = 'thermal-pos-v4-offline';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',

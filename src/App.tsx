@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   BillItem,
   BillInvoice,
@@ -34,7 +34,11 @@ import { OnboardingModal } from './components/OnboardingModal';
 import { CalculatorModal } from './components/CalculatorModal';
 import { DataSaverModal } from './components/DataSaverModal';
 import { BluetoothHelpModal } from './components/BluetoothHelpModal';
+import { ExitConfirmModal } from './components/ExitConfirmModal';
+import { BackExitPill } from './components/BackExitPill';
 import { useNetworkStatus } from './utils/useNetworkStatus';
+import { backHandler } from './utils/backHandler';
+import { useBackHandler } from './utils/useBackHandler';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('invoices');
@@ -59,6 +63,8 @@ export default function App() {
   const [editingBill, setEditingBill] = useState<BillInvoice | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isPrintingBill, setIsPrintingBill] = useState(false);
+  const [isExitConfirmOpen, setIsExitConfirmOpen] = useState(false);
+  const [isExitPillVisible, setIsExitPillVisible] = useState(false);
 
   const networkStatus = useNetworkStatus();
   const [toast, setToast] = useState<{
@@ -122,7 +128,86 @@ export default function App() {
         console.log('Background auto-reconnect notice:', err);
       });
     }
+
+    // Initialize native Android & browser back button handler
+    backHandler.init();
   }, []);
+
+  // Priority 60: If exit confirmation dialog is open, pressing Back again immediately exits
+  useBackHandler(
+    'appExitConfirm',
+    isExitConfirmOpen,
+    () => {
+      backHandler.forceExit();
+      return true;
+    },
+    60
+  );
+
+  // Priority 50: App-level overlays & modals
+  useBackHandler('appEditingBill', Boolean(editingBill), () => {
+    setEditingBill(null);
+    return true;
+  }, 50);
+
+  useBackHandler('appReceiptBill', Boolean(receiptBill), () => {
+    setReceiptBill(null);
+    return true;
+  }, 50);
+
+  useBackHandler('appSettings', isSettingsOpen, () => {
+    setIsSettingsOpen(false);
+    return true;
+  }, 50);
+
+  useBackHandler('appCalculator', isCalculatorOpen, () => {
+    setIsCalculatorOpen(false);
+    return true;
+  }, 50);
+
+  useBackHandler('appDataSaver', isDataSaverOpen, () => {
+    setIsDataSaverOpen(false);
+    return true;
+  }, 50);
+
+  useBackHandler('appBluetoothHelp', isBluetoothHelpOpen, () => {
+    setIsBluetoothHelpOpen(false);
+    return true;
+  }, 50);
+
+  useBackHandler('appLogin', isLoginModalOpen, () => {
+    setIsLoginModalOpen(false);
+    return true;
+  }, 50);
+
+  useBackHandler('appOnboarding', isOnboardingOpen, () => {
+    setIsOnboardingOpen(false);
+    return true;
+  }, 50);
+
+  // Priority 10: Root screen Khatabook-style Back Exit handling (active on ANY main tab when no modal is open)
+  useBackHandler(
+    'appRootBackExit',
+    !isExitConfirmOpen,
+    () => {
+      if (isExitPillVisible) {
+        // User pressed Back AGAIN within 3.5 seconds while pill is visible!
+        // Hide the pill and open the confirmation dialog ("একবার জিজ্ঞাসা করে নে")
+        setIsExitPillVisible(false);
+        setIsExitConfirmOpen(true);
+      } else {
+        // First Back press: show Khatabook-style floating pill prompt!
+        setIsExitPillVisible(true);
+        try {
+          if (typeof navigator !== 'undefined' && navigator.vibrate) {
+            navigator.vibrate(40);
+          }
+        } catch {}
+      }
+      return true;
+    },
+    10
+  );
 
   const handleSaveOnboarding = (data: {
     storeName: string;
@@ -871,6 +956,13 @@ export default function App() {
         onTestPrint={handleTestPrint}
         onOpenBluetoothHelp={() => setIsBluetoothHelpOpen(true)}
         language={language}
+        onDataRestored={() => {
+          setBills(storageService.getBills());
+          setCashEntries(storageService.getCashEntries());
+          setCustomerDues(storageService.getCustomerDues());
+          setSettings(storageService.getSettings());
+          showToast(language === 'bn' ? 'ডাটা ব্যাকআপ সফলভাবে রিস্টোর হয়েছে!' : 'Data backup restored successfully!');
+        }}
       />
 
       {/* Bluetooth Setup & Troubleshooting Guide Modal */}
@@ -910,11 +1002,31 @@ export default function App() {
         onShowToast={showToast}
       />
 
-      {/* Instant Notification Toast */}
+      {/* Khatabook / Vyapar style Floating Back Exit Pill */}
+      <BackExitPill
+        isVisible={isExitPillVisible}
+        onDismiss={() => setIsExitPillVisible(false)}
+        onOpenConfirm={() => {
+          setIsExitPillVisible(false);
+          setIsExitConfirmOpen(true);
+        }}
+        language={language}
+        durationMs={3500}
+      />
+
+      {/* Native Mobile Exit Confirmation Bottom Sheet / Modal */}
+      <ExitConfirmModal
+        isOpen={isExitConfirmOpen}
+        onClose={() => setIsExitConfirmOpen(false)}
+        onConfirmExit={() => backHandler.forceExit()}
+        language={language}
+      />
+
+      {/* Instant Notification Toast (Positioned above bottom nav bar) */}
       {toast && (
         <div
           id="ble-toast"
-          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 max-w-md w-[92%] sm:w-auto bg-stone-900 text-white px-4 py-3 rounded-2xl shadow-2xl border border-stone-700 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-bottom-4 duration-200"
+          className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 max-w-md w-[92%] sm:w-auto bg-stone-900 text-white px-4 py-3 rounded-2xl shadow-2xl border border-stone-700 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-bottom-4 duration-200"
         >
           <div className="flex items-center gap-2.5">
             {toast.type === 'success' ? (
