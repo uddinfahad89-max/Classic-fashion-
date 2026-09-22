@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, X, Save, Check, Bluetooth, Power, Trash2, FileText, CheckCircle2, Zap, HelpCircle, Download, Upload, Database } from 'lucide-react';
+import { Settings, X, Save, Check, Bluetooth, Power, Trash2, FileText, CheckCircle2, Zap, HelpCircle, Download, Upload, Database, Tag } from 'lucide-react';
 import { ThermalPrinterSettings, BluetoothDeviceInfo, Language } from '../types';
 import { translations } from '../utils/i18n';
 import { storageService } from '../services/storageService';
@@ -327,21 +327,48 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <FileText className="w-3.5 h-3.5 text-blue-600" />
                 <span>{isBn ? 'ইনভয়েস নম্বর ও সিরিয়াল সেটিংস' : 'Invoice Numbering & Sequence'}</span>
               </span>
-              <span className="text-[10px] text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full font-mono font-bold">
-                {(form.invoicePrefix || 'INV-') + (form.nextInvoiceNumber || 1001)}
+              <span className="text-[10px] text-emerald-700 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full font-mono font-bold">
+                {isBn ? 'প্রিভিউ: ' : 'Preview: '}
+                {(form.invoicePrefix ?? '') + (form.nextInvoiceNumber || 1)}
               </span>
+            </div>
+
+            {/* Quick Presets: Only Number vs With Prefix */}
+            <div className="flex items-center gap-1.5 bg-stone-200/70 p-1 rounded-xl">
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, invoicePrefix: '' })}
+                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  !form.invoicePrefix
+                    ? 'bg-white text-blue-700 shadow-xs ring-1 ring-blue-500/20'
+                    : 'text-stone-600 hover:text-stone-900'
+                }`}
+              >
+                {isBn ? '✓ শুধু নম্বর (যেমন: ১, ২, ৩)' : '✓ Only Number (e.g. 1, 2, 3)'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, invoicePrefix: 'INV-' })}
+                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  form.invoicePrefix === 'INV-'
+                    ? 'bg-white text-blue-700 shadow-xs ring-1 ring-blue-500/20'
+                    : 'text-stone-600 hover:text-stone-900'
+                }`}
+              >
+                {isBn ? 'প্রিফিক্স সহ (INV-১)' : 'With Prefix (INV-1)'}
+              </button>
             </div>
 
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="block text-[11px] text-stone-600 font-medium mb-1">
-                  {isBn ? 'ইনভয়েস প্রিফিক্স' : 'Prefix'}
+                  {isBn ? 'ইনভয়েস প্রিফিক্স (Prefix)' : 'Prefix'}
                 </label>
                 <input
                   type="text"
-                  value={form.invoicePrefix ?? 'INV-'}
+                  value={form.invoicePrefix ?? ''}
                   onChange={(e) => setForm({ ...form, invoicePrefix: e.target.value })}
-                  placeholder="e.g. INV-, BILL-"
+                  placeholder={isBn ? 'ফাঁকা রাখুন (শুধু নম্বরের জন্য)' : 'Leave blank for only number'}
                   className="w-full border border-stone-200 bg-white p-2 rounded-xl text-xs font-mono font-bold focus:outline-none focus:border-blue-500"
                 />
               </div>
@@ -353,17 +380,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <input
                   type="number"
                   min="1"
-                  value={form.nextInvoiceNumber ?? 1001}
+                  value={form.nextInvoiceNumber ?? 1}
                   onChange={(e) => setForm({ ...form, nextInvoiceNumber: Math.max(1, parseInt(e.target.value, 10) || 1) })}
-                  placeholder="1001"
+                  placeholder="1"
                   className="w-full border border-stone-200 bg-white p-2 rounded-xl text-xs font-mono font-bold focus:outline-none focus:border-blue-500"
                 />
               </div>
             </div>
             <p className="text-[10px] text-stone-400 leading-tight">
               {isBn
-                ? 'প্রতিটি নতুন বিলে এই ক্রম অনুযায়ী সঠিক ইনভয়েস নম্বর স্বয়ংক্রিয়ভাবে তৈরি হবে।'
-                : 'Every new invoice will automatically follow this exact sequence without errors.'}
+                ? 'প্রিফিক্স ফাঁকা রাখলে বিলে শুধু নম্বর (যেমন ১, ২, ৩) আসবে। প্রতিটি নতুন বিলে স্বয়ংক্রিয়ভাবে ক্রম বাড়বে।'
+                : 'Leaving prefix empty generates pure numbers (e.g. 1, 2, 3). Each new bill auto-increments.'}
             </p>
           </div>
 
@@ -393,6 +420,35 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 80mm Roll (Wide Receipt)
               </button>
             </div>
+          </div>
+
+          {/* Label Mode Toggle in Settings */}
+          <div className="p-3 bg-gradient-to-r from-amber-50/90 to-orange-50/80 rounded-2xl border border-amber-200 flex items-center justify-between gap-3 shadow-2xs">
+            <div className="space-y-0.5">
+              <div className="font-bold text-amber-950 text-xs flex items-center gap-1.5">
+                <Tag className="w-3.5 h-3.5 text-amber-600" />
+                <span>{isBn ? 'লেবেল মোড (Label Mode - স্টিকার ও প্রাইস ট্যাগ)' : 'Label Mode (Sticker & Price Tags)'}</span>
+                {form.isLabelMode && (
+                  <span className="text-[10px] bg-amber-200/90 text-amber-900 font-bold px-1.5 py-0.2 rounded-full">
+                    Active
+                  </span>
+                )}
+              </div>
+              <div className="text-[11px] text-amber-900/85 leading-tight">
+                {isBn
+                  ? 'থার্মাল প্রিন্টে হেডার ও ফুটার বাদ দিয়ে শুধুমাত্র পণ্যের নাম, বারকোড এবং মূল্য প্রিন্ট হবে।'
+                  : 'Removes standard invoice headers & footers, focusing only on product name, barcode, and price.'}
+              </div>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+              <input
+                type="checkbox"
+                checked={Boolean(form.isLabelMode)}
+                onChange={(e) => setForm({ ...form, isLabelMode: e.target.checked })}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-stone-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+            </label>
           </div>
 
           {/* Data Saver Mode in Settings */}

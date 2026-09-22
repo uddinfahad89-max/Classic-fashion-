@@ -1103,6 +1103,28 @@ export const LoginModal: React.FC<LoginModalProps> = ({
               ) : (
                 /* ------------------- TAB A: LOGIN (OTP / EMAIL / SAVED) ------------------- */
                 <div className="space-y-3.5">
+                  {/* Data Safety & Auto-Restore Assurance Banner */}
+                  <div className="p-3 bg-gradient-to-r from-emerald-50 via-teal-50 to-blue-50 border border-emerald-200/90 rounded-2xl flex items-start gap-2.5 shadow-2xs">
+                    <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                    <div className="text-xs">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-black text-emerald-950">
+                          {t('১০০% ডাটা ও বায়োডাটা সুরক্ষিত', '100% Data & Profile Safe', '100% डेटा व प्रोफाइल सुरक्षित')}
+                        </span>
+                        <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded-full border border-emerald-300/80">
+                          {t('ক্লাউড ও ভল্ট ব্যাকআপ', 'Cloud & Vault Synced', 'क्लाउड व वॉल्ट सिंक')}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-emerald-900/90 mt-0.5 leading-snug">
+                        {t(
+                          'লগআউট হয়ে গেলেও কোন চিন্তা নেই! আপনার নিবন্ধিত ইমেল বা মোবাইল নম্বর দিয়ে পুনরায় প্রবেশ করলে পূর্ববর্তী সকল ইনভয়েস, কাস্টমার বাকি খাতা, ক্যাশবুক ও দোকানের সকল তথ্য তাৎক্ষণিক ফিরে পাবেন।',
+                          'No worries if you logged out! Signing in again with your registered email or phone immediately recovers all your previous invoices, customer dues, daybook & store records.',
+                          'लॉगआउट होने पर भी चिंता न करें! अपने पंजीकृत ईमेल या मोबाइल से पुनः लॉगिन करने पर सभी पुराने इनवॉइस, बहीखाता और दुकान का पूरा हिसाब तुरंत वापस आ जाएगा।'
+                        )}
+                      </p>
+                    </div>
+                  </div>
+
                   {/* Login Method Switcher Tabs */}
                   <div className="p-1 bg-stone-100 rounded-2xl flex items-center gap-1 border border-stone-200/80">
                     <button

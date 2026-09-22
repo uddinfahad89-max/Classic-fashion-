@@ -105,18 +105,20 @@ export default function App() {
     setLanguage(storageService.getLanguage());
     setPurchaseTrips(storageService.getPurchaseTrips());
 
-    // Auto sync from server if app data / browser cache was cleared
-    const syncId = prof.phone || prof.email || '9707502246';
-    storageService.restoreFromAccountVaultAsync(syncId).then((restored) => {
-      if (restored) {
-        setBills(storageService.getBills());
-        setCashEntries(storageService.getCashEntries());
-        setCustomerDues(storageService.getCustomerDues());
-        setPurchaseTrips(storageService.getPurchaseTrips());
-        setSettings(storageService.getSettings());
-        setUserProfile(storageService.getUserProfile());
-      }
-    });
+    // Auto sync from server only if user is logged in
+    const syncId = prof.phone || prof.email;
+    if (prof.isLoggedIn && syncId) {
+      storageService.restoreFromAccountVaultAsync(syncId).then((restored) => {
+        if (restored) {
+          setBills(storageService.getBills());
+          setCashEntries(storageService.getCashEntries());
+          setCustomerDues(storageService.getCustomerDues());
+          setPurchaseTrips(storageService.getPurchaseTrips());
+          setSettings(storageService.getSettings());
+          setUserProfile(storageService.getUserProfile());
+        }
+      });
+    }
 
     thermalPrinterService.setStatusListener((status) => {
       setBluetoothStatus(status);
@@ -724,6 +726,12 @@ export default function App() {
     setSettings(updated);
   };
 
+  const handleToggleLabelMode = (isLabelMode: boolean) => {
+    const updated = { ...settings, isLabelMode };
+    storageService.saveSettings(updated);
+    setSettings(updated);
+  };
+
   return (
     <div className="min-h-screen bg-stone-100/70 text-stone-900 flex flex-col font-sans">
       {/* Google Sheets / Workspace Top Header & Sub-header */}
@@ -913,6 +921,7 @@ export default function App() {
         bluetoothStatus={bluetoothStatus}
         onConnectBluetooth={handleConnectBluetooth}
         onUpdatePaperWidth={handleUpdatePaperWidth}
+        onToggleLabelMode={handleToggleLabelMode}
         onEditBill={(bill) => {
           setReceiptBill(null);
           setEditingBill(bill);

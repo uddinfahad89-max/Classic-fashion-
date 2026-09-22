@@ -278,7 +278,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
               className="text-[11px] font-mono font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200 shadow-2xs flex items-center gap-1.5"
             >
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-              <span>#{invoiceNo || storageService.getNextInvoiceNumber()}</span>
+              <span>{invoiceNo || storageService.getNextInvoiceNumber()}</span>
               <span className="text-[10px] text-blue-600 font-sans font-medium">({isBn ? 'অটো' : 'Auto'})</span>
             </span>
           </div>
@@ -761,7 +761,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
               <Printer className="w-5 h-5" />
               <span>{t.printTaxInvoiceBtn}</span>
               <span className="opacity-90 font-mono text-xs bg-white/20 px-2 py-0.5 rounded-md font-semibold">
-                #{invoiceNo || storageService.getNextInvoiceNumber()}
+                {invoiceNo || storageService.getNextInvoiceNumber()}
               </span>
             </>
           )}

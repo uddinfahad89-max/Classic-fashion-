@@ -28,182 +28,82 @@ function getVaultFilePath(identifier: string): string {
 function ensureFahadSeed() {
   try {
     const fahadPath = getVaultFilePath('9707502246');
-    if (!fs.existsSync(fahadPath)) {
-      const now = Date.now();
-      const fahadSeed = {
-        identifier: '9707502246',
-        email: 'uddinfahad89@gmail.com',
-        phone: '9707502246',
-        name: 'Fahad Uddin',
-        role: 'Owner',
-        pin: '1234',
-        isAppLockEnabled: false,
-        settings: {
-          storeName: 'Classic fashion',
-          storePhone: '9707502246',
-          storeAddress: 'Main Market, Goalpara, Assam',
-          signatoryName: 'Fahad Uddin',
-          upiId: '9707502246@upi',
-          paperWidth: '58mm',
-          currencySymbol: '₹',
-          currencyName: 'INR',
-          footerNote: 'ধন্যবাদ! আবার আসবেন (Thank you! Visit again)',
-          autoPrintOnCheckout: false,
-          defaultInvoiceFormat: 'tax_invoice',
-          nextInvoiceNumber: 1049,
-        },
-        bills: [
-          {
-            id: 'inv-sale-306',
-            invoiceNo: '306',
-            date: '22-08-2026',
-            time: '02:58 PM',
-            timestamp: new Date('2026-08-22T14:58:00').getTime(),
-            customerName: 'RUMANA BEGAM',
-            customerPhone: '9876543210',
-            items: [
-              { id: 'it-306-1', name: 'Ganji set', price: 200.0, qty: 2, total: 400.0 },
-              { id: 'it-306-2', name: 'Seka ganji', price: 20.0, qty: 4, total: 80.0 },
-              { id: 'it-306-3', name: 'Stal orna', price: 200.0, qty: 1, total: 200.0 },
-              { id: 'it-306-4', name: 'Cotton orna', price: 125.0, qty: 2, total: 250.0 },
-              { id: 'it-306-5', name: 'Nitee', price: 200.0, qty: 1, total: 200.0 },
-              { id: 'it-306-6', name: 'Frk', price: 180.0, qty: 1, total: 180.0 },
-              { id: 'it-306-7', name: 'Seka', price: 90.0, qty: 1, total: 90.0 },
-            ],
-            subtotal: 1400.0,
-            discount: 140.0,
-            discountType: 'fixed',
-            discountValue: 140.0,
-            grandTotal: 1260.0,
-            paymentMethod: 'cash',
-            paymentStatus: 'PAID',
-            paidAmount: 1260.0,
-            changeAmount: 0.0,
-          },
-          {
-            id: 'inv-sale-1048',
-            invoiceNo: 'INV-1048',
-            date: '19-09-2026',
-            time: '11:20 AM',
-            timestamp: now - 1000 * 60 * 180,
-            customerName: 'Tanvir Ahmed',
-            customerPhone: '9845012345',
-            items: [{ id: 'it-1', name: 'Cotton Kurti & Pajama Set', price: 1450, qty: 1, total: 1450 }],
-            subtotal: 1450,
-            discount: 0,
-            grandTotal: 1450,
-            paymentMethod: 'cash',
-            paymentStatus: 'PAID',
-            paidAmount: 1450,
-            changeAmount: 0,
-          },
-          {
-            id: 'inv-sale-1047',
-            invoiceNo: 'INV-1047',
-            date: '19-09-2026',
-            time: '10:05 AM',
-            timestamp: now - 1000 * 60 * 250,
-            customerName: 'Priya Sharma',
-            customerPhone: '9123456789',
-            items: [{ id: 'it-2', name: 'Georgette Embroidered Dupatta', price: 450, qty: 1, total: 450 }],
-            subtotal: 450,
-            discount: 0,
-            grandTotal: 450,
-            paymentMethod: 'upi',
-            paymentStatus: 'PAID',
-            paidAmount: 450,
-            changeAmount: 0,
-          },
-          {
-            id: 'inv-sale-1046',
-            invoiceNo: 'INV-1046',
-            date: '18-09-2026',
-            time: '06:40 PM',
-            timestamp: now - 1000 * 60 * 60 * 20,
-            customerName: 'Walk-in Customer',
-            items: [{ id: 'it-3', name: 'Silk Neck Scarf', price: 320, qty: 1, total: 320 }],
-            subtotal: 320,
-            discount: 0,
-            grandTotal: 320,
-            paymentMethod: 'cash',
-            paymentStatus: 'PAID',
-            paidAmount: 320,
-            changeAmount: 0,
-          },
-        ],
-        cashEntries: [
-          {
-            id: 'cash-1',
-            type: 'Income',
-            amount: 4500,
-            note: 'Counter sale - 3x Cotton Kurtis & Dupatta',
-            timestamp: now - 1000 * 60 * 60 * 2,
-            dateFormatted: '02:30 PM',
-          },
-          {
-            id: 'cash-2',
-            type: 'Expense',
-            amount: 850,
-            note: 'Alteration tailoring thread & packaging covers',
-            timestamp: now - 1000 * 60 * 60 * 5,
-            dateFormatted: '11:15 AM',
-          },
-          {
-            id: 'cash-3',
-            type: 'Expense',
-            amount: 12000,
-            note: 'Wholesale cloth roll purchase from Surat vendor',
-            timestamp: now - 1000 * 60 * 60 * 24,
-            dateFormatted: 'Yesterday',
-          },
-        ],
-        customerDues: [
-          {
-            id: 'due-1',
-            name: 'Ramesh Patel',
-            phone: '98765 43210',
-            type: 'receivable',
-            dueAmount: 1500,
-            lastUpdated: now - 1000 * 60 * 60 * 24 * 2,
-            transactions: [
-              {
-                id: 'tx-1',
-                type: 'added',
-                dueType: 'receivable',
-                amount: 1500,
-                note: 'বাকিতে কেনাকাটা (Festival dress purchase)',
-                timestamp: now - 1000 * 60 * 60 * 24 * 2,
-                dateFormatted: new Date(now - 1000 * 60 * 60 * 24 * 2).toLocaleDateString(),
-              },
-            ],
-          },
-          {
-            id: 'due-2',
-            name: 'Ananya Sen',
-            phone: '98452 33445',
-            type: 'receivable',
-            dueAmount: 850,
-            lastUpdated: now - 1000 * 60 * 60 * 24 * 5,
-            transactions: [
-              {
-                id: 'tx-2',
-                type: 'added',
-                dueType: 'receivable',
-                amount: 850,
-                note: 'বাকি কেনাকাটা (Designer Dupatta balance)',
-                timestamp: now - 1000 * 60 * 60 * 24 * 5,
-                dateFormatted: new Date(now - 1000 * 60 * 60 * 24 * 5).toLocaleDateString(),
-              },
-            ],
-          },
-        ],
-        purchaseTrips: [],
-        lastActive: Date.now(),
-      };
+    const emailPath = getVaultFilePath('uddinfahad89@gmail.com');
+    const fahadSeed = {
+      identifier: '9707502246',
+      email: 'uddinfahad89@gmail.com',
+      phone: '9707502246',
+      name: 'Fahad Uddin',
+      role: 'Owner',
+      pin: '1234',
+      isAppLockEnabled: false,
+      settings: {
+        storeName: 'Classic fashion',
+        storePhone: '9707502246',
+        storeAddress: 'Main Market, Goalpara, Assam',
+        signatoryName: 'Fahad Uddin',
+        upiId: '9707502246@upi',
+        paperWidth: '58mm',
+        currencySymbol: '₹',
+        currencyName: 'INR',
+        footerNote: 'ধন্যবাদ! আবার আসবেন (Thank you! Visit again)',
+        autoPrintOnCheckout: false,
+        defaultInvoiceFormat: 'tax_invoice',
+        nextInvoiceNumber: 1,
+      },
+      bills: [],
+      cashEntries: [],
+      customerDues: [],
+      purchaseTrips: [],
+      lastActive: Date.now(),
+    };
 
+    if (!fs.existsSync(fahadPath)) {
       fs.writeFileSync(fahadPath, JSON.stringify(fahadSeed, null, 2), 'utf-8');
-      // Also link email
-      fs.writeFileSync(getVaultFilePath('uddinfahad89@gmail.com'), JSON.stringify(fahadSeed, null, 2), 'utf-8');
+      fs.writeFileSync(emailPath, JSON.stringify(fahadSeed, null, 2), 'utf-8');
+    } else {
+      // Clean any legacy demo transactions from existing disk file
+      try {
+        const raw = fs.readFileSync(fahadPath, 'utf-8');
+        const parsed = JSON.parse(raw);
+        if (parsed) {
+          let modified = false;
+          if (Array.isArray(parsed.bills)) {
+            const cleanBills = parsed.bills.filter((b: any) => b && b.id && !b.id.startsWith('inv-demo-') && b.id !== 'inv-sale-306' && b.id !== 'inv-sale-1048' && b.id !== 'inv-sale-1047' && b.id !== 'inv-sale-1046');
+            if (cleanBills.length !== parsed.bills.length) {
+              parsed.bills = cleanBills;
+              modified = true;
+            }
+          }
+          if (Array.isArray(parsed.cashEntries)) {
+            const cleanCash = parsed.cashEntries.filter((c: any) => c && c.id && c.id !== 'cash-1' && c.id !== 'cash-2' && c.id !== 'cash-3');
+            if (cleanCash.length !== parsed.cashEntries.length) {
+              parsed.cashEntries = cleanCash;
+              modified = true;
+            }
+          }
+          if (Array.isArray(parsed.customerDues)) {
+            const cleanDues = parsed.customerDues.filter((d: any) => d && d.id && d.id !== 'due-1' && d.id !== 'due-2' && d.id !== 'due-3');
+            if (cleanDues.length !== parsed.customerDues.length) {
+              parsed.customerDues = cleanDues;
+              modified = true;
+            }
+          }
+          if (Array.isArray(parsed.purchaseTrips)) {
+            const cleanTrips = parsed.purchaseTrips.filter((t: any) => t && t.id && t.id !== 'trip-demo-1' && !t.id.startsWith('trip-demo-'));
+            if (cleanTrips.length !== parsed.purchaseTrips.length) {
+              parsed.purchaseTrips = cleanTrips;
+              modified = true;
+            }
+          }
+          if (modified) {
+            fs.writeFileSync(fahadPath, JSON.stringify(parsed, null, 2), 'utf-8');
+            fs.writeFileSync(emailPath, JSON.stringify(parsed, null, 2), 'utf-8');
+          }
+        }
+      } catch (e) {
+        console.warn('Error cleaning legacy file:', e);
+      }
     }
   } catch (err) {
     console.warn('Seed initialization error:', err);
@@ -305,13 +205,13 @@ app.get('/api/vault/:identifier', (req, res) => {
             (norm.length >= 10 && normalizeId(a.phone).endsWith(norm.slice(-10)))
         );
         if (match) {
-          const matchedPath =
-            getVaultFilePath(match.phone) ||
-            getVaultFilePath(match.email) ||
-            getVaultFilePath(match.identifier);
-          if (fs.existsSync(matchedPath)) {
-            const data = JSON.parse(fs.readFileSync(matchedPath, 'utf-8'));
-            return res.json({ success: true, vault: data });
+          const candidates = [match.email, match.phone, match.identifier].filter(Boolean);
+          for (const cand of candidates) {
+            const p = getVaultFilePath(cand);
+            if (fs.existsSync(p)) {
+              const data = JSON.parse(fs.readFileSync(p, 'utf-8'));
+              return res.json({ success: true, vault: data });
+            }
           }
         }
       } catch (e) {

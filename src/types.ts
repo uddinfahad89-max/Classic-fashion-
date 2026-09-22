@@ -1,4 +1,6 @@
-export type PaperWidth = '58mm' | '80mm';
+export type PaperWidth = '58mm' | '80mm' | '50mm_label';
+
+export type ThermalProtocol = 'escpos' | 'tspl';
 
 export type PaymentMethod = 'cash' | 'upi' | 'card' | 'due';
 
@@ -6,7 +8,7 @@ export type PaymentStatus = 'PAID' | 'DUE' | 'PARTIAL';
 
 export type ActiveTab = 'billing' | 'invoices' | 'cashbook' | 'due' | 'purchases' | 'barcode';
 
-export type LabelSizePreset = '2x1' | '2x1.2' | '1.5x1' | '1x1' | '2x2' | 'custom';
+export type LabelSizePreset = '2x1' | '50x25' | '2x1.2' | '1.5x1' | '1x1' | '2x2' | 'custom';
 
 export interface BarcodeLabelConfig {
   storeName: string;
@@ -40,6 +42,7 @@ export interface BillItem {
   price: number;
   qty: number;
   total: number;
+  barcode?: string;
 }
 
 export interface BillInvoice {
@@ -139,6 +142,7 @@ export interface ThermalPrinterSettings {
   isDataSaverEnabled?: boolean;
   invoicePrefix?: string;
   nextInvoiceNumber?: number;
+  isLabelMode?: boolean;
 }
 
 export interface NetworkStatusInfo {

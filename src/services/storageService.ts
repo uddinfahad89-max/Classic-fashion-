@@ -70,8 +70,9 @@ const DEFAULT_SETTINGS: ThermalPrinterSettings = {
   autoPrintOnCheckout: true,
   defaultInvoiceFormat: 'tax_invoice',
   isDataSaverEnabled: false,
-  invoicePrefix: 'INV-',
-  nextInvoiceNumber: 1001,
+  invoicePrefix: '',
+  nextInvoiceNumber: 1,
+  isLabelMode: false,
 };
 
 class StorageService {
@@ -86,6 +87,10 @@ class StorageService {
       // Only reset placeholder store name if empty
       if (parsed.storeName === 'MY SHOP / STORE NAME') {
         parsed.storeName = '';
+      }
+      // Migrate legacy 1001 default to starting sequence 1
+      if (parsed.nextInvoiceNumber === 1001 || !parsed.nextInvoiceNumber) {
+        parsed.nextInvoiceNumber = 1;
       }
       // Sanitize thermal footer note if it contains non-ASCII/Bengali or ??? that produces question marks
       if (
@@ -114,124 +119,26 @@ class StorageService {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.BILLS);
       if (data !== null) {
-        return JSON.parse(data);
+        const parsed: BillInvoice[] = JSON.parse(data);
+        if (Array.isArray(parsed)) {
+          // Remove any legacy demo bills
+          const filtered = parsed.filter(
+            (b) =>
+              b &&
+              b.id &&
+              !b.id.startsWith('inv-demo-') &&
+              b.id !== 'inv-sale-306' &&
+              b.id !== 'inv-sale-1048' &&
+              b.id !== 'inv-sale-1047' &&
+              b.id !== 'inv-sale-1046'
+          );
+          if (filtered.length !== parsed.length) {
+            this.saveBillsList(filtered);
+          }
+          return filtered;
+        }
       }
-
-      // Seed initial demo invoices for realistic instant testing only on first load
-      const now = Date.now();
-      const demoBills: BillInvoice[] = [
-        {
-          id: 'inv-sale-306',
-          invoiceNo: '306',
-          date: '22-08-2026',
-          time: '02:58 PM',
-          timestamp: new Date('2026-08-22T14:58:00').getTime(),
-          customerName: 'RUMANA BEGAM',
-          customerPhone: '9876543210',
-          items: [
-            { id: 'it-306-1', name: 'Ganji set', price: 200.0, qty: 2, total: 400.0 },
-            { id: 'it-306-2', name: 'Seka ganji', price: 20.0, qty: 4, total: 80.0 },
-            { id: 'it-306-3', name: 'Stal orna', price: 200.0, qty: 1, total: 200.0 },
-            { id: 'it-306-4', name: 'Cotton orna', price: 125.0, qty: 2, total: 250.0 },
-            { id: 'it-306-5', name: 'Nitee', price: 200.0, qty: 1, total: 200.0 },
-            { id: 'it-306-6', name: 'Frk', price: 180.0, qty: 1, total: 180.0 },
-            { id: 'it-306-7', name: 'Seka', price: 90.0, qty: 1, total: 90.0 },
-          ],
-          subtotal: 1400.0,
-          discount: 140.0,
-          discountType: 'percent',
-          discountValue: 10.0,
-          grandTotal: 1260.0,
-          paymentMethod: 'due',
-          paymentStatus: 'DUE',
-          paidAmount: 0.0,
-          changeAmount: 0.0,
-          balance: 1260.0,
-          previousBalance: 0.0,
-          currentBalance: 1260.0,
-        },
-        {
-          id: 'inv-demo-1',
-          invoiceNo: 'INV-1048',
-          date: '22-08-2026',
-          time: '01:45 PM',
-          timestamp: now - 1000 * 60 * 75,
-          customerName: 'Ananya Roy',
-          customerPhone: '98301 54321',
-          items: [
-            { id: 'it-1', name: 'Cotton Printed Kurti', price: 650, qty: 2, total: 1300 },
-            { id: 'it-2', name: 'Chiffon Dupatta Set', price: 350, qty: 1, total: 350 },
-          ],
-          subtotal: 1650,
-          discount: 150,
-          discountType: 'fixed',
-          discountValue: 150,
-          grandTotal: 1500,
-          paymentMethod: 'upi',
-          paymentStatus: 'PAID',
-          paidAmount: 1500,
-          changeAmount: 0,
-          balance: 0,
-          previousBalance: 0,
-          currentBalance: 0,
-        },
-        {
-          id: 'inv-demo-2',
-          invoiceNo: 'INV-1047',
-          date: new Date(now - 1000 * 60 * 180).toLocaleString([], {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-          }),
-          timestamp: now - 1000 * 60 * 180,
-          customerName: 'Ramesh Patel',
-          customerPhone: '98450 11223',
-          items: [
-            { id: 'it-3', name: "Men's Casual Linen Shirt", price: 899, qty: 2, total: 1798 },
-            { id: 'it-4', name: 'Slim Fit Denim Jeans', price: 1299, qty: 1, total: 1299 },
-          ],
-          subtotal: 3097,
-          discount: 97,
-          discountType: 'fixed',
-          discountValue: 97,
-          grandTotal: 3000,
-          paymentMethod: 'cash',
-          paymentStatus: 'PAID',
-          paidAmount: 3000,
-          changeAmount: 0,
-        },
-        {
-          id: 'inv-demo-3',
-          invoiceNo: 'INV-1046',
-          date: new Date(now - 1000 * 60 * 60 * 26).toLocaleString([], {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-          }),
-          timestamp: now - 1000 * 60 * 60 * 26,
-          customerName: 'Pooja Sharma',
-          customerPhone: '98451 23456',
-          items: [
-            { id: 'it-5', name: 'Designer Anarkali Gown', price: 1850, qty: 1, total: 1850 },
-          ],
-          subtotal: 1850,
-          discount: 0,
-          discountType: 'fixed',
-          discountValue: 0,
-          grandTotal: 1850,
-          paymentMethod: 'due',
-          paymentStatus: 'DUE',
-          paidAmount: 0,
-          changeAmount: 0,
-        },
-      ];
-
-      this.saveBillsList(demoBills);
-      return demoBills;
+      return [];
     } catch {
       return [];
     }
@@ -249,17 +156,23 @@ class StorageService {
   // Get next sequential invoice number ensuring no duplicate
   getNextInvoiceNumber(): string {
     const settings = this.getSettings();
-    const prefix = settings.invoicePrefix ?? 'INV-';
+    const prefix = settings.invoicePrefix !== undefined ? settings.invoicePrefix : '';
     const bills = this.getBills();
 
-    // Extract all existing invoice numeric counters to find the true max
-    let maxNum = 1000;
-    if (typeof settings.nextInvoiceNumber === 'number' && settings.nextInvoiceNumber > maxNum) {
-      maxNum = settings.nextInvoiceNumber - 1;
-    }
+    // Default starting sequence is 1 (or whatever user configured in settings)
+    const baseStart =
+      typeof settings.nextInvoiceNumber === 'number' && settings.nextInvoiceNumber > 0
+        ? settings.nextInvoiceNumber
+        : 1;
+
+    let maxNum = baseStart - 1;
 
     for (const b of bills) {
       if (!b.invoiceNo) continue;
+      // Skip initial preloaded demo bills (inv-demo-*) so they do not force starting sequence to 1049
+      if (b.id && b.id.startsWith('inv-demo-')) {
+        continue;
+      }
       // Extract trailing digits
       const match = b.invoiceNo.match(/(\d+)$/);
       if (match) {
@@ -310,7 +223,7 @@ class StorageService {
         if (match) {
           const num = parseInt(match[1], 10);
           if (!isNaN(num)) {
-            const currentNext = settings.nextInvoiceNumber || 1001;
+            const currentNext = settings.nextInvoiceNumber || 1;
             if (num >= currentNext) {
               settings.nextInvoiceNumber = num + 1;
               this.saveSettings(settings);
@@ -357,53 +270,30 @@ class StorageService {
   getCashEntries(): CashEntry[] {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.CASHBOOK);
-      const defaultEntries: CashEntry[] = [
-        {
-          id: 'cash-1',
-          type: 'Income',
-          amount: 4500,
-          note: 'Counter sale - 3x Cotton Kurtis & Dupatta',
-          timestamp: Date.now() - 1000 * 60 * 180,
-          dateFormatted: new Date(Date.now() - 1000 * 60 * 180).toLocaleTimeString([], {
-            hour: '2-digit',
-            minute: '2-digit',
-          }),
-        },
-        {
-          id: 'cash-2',
-          type: 'Expense',
-          amount: 850,
-          note: 'Alteration tailoring thread & packaging covers',
-          timestamp: Date.now() - 1000 * 60 * 90,
-          dateFormatted: new Date(Date.now() - 1000 * 60 * 90).toLocaleTimeString([], {
-            hour: '2-digit',
-            minute: '2-digit',
-          }),
-        },
-        {
-          id: 'cash-3',
-          type: 'Expense',
-          amount: 12000,
-          note: 'Wholesale cloth roll purchase from Surat vendor',
-          timestamp: Date.now() - 1000 * 60 * 60 * 5,
-          dateFormatted: new Date(Date.now() - 1000 * 60 * 60 * 5).toLocaleTimeString([], {
-            hour: '2-digit',
-            minute: '2-digit',
-          }),
-        },
-      ];
-
       if (!data) {
-        this.saveCashEntries(defaultEntries);
-        return defaultEntries;
+        return [];
       }
       const parsed: CashEntry[] = JSON.parse(data);
-      // Migrate if old grocery demo entries
-      if (parsed.some((e) => e.note?.includes('Morning counter sales') || e.note?.includes('tea & cleaning supplies'))) {
-        this.saveCashEntries(defaultEntries);
-        return defaultEntries;
+      if (Array.isArray(parsed)) {
+        // Filter out any legacy demo cash entries
+        const filtered = parsed.filter(
+          (e) =>
+            e &&
+            e.id &&
+            e.id !== 'cash-1' &&
+            e.id !== 'cash-2' &&
+            e.id !== 'cash-3' &&
+            !e.note?.includes('Cotton Kurtis & Dupatta') &&
+            !e.note?.includes('Wholesale cloth roll purchase from Surat') &&
+            !e.note?.includes('Morning counter sales') &&
+            !e.note?.includes('Alteration tailoring thread & packaging')
+        );
+        if (filtered.length !== parsed.length) {
+          this.saveCashEntries(filtered);
+        }
+        return filtered;
       }
-      return parsed;
+      return [];
     } catch {
       return [];
     }
@@ -437,82 +327,35 @@ class StorageService {
   // --- CUSTOMER DUE (KHATA) ---
   getCustomerDues(): CustomerDue[] {
     try {
-      const defaultDues: CustomerDue[] = [
-        {
-          id: 'due-1',
-          name: 'Pooja Sharma',
-          phone: '98451 23456',
-          type: 'receivable',
-          dueAmount: 1850,
-          lastUpdated: Date.now() - 1000 * 60 * 60 * 24,
-          transactions: [
-            {
-              id: 'tx-1',
-              type: 'added',
-              dueType: 'receivable',
-              amount: 1850,
-              note: 'Designer Kurti & Anarkali suit set on credit',
-              timestamp: Date.now() - 1000 * 60 * 60 * 24,
-              dateFormatted: new Date(Date.now() - 1000 * 60 * 60 * 24).toLocaleDateString(),
-            },
-          ],
-        },
-        {
-          id: 'due-2',
-          name: 'Rahul Verma',
-          phone: '98200 98765',
-          type: 'receivable',
-          dueAmount: 3200,
-          lastUpdated: Date.now() - 1000 * 60 * 60 * 48,
-          transactions: [
-            {
-              id: 'tx-2',
-              type: 'added',
-              dueType: 'receivable',
-              amount: 3200,
-              note: "Men's formal shirts (2 pcs) and denim jeans",
-              timestamp: Date.now() - 1000 * 60 * 60 * 48,
-              dateFormatted: new Date(Date.now() - 1000 * 60 * 60 * 48).toLocaleDateString(),
-            },
-          ],
-        },
-        {
-          id: 'due-3',
-          name: 'Kabir Ahmed',
-          phone: '98453 77889',
-          type: 'payable',
-          dueAmount: 1200,
-          lastUpdated: Date.now() - 1000 * 60 * 60 * 12,
-          transactions: [
-            {
-              id: 'tx-3',
-              type: 'added',
-              dueType: 'payable',
-              amount: 1200,
-              note: 'অর্ডারের জন্য অগ্রিম জমা (Advance deposit for suit stitching)',
-              timestamp: Date.now() - 1000 * 60 * 60 * 12,
-              dateFormatted: new Date(Date.now() - 1000 * 60 * 60 * 12).toLocaleDateString(),
-            },
-          ],
-        },
-      ];
-
       const data = localStorage.getItem(STORAGE_KEYS.DUES);
       if (!data) {
-        this.saveCustomerDues(defaultDues);
-        return defaultDues;
+        return [];
       }
       const parsed: CustomerDue[] = JSON.parse(data);
-      // Migrate if old grocery demo names
-      if (parsed.some((d) => d.name === 'Rafiqul Islam' || d.name === 'Akram Hossain')) {
-        this.saveCustomerDues(defaultDues);
-        return defaultDues;
+      if (Array.isArray(parsed)) {
+        // Filter out any legacy demo dues
+        const filtered = parsed.filter(
+          (d) =>
+            d &&
+            d.id &&
+            d.id !== 'due-1' &&
+            d.id !== 'due-2' &&
+            d.id !== 'due-3' &&
+            d.name !== 'Pooja Sharma' &&
+            d.name !== 'Rahul Verma' &&
+            d.name !== 'Kabir Ahmed' &&
+            d.name !== 'Rafiqul Islam' &&
+            d.name !== 'Akram Hossain'
+        );
+        if (filtered.length !== parsed.length) {
+          this.saveCustomerDues(filtered);
+        }
+        return filtered.map((d) => ({
+          ...d,
+          type: d.type || 'receivable',
+        }));
       }
-      // Ensure all dues have valid type
-      return parsed.map((d) => ({
-        ...d,
-        type: d.type || 'receivable',
-      }));
+      return [];
     } catch {
       return [];
     }
@@ -666,173 +509,6 @@ class StorageService {
       nextInvoiceNumber: 1049,
     };
 
-    const fahadBills: BillInvoice[] = [
-      {
-        id: 'inv-sale-306',
-        invoiceNo: '306',
-        date: '22-08-2026',
-        time: '02:58 PM',
-        timestamp: new Date('2026-08-22T14:58:00').getTime(),
-        customerName: 'RUMANA BEGAM',
-        customerPhone: '9876543210',
-        items: [
-          { id: 'it-306-1', name: 'Ganji set', price: 200.0, qty: 2, total: 400.0 },
-          { id: 'it-306-2', name: 'Seka ganji', price: 20.0, qty: 4, total: 80.0 },
-          { id: 'it-306-3', name: 'Stal orna', price: 200.0, qty: 1, total: 200.0 },
-          { id: 'it-306-4', name: 'Cotton orna', price: 125.0, qty: 2, total: 250.0 },
-          { id: 'it-306-5', name: 'Nitee', price: 200.0, qty: 1, total: 200.0 },
-          { id: 'it-306-6', name: 'Frk', price: 180.0, qty: 1, total: 180.0 },
-          { id: 'it-306-7', name: 'Seka', price: 90.0, qty: 1, total: 90.0 },
-        ],
-        subtotal: 1400.0,
-        discount: 140.0,
-        discountType: 'fixed',
-        discountValue: 140.0,
-        grandTotal: 1260.0,
-        paymentMethod: 'cash',
-        paymentStatus: 'PAID',
-        paidAmount: 1260.0,
-        changeAmount: 0.0,
-      },
-      {
-        id: 'inv-sale-1048',
-        invoiceNo: 'INV-1048',
-        date: '19-09-2026',
-        time: '11:20 AM',
-        timestamp: Date.now() - 1000 * 60 * 180,
-        customerName: 'Tanvir Ahmed',
-        customerPhone: '9845012345',
-        items: [{ id: 'it-1', name: 'Cotton Kurti & Pajama Set', price: 1450, qty: 1, total: 1450 }],
-        subtotal: 1450,
-        discount: 0,
-        grandTotal: 1450,
-        paymentMethod: 'cash',
-        paymentStatus: 'PAID',
-        paidAmount: 1450,
-        changeAmount: 0,
-      },
-      {
-        id: 'inv-sale-1047',
-        invoiceNo: 'INV-1047',
-        date: '19-09-2026',
-        time: '10:05 AM',
-        timestamp: Date.now() - 1000 * 60 * 250,
-        customerName: 'Priya Sharma',
-        customerPhone: '9123456789',
-        items: [{ id: 'it-2', name: 'Georgette Embroidered Dupatta', price: 450, qty: 1, total: 450 }],
-        subtotal: 450,
-        discount: 0,
-        grandTotal: 450,
-        paymentMethod: 'upi',
-        paymentStatus: 'PAID',
-        paidAmount: 450,
-        changeAmount: 0,
-      },
-      {
-        id: 'inv-sale-1046',
-        invoiceNo: 'INV-1046',
-        date: '18-09-2026',
-        time: '06:40 PM',
-        timestamp: Date.now() - 1000 * 60 * 60 * 20,
-        customerName: 'Walk-in Customer',
-        items: [{ id: 'it-3', name: 'Silk Neck Scarf', price: 320, qty: 1, total: 320 }],
-        subtotal: 320,
-        discount: 0,
-        grandTotal: 320,
-        paymentMethod: 'cash',
-        paymentStatus: 'PAID',
-        paidAmount: 320,
-        changeAmount: 0,
-      },
-    ];
-
-    const fahadCash: CashEntry[] = [
-      {
-        id: 'cash-1',
-        type: 'Income',
-        amount: 4500,
-        note: 'Counter sale - 3x Cotton Kurtis & Dupatta',
-        timestamp: Date.now() - 1000 * 60 * 60 * 2,
-        dateFormatted: '02:30 PM',
-      },
-      {
-        id: 'cash-2',
-        type: 'Expense',
-        amount: 850,
-        note: 'Alteration tailoring thread & packaging covers',
-        timestamp: Date.now() - 1000 * 60 * 60 * 5,
-        dateFormatted: '11:15 AM',
-      },
-      {
-        id: 'cash-3',
-        type: 'Expense',
-        amount: 12000,
-        note: 'Wholesale cloth roll purchase from Surat vendor',
-        timestamp: Date.now() - 1000 * 60 * 60 * 24,
-        dateFormatted: 'Yesterday',
-      },
-    ];
-
-    const fahadDues: CustomerDue[] = [
-      {
-        id: 'due-1',
-        name: 'Ramesh Patel',
-        phone: '98765 43210',
-        type: 'receivable',
-        dueAmount: 1500,
-        lastUpdated: Date.now() - 1000 * 60 * 60 * 24 * 2,
-        transactions: [
-          {
-            id: 'tx-1',
-            type: 'added',
-            dueType: 'receivable',
-            amount: 1500,
-            note: 'বাকি কেনাকাটা (Unpaid bill for 2 Cotton Kurtis)',
-            timestamp: Date.now() - 1000 * 60 * 60 * 24 * 2,
-            dateFormatted: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toLocaleDateString(),
-          },
-        ],
-      },
-      {
-        id: 'due-2',
-        name: 'Ananya Roy',
-        phone: '98301 22334',
-        type: 'receivable',
-        dueAmount: 850,
-        lastUpdated: Date.now() - 1000 * 60 * 60 * 24 * 5,
-        transactions: [
-          {
-            id: 'tx-2',
-            type: 'added',
-            dueType: 'receivable',
-            amount: 850,
-            note: 'বাকি কেনাকাটা (Designer Dupatta balance)',
-            timestamp: Date.now() - 1000 * 60 * 60 * 24 * 5,
-            dateFormatted: new Date(Date.now() - 1000 * 60 * 60 * 24 * 5).toLocaleDateString(),
-          },
-        ],
-      },
-      {
-        id: 'due-3',
-        name: 'Suman Das (Master Tailor)',
-        phone: '98453 77889',
-        type: 'payable',
-        dueAmount: 1200,
-        lastUpdated: Date.now() - 1000 * 60 * 60 * 12,
-        transactions: [
-          {
-            id: 'tx-3',
-            type: 'added',
-            dueType: 'payable',
-            amount: 1200,
-            note: 'অর্ডারের জন্য অগ্রিম জমা (Advance deposit for suit stitching)',
-            timestamp: Date.now() - 1000 * 60 * 60 * 12,
-            dateFormatted: new Date(Date.now() - 1000 * 60 * 60 * 12).toLocaleDateString(),
-          },
-        ],
-      },
-    ];
-
     return {
       identifier: '9707502246',
       email: 'uddinfahad89@gmail.com',
@@ -842,9 +518,9 @@ class StorageService {
       pin: '1234',
       isAppLockEnabled: false,
       settings: fahadSettings,
-      bills: fahadBills,
-      cashEntries: fahadCash,
-      customerDues: fahadDues,
+      bills: [],
+      cashEntries: [],
+      customerDues: [],
       purchaseTrips: [],
       lastActive: Date.now(),
     };
@@ -853,26 +529,7 @@ class StorageService {
   getSavedAccounts(): SavedAccountItem[] {
     try {
       const indexRaw = localStorage.getItem(VAULT_KEYS.ACCOUNTS_INDEX);
-      let list: SavedAccountItem[] = indexRaw ? JSON.parse(indexRaw) : [];
-
-      // Always ensure Fahad Uddin's account is registered and available
-      const hasFahad = list.some((a) => this.isFahadAccount(a.identifier) || this.isFahadAccount(a.phone) || this.isFahadAccount(a.email));
-      if (!hasFahad) {
-        const fahad = this.getFahadHistoricSeed();
-        this.saveToAccountVault(fahad);
-        list = [
-          {
-            identifier: fahad.phone,
-            name: fahad.name,
-            phone: fahad.phone,
-            email: fahad.email,
-            storeName: fahad.settings.storeName,
-            role: fahad.role,
-            lastActive: fahad.lastActive,
-          },
-          ...list,
-        ];
-      }
+      const list: SavedAccountItem[] = indexRaw ? JSON.parse(indexRaw) : [];
       return list;
     } catch {
       return [];
@@ -1128,21 +785,6 @@ class StorageService {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.USER);
       if (!data) {
-        // Check if there is an account in the vault to prefill
-        const accounts = this.getSavedAccounts();
-        if (accounts.length > 0) {
-          const first = accounts[0];
-          const prefill: UserProfile = {
-            email: first.email || '',
-            name: first.name || '',
-            phone: first.phone || '',
-            role: first.role || 'Owner',
-            isLoggedIn: false,
-            pin: '1234',
-          };
-          this.saveUserProfile(prefill);
-          return prefill;
-        }
         this.saveUserProfile(DEFAULT_USER);
         return DEFAULT_USER;
       }
@@ -1293,7 +935,7 @@ class StorageService {
     return newProfile;
   }
 
-  logoutUser(): void {
+  logoutUser(): UserProfile {
     // Before logging out, sync active data to user's vault
     this.syncActiveAccountVault();
     const current = this.getUserProfile();
@@ -1303,6 +945,7 @@ class StorageService {
       loginTime: undefined,
     };
     this.saveUserProfile(loggedOut);
+    return loggedOut;
   }
 
   updateUserSecurity(updates: Partial<UserProfile>): UserProfile {
@@ -1450,82 +1093,27 @@ class StorageService {
   // --- STOCK PURCHASE / SHOPPING TRIPS ---
   getPurchaseTrips(): PurchaseTrip[] {
     try {
-      const now = Date.now();
-      const defaultTrips: PurchaseTrip[] = [
-        {
-          id: 'trip-demo-1',
-          title: 'চকবাজার পাইকারি বাজার - নতুন কালেকশন কেনা',
-          marketLocation: 'চকবাজার পাইকারি মার্কেট',
-          dateFormatted: new Date(now).toLocaleDateString(),
-          timestamp: now - 1000 * 60 * 60 * 3, // 3 hours ago
-          initialCash: 10000,
-          totalSpent: 8650,
-          remainingCash: 1350,
-          status: 'active',
-          note: 'দোকানের জন্য নতুন পোশাক ও কাপড় কেনাকাটা',
-          expenses: [
-            {
-              id: 'exp-1',
-              title: 'সুতি জামদানি শাড়ি ও কাতান লট (৫ পিস)',
-              category: 'goods',
-              amount: 6200,
-              vendorOrPlace: 'মেসার্স মোল্লা টেক্সটাইল, দোকান নং ১৪',
-              note: 'পাইকারি রেটে নেওয়া হয়েছে',
-              timestamp: now - 1000 * 60 * 60 * 2.5,
-              dateFormatted: new Date(now - 1000 * 60 * 60 * 2.5).toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit',
-              }),
-            },
-            {
-              id: 'exp-2',
-              title: 'সুতি থান কাপড় (২০ গজ রোল)',
-              category: 'goods',
-              amount: 1900,
-              vendorOrPlace: 'আল-মদিনা ক্লথ স্টোর, ২য় তলা',
-              note: 'ব্লাউজ ও সালোয়ারের থান কাপড়',
-              timestamp: now - 1000 * 60 * 60 * 2,
-              dateFormatted: new Date(now - 1000 * 60 * 60 * 2).toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit',
-              }),
-            },
-            {
-              id: 'exp-3',
-              title: 'মাল লোড ও ভ্যান পরিবহন ভাড়া',
-              category: 'transport',
-              amount: 350,
-              vendorOrPlace: 'চকবাজার ভ্যান স্ট্যান্ড',
-              note: 'দোকানে মাল পৌঁছানোর ভাড়া',
-              timestamp: now - 1000 * 60 * 60 * 1.5,
-              dateFormatted: new Date(now - 1000 * 60 * 60 * 1.5).toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit',
-              }),
-            },
-            {
-              id: 'exp-4',
-              title: 'দুপুরের খাবার ও চা-নাস্তা',
-              category: 'food',
-              amount: 200,
-              vendorOrPlace: 'হোটেল কস্তুরী, চকবাজার',
-              note: 'বাজার চলাকালীন খাবার খরচ',
-              timestamp: now - 1000 * 60 * 60 * 1,
-              dateFormatted: new Date(now - 1000 * 60 * 60 * 1).toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit',
-              }),
-            },
-          ],
-        },
-      ];
-
       const data = localStorage.getItem(STORAGE_KEYS.PURCHASES);
       if (!data) {
-        this.savePurchaseTrips(defaultTrips);
-        return defaultTrips;
+        return [];
       }
-      return JSON.parse(data);
+      const parsed: PurchaseTrip[] = JSON.parse(data);
+      if (Array.isArray(parsed)) {
+        // Filter out any legacy demo trips
+        const filtered = parsed.filter(
+          (t) =>
+            t &&
+            t.id &&
+            t.id !== 'trip-demo-1' &&
+            !t.id.startsWith('trip-demo-') &&
+            !t.title?.includes('চকবাজার পাইকারি বাজার')
+        );
+        if (filtered.length !== parsed.length) {
+          this.savePurchaseTrips(filtered);
+        }
+        return filtered;
+      }
+      return [];
     } catch {
       return [];
     }

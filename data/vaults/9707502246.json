@@ -1,0 +1,32 @@
+{
+  "identifier": "9707502246",
+  "email": "uddinfahad89@gmail.com",
+  "phone": "9707502246",
+  "name": "Fahad Uddin",
+  "role": "Owner",
+  "pin": "1234",
+  "isAppLockEnabled": false,
+  "settings": {
+    "storeName": "Classic fashion",
+    "storePhone": "9707502246",
+    "storeAddress": "Main Market, Goalpara, Assam",
+    "signatoryName": "Fahad Uddin",
+    "upiId": "9707502246@upi",
+    "paperWidth": "80mm",
+    "currencySymbol": "Rs.",
+    "currencyName": "INR",
+    "hideCurrencySymbol": false,
+    "footerNote": "Thank you! Visit again.",
+    "autoPrintOnCheckout": false,
+    "defaultInvoiceFormat": "tax_invoice",
+    "isDataSaverEnabled": true,
+    "invoicePrefix": "",
+    "nextInvoiceNumber": 2,
+    "isLabelMode": false
+  },
+  "bills": [],
+  "cashEntries": [],
+  "customerDues": [],
+  "purchaseTrips": [],
+  "lastActive": 1790091408425
+}

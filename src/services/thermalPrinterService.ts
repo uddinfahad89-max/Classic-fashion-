@@ -491,6 +491,47 @@ export class ThermalPrinterService {
       return left + ' '.repeat(space) + right;
     };
 
+    // Currency symbol resolution for thermal POS receipt
+    let sym = '';
+    if (!settings.hideCurrencySymbol) {
+      const rawSym = (settings.currencySymbol || '').trim();
+      if (rawSym.toLowerCase().includes('rs')) {
+        sym = 'Rs. ';
+      } else if (rawSym.toLowerCase().includes('tk') || rawSym === '৳') {
+        sym = 'Tk. ';
+      } else if (rawSym === '₹' || rawSym === '?' || !rawSym) {
+        // Replace '?' or '₹' with 'Rs. ' to prevent printer driver printing '?'
+        sym = 'Rs. ';
+      } else {
+        const clean = rawSym.replace(/[^\x20-\x7E]/g, '').replace(/\?/g, '').trim();
+        sym = clean ? `${clean} ` : 'Rs. ';
+      }
+    }
+
+    // LABEL MODE: Output format with standard headers and footers removed, focusing strictly on product name, barcode, and price
+    if (settings.isLabelMode) {
+      const labelLines: string[] = [];
+
+      bill.items.forEach((item, idx) => {
+        if (idx > 0) {
+          labelLines.push(doubleDiv);
+        }
+        // 1. PRODUCT NAME
+        const cleanName = item.name.replace(/[^\x20-\x7E]/g, '').trim().toUpperCase() || 'PRODUCT';
+        labelLines.push(padCenter(cleanName.slice(0, width)));
+
+        // 2. BARCODE (Visual Bars + Numeric/Alphanumeric Barcode String)
+        const barcodeVal = (item.barcode || `${bill.invoiceNo || 'INV'}-${idx + 1}`).replace(/[^A-Za-z0-9\-]/g, '');
+        labelLines.push(padCenter('||||| |||| |||||| |||| |||||'));
+        labelLines.push(padCenter(`*${barcodeVal}*`));
+
+        // 3. PRICE
+        labelLines.push(padCenter(`PRICE: ${sym}${item.price.toFixed(2)}`));
+      });
+
+      return labelLines.join('\n');
+    }
+
     const lines: string[] = [];
 
     // Header
@@ -513,26 +554,6 @@ export class ThermalPrinterService {
       lines.push(padBetween('ITEM', 'QTY  TOTAL'));
     }
     lines.push(divider);
-
-    // Currency symbol resolution for thermal POS receipt
-    // ESC/POS thermal printers do NOT have the ₹ (Rupee) Unicode glyph, causing standard drivers to print '?'
-    // When hideCurrencySymbol is enabled, we completely remove the symbol for a clean modern receipt (e.g. 500.00).
-    // Otherwise, we use standard ASCII 'Rs. ' or 'Tk. ' which print 100% cleanly without '?'.
-    let sym = '';
-    if (!settings.hideCurrencySymbol) {
-      const rawSym = (settings.currencySymbol || '').trim();
-      if (rawSym.toLowerCase().includes('rs')) {
-        sym = 'Rs. ';
-      } else if (rawSym.toLowerCase().includes('tk') || rawSym === '৳') {
-        sym = 'Tk. ';
-      } else if (rawSym === '₹' || rawSym === '?' || !rawSym) {
-        // Replace '?' or '₹' with 'Rs. ' to prevent printer driver printing '?'
-        sym = 'Rs. ';
-      } else {
-        const clean = rawSym.replace(/[^\x20-\x7E]/g, '').replace(/\?/g, '').trim();
-        sym = clean ? `${clean} ` : 'Rs. ';
-      }
-    }
 
     bill.items.forEach((item) => {
       if (width === 48) {
@@ -610,6 +631,65 @@ export class ThermalPrinterService {
         }
       }
     };
+
+    // LABEL MODE ESC/POS: Focused solely on product name, barcode, and price without any headers or footers
+    if (settings.isLabelMode) {
+      let sym = '';
+      if (!settings.hideCurrencySymbol) {
+        const rawSym = (settings.currencySymbol || '').trim();
+        if (rawSym.toLowerCase().includes('rs')) {
+          sym = 'Rs. ';
+        } else if (rawSym.toLowerCase().includes('tk') || rawSym === '৳') {
+          sym = 'Tk. ';
+        } else if (rawSym === '₹' || rawSym === '?' || !rawSym) {
+          sym = 'Rs. ';
+        } else {
+          const clean = rawSym.replace(/[^\x20-\x7E]/g, '').replace(/\?/g, '').trim();
+          sym = clean ? `${clean} ` : 'Rs. ';
+        }
+      }
+
+      bill.items.forEach((item, idx) => {
+        if (idx > 0) {
+          commands.push(0x0a);
+          commands.push(0x1b, 0x61, 0x01); // Center
+          appendText('--------------------------------\n');
+        }
+
+        // Center align
+        commands.push(0x1b, 0x61, 0x01);
+
+        // 1. PRODUCT NAME (Bold)
+        commands.push(0x1b, 0x45, 0x01);
+        const cleanName = item.name.replace(/[^\x20-\x7E]/g, '').trim().toUpperCase() || 'PRODUCT';
+        appendText(`${cleanName}\n`);
+        commands.push(0x1b, 0x45, 0x00);
+
+        // 2. BARCODE
+        const rawCode = (item.barcode || `${bill.invoiceNo || 'INV'}-${idx + 1}`).replace(/[^A-Za-z0-9\-]/g, '');
+        // ESC/POS Code128 Barcode: GS h, GS w, GS H
+        commands.push(0x1d, 0x68, 0x38); // Height
+        commands.push(0x1d, 0x77, 0x02); // Width
+        commands.push(0x1d, 0x48, 0x02); // HRI characters below
+        const codeBytes = [0x7b, 0x42]; // Code Set B
+        for (let i = 0; i < rawCode.length; i++) {
+          codeBytes.push(rawCode.charCodeAt(i));
+        }
+        commands.push(0x1d, 0x6b, 0x49, codeBytes.length, ...codeBytes);
+        commands.push(0x0a);
+        appendText(`*${rawCode}*\n`);
+
+        // 3. PRICE (Bold)
+        commands.push(0x1b, 0x45, 0x01);
+        appendText(`PRICE: ${sym}${item.price.toFixed(2)}\n`);
+        commands.push(0x1b, 0x45, 0x00);
+        commands.push(0x0a);
+      });
+
+      commands.push(0x0a, 0x0a);
+      commands.push(0x1d, 0x56, 0x41, 0x10); // Partial Cut
+      return new Uint8Array(commands);
+    }
 
     let receiptText = this.generateReceiptText(bill, settings);
     // Absolute Safety Net: Strip any rogue '?' characters (e.g. '?500.00' -> '500.00', '???????' -> '')
@@ -738,7 +818,8 @@ export class ThermalPrinterService {
   convertCanvasToEscPosRaster(
     canvas: HTMLCanvasElement,
     targetWidthDots: number = 384,
-    darknessThreshold: number = 165
+    darknessThreshold: number = 165,
+    isLabelMode: boolean = false
   ): Uint8Array {
     const targetWidth = Math.min(targetWidthDots, 576);
     const scale = targetWidth / canvas.width;
@@ -803,8 +884,8 @@ export class ThermalPrinterService {
       }
     }
 
-    // Trailing feed lines for clean label peel / tear
-    const footer = [0x0A, 0x0A, 0x0A];
+    // Trailing feed lines: In 50mmx25mm label mode, feed only 1 line or FF to stop cleanly at label gap
+    const footer = isLabelMode ? [0x0A] : [0x0A, 0x0A, 0x0A];
 
     const result = new Uint8Array(header.length + body.length + footer.length);
     result.set(header, 0);
@@ -814,12 +895,87 @@ export class ThermalPrinterService {
     return result;
   }
 
-  // Direct Bluetooth Thermal Print for Barcode & Price Tag Sticker
+  // Convert HTMLCanvasElement into TSPL (Label Printer) binary command stream
+  convertCanvasToTsplBinary(
+    canvas: HTMLCanvasElement,
+    widthMm: number = 50,
+    heightMm: number = 25,
+    copies: number = 1,
+    darknessThreshold: number = 165
+  ): Uint8Array {
+    // 203 DPI = 8 dots/mm (Standard for Xprinter, Rongta, Gprinter, etc.)
+    const targetWidthDots = Math.round(widthMm * 8); // e.g. 50 * 8 = 400 dots
+    const targetHeightDots = Math.round(heightMm * 8); // e.g. 25 * 8 = 200 dots
+    const widthBytes = Math.ceil(targetWidthDots / 8);
+    const totalBytes = widthBytes * targetHeightDots;
+
+    const offscreen = document.createElement('canvas');
+    offscreen.width = targetWidthDots;
+    offscreen.height = targetHeightDots;
+    const ctx = offscreen.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return new Uint8Array();
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, targetWidthDots, targetHeightDots);
+    ctx.drawImage(canvas, 0, 0, targetWidthDots, targetHeightDots);
+
+    const imgData = ctx.getImageData(0, 0, targetWidthDots, targetHeightDots);
+    const data = imgData.data;
+
+    const bitmapData = new Uint8Array(totalBytes);
+    let byteIdx = 0;
+
+    for (let y = 0; y < targetHeightDots; y++) {
+      for (let xByte = 0; xByte < widthBytes; xByte++) {
+        let byteVal = 0;
+        for (let bit = 0; bit < 8; bit++) {
+          const x = xByte * 8 + bit;
+          if (x < targetWidthDots) {
+            const pixelIdx = (y * targetWidthDots + x) * 4;
+            const r = data[pixelIdx];
+            const g = data[pixelIdx + 1];
+            const b = data[pixelIdx + 2];
+            const a = data[pixelIdx + 3];
+
+            const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+            // In TSPL BITMAP mode 0: 0 = white, 1 = black
+            if (a > 120 && lum < darknessThreshold) {
+              byteVal |= (1 << (7 - bit));
+            }
+          }
+        }
+        bitmapData[byteIdx++] = byteVal;
+      }
+    }
+
+    const enc = new TextEncoder();
+    const cmdHeader = enc.encode(
+      `SIZE ${widthMm} mm, ${heightMm} mm\r\n` +
+      `GAP 2 mm, 0 mm\r\n` +
+      `DIRECTION 1\r\n` +
+      `REFERENCE 0,0\r\n` +
+      `CLS\r\n` +
+      `BITMAP 0,0,${widthBytes},${targetHeightDots},0,`
+    );
+    const cmdFooter = enc.encode(`\r\nPRINT ${copies},1\r\n`);
+
+    const result = new Uint8Array(cmdHeader.length + bitmapData.length + cmdFooter.length);
+    result.set(cmdHeader, 0);
+    result.set(bitmapData, cmdHeader.length);
+    result.set(cmdFooter, cmdHeader.length + bitmapData.length);
+
+    return result;
+  }
+
+  // Direct Bluetooth Thermal Print for Barcode & Price Tag Sticker (ESC/POS & TSPL)
   async printLabelBitmapViaBluetooth(
     canvas: HTMLCanvasElement,
     copies: number = 1,
-    paperWidth: '58mm' | '80mm' = '58mm',
-    darknessThreshold: number = 165
+    paperWidth: '50mm_label' | '58mm' | '80mm' = '50mm_label',
+    darknessThreshold: number = 165,
+    protocol: 'escpos' | 'tspl' = 'escpos',
+    widthMm: number = 50,
+    heightMm: number = 25
   ): Promise<{ success: boolean; message: string; deviceName?: string }> {
     if (!this.isConnected || !this.characteristic || !this.bluetoothDevice?.gatt?.connected) {
       const reconnected = await this.autoReconnect();
@@ -832,14 +988,42 @@ export class ThermalPrinterService {
     }
 
     try {
+      const safeCopies = Math.max(1, Math.min(copies, 50));
+
+      // TSPL Protocol for dedicated label printers (Xprinter, Rongta, etc.)
+      if (protocol === 'tspl') {
+        const tsplBytes = this.convertCanvasToTsplBinary(
+          canvas,
+          widthMm,
+          heightMm,
+          safeCopies,
+          darknessThreshold
+        );
+        if (!tsplBytes || tsplBytes.length === 0) {
+          return { success: false, message: 'Failed to generate TSPL label commands' };
+        }
+        await this.writeRawChunks(tsplBytes);
+        return {
+          success: true,
+          deviceName: this.bluetoothDevice?.name || 'Bluetooth Label Printer',
+          message: `${safeCopies} barcode label(s) printed via TSPL Bluetooth!`,
+        };
+      }
+
+      // ESC/POS Raster Mode (Universal thermal printer support)
+      const isLabel = paperWidth === '50mm_label';
       const printerWidthDots = paperWidth === '80mm' ? 576 : 384;
-      const rasterBytes = this.convertCanvasToEscPosRaster(canvas, printerWidthDots, darknessThreshold);
+      const rasterBytes = this.convertCanvasToEscPosRaster(
+        canvas,
+        printerWidthDots,
+        darknessThreshold,
+        isLabel
+      );
 
       if (!rasterBytes || rasterBytes.length === 0) {
         return { success: false, message: 'Failed to generate barcode raster image' };
       }
 
-      const safeCopies = Math.max(1, Math.min(copies, 50));
       for (let c = 0; c < safeCopies; c++) {
         await this.writeRawChunks(rasterBytes);
         if (c < safeCopies - 1) {
@@ -869,11 +1053,12 @@ export class ThermalPrinterService {
   printLabelViaRawBT(
     canvas: HTMLCanvasElement,
     copies: number = 1,
-    paperWidth: '58mm' | '80mm' = '58mm'
+    paperWidth: '50mm_label' | '58mm' | '80mm' = '50mm_label'
   ): void {
     try {
+      const isLabel = paperWidth === '50mm_label';
       const printerWidthDots = paperWidth === '80mm' ? 576 : 384;
-      const rasterBytes = this.convertCanvasToEscPosRaster(canvas, printerWidthDots);
+      const rasterBytes = this.convertCanvasToEscPosRaster(canvas, printerWidthDots, 165, isLabel);
       const safeCopies = Math.max(1, Math.min(copies, 20));
 
       let allBytes: Uint8Array;

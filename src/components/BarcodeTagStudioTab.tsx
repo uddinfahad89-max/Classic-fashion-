@@ -57,11 +57,11 @@ const PRESET_SIZES: {
 }[] = [
   {
     id: '2x1',
-    titleBn: '২" × ১" (পোশাক / গার্মেন্ট প্রাইস ট্যাগ)',
-    titleEn: '2" × 1" (Standard Garment Tag)',
+    titleBn: '৫০মিমি × ২৫মিমি (স্ট্যান্ডার্ড স্টিকার রোল)',
+    titleEn: '50mm × 25mm (Standard Sticker Roll)',
     widthMm: 50,
     heightMm: 25,
-    inchLabel: '2" × 1"',
+    inchLabel: '50×25mm',
     badgeBn: 'সবচেয়ে জনপ্রিয়',
     badgeEn: 'Most Popular',
   },
@@ -160,7 +160,8 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
   const [btConnecting, setBtConnecting] = useState(thermalPrinterService.getIsConnecting());
   const [btDeviceName, setBtDeviceName] = useState<string | undefined>(thermalPrinterService.getDeviceName());
   const [isBtPrinting, setIsBtPrinting] = useState(false);
-  const [paperRollWidth, setPaperRollWidth] = useState<'58mm' | '80mm'>(settings.paperWidth || '58mm');
+  const [paperRollWidth, setPaperRollWidth] = useState<'50mm_label' | '58mm' | '80mm'>('50mm_label');
+  const [printerProtocol, setPrinterProtocol] = useState<'escpos' | 'tspl'>('escpos');
   const [darknessMode, setDarknessMode] = useState<'normal' | 'dark' | 'extra_dark'>('dark');
 
   // Reactively subscribe to Bluetooth printer connection status changes
@@ -491,21 +492,56 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     }
   };
 
-  // Quick test slip on thermal printer
+  // Quick test print on thermal printer (50x25mm label test or receipt test)
   const handleTestPrint = async () => {
     try {
-      const res = await thermalPrinterService.printTestReceipt(settings);
-      if (res.success) {
-        onShowToast(isBn ? 'টেস্ট স্লিপ প্রিন্ট হয়েছে!' : 'Test slip printed!', 'success');
+      if (labelPreviewRef.current) {
+        onShowToast(
+          isBn
+            ? `${paperRollWidth === '50mm_label' ? '৫০×২৫ মিমি ' : ''}টেস্ট স্টিকার প্রিন্টারে পাঠানো হচ্ছে...`
+            : `Sending ${paperRollWidth === '50mm_label' ? '50x25mm ' : ''}test sticker to printer...`,
+          'info'
+        );
+        const canvas = await html2canvas(labelPreviewRef.current, {
+          scale: 2.5,
+          backgroundColor: '#ffffff',
+          useCORS: true,
+          logging: false,
+        });
+        const threshold = darknessMode === 'extra_dark' ? 145 : darknessMode === 'dark' ? 160 : 175;
+        const res = await thermalPrinterService.printLabelBitmapViaBluetooth(
+          canvas,
+          1,
+          paperRollWidth,
+          threshold,
+          printerProtocol,
+          widthMm,
+          heightMm
+        );
+        if (res.success) {
+          onShowToast(
+            isBn
+              ? `✅ ${paperRollWidth === '50mm_label' ? '৫০×২৫ মিমি ' : ''}টেস্ট স্টিকার প্রিন্ট সম্পন্ন!`
+              : `✅ ${paperRollWidth === '50mm_label' ? '50x25mm ' : ''}Test label printed successfully!`,
+            'success'
+          );
+        } else {
+          onShowToast(res.message, 'error');
+        }
       } else {
-        onShowToast(res.message, 'error');
+        const res = await thermalPrinterService.printTestReceipt(settings);
+        if (res.success) {
+          onShowToast(isBn ? 'টেস্ট স্লিপ প্রিন্ট হয়েছে!' : 'Test slip printed!', 'success');
+        } else {
+          onShowToast(res.message, 'error');
+        }
       }
     } catch (e: any) {
       onShowToast(e?.message || 'Test print failed', 'error');
     }
   };
 
-  // Direct Bluetooth BLE Stream to Thermal Printer (ESC/POS Raster Bitmap)
+  // Direct Bluetooth BLE Stream to Thermal Printer (50x25mm Label Sticker / ESC/POS / TSPL)
   const handleBtThermalPrint = async () => {
     if (!labelPreviewRef.current) return;
     setIsBtPrinting(true);
@@ -525,10 +561,11 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
         }
       }
 
+      const sizeLabel = paperRollWidth === '50mm_label' ? '৫০×২৫ মিমি ' : '';
       onShowToast(
         isBn
-          ? `ব্লুটুথ থার্মাল প্রিন্টারে ${labelConfig.quantity}টি স্টিকার পাঠানো হচ্ছে...`
-          : `Streaming ${labelConfig.quantity} label(s) to Bluetooth thermal printer...`,
+          ? `ব্লুটুথ থার্মাল প্রিন্টারে ${sizeLabel}${labelConfig.quantity}টি স্টিকার পাঠানো হচ্ছে (${printerProtocol.toUpperCase()})...`
+          : `Streaming ${sizeLabel}${labelConfig.quantity} label(s) to Bluetooth printer (${printerProtocol.toUpperCase()})...`,
         'info'
       );
 
@@ -548,14 +585,17 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
         canvas,
         labelConfig.quantity,
         paperRollWidth,
-        threshold
+        threshold,
+        printerProtocol,
+        widthMm,
+        heightMm
       );
 
       if (result.success) {
         onShowToast(
           isBn
-            ? `✅ ${labelConfig.quantity}টি বারকোড স্টিকার ব্লুটুথ প্রিন্টারে প্রিন্ট হয়েছে!`
-            : `✅ ${labelConfig.quantity} barcode label(s) printed via Bluetooth!`,
+            ? `✅ ${sizeLabel}${labelConfig.quantity}টি বারকোড স্টিকার ব্লুটুথ প্রিন্টারে প্রিন্ট হয়েছে!`
+            : `✅ ${sizeLabel}${labelConfig.quantity} barcode label(s) printed via Bluetooth!`,
           'success'
         );
       } else {
@@ -1203,81 +1243,151 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                 </div>
               </div>
 
-              {/* Roll Size & Darkness density controls */}
-              <div className="grid grid-cols-2 gap-2 pt-1 border-t border-indigo-100/80 text-[11px]">
-                {/* Roll Width (58mm vs 80mm) */}
+              {/* Roll / Sticker Size & Protocol & Darkness Controls */}
+              <div className="space-y-2.5 pt-1.5 border-t border-indigo-100/80 text-[11px]">
+                {/* 1. Paper / Sticker Size: 50x25mm (Default), 58mm, 80mm */}
                 <div className="space-y-1">
-                  <span className="text-[10px] font-bold text-stone-600">
-                    {isBn ? 'রোল সাইজ (Roll Width):' : 'Roll Width:'}
-                  </span>
-                  <div className="grid grid-cols-2 gap-1 bg-white/90 p-0.5 rounded-lg border border-indigo-100">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-stone-700 flex items-center gap-1">
+                      <span>{isBn ? 'পেপার / স্টিকার রোল সাইজ:' : 'Paper / Sticker Size:'}</span>
+                    </span>
+                    <span className="text-[9px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200">
+                      {paperRollWidth === '50mm_label'
+                        ? (isBn ? '🏷️ ৫০×২৫ মিমি স্টিকার রোল' : '🏷️ 50×25mm Sticker Roll')
+                        : paperRollWidth === '58mm'
+                        ? (isBn ? '📄 ৫৮ মিমি রোল (২ ইঞ্চি)' : '📄 58mm Roll (2")')
+                        : (isBn ? '📄 ৮০ মিমি রোল (৩ ইঞ্চি)' : '📄 80mm Roll (3")')}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1 bg-white/95 p-0.5 rounded-lg border border-indigo-100 shadow-2xs">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPaperRollWidth('50mm_label');
+                        setLabelConfig((prev) => ({
+                          ...prev,
+                          sizePreset: '2x1',
+                          customWidthMm: 50,
+                          customHeightMm: 25,
+                        }));
+                      }}
+                      className={`py-1.5 rounded-md text-[10px] font-bold transition-all cursor-pointer flex flex-col items-center leading-tight ${
+                        paperRollWidth === '50mm_label'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'text-stone-600 hover:bg-stone-50'
+                      }`}
+                      title={isBn ? '৫০মিমি × ২৫মিমি পোশাক প্রাইস ট্যাগ স্টিকার' : '50mm × 25mm Garment Price Tag Sticker'}
+                    >
+                      <span className="font-extrabold">50×25 mm</span>
+                      <span className="text-[8px] opacity-90">{isBn ? 'স্টিকার রোল' : 'Sticker Roll'}</span>
+                    </button>
                     <button
                       type="button"
                       onClick={() => setPaperRollWidth('58mm')}
-                      className={`py-1 rounded-md text-[10px] font-bold transition-all cursor-pointer ${
+                      className={`py-1.5 rounded-md text-[10px] font-bold transition-all cursor-pointer flex flex-col items-center leading-tight ${
                         paperRollWidth === '58mm'
-                          ? 'bg-indigo-600 text-white shadow-2xs'
+                          ? 'bg-indigo-600 text-white shadow-xs'
                           : 'text-stone-600 hover:bg-stone-50'
                       }`}
                     >
-                      58mm (2")
+                      <span className="font-extrabold">58 mm</span>
+                      <span className="text-[8px] opacity-90">{isBn ? '২" পেপার' : '2" Paper'}</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => setPaperRollWidth('80mm')}
-                      className={`py-1 rounded-md text-[10px] font-bold transition-all cursor-pointer ${
+                      className={`py-1.5 rounded-md text-[10px] font-bold transition-all cursor-pointer flex flex-col items-center leading-tight ${
                         paperRollWidth === '80mm'
-                          ? 'bg-indigo-600 text-white shadow-2xs'
+                          ? 'bg-indigo-600 text-white shadow-xs'
                           : 'text-stone-600 hover:bg-stone-50'
                       }`}
                     >
-                      80mm (3")
+                      <span className="font-extrabold">80 mm</span>
+                      <span className="text-[8px] opacity-90">{isBn ? '৩" পেপার' : '3" Paper'}</span>
                     </button>
                   </div>
                 </div>
 
-                {/* Print Density / Darkness for sharp barcodes */}
-                <div className="space-y-1">
-                  <span className="text-[10px] font-bold text-stone-600">
-                    {isBn ? 'বারকোড স্পষ্টতা (Burn):' : 'Darkness (Burn):'}
-                  </span>
-                  <div className="grid grid-cols-3 gap-0.5 bg-white/90 p-0.5 rounded-lg border border-indigo-100">
-                    <button
-                      type="button"
-                      onClick={() => setDarknessMode('normal')}
-                      className={`py-1 rounded-md text-[9px] font-bold transition-all cursor-pointer ${
-                        darknessMode === 'normal'
-                          ? 'bg-indigo-600 text-white shadow-2xs'
-                          : 'text-stone-600 hover:bg-stone-50'
-                      }`}
-                      title="স্বাভাবিক হিট"
-                    >
-                      {isBn ? 'স্বাভাবিক' : 'Norm'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDarknessMode('dark')}
-                      className={`py-1 rounded-md text-[9px] font-bold transition-all cursor-pointer ${
-                        darknessMode === 'dark'
-                          ? 'bg-indigo-600 text-white shadow-2xs'
-                          : 'text-stone-600 hover:bg-stone-50'
-                      }`}
-                      title="গাঢ় ও স্পষ্ট"
-                    >
-                      {isBn ? 'গাঢ়' : 'Dark'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDarknessMode('extra_dark')}
-                      className={`py-1 rounded-md text-[9px] font-bold transition-all cursor-pointer ${
-                        darknessMode === 'extra_dark'
-                          ? 'bg-indigo-600 text-white shadow-2xs'
-                          : 'text-stone-600 hover:bg-stone-50'
-                      }`}
-                      title="সর্বোচ্চ স্পষ্টতা (স্ক্যানার ফ্রেন্ডলি)"
-                    >
-                      {isBn ? 'খুব গাঢ়' : 'Max'}
-                    </button>
+                {/* 2. Protocol & Burn Darkness */}
+                <div className="grid grid-cols-2 gap-2">
+                  {/* Command Protocol: ESC/POS vs TSPL */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-stone-600">
+                        {isBn ? 'প্রিন্টার কমান্ড মোড:' : 'Printer Protocol:'}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1 bg-white/90 p-0.5 rounded-lg border border-indigo-100 shadow-2xs">
+                      <button
+                        type="button"
+                        onClick={() => setPrinterProtocol('escpos')}
+                        className={`py-1 rounded-md text-[9px] font-bold transition-all cursor-pointer text-center ${
+                          printerProtocol === 'escpos'
+                            ? 'bg-indigo-600 text-white shadow-2xs'
+                            : 'text-stone-600 hover:bg-stone-50'
+                        }`}
+                        title={isBn ? 'সাধারণ থার্মাল POS প্রিন্টার' : 'Standard POS Thermal Printer'}
+                      >
+                        ESC/POS
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPrinterProtocol('tspl')}
+                        className={`py-1 rounded-md text-[9px] font-bold transition-all cursor-pointer text-center ${
+                          printerProtocol === 'tspl'
+                            ? 'bg-indigo-600 text-white shadow-2xs'
+                            : 'text-stone-600 hover:bg-stone-50'
+                        }`}
+                        title={isBn ? 'লেবেল প্রিন্টার যেমন Xprinter, Gprinter, Rongta (গ্যাপ অটো ডিটেক্ট)' : 'Label Printer with Gap Alignment (Xprinter, Rongta, etc.)'}
+                      >
+                        TSPL (লেবেল)
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Print Density / Darkness for sharp barcodes */}
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-bold text-stone-600">
+                      {isBn ? 'বারকোড স্পষ্টতা (Burn):' : 'Darkness (Burn):'}
+                    </span>
+                    <div className="grid grid-cols-3 gap-0.5 bg-white/90 p-0.5 rounded-lg border border-indigo-100 shadow-2xs">
+                      <button
+                        type="button"
+                        onClick={() => setDarknessMode('normal')}
+                        className={`py-1 rounded-md text-[9px] font-bold transition-all cursor-pointer ${
+                          darknessMode === 'normal'
+                            ? 'bg-indigo-600 text-white shadow-2xs'
+                            : 'text-stone-600 hover:bg-stone-50'
+                        }`}
+                        title="স্বাভাবিক হিট"
+                      >
+                        {isBn ? 'স্বাভাবিক' : 'Norm'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDarknessMode('dark')}
+                        className={`py-1 rounded-md text-[9px] font-bold transition-all cursor-pointer ${
+                          darknessMode === 'dark'
+                            ? 'bg-indigo-600 text-white shadow-2xs'
+                            : 'text-stone-600 hover:bg-stone-50'
+                        }`}
+                        title="গাঢ় ও স্পষ্ট"
+                      >
+                        {isBn ? 'গাঢ়' : 'Dark'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDarknessMode('extra_dark')}
+                        className={`py-1 rounded-md text-[9px] font-bold transition-all cursor-pointer ${
+                          darknessMode === 'extra_dark'
+                            ? 'bg-indigo-600 text-white shadow-2xs'
+                            : 'text-stone-600 hover:bg-stone-50'
+                        }`}
+                        title="সর্বোচ্চ স্পষ্টতা (স্ক্যানার ফ্রেন্ডলি)"
+                      >
+                        {isBn ? 'খুব গাঢ়' : 'Max'}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1331,11 +1441,11 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                   {isBtPrinting
                     ? (isBn ? 'প্রিন্টারে পাঠানো হচ্ছে...' : 'Streaming to printer...')
                     : (isBn
-                        ? `ব্লুটুথ থার্মাল প্রিন্ট (${labelConfig.quantity}টি স্টিকার)`
-                        : `Bluetooth Thermal Print (${labelConfig.quantity} Label${labelConfig.quantity > 1 ? 's' : ''})`)}
+                        ? `ব্লুটুথ থার্মাল প্রিন্ট (${paperRollWidth === '50mm_label' ? '৫০×২৫ মিমি ' : ''}${labelConfig.quantity}টি স্টিকার)`
+                        : `Bluetooth Thermal Print (${paperRollWidth === '50mm_label' ? '50×25mm ' : ''}${labelConfig.quantity} Label${labelConfig.quantity > 1 ? 's' : ''})`)}
                 </span>
                 <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded-full font-mono font-extrabold uppercase tracking-wider">
-                  ESC/POS
+                  {paperRollWidth === '50mm_label' ? '50×25mm • ' : ''}{printerProtocol.toUpperCase()}
                 </span>
               </button>
 
