@@ -42,7 +42,7 @@ import {
 } from 'lucide-react';
 import JsBarcode from 'jsbarcode';
 import QRCode from 'qrcode';
-import html2canvas from 'html2canvas';
+import html2canvas from 'html2canvas-pro';
 import { jsPDF } from 'jspdf';
 import {
   ThermalPrinterSettings,
@@ -226,12 +226,26 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
       setBtConnected(status.connected);
       setBtConnecting(status.isConnecting);
       setBtDeviceName(status.deviceName);
+      if (status.deviceName && /4B|2034|XP|label/i.test(status.deviceName)) {
+        setPrinterProtocol('tspl');
+      }
     });
     return unsub;
   }, []);
 
   const barcodeSvgRef = useRef<SVGSVGElement | null>(null);
   const labelPreviewRef = useRef<HTMLDivElement | null>(null);
+
+  // Robust capture helper using html2canvas-pro with oklch support
+  const captureLabelCanvas = async (scale = 3): Promise<HTMLCanvasElement | null> => {
+    if (!labelPreviewRef.current) return null;
+    return await html2canvas(labelPreviewRef.current, {
+      scale,
+      backgroundColor: '#ffffff',
+      useCORS: true,
+      logging: false,
+    });
+  };
 
   // Auto-generate SKU / Barcode
   const handleGenerateBarcode = () => {
@@ -573,12 +587,8 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     if (!labelPreviewRef.current) return;
     setIsGeneratingImg(true);
     try {
-      const canvas = await html2canvas(labelPreviewRef.current, {
-        scale: 4, // 4x for super crisp thermal printing
-        backgroundColor: '#ffffff',
-        useCORS: true,
-        logging: false,
-      });
+      const canvas = await captureLabelCanvas(4);
+      if (!canvas) throw new Error('Preview not ready');
 
       const dataUrl = canvas.toDataURL('image/png');
       const link = document.createElement('a');
@@ -600,12 +610,8 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     if (!labelPreviewRef.current) return;
     setIsGeneratingImg(true);
     try {
-      const canvas = await html2canvas(labelPreviewRef.current, {
-        scale: 3,
-        backgroundColor: '#ffffff',
-        useCORS: true,
-        logging: false,
-      });
+      const canvas = await captureLabelCanvas(3);
+      if (!canvas) throw new Error('Preview not ready');
 
       const imgData = canvas.toDataURL('image/png');
       const doc = new jsPDF({
@@ -666,12 +672,8 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
         onShowToast(isBn ? 'ব্লুটুথ থার্মাল প্রিন্টারে স্টিকার পাঠানো হচ্ছে...' : 'Streaming sticker to Bluetooth thermal printer...', 'info');
       }
 
-      const canvas = await html2canvas(labelPreviewRef.current, {
-        scale: 3,
-        backgroundColor: '#ffffff',
-        useCORS: true,
-        logging: false,
-      });
+      const canvas = await captureLabelCanvas(3);
+      if (!canvas) throw new Error('Preview not ready');
       const imgUrl = canvas.toDataURL('image/png');
 
       // Create temporary print iframe or document
@@ -751,12 +753,8 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
             : `Sending ${paperRollWidth === '50mm_label' ? '50x25mm ' : ''}test sticker to printer...`,
           'info'
         );
-        const canvas = await html2canvas(labelPreviewRef.current, {
-          scale: 2.5,
-          backgroundColor: '#ffffff',
-          useCORS: true,
-          logging: false,
-        });
+        const canvas = await captureLabelCanvas(2.5);
+        if (!canvas) throw new Error('Preview not ready');
         const threshold = darknessMode === 'extra_dark' ? 145 : darknessMode === 'dark' ? 160 : 175;
         const res = await thermalPrinterService.printLabelBitmapViaBluetooth(
           canvas,
@@ -819,12 +817,8 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
       );
 
       // Render crisp canvas representation of the sticker
-      const canvas = await html2canvas(labelPreviewRef.current, {
-        scale: 2.5,
-        backgroundColor: '#ffffff',
-        useCORS: true,
-        logging: false,
-      });
+      const canvas = await captureLabelCanvas(2.5);
+      if (!canvas) throw new Error('Preview not ready');
 
       // Darkness threshold:
       // normal = 175, dark = 160, extra_dark = 145
@@ -863,12 +857,8 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     if (!labelPreviewRef.current) return;
     try {
       onShowToast(isBn ? 'RawBT অ্যাপে পাঠানো হচ্ছে...' : 'Sending to RawBT app...', 'info');
-      const canvas = await html2canvas(labelPreviewRef.current, {
-        scale: 2.5,
-        backgroundColor: '#ffffff',
-        useCORS: true,
-        logging: false,
-      });
+      const canvas = await captureLabelCanvas(2.5);
+      if (!canvas) throw new Error('Preview not ready');
       thermalPrinterService.printLabelViaRawBT(canvas, labelConfig.quantity, paperRollWidth);
     } catch (e: any) {
       console.error('RawBT print error:', e);
@@ -2013,7 +2003,18 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                   {isBn ? 'লাইভ ট্যাগ প্রিভিউ' : 'Live Tag Preview'}
                 </h2>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  id="btn-preview-quick-print"
+                  onClick={handleBtThermalPrint}
+                  disabled={isBtPrinting}
+                  className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-[11px] font-black rounded-lg transition-all flex items-center gap-1 shadow-2xs cursor-pointer disabled:opacity-50"
+                  title="সরাসরি প্রিন্ট করুন"
+                >
+                  <Printer className={`w-3.5 h-3.5 ${isBtPrinting ? 'animate-bounce' : ''}`} />
+                  <span>{isBn ? '🖨️ প্রিন্ট করুন' : '🖨️ Print Now'}</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => setActiveControlTab('design')}
@@ -2386,11 +2387,13 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                   {btConnected && (
                     <button
                       type="button"
+                      id="btn-bt-test-print"
                       onClick={handleTestPrint}
-                      className="px-2 py-1 bg-white hover:bg-stone-50 active:scale-95 text-stone-700 border border-stone-200 text-[11px] font-bold rounded-lg transition-all cursor-pointer shadow-2xs"
-                      title={isBn ? 'টেস্ট স্লিপ প্রিন্ট দিন' : 'Test slip'}
+                      className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white border border-emerald-500 text-[11px] font-bold rounded-lg transition-all cursor-pointer shadow-2xs flex items-center gap-1"
+                      title={isBn ? 'টেস্ট স্টিকার প্রিন্ট দিন' : 'Test sticker print'}
                     >
-                      {isBn ? 'টেস্ট' : 'Test'}
+                      <Printer className="w-3 h-3" />
+                      <span>{isBn ? 'টেস্ট প্রিন্ট' : 'Test Print'}</span>
                     </button>
                   )}
                   <button
@@ -2606,19 +2609,42 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                 id="btn-bt-thermal-print"
                 onClick={handleBtThermalPrint}
                 disabled={isBtPrinting}
-                className="w-full bg-linear-to-r from-blue-600 via-indigo-600 to-indigo-700 hover:from-blue-500 hover:to-indigo-600 active:scale-[0.99] text-white py-3.5 px-4 rounded-xl font-black text-sm shadow-md transition-all flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-50"
+                className="w-full bg-linear-to-r from-blue-600 via-indigo-600 to-indigo-700 hover:from-blue-500 hover:to-indigo-600 active:scale-[0.99] text-white py-3 px-4 rounded-2xl font-black text-sm sm:text-base shadow-lg transition-all flex items-center justify-between gap-2.5 cursor-pointer disabled:opacity-50"
               >
-                <Bluetooth className={`w-5 h-5 ${isBtPrinting ? 'animate-spin' : ''}`} />
-                <span className="tracking-wide">
-                  {isBtPrinting
-                    ? (isBn ? 'প্রিন্টারে পাঠানো হচ্ছে...' : 'Streaming to printer...')
-                    : (isBn
-                        ? `ব্লুটুথ থার্মাল প্রিন্ট (${paperRollWidth === '50mm_label' ? '৫০×২৫ মিমি ' : ''}${labelConfig.quantity}টি স্টিকার)`
-                        : `Bluetooth Thermal Print (${paperRollWidth === '50mm_label' ? '50×25mm ' : ''}${labelConfig.quantity} Label${labelConfig.quantity > 1 ? 's' : ''})`)}
-                </span>
-                <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded-full font-mono font-extrabold uppercase tracking-wider">
-                  {paperRollWidth === '50mm_label' ? '50×25mm • ' : ''}{printerProtocol.toUpperCase()}
-                </span>
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+                    <Printer className={`w-5 h-5 text-white ${isBtPrinting ? 'animate-bounce' : ''}`} />
+                  </div>
+                  <div className="text-left leading-tight min-w-0">
+                    <div className="font-black text-sm sm:text-base flex items-center gap-1.5 flex-wrap">
+                      <span>{isBn ? '🖨️ সরাসরি বারকোড প্রিন্ট করুন' : '🖨️ Print Barcode Label'}</span>
+                      {btConnected ? (
+                        <span className="text-[10px] bg-emerald-400 text-stone-950 font-black px-1.5 py-0.2 rounded-xs">
+                          {isBn ? 'প্রিন্টার রেডি' : 'Ready'}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] bg-amber-400 text-stone-950 font-black px-1.5 py-0.2 rounded-xs">
+                          {isBn ? 'কানেক্ট করুন' : 'Tap to Pair'}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-blue-100 font-medium mt-0.5 truncate">
+                      {isBtPrinting
+                        ? (isBn ? 'প্রিন্টারে ডেটা পাঠানো হচ্ছে...' : 'Streaming data to printer...')
+                        : (isBn
+                            ? `${paperRollWidth === '50mm_label' ? '৫০×২৫ মিমি স্টিকার • ' : ''}${labelConfig.quantity}টি কপি প্রিন্ট হবে`
+                            : `${paperRollWidth === '50mm_label' ? '50×25mm Sticker • ' : ''}Print ${labelConfig.quantity} cop${labelConfig.quantity > 1 ? 'ies' : 'y'}`)}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-col items-end shrink-0">
+                  <span className="text-[11px] bg-white/20 px-2.5 py-1 rounded-lg font-mono font-black uppercase tracking-wider text-white">
+                    {printerProtocol.toUpperCase()}
+                  </span>
+                  <span className="text-[9px] text-blue-200 mt-0.5 font-bold">
+                    {paperRollWidth === '50mm_label' ? '50×25mm' : paperRollWidth}
+                  </span>
+                </div>
               </button>
 
               {/* Secondary Row: RawBT 1-Tap & Standard System/USB Print */}
