@@ -10,6 +10,16 @@ export type ActiveTab = 'billing' | 'invoices' | 'cashbook' | 'due' | 'purchases
 
 export type LabelSizePreset = '2x1' | '50x25' | '2x1.2' | '1.5x1' | '1x1' | '2x2' | 'custom';
 
+export type TagLayoutStyle = 'classic' | 'modern_badge' | 'bold_price' | 'compact_split' | 'minimal' | 'qr_centric';
+export type TagBorderStyle = 'single' | 'bold' | 'dashed' | 'double' | 'none';
+export type TagHeaderStyle = 'solid_banner' | 'underline' | 'pill' | 'minimal';
+export type TagPriceStyle = 'standard' | 'highlight_pill' | 'big_hero';
+export type TagBarcodeHeight = 'compact' | 'standard' | 'tall';
+export type TagBarcodeThickness = 'thin' | 'medium' | 'thick';
+export type TagCornerRadius = 'none' | 'small' | 'medium' | 'pill';
+export type TagTitleFontSize = 'small' | 'medium' | 'large';
+export type TagAlignment = 'center' | 'left';
+
 export interface BarcodeLabelConfig {
   storeName: string;
   storePhone?: string;
@@ -32,6 +42,22 @@ export interface BarcodeLabelConfig {
   showBatch: boolean;
   showBorder: boolean;
   quantity: number;
+  // Custom Design attributes:
+  layoutStyle?: TagLayoutStyle;
+  borderStyle?: TagBorderStyle;
+  headerStyle?: TagHeaderStyle;
+  priceStyle?: TagPriceStyle;
+  barcodeHeight?: TagBarcodeHeight;
+  barcodeThickness?: TagBarcodeThickness;
+  showBarcodeText?: boolean;
+  cornerRadius?: TagCornerRadius;
+  titleFontSize?: TagTitleFontSize;
+  textAlign?: TagAlignment;
+  showStorePhone?: boolean;
+  showDiscountBadge?: boolean;
+  customOfferText?: string;
+  showPunchHole?: boolean;
+  showFooterNote?: boolean;
 }
 
 export type Language = 'bn' | 'en' | 'hi';

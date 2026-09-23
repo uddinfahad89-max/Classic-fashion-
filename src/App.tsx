@@ -53,7 +53,7 @@ export default function App() {
   const [settings, setSettings] = useState<ThermalPrinterSettings>(storageService.getSettings());
   const [userProfile, setUserProfile] = useState<UserProfile>(storageService.getUserProfile());
   const [language, setLanguage] = useState<Language>(storageService.getLanguage());
-  const [purchaseTrips, setPurchaseTrips] = useState<PurchaseTrip[]>(storageService.getPurchaseTrips());
+  const [purchaseTrips, setPurchaseTrips] = useState<PurchaseTrip[]>([]);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isAppLocked, setIsAppLocked] = useState(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
@@ -342,10 +342,10 @@ export default function App() {
 
     const welcomeMsg =
       language === 'bn'
-        ? `স্বাগতম, ${updated.name}! আপনার সংরক্ষিত অ্যাকাউন্ট, পুরানো ${restoredBills.length}টি ইনভয়েস ও ডে-বুক লোড হয়েছে।`
+        ? `স্বাগতম, ${updated.name}! আপনার সংরক্ষিত অ্যাকাউন্ট সক্রিয় হয়েছে।`
         : language === 'hi'
-        ? `स्वागत है, ${updated.name}! आपके खाते के पुराने ইনভয়েস এবং ডে-বুক লোড হয়ে গেছে।`
-        : `Welcome, ${updated.name}! Loaded ${restoredBills.length} saved invoices & daybook data.`;
+        ? `स्वागत है, ${updated.name}! आपका खाता सक्रिय हो गया है।`
+        : `Welcome, ${updated.name}! Your account is now active.`;
     showToast(welcomeMsg, 'success');
     return true;
   };
@@ -389,7 +389,12 @@ export default function App() {
   const handleLogoutUser = () => {
     const updated = storageService.logoutUser();
     setUserProfile(updated);
-    showToast('লগআউট সফল হয়েছে', 'info');
+    setBills([]);
+    setCashEntries([]);
+    setCustomerDues([]);
+    setPurchaseTrips([]);
+    setSettings(storageService.getSettings());
+    showToast(language === 'bn' ? 'লগআউট সফল হয়েছে' : 'Logged out successfully', 'info');
   };
 
   const handleRegisterUser = async (data: {

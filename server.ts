@@ -61,55 +61,49 @@ function ensureFahadSeed() {
     if (!fs.existsSync(fahadPath)) {
       fs.writeFileSync(fahadPath, JSON.stringify(fahadSeed, null, 2), 'utf-8');
       fs.writeFileSync(emailPath, JSON.stringify(fahadSeed, null, 2), 'utf-8');
-    } else {
-      // Clean any legacy demo transactions from existing disk file
-      try {
-        const raw = fs.readFileSync(fahadPath, 'utf-8');
-        const parsed = JSON.parse(raw);
-        if (parsed) {
-          let modified = false;
-          if (Array.isArray(parsed.bills)) {
-            const cleanBills = parsed.bills.filter((b: any) => b && b.id && !b.id.startsWith('inv-demo-') && b.id !== 'inv-sale-306' && b.id !== 'inv-sale-1048' && b.id !== 'inv-sale-1047' && b.id !== 'inv-sale-1046');
-            if (cleanBills.length !== parsed.bills.length) {
-              parsed.bills = cleanBills;
-              modified = true;
-            }
-          }
-          if (Array.isArray(parsed.cashEntries)) {
-            const cleanCash = parsed.cashEntries.filter((c: any) => c && c.id && c.id !== 'cash-1' && c.id !== 'cash-2' && c.id !== 'cash-3');
-            if (cleanCash.length !== parsed.cashEntries.length) {
-              parsed.cashEntries = cleanCash;
-              modified = true;
-            }
-          }
-          if (Array.isArray(parsed.customerDues)) {
-            const cleanDues = parsed.customerDues.filter((d: any) => d && d.id && d.id !== 'due-1' && d.id !== 'due-2' && d.id !== 'due-3');
-            if (cleanDues.length !== parsed.customerDues.length) {
-              parsed.customerDues = cleanDues;
-              modified = true;
-            }
-          }
-          if (Array.isArray(parsed.purchaseTrips)) {
-            const cleanTrips = parsed.purchaseTrips.filter((t: any) => t && t.id && t.id !== 'trip-demo-1' && !t.id.startsWith('trip-demo-'));
-            if (cleanTrips.length !== parsed.purchaseTrips.length) {
-              parsed.purchaseTrips = cleanTrips;
-              modified = true;
-            }
-          }
-          if (modified) {
-            fs.writeFileSync(fahadPath, JSON.stringify(parsed, null, 2), 'utf-8');
-            fs.writeFileSync(emailPath, JSON.stringify(parsed, null, 2), 'utf-8');
-          }
-        }
-      } catch (e) {
-        console.warn('Error cleaning legacy file:', e);
-      }
     }
   } catch (err) {
     console.warn('Seed initialization error:', err);
   }
 }
 
+// Clean any old legacy demo data across all vault files on startup
+function cleanAllVaultFiles() {
+  try {
+    if (fs.existsSync(DATA_DIR)) {
+      const files = fs.readdirSync(DATA_DIR);
+      for (const file of files) {
+        if (file.endsWith('.json') && file !== 'accounts_index.json') {
+          const filePath = path.join(DATA_DIR, file);
+          try {
+            const content = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+            content.bills = [];
+            content.cashEntries = [];
+            content.customerDues = [];
+            content.purchaseTrips = [];
+            fs.writeFileSync(filePath, JSON.stringify(content, null, 2), 'utf-8');
+          } catch (e) {
+            console.error('Error cleaning vault file:', file, e);
+          }
+        }
+      }
+      const indexPath = path.join(DATA_DIR, 'accounts_index.json');
+      if (fs.existsSync(indexPath)) {
+        try {
+          const list = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
+          for (const item of list) {
+            item.billsCount = 0;
+          }
+          fs.writeFileSync(indexPath, JSON.stringify(list, null, 2), 'utf-8');
+        } catch (e) {}
+      }
+    }
+  } catch (err) {
+    console.error('cleanAllVaultFiles error:', err);
+  }
+}
+
+cleanAllVaultFiles();
 ensureFahadSeed();
 
 // ----------------- API ENDPOINTS -----------------

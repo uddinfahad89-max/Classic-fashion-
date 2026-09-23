@@ -10,6 +10,7 @@ import {
   PurchaseTrip,
   PurchaseExpenseItem,
   SavedAccountItem,
+  BarcodeLabelConfig,
 } from '../types';
 
 const STORAGE_KEYS = {
@@ -76,6 +77,51 @@ const DEFAULT_SETTINGS: ThermalPrinterSettings = {
 };
 
 class StorageService {
+  constructor() {
+    this.purgeLegacyDataOnce();
+  }
+
+  // Purge any legacy sample/demo invoices, daybook entries, dues, or trips so new users have a clean slate
+  purgeLegacyDataOnce(): void {
+    try {
+      const PURGE_KEY = 'simple_pos_cleared_all_old_data_v5';
+      if (typeof window !== 'undefined' && localStorage.getItem(PURGE_KEY) !== 'done') {
+        localStorage.removeItem(STORAGE_KEYS.BILLS);
+        localStorage.removeItem(STORAGE_KEYS.CASHBOOK);
+        localStorage.removeItem(STORAGE_KEYS.DUES);
+        localStorage.removeItem(STORAGE_KEYS.PURCHASES);
+
+        // Also clean any cached vault data in localStorage
+        const indexRaw = localStorage.getItem(VAULT_KEYS.ACCOUNTS_INDEX);
+        if (indexRaw) {
+          try {
+            const list: SavedAccountItem[] = JSON.parse(indexRaw);
+            for (const item of list) {
+              const norm = this.normalizeIdentifier(item.identifier || item.phone || item.email);
+              if (norm) {
+                const k = `${VAULT_KEYS.ACCOUNT_PREFIX}${norm}`;
+                const rawV = localStorage.getItem(k);
+                if (rawV) {
+                  try {
+                    const parsed = JSON.parse(rawV);
+                    parsed.bills = [];
+                    parsed.cashEntries = [];
+                    parsed.customerDues = [];
+                    parsed.purchaseTrips = [];
+                    localStorage.setItem(k, JSON.stringify(parsed));
+                  } catch {}
+                }
+              }
+            }
+          } catch {}
+        }
+        localStorage.setItem(PURGE_KEY, 'done');
+      }
+    } catch (e) {
+      console.warn('purgeLegacyDataOnce notice:', e);
+    }
+  }
+
   // --- SETTINGS ---
   getSettings(): ThermalPrinterSettings {
     try {
@@ -121,21 +167,7 @@ class StorageService {
       if (data !== null) {
         const parsed: BillInvoice[] = JSON.parse(data);
         if (Array.isArray(parsed)) {
-          // Remove any legacy demo bills
-          const filtered = parsed.filter(
-            (b) =>
-              b &&
-              b.id &&
-              !b.id.startsWith('inv-demo-') &&
-              b.id !== 'inv-sale-306' &&
-              b.id !== 'inv-sale-1048' &&
-              b.id !== 'inv-sale-1047' &&
-              b.id !== 'inv-sale-1046'
-          );
-          if (filtered.length !== parsed.length) {
-            this.saveBillsList(filtered);
-          }
-          return filtered;
+          return parsed;
         }
       }
       return [];
@@ -241,11 +273,11 @@ class StorageService {
     }
     this.saveBillsList(bills);
 
-    // Direct backup of this bill to server disk
+    // Direct backup of this bill to server disk (only if logged in with phone or email)
     try {
       const profile = this.getUserProfile();
-      const id = profile.phone || profile.email || '9707502246';
-      if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
+      const id = profile.phone || profile.email;
+      if (profile.isLoggedIn && id && typeof window !== 'undefined' && typeof fetch !== 'undefined') {
         fetch('/api/bills/save', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -275,23 +307,7 @@ class StorageService {
       }
       const parsed: CashEntry[] = JSON.parse(data);
       if (Array.isArray(parsed)) {
-        // Filter out any legacy demo cash entries
-        const filtered = parsed.filter(
-          (e) =>
-            e &&
-            e.id &&
-            e.id !== 'cash-1' &&
-            e.id !== 'cash-2' &&
-            e.id !== 'cash-3' &&
-            !e.note?.includes('Cotton Kurtis & Dupatta') &&
-            !e.note?.includes('Wholesale cloth roll purchase from Surat') &&
-            !e.note?.includes('Morning counter sales') &&
-            !e.note?.includes('Alteration tailoring thread & packaging')
-        );
-        if (filtered.length !== parsed.length) {
-          this.saveCashEntries(filtered);
-        }
-        return filtered;
+        return parsed;
       }
       return [];
     } catch {
@@ -333,24 +349,7 @@ class StorageService {
       }
       const parsed: CustomerDue[] = JSON.parse(data);
       if (Array.isArray(parsed)) {
-        // Filter out any legacy demo dues
-        const filtered = parsed.filter(
-          (d) =>
-            d &&
-            d.id &&
-            d.id !== 'due-1' &&
-            d.id !== 'due-2' &&
-            d.id !== 'due-3' &&
-            d.name !== 'Pooja Sharma' &&
-            d.name !== 'Rahul Verma' &&
-            d.name !== 'Kabir Ahmed' &&
-            d.name !== 'Rafiqul Islam' &&
-            d.name !== 'Akram Hossain'
-        );
-        if (filtered.length !== parsed.length) {
-          this.saveCustomerDues(filtered);
-        }
-        return filtered.map((d) => ({
+        return parsed.map((d) => ({
           ...d,
           type: d.type || 'receivable',
         }));
@@ -603,7 +602,13 @@ class StorageService {
   syncActiveAccountVault(specificProfile?: UserProfile): void {
     try {
       const profile = specificProfile || this.getUserProfile();
-      const identifier = profile.phone || profile.email || '9707502246';
+      if (!profile || !profile.isLoggedIn) {
+        return;
+      }
+      const identifier = profile.phone || profile.email;
+      if (!identifier) {
+        return;
+      }
 
       const norm = this.normalizeIdentifier(identifier);
       const settings = this.getSettings();
@@ -813,7 +818,15 @@ class StorageService {
 
     // Attempt restoring account data from vault
     const lookupKey = cleanPhone || cleanEmail || raw;
-    this.restoreFromAccountVault(lookupKey);
+    const restored = this.restoreFromAccountVault(lookupKey);
+
+    if (!restored) {
+      // If this account doesn't have existing saved vault data, ensure a clean empty slate!
+      localStorage.setItem(STORAGE_KEYS.BILLS, JSON.stringify([]));
+      localStorage.setItem(STORAGE_KEYS.CASHBOOK, JSON.stringify([]));
+      localStorage.setItem(STORAGE_KEYS.DUES, JSON.stringify([]));
+      localStorage.setItem(STORAGE_KEYS.PURCHASES, JSON.stringify([]));
+    }
 
     const current = this.getUserProfile();
 
@@ -936,14 +949,18 @@ class StorageService {
   }
 
   logoutUser(): UserProfile {
-    // Before logging out, sync active data to user's vault
+    // Before logging out, sync active data to user's vault if logged in
     this.syncActiveAccountVault();
-    const current = this.getUserProfile();
     const loggedOut: UserProfile = {
-      ...current,
+      ...DEFAULT_USER,
       isLoggedIn: false,
-      loginTime: undefined,
     };
+    // Clear active session items in localStorage so next/new visitor sees an empty fresh slate
+    localStorage.removeItem(STORAGE_KEYS.BILLS);
+    localStorage.removeItem(STORAGE_KEYS.CASHBOOK);
+    localStorage.removeItem(STORAGE_KEYS.DUES);
+    localStorage.removeItem(STORAGE_KEYS.PURCHASES);
+    localStorage.removeItem(STORAGE_KEYS.SETTINGS);
     this.saveUserProfile(loggedOut);
     return loggedOut;
   }
@@ -1099,19 +1116,7 @@ class StorageService {
       }
       const parsed: PurchaseTrip[] = JSON.parse(data);
       if (Array.isArray(parsed)) {
-        // Filter out any legacy demo trips
-        const filtered = parsed.filter(
-          (t) =>
-            t &&
-            t.id &&
-            t.id !== 'trip-demo-1' &&
-            !t.id.startsWith('trip-demo-') &&
-            !t.title?.includes('চকবাজার পাইকারি বাজার')
-        );
-        if (filtered.length !== parsed.length) {
-          this.savePurchaseTrips(filtered);
-        }
-        return filtered;
+        return parsed;
       }
       return [];
     } catch {
@@ -1325,6 +1330,26 @@ class StorageService {
       return true;
     } catch {
       return false;
+    }
+  }
+  // --- BARCODE CUSTOM DESIGN PREFERENCES ---
+  getBarcodeCustomDesign(): Partial<BarcodeLabelConfig> | null {
+    try {
+      const raw = localStorage.getItem('pos_barcode_custom_design_v2');
+      if (raw) {
+        return JSON.parse(raw);
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  saveBarcodeCustomDesign(design: Partial<BarcodeLabelConfig>): void {
+    try {
+      localStorage.setItem('pos_barcode_custom_design_v2', JSON.stringify(design));
+    } catch (e) {
+      console.warn('Failed to save barcode custom design:', e);
     }
   }
 }
