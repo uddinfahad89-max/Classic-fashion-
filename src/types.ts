@@ -10,7 +10,7 @@ export type ActiveTab = 'billing' | 'invoices' | 'cashbook' | 'due' | 'purchases
 
 export type LabelSizePreset = '2x1' | '50x25' | '2x1.2' | '1.5x1' | '1x1' | '2x2' | 'custom';
 
-export type TagLayoutStyle = 'classic' | 'modern_badge' | 'bold_price' | 'compact_split' | 'minimal' | 'qr_centric';
+export type TagLayoutStyle = 'classic' | 'modern_badge' | 'bold_price' | 'compact_split' | 'minimal' | 'qr_centric' | 'ultra_simple';
 export type TagBorderStyle = 'single' | 'bold' | 'dashed' | 'double' | 'none';
 export type TagHeaderStyle = 'solid_banner' | 'underline' | 'pill' | 'minimal';
 export type TagPriceStyle = 'standard' | 'highlight_pill' | 'big_hero';
@@ -35,6 +35,7 @@ export interface BarcodeLabelConfig {
   customWidthMm?: number;
   customHeightMm?: number;
   showStoreName: boolean;
+  showItemName?: boolean;
   showMrp: boolean;
   showSalePrice: boolean;
   showBarcode: boolean;
@@ -59,6 +60,7 @@ export interface BarcodeLabelConfig {
   showPunchHole?: boolean;
   showFooterNote?: boolean;
   cleanWhiteMode?: boolean;
+  mrpPrefix?: string;
 }
 
 export type Language = 'bn' | 'en' | 'hi';
