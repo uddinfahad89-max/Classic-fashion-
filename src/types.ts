@@ -61,6 +61,7 @@ export interface BarcodeLabelConfig {
   showFooterNote?: boolean;
   cleanWhiteMode?: boolean;
   mrpPrefix?: string;
+  mrpOffset?: number; // Vertical offset in px for moving MRP up/down
 }
 
 export type Language = 'bn' | 'en' | 'hi';

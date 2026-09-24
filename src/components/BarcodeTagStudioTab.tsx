@@ -194,6 +194,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
       showPunchHole: false,
       showFooterNote: true,
       cleanWhiteMode: true,
+      mrpOffset: 0,
     };
     if (saved) {
       const cleanCustomOffer = (saved.customOfferText || '').replace(/save.*29.*%?/gi, '').trim();
@@ -245,15 +246,45 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
 
   const labelPreviewRef = useRef<HTMLDivElement | null>(null);
 
-  // Robust capture helper using html2canvas-pro with oklch support
+  // Robust capture helper using html2canvas-pro with solid white background and pure black rendering
   const captureLabelCanvas = async (scale = 3): Promise<HTMLCanvasElement | null> => {
     if (!labelPreviewRef.current) return null;
-    return await html2canvas(labelPreviewRef.current, {
+    const captured = await html2canvas(labelPreviewRef.current, {
       scale,
       backgroundColor: '#ffffff',
       useCORS: true,
       logging: false,
+      onclone: (clonedDoc) => {
+        // High Contrast Output: Ensure no dark mode CSS interferes with the generated label canvas
+        const card = clonedDoc.getElementById('thermal-sticker-live-card');
+        if (card) {
+          card.style.backgroundColor = '#ffffff';
+          card.style.color = '#000000';
+          card.querySelectorAll('*').forEach((el: any) => {
+            if (el.tagName !== 'IMG') {
+              el.style.color = '#000000';
+              if (el.style.borderColor) {
+                el.style.borderColor = '#000000';
+              }
+            }
+          });
+        }
+      },
     });
+    if (!captured) return null;
+
+    // 1. Solid White Canvas Background: explicitly set solid white background before rendering
+    const pristineCanvas = document.createElement('canvas');
+    pristineCanvas.width = captured.width;
+    pristineCanvas.height = captured.height;
+    const ctx = pristineCanvas.getContext('2d');
+    if (!ctx) return captured;
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, pristineCanvas.width, pristineCanvas.height);
+    ctx.drawImage(captured, 0, 0);
+
+    return pristineCanvas;
   };
 
   // Auto-generate SKU / Barcode
@@ -506,6 +537,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
       showSize: labelConfig.showSize,
       showBatch: labelConfig.showBatch,
       showFooterNote: labelConfig.showFooterNote,
+      mrpOffset: labelConfig.mrpOffset,
     };
     storageService.saveBarcodeCustomDesign(toSave);
     onShowToast(
@@ -541,6 +573,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
       showSize: true,
       showBatch: true,
       showFooterNote: true,
+      mrpOffset: 0,
     }));
     setShowPunchHole(false);
     onShowToast(
@@ -1492,6 +1525,63 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                         className="w-full bg-white text-stone-950 font-bold border border-stone-300 rounded-lg pl-8 pr-2 py-1.5 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
+                  </div>
+                </div>
+
+                {/* MRP Vertical Position Control (Mrp উপর নিচে করার কন্ট্রোল) */}
+                <div className="p-2.5 bg-stone-100/80 rounded-xl border border-stone-200">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
+                      <SlidersHorizontal className="w-3.5 h-3.5 text-blue-600" />
+                      <span>{isBn ? 'MRP অবস্থান (উপরে / নিচে)' : 'MRP Position (Up / Down)'}</span>
+                      <span className="text-[10px] font-mono font-bold text-blue-700 bg-blue-50 px-1.5 py-0.2 rounded border border-blue-200">
+                        {labelConfig.mrpOffset ? `${labelConfig.mrpOffset > 0 ? '+' : ''}${labelConfig.mrpOffset}px` : (isBn ? 'স্বাভাবিক (0)' : 'Default (0)')}
+                      </span>
+                    </label>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setLabelConfig((prev) => ({ ...prev, mrpOffset: Math.max(-14, (prev.mrpOffset || 0) - 2) }))}
+                        className="px-2 py-1 bg-white hover:bg-stone-50 border border-stone-300 rounded-lg text-stone-800 text-[11px] font-bold hover:text-blue-600 transition-all cursor-pointer active:scale-95 shadow-2xs flex items-center gap-1"
+                        title={isBn ? 'MRP উপরে তুলুন' : 'Move MRP Up'}
+                      >
+                        <span>🔼</span>
+                        <span>{isBn ? 'উপরে' : 'Up'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLabelConfig((prev) => ({ ...prev, mrpOffset: Math.min(16, (prev.mrpOffset || 0) + 2) }))}
+                        className="px-2 py-1 bg-white hover:bg-stone-50 border border-stone-300 rounded-lg text-stone-800 text-[11px] font-bold hover:text-blue-600 transition-all cursor-pointer active:scale-95 shadow-2xs flex items-center gap-1"
+                        title={isBn ? 'MRP নিচে নামান' : 'Move MRP Down'}
+                      >
+                        <span>🔽</span>
+                        <span>{isBn ? 'নিচে' : 'Down'}</span>
+                      </button>
+                      {Boolean(labelConfig.mrpOffset) && (
+                        <button
+                          type="button"
+                          onClick={() => setLabelConfig((prev) => ({ ...prev, mrpOffset: 0 }))}
+                          className="px-1.5 py-1 bg-stone-200 hover:bg-stone-300 rounded-lg text-stone-700 text-[10px] font-bold cursor-pointer transition-all"
+                          title={isBn ? 'রিসেট' : 'Reset'}
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <input
+                    type="range"
+                    min="-14"
+                    max="16"
+                    step="1"
+                    value={labelConfig.mrpOffset || 0}
+                    onChange={(e) => setLabelConfig((prev) => ({ ...prev, mrpOffset: Number(e.target.value) }))}
+                    className="w-full accent-blue-600 cursor-pointer h-1.5 bg-stone-300 rounded-lg"
+                  />
+                  <div className="flex justify-between text-[9px] text-stone-500 font-bold px-0.5 mt-0.5">
+                    <span>← {isBn ? 'উপরে (-14px)' : 'Up (-14px)'}</span>
+                    <span>{isBn ? 'স্বাভাবিক (0)' : 'Default (0)'}</span>
+                    <span>{isBn ? 'নিচে (+16px)' : 'Down (+16px)'} →</span>
                   </div>
                 </div>
               </div>
@@ -2667,6 +2757,49 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                   );
                 })}
               </div>
+
+              {/* MRP Vertical Position Control (Mrp উপর নিচে করার কন্ট্রোল) */}
+              <div className="flex items-center justify-between gap-2 p-1.5 bg-stone-50 rounded-xl border border-stone-200/80 text-[11px]">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="font-extrabold text-stone-700 flex items-center gap-1 shrink-0">
+                    <SlidersHorizontal className="w-3.5 h-3.5 text-blue-600" />
+                    <span>{isBn ? 'MRP অবস্থান:' : 'MRP Pos:'}</span>
+                  </span>
+                  <span className="font-mono font-bold text-blue-700 bg-blue-50 px-1.5 py-0.2 rounded border border-blue-200 text-[10px] truncate">
+                    {labelConfig.mrpOffset ? `${labelConfig.mrpOffset > 0 ? '+' : ''}${labelConfig.mrpOffset}px` : (isBn ? 'স্বাভাবিক (0)' : 'Default (0)')}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setLabelConfig((prev) => ({ ...prev, mrpOffset: Math.max(-14, (prev.mrpOffset || 0) - 2) }))}
+                    className="px-2 py-0.5 bg-white hover:bg-stone-100 border border-stone-300 rounded-md text-stone-800 font-bold hover:text-blue-600 transition-all cursor-pointer flex items-center gap-0.5 active:scale-95 shadow-2xs text-[10px]"
+                    title={isBn ? 'MRP উপরে তুলুন' : 'Move MRP Up'}
+                  >
+                    <span>🔼</span>
+                    <span>{isBn ? 'উপরে' : 'Up'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLabelConfig((prev) => ({ ...prev, mrpOffset: Math.min(16, (prev.mrpOffset || 0) + 2) }))}
+                    className="px-2 py-0.5 bg-white hover:bg-stone-100 border border-stone-300 rounded-lg text-stone-800 font-bold hover:text-blue-600 transition-all cursor-pointer flex items-center gap-0.5 active:scale-95 shadow-2xs text-[10px]"
+                    title={isBn ? 'MRP নিচে নামান' : 'Move MRP Down'}
+                  >
+                    <span>🔽</span>
+                    <span>{isBn ? 'নিচে' : 'Down'}</span>
+                  </button>
+                  {Boolean(labelConfig.mrpOffset) && (
+                    <button
+                      type="button"
+                      onClick={() => setLabelConfig((prev) => ({ ...prev, mrpOffset: 0 }))}
+                      className="px-1.5 py-0.5 bg-stone-200 hover:bg-stone-300 rounded-md text-stone-700 text-[10px] font-bold cursor-pointer transition-all"
+                      title={isBn ? 'রিসেট' : 'Reset'}
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
 
             {/* Visual Thermal Sticker Container */}
@@ -2674,16 +2807,16 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
               <div
                 ref={labelPreviewRef}
                 id="thermal-sticker-live-card"
-                className={`bg-white text-stone-900 relative transition-all select-none overflow-hidden flex flex-col justify-between ${
+                className={`bg-white text-black relative transition-all select-none overflow-hidden flex flex-col justify-between ${
                   !labelConfig.showBorder || labelConfig.borderStyle === 'none'
                     ? 'border-0'
                     : labelConfig.borderStyle === 'bold'
-                    ? 'border-2 border-stone-950'
+                    ? 'border-2 border-black'
                     : labelConfig.borderStyle === 'double'
-                    ? 'border-4 border-double border-stone-900'
+                    ? 'border-4 border-double border-black'
                     : labelConfig.borderStyle === 'dashed'
-                    ? 'border border-dashed border-stone-700'
-                    : 'border border-stone-900'
+                    ? 'border border-dashed border-black'
+                    : 'border border-black'
                 } ${
                   labelConfig.cornerRadius === 'none'
                     ? 'rounded-none'
@@ -2697,6 +2830,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                   width: `${Math.min(320, widthMm * 5.4)}px`,
                   minHeight: `${Math.max(120, heightMm * 5.4)}px`,
                   backgroundColor: '#ffffff',
+                  color: '#000000',
                   boxShadow: 'none',
                   padding:
                     labelConfig.layoutStyle === 'ultra_simple'
@@ -2720,7 +2854,10 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                   <div className="flex flex-col justify-between h-full w-full bg-white select-none text-center py-0.5">
                     {/* Top: Centered Store Name */}
                     {labelConfig.showStoreName && labelConfig.storeName ? (
-                      <div className="text-[11px] sm:text-[12px] font-black uppercase tracking-wider text-stone-950 leading-tight">
+                      <div
+                        className="text-[11px] sm:text-[12px] font-black uppercase tracking-wider leading-tight"
+                        style={{ color: '#000000' }}
+                      >
                         {labelConfig.storeName}
                       </div>
                     ) : null}
@@ -2728,7 +2865,10 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                     {/* Optional Product Name & Size if provided */}
                     {((labelConfig.showItemName !== false && Boolean(labelConfig.itemName?.trim())) ||
                       (labelConfig.showSize && Boolean(labelConfig.sizeOrVariant?.trim()))) && (
-                      <div className="text-[9px] font-bold text-stone-800 truncate leading-tight pt-0.5">
+                      <div
+                        className="text-[9px] font-bold truncate leading-tight pt-0.5"
+                        style={{ color: '#000000' }}
+                      >
                         {labelConfig.showItemName !== false && labelConfig.itemName?.trim() ? labelConfig.itemName : ''}
                         {labelConfig.showSize && labelConfig.sizeOrVariant?.trim() ? ` (${labelConfig.sizeOrVariant})` : ''}
                       </div>
@@ -2756,13 +2896,24 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                     )}
 
                     {/* Bottom: Underlined MRP (Photo 1 exact style: MRP:5999) */}
-                    <div className="text-center pt-0.5 pb-0.5">
+                    <div
+                      className="text-center pt-0.5 pb-0.5 transition-all"
+                      style={{
+                        transform: `translateY(${labelConfig.mrpOffset || 0}px)`,
+                      }}
+                    >
                       {labelConfig.showMrp ? (
-                        <span className="text-xs sm:text-sm font-black font-mono text-stone-950 underline decoration-stone-950 decoration-1.5 underline-offset-2 italic tracking-wide">
-                          MRP:{labelConfig.mrp || labelConfig.salePrice || '5999'}
+                        <span
+                          className="text-xs sm:text-sm font-black font-mono underline decoration-1.5 underline-offset-2 italic tracking-wide"
+                          style={{ color: '#000000', textDecorationColor: '#000000' }}
+                        >
+                          {labelConfig.mrpPrefix || 'MRP:'}{labelConfig.mrp || labelConfig.salePrice || '5999'}
                         </span>
                       ) : labelConfig.showSalePrice ? (
-                        <span className="text-xs sm:text-sm font-black font-mono text-stone-950 underline decoration-stone-950 decoration-1.5 underline-offset-2 italic tracking-wide">
+                        <span
+                          className="text-xs sm:text-sm font-black font-mono underline decoration-1.5 underline-offset-2 italic tracking-wide"
+                          style={{ color: '#000000', textDecorationColor: '#000000' }}
+                        >
                           PRICE:{sym}{labelConfig.salePrice}
                         </span>
                       ) : null}
@@ -2998,7 +3149,12 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                     )}
 
                     {/* Pricing Block */}
-                    <div className="border-t border-stone-200 pt-1 px-2 space-y-0.5">
+                    <div
+                      className="border-t border-stone-300 pt-1 px-2 space-y-0.5 transition-all"
+                      style={{
+                        transform: `translateY(${labelConfig.mrpOffset || 0}px)`,
+                      }}
+                    >
                       <div className="flex items-baseline justify-between gap-1">
                         {/* Left: Crossed out MRP */}
                         {labelConfig.showMrp && Boolean(labelConfig.mrp) ? (
