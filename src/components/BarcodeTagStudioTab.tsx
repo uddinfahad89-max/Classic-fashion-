@@ -39,6 +39,11 @@ import {
   ShieldCheck,
   CheckSquare,
   Square,
+  ArrowUpDown,
+  MoveVertical,
+  Settings2,
+  Compass,
+  X,
 } from 'lucide-react';
 import JsBarcode from 'jsbarcode';
 import QRCode from 'qrcode';
@@ -153,6 +158,14 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
 
   const [activeControlTab, setActiveControlTab] = useState<'easy' | 'content' | 'design'>('easy');
 
+  // Permanent Default Barcode Label Print Settings (Persisted in localStorage):
+  // 1. Paper / Sticker Size: "50×25mm Sticker Roll" ('50mm_label')
+  // 2. Printer Protocol: "TSPL (লেবেল)" ('tspl')
+  // 3. Darkness (Burn): "Dark" ('dark')
+  // 4. Print Polarity: "Black on White" (invertPolarity = true)
+  // 5. TSPL Layout: Barcode Position ('top' | 'bottom'), Vertical Offset Y (-50 to +50), Invert Direction (false: 1,0; true: 0,0)
+  const savedPrinterPrefs = useMemo(() => storageService.getBarcodePrinterPreferences(), []);
+
   const [labelConfig, setLabelConfig] = useState<BarcodeLabelConfig>(() => {
     const saved = storageService.getBarcodeCustomDesign();
     const defaults: BarcodeLabelConfig = {
@@ -195,6 +208,9 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
       showFooterNote: true,
       cleanWhiteMode: true,
       mrpOffset: 0,
+      barcodePosition: savedPrinterPrefs.barcodePosition || 'bottom',
+      verticalOffsetY: savedPrinterPrefs.verticalOffsetY || 0,
+      invertDirection: savedPrinterPrefs.invertDirection || false,
     };
     if (saved) {
       const cleanCustomOffer = (saved.customOfferText || '').replace(/save.*29.*%?/gi, '').trim();
@@ -204,6 +220,9 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
         showDiscountBadge: false,
         customOfferText: cleanCustomOffer,
         cleanWhiteMode: saved.cleanWhiteMode !== false,
+        barcodePosition: saved.barcodePosition || defaults.barcodePosition,
+        verticalOffsetY: typeof saved.verticalOffsetY === 'number' ? saved.verticalOffsetY : defaults.verticalOffsetY,
+        invertDirection: typeof saved.invertDirection === 'boolean' ? saved.invertDirection : defaults.invertDirection,
       };
     }
     return defaults;
@@ -219,13 +238,6 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
   const isLabelPrinterModel = (name?: string) =>
     Boolean(name && /4B|2034|XP|label|tsc|postek|gprinter/i.test(name));
 
-  // Permanent Default Barcode Label Print Settings (Persisted in localStorage):
-  // 1. Paper / Sticker Size: "50×25mm Sticker Roll" ('50mm_label')
-  // 2. Printer Protocol: "TSPL (লেবেল)" ('tspl')
-  // 3. Darkness (Burn): "Dark" ('dark')
-  // 4. Print Polarity: "Black on White" (invertPolarity = true)
-  const savedPrinterPrefs = useMemo(() => storageService.getBarcodePrinterPreferences(), []);
-
   // Bluetooth Thermal Printer states
   const [btConnected, setBtConnected] = useState(thermalPrinterService.getIsConnected());
   const [btConnecting, setBtConnecting] = useState(thermalPrinterService.getIsConnecting());
@@ -237,6 +249,10 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
   const [printerProtocol, setPrinterProtocol] = useState<'escpos' | 'tspl'>(savedPrinterPrefs.printerProtocol);
   const [darknessMode, setDarknessMode] = useState<'normal' | 'dark' | 'extra_dark'>(savedPrinterPrefs.darknessMode);
   const [invertPolarity, setInvertPolarity] = useState<boolean>(savedPrinterPrefs.invertPolarity);
+  const [barcodePosition, setBarcodePosition] = useState<'top' | 'bottom'>(savedPrinterPrefs.barcodePosition || 'bottom');
+  const [verticalOffsetY, setVerticalOffsetY] = useState<number>(savedPrinterPrefs.verticalOffsetY || 0);
+  const [invertDirection, setInvertDirection] = useState<boolean>(savedPrinterPrefs.invertDirection || false);
+  const [showTsplModal, setShowTsplModal] = useState<boolean>(false);
 
   // Persistence handlers that automatically update state and lock to localStorage
   const updatePaperRollWidth = (width: '50mm_label' | '58mm' | '80mm') => {
@@ -257,6 +273,25 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
   const updateInvertPolarity = (polarity: boolean) => {
     setInvertPolarity(polarity);
     storageService.saveBarcodePrinterPreferences({ invertPolarity: polarity });
+  };
+
+  const updateBarcodePosition = (pos: 'top' | 'bottom') => {
+    setBarcodePosition(pos);
+    storageService.saveBarcodePrinterPreferences({ barcodePosition: pos });
+    setLabelConfig((prev) => ({ ...prev, barcodePosition: pos }));
+  };
+
+  const updateVerticalOffsetY = (val: number) => {
+    const clamped = Math.max(-50, Math.min(50, val));
+    setVerticalOffsetY(clamped);
+    storageService.saveBarcodePrinterPreferences({ verticalOffsetY: clamped });
+    setLabelConfig((prev) => ({ ...prev, verticalOffsetY: clamped }));
+  };
+
+  const updateInvertDirection = (inv: boolean) => {
+    setInvertDirection(inv);
+    storageService.saveBarcodePrinterPreferences({ invertDirection: inv });
+    setLabelConfig((prev) => ({ ...prev, invertDirection: inv }));
   };
 
   // Reactively subscribe to Bluetooth printer connection status changes
@@ -897,7 +932,9 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
           printerProtocol,
           widthMm,
           heightMm,
-          invertPolarity
+          invertPolarity,
+          invertDirection,
+          verticalOffsetY
         );
         if (res.success) {
           onShowToast(
@@ -966,7 +1003,9 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
         printerProtocol,
         widthMm,
         heightMm,
-        invertPolarity
+        invertPolarity,
+        invertDirection,
+        verticalOffsetY
       );
 
       if (result.success) {
@@ -982,6 +1021,53 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     } catch (e: any) {
       console.error('Bluetooth thermal print error:', e);
       onShowToast(isBn ? `প্রিন্ট সমস্যা: ${e?.message || 'ত্রুটি'}` : `Print failed: ${e?.message}`, 'error');
+    } finally {
+      setIsBtPrinting(false);
+    }
+  };
+
+  // Generate TSPL command string reactively
+  const currentTsplCode = useMemo(() => {
+    return thermalPrinterService.generateTsplCommandString({
+      storeName: labelConfig.storeName,
+      itemName: labelConfig.itemName,
+      barcodeValue: labelConfig.barcodeValue,
+      barcodeType: labelConfig.barcodeType === 'QR' ? 'QR' : 'CODE128',
+      mrp: labelConfig.mrp,
+      salePrice: labelConfig.salePrice,
+      widthMm,
+      heightMm,
+      copies: labelConfig.quantity || 1,
+      barcodePosition,
+      verticalOffsetY,
+      invertDirection,
+      showStoreName: labelConfig.showStoreName,
+      showItemName: labelConfig.showItemName,
+      showPrice: labelConfig.showMrp || labelConfig.showSalePrice,
+    });
+  }, [labelConfig, barcodePosition, verticalOffsetY, invertDirection, widthMm, heightMm]);
+
+  // Direct Native TSPL Print via Bluetooth
+  const handleNativeTsplPrint = async () => {
+    setIsBtPrinting(true);
+    try {
+      if (!thermalPrinterService.getIsConnected()) {
+        const conn = await thermalPrinterService.connect();
+        if (!conn.success) {
+          onShowToast(isBn ? 'প্রিন্টার কানেক্ট করা যায়নি' : 'Could not connect to printer', 'error');
+          setIsBtPrinting(false);
+          return;
+        }
+      }
+      onShowToast(isBn ? 'নেটিভ TSPL কমান্ড প্রিন্টারে পাঠানো হচ্ছে...' : 'Sending native TSPL command to printer...', 'info');
+      const res = await thermalPrinterService.printNativeTsplViaBluetooth(currentTsplCode);
+      if (res.success) {
+        onShowToast(isBn ? '✅ TSPL লেবেল প্রিন্ট সম্পন্ন হয়েছে!' : '✅ Native TSPL label printed!', 'success');
+      } else {
+        onShowToast(res.message, 'error');
+      }
+    } catch (e: any) {
+      onShowToast(e?.message || 'TSPL print failed', 'error');
     } finally {
       setIsBtPrinting(false);
     }
@@ -2870,77 +2956,156 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
 
                 {/* --- RENDER OPTION: ULTRA SIMPLE (Photo 1 exact layout) --- */}
                 {labelConfig.layoutStyle === 'ultra_simple' ? (
-                  <div className="flex flex-col justify-between h-full w-full bg-white select-none text-center py-0.5">
-                    {/* Top: Centered Store Name */}
-                    {labelConfig.showStoreName && labelConfig.storeName ? (
-                      <div
-                        className="text-[11px] sm:text-[12px] font-black uppercase tracking-wider leading-tight"
-                        style={{ color: '#000000' }}
-                      >
-                        {labelConfig.storeName}
-                      </div>
-                    ) : null}
+                  <div
+                    className="flex flex-col justify-between h-full w-full bg-white select-none text-center py-0.5 transition-transform duration-150"
+                    style={{ transform: `translateY(${verticalOffsetY}px)` }}
+                  >
+                    {barcodePosition === 'top' ? (
+                      <>
+                        {/* Top: Barcode */}
+                        {labelConfig.showBarcode && (
+                          <div className="flex flex-col items-center justify-center pt-0.5 pb-1 bg-white">
+                            {labelConfig.barcodeType === 'QR' ? (
+                              qrCodeDataUrl ? (
+                                <img
+                                  src={qrCodeDataUrl}
+                                  alt="QR"
+                                  className="w-14 h-14 object-contain select-none mx-auto"
+                                />
+                              ) : null
+                            ) : barcodeDataUrl ? (
+                              <img
+                                src={barcodeDataUrl}
+                                alt="Barcode"
+                                className="w-full max-h-12 object-contain select-none mx-auto"
+                              />
+                            ) : null}
+                          </div>
+                        )}
 
-                    {/* Optional Product Name & Size if provided */}
-                    {((labelConfig.showItemName !== false && Boolean(labelConfig.itemName?.trim())) ||
-                      (labelConfig.showSize && Boolean(labelConfig.sizeOrVariant?.trim()))) && (
-                      <div
-                        className="text-[9px] font-bold truncate leading-tight pt-0.5"
-                        style={{ color: '#000000' }}
-                      >
-                        {labelConfig.showItemName !== false && labelConfig.itemName?.trim() ? labelConfig.itemName : ''}
-                        {labelConfig.showSize && labelConfig.sizeOrVariant?.trim() ? ` (${labelConfig.sizeOrVariant})` : ''}
-                      </div>
-                    )}
-
-                    {/* Center: Barcode with code numbers underneath */}
-                    {labelConfig.showBarcode && (
-                      <div className="flex flex-col items-center justify-center my-auto py-1 bg-white">
-                        {labelConfig.barcodeType === 'QR' ? (
-                          qrCodeDataUrl ? (
-                            <img
-                              src={qrCodeDataUrl}
-                              alt="QR"
-                              className="w-14 h-14 object-contain select-none mx-auto"
-                            />
-                          ) : null
-                        ) : barcodeDataUrl ? (
-                          <img
-                            src={barcodeDataUrl}
-                            alt="Barcode"
-                            className="w-full max-h-12 object-contain select-none mx-auto"
-                          />
+                        {/* Store Name */}
+                        {labelConfig.showStoreName && labelConfig.storeName ? (
+                          <div
+                            className="text-[11px] sm:text-[12px] font-black uppercase tracking-wider leading-tight"
+                            style={{ color: '#000000' }}
+                          >
+                            {labelConfig.storeName}
+                          </div>
                         ) : null}
-                      </div>
-                    )}
 
-                    {/* Bottom: Underlined MRP (Photo 1 exact style: MRP:5999) */}
-                    <div
-                      className="text-center pt-0.5 pb-0.5 transition-all"
-                      style={{
-                        transform: `translateY(${labelConfig.mrpOffset || 0}px)`,
-                      }}
-                    >
-                      {labelConfig.showMrp ? (
-                        <span
-                          className="text-xs sm:text-sm font-black font-mono underline decoration-1.5 underline-offset-2 italic tracking-wide"
-                          style={{ color: '#000000', textDecorationColor: '#000000' }}
+                        {/* Product Name & Size */}
+                        {((labelConfig.showItemName !== false && Boolean(labelConfig.itemName?.trim())) ||
+                          (labelConfig.showSize && Boolean(labelConfig.sizeOrVariant?.trim()))) && (
+                          <div
+                            className="text-[9px] font-bold truncate leading-tight pt-0.5"
+                            style={{ color: '#000000' }}
+                          >
+                            {labelConfig.showItemName !== false && labelConfig.itemName?.trim() ? labelConfig.itemName : ''}
+                            {labelConfig.showSize && labelConfig.sizeOrVariant?.trim() ? ` (${labelConfig.sizeOrVariant})` : ''}
+                          </div>
+                        )}
+
+                        {/* Bottom: Underlined MRP */}
+                        <div
+                          className="text-center pt-0.5 pb-0.5 transition-all"
+                          style={{
+                            transform: `translateY(${labelConfig.mrpOffset || 0}px)`,
+                          }}
                         >
-                          {labelConfig.mrpPrefix || 'MRP:'}{labelConfig.mrp || labelConfig.salePrice || '5999'}
-                        </span>
-                      ) : labelConfig.showSalePrice ? (
-                        <span
-                          className="text-xs sm:text-sm font-black font-mono underline decoration-1.5 underline-offset-2 italic tracking-wide"
-                          style={{ color: '#000000', textDecorationColor: '#000000' }}
+                          {labelConfig.showMrp ? (
+                            <span
+                              className="text-xs sm:text-sm font-black font-mono underline decoration-1.5 underline-offset-2 italic tracking-wide"
+                              style={{ color: '#000000', textDecorationColor: '#000000' }}
+                            >
+                              {labelConfig.mrpPrefix || 'MRP:'}{labelConfig.mrp || labelConfig.salePrice || '5999'}
+                            </span>
+                          ) : labelConfig.showSalePrice ? (
+                            <span
+                              className="text-xs sm:text-sm font-black font-mono underline decoration-1.5 underline-offset-2 italic tracking-wide"
+                              style={{ color: '#000000', textDecorationColor: '#000000' }}
+                            >
+                              PRICE:{sym}{labelConfig.salePrice}
+                            </span>
+                          ) : null}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        {/* Top: Centered Store Name */}
+                        {labelConfig.showStoreName && labelConfig.storeName ? (
+                          <div
+                            className="text-[11px] sm:text-[12px] font-black uppercase tracking-wider leading-tight"
+                            style={{ color: '#000000' }}
+                          >
+                            {labelConfig.storeName}
+                          </div>
+                        ) : null}
+
+                        {/* Optional Product Name & Size if provided */}
+                        {((labelConfig.showItemName !== false && Boolean(labelConfig.itemName?.trim())) ||
+                          (labelConfig.showSize && Boolean(labelConfig.sizeOrVariant?.trim()))) && (
+                          <div
+                            className="text-[9px] font-bold truncate leading-tight pt-0.5"
+                            style={{ color: '#000000' }}
+                          >
+                            {labelConfig.showItemName !== false && labelConfig.itemName?.trim() ? labelConfig.itemName : ''}
+                            {labelConfig.showSize && labelConfig.sizeOrVariant?.trim() ? ` (${labelConfig.sizeOrVariant})` : ''}
+                          </div>
+                        )}
+
+                        {/* Bottom: Underlined MRP */}
+                        <div
+                          className="text-center pt-0.5 pb-0.5 transition-all"
+                          style={{
+                            transform: `translateY(${labelConfig.mrpOffset || 0}px)`,
+                          }}
                         >
-                          PRICE:{sym}{labelConfig.salePrice}
-                        </span>
-                      ) : null}
-                    </div>
+                          {labelConfig.showMrp ? (
+                            <span
+                              className="text-xs sm:text-sm font-black font-mono underline decoration-1.5 underline-offset-2 italic tracking-wide"
+                              style={{ color: '#000000', textDecorationColor: '#000000' }}
+                            >
+                              {labelConfig.mrpPrefix || 'MRP:'}{labelConfig.mrp || labelConfig.salePrice || '5999'}
+                            </span>
+                          ) : labelConfig.showSalePrice ? (
+                            <span
+                              className="text-xs sm:text-sm font-black font-mono underline decoration-1.5 underline-offset-2 italic tracking-wide"
+                              style={{ color: '#000000', textDecorationColor: '#000000' }}
+                            >
+                              PRICE:{sym}{labelConfig.salePrice}
+                            </span>
+                          ) : null}
+                        </div>
+
+                        {/* Bottom: Barcode with code numbers underneath */}
+                        {labelConfig.showBarcode && (
+                          <div className="flex flex-col items-center justify-center my-auto py-1 bg-white">
+                            {labelConfig.barcodeType === 'QR' ? (
+                              qrCodeDataUrl ? (
+                                <img
+                                  src={qrCodeDataUrl}
+                                  alt="QR"
+                                  className="w-14 h-14 object-contain select-none mx-auto"
+                                />
+                              ) : null
+                            ) : barcodeDataUrl ? (
+                              <img
+                                src={barcodeDataUrl}
+                                alt="Barcode"
+                                className="w-full max-h-12 object-contain select-none mx-auto"
+                              />
+                            ) : null}
+                          </div>
+                        )}
+                      </>
+                    )}
                   </div>
                 ) : labelConfig.layoutStyle === 'compact_split' ? (
                   /* --- RENDER OPTION A: COMPACT SPLIT (Side-by-side) --- */
-                  <div className={`flex items-center gap-2 w-full h-full ${showPunchHole ? 'pt-2.5' : ''}`}>
+                  <div
+                    className={`flex items-center gap-2 w-full h-full transition-transform duration-150 ${showPunchHole ? 'pt-2.5' : ''}`}
+                    style={{ transform: `translateY(${verticalOffsetY}px)` }}
+                  >
                     {/* Left Column: Product Info & Pricing */}
                     <div className="flex-1 min-w-0 flex flex-col justify-between h-full space-y-1">
                       {/* Store Header */}
@@ -3035,8 +3200,38 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                   </div>
                 ) : (
                   /* --- RENDER OPTION B: STANDARD / MODERN / BOLD / MINIMAL --- */
-                  <>
-                    {/* Top: Store Name Banner or Underline */}
+                  <div
+                    className="w-full h-full flex flex-col justify-between transition-transform duration-150"
+                    style={{ transform: `translateY(${verticalOffsetY}px)` }}
+                  >
+                    {/* If Barcode Position is TOP: Place Barcode at top */}
+                    {barcodePosition === 'top' && labelConfig.showBarcode && (
+                      <div className="flex flex-col items-center justify-center py-1 px-1 bg-white">
+                        {labelConfig.barcodeType === 'QR' ? (
+                          qrCodeDataUrl ? (
+                            <img
+                              src={qrCodeDataUrl}
+                              alt="QR"
+                              className="w-14 h-14 object-contain select-none mx-auto"
+                            />
+                          ) : null
+                        ) : barcodeDataUrl ? (
+                          <img
+                            src={barcodeDataUrl}
+                            alt="Barcode"
+                            className={`w-full object-contain select-none mx-auto ${
+                              labelConfig.barcodeHeight === 'compact'
+                                ? 'max-h-8'
+                                : labelConfig.barcodeHeight === 'tall'
+                                ? 'max-h-14'
+                                : 'max-h-11'
+                            }`}
+                          />
+                        ) : null}
+                      </div>
+                    )}
+
+                    {/* Store Name Banner or Underline */}
                     {labelConfig.showStoreName && labelConfig.storeName && (
                       labelConfig.headerStyle === 'solid_banner' ? (
                         labelConfig.cleanWhiteMode !== false ? (
@@ -3140,33 +3335,6 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                       </div>
                     )}
 
-                    {/* Middle: Barcode Image or QR Code */}
-                    {labelConfig.showBarcode && (
-                      <div className="flex flex-col items-center justify-center py-1 px-1 bg-white">
-                        {labelConfig.barcodeType === 'QR' ? (
-                          qrCodeDataUrl ? (
-                            <img
-                              src={qrCodeDataUrl}
-                              alt="QR"
-                              className="w-14 h-14 object-contain select-none mx-auto"
-                            />
-                          ) : null
-                        ) : barcodeDataUrl ? (
-                          <img
-                            src={barcodeDataUrl}
-                            alt="Barcode"
-                            className={`w-full object-contain select-none mx-auto ${
-                              labelConfig.barcodeHeight === 'compact'
-                                ? 'max-h-8'
-                                : labelConfig.barcodeHeight === 'tall'
-                                ? 'max-h-14'
-                                : 'max-h-11'
-                            }`}
-                          />
-                        ) : null}
-                      </div>
-                    )}
-
                     {/* Pricing Block */}
                     <div
                       className="border-t border-stone-300 pt-1 px-2 space-y-0.5 transition-all"
@@ -3245,7 +3413,34 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                         )}
                       </div>
                     </div>
-                  </>
+
+                    {/* If Barcode Position is BOTTOM: Place Barcode at bottom */}
+                    {barcodePosition === 'bottom' && labelConfig.showBarcode && (
+                      <div className="flex flex-col items-center justify-center py-1 px-1 bg-white mt-auto">
+                        {labelConfig.barcodeType === 'QR' ? (
+                          qrCodeDataUrl ? (
+                            <img
+                              src={qrCodeDataUrl}
+                              alt="QR"
+                              className="w-14 h-14 object-contain select-none mx-auto"
+                            />
+                          ) : null
+                        ) : barcodeDataUrl ? (
+                          <img
+                            src={barcodeDataUrl}
+                            alt="Barcode"
+                            className={`w-full object-contain select-none mx-auto ${
+                              labelConfig.barcodeHeight === 'compact'
+                                ? 'max-h-8'
+                                : labelConfig.barcodeHeight === 'tall'
+                                ? 'max-h-14'
+                                : 'max-h-11'
+                            }`}
+                          />
+                        ) : null}
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
@@ -3520,6 +3715,147 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                     </button>
                   </div>
                 </div>
+
+                {/* 4. TSPL Print Setting / Layout Customization (Barcode Position, Vertical Offset Y, Invert Direction) */}
+                <div className="space-y-2 pt-2 border-t border-indigo-100/80">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-stone-700 flex items-center gap-1.5">
+                      <Compass className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>{isBn ? 'TSPL লেআউট ও পজিশনিং:' : 'TSPL Layout & Customization:'}</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowTsplModal(true)}
+                      className="text-[9px] text-indigo-700 hover:text-indigo-900 bg-white hover:bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-md font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                      title="TSPL কোড ও বিস্তারিত কাস্টমাইজেশন ডায়ালগ"
+                    >
+                      <Settings2 className="w-3 h-3 text-indigo-600" />
+                      <span>{isBn ? '⚙️ TSPL ডায়ালগ' : '⚙️ TSPL Modal'}</span>
+                    </button>
+                  </div>
+
+                  {/* A. Barcode Position: Top vs Bottom */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[9px] font-bold text-stone-600 flex items-center gap-1">
+                        <ArrowUpDown className="w-3 h-3 text-indigo-500" />
+                        <span>{isBn ? 'বারকোড অবস্থান (Barcode Position):' : 'Barcode Position:'}</span>
+                      </span>
+                      <span className="text-[9px] font-mono font-bold text-indigo-700">
+                        {barcodePosition === 'top' ? (isBn ? 'উপরে (Top)' : 'Top') : (isBn ? 'নিচে (Bottom)' : 'Bottom')}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1 bg-white/90 p-0.5 rounded-lg border border-indigo-100 shadow-2xs">
+                      <button
+                        type="button"
+                        onClick={() => updateBarcodePosition('top')}
+                        className={`py-1 rounded-md text-[9px] font-bold transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                          barcodePosition === 'top'
+                            ? 'bg-indigo-600 text-white shadow-2xs font-black'
+                            : 'text-stone-600 hover:bg-stone-50'
+                        }`}
+                        title={isBn ? 'বারকোড উপরে এবং বিবরণ নিচে' : 'Barcode at top, details below'}
+                      >
+                        <span>⬆️ {isBn ? 'উপরে (Top)' : 'Top'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateBarcodePosition('bottom')}
+                        className={`py-1 rounded-md text-[9px] font-bold transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                          barcodePosition === 'bottom'
+                            ? 'bg-indigo-600 text-white shadow-2xs font-black'
+                            : 'text-stone-600 hover:bg-stone-50'
+                        }`}
+                        title={isBn ? 'বিবরণ উপরে এবং বারকোড নিচে' : 'Details at top, barcode at bottom'}
+                      >
+                        <span>⬇️ {isBn ? 'নিচে (Bottom)' : 'Bottom'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* B. Vertical Offset (Y-Axis): -50 to +50 */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[9px] font-bold text-stone-600 flex items-center gap-1">
+                        <MoveVertical className="w-3 h-3 text-indigo-500" />
+                        <span>{isBn ? 'ভার্টিক্যাল অফসেট (Vertical Offset Y):' : 'Vertical Offset (Y-Axis):'}</span>
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <span className="text-[9px] font-mono font-black text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-200">
+                          {verticalOffsetY > 0 ? `+${verticalOffsetY}` : verticalOffsetY} px
+                        </span>
+                        {verticalOffsetY !== 0 && (
+                          <button
+                            type="button"
+                            onClick={() => updateVerticalOffsetY(0)}
+                            className="text-[8px] text-stone-500 hover:text-stone-800 underline cursor-pointer"
+                            title="রিসেট 0"
+                          >
+                            {isBn ? 'রিসেট' : 'Reset'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 bg-white/90 p-1.5 rounded-lg border border-indigo-100 shadow-2xs">
+                      <input
+                        type="range"
+                        min="-50"
+                        max="50"
+                        step="1"
+                        value={verticalOffsetY}
+                        onChange={(e) => updateVerticalOffsetY(Number(e.target.value))}
+                        className="w-full accent-indigo-600 cursor-pointer h-1.5"
+                      />
+                      <input
+                        type="number"
+                        min="-50"
+                        max="50"
+                        value={verticalOffsetY}
+                        onChange={(e) => updateVerticalOffsetY(Number(e.target.value) || 0)}
+                        className="w-12 bg-stone-50 border border-indigo-200 rounded px-1 py-0.5 text-[10px] font-mono font-bold text-center"
+                      />
+                    </div>
+                  </div>
+
+                  {/* C. Invert Direction: DIRECTION 1,0 vs DIRECTION 0,0 */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[9px] font-bold text-stone-600 flex items-center gap-1">
+                        <RotateCcw className="w-3 h-3 text-indigo-500" />
+                        <span>{isBn ? 'ইনভার্ট ডিরেকশন (Invert Direction):' : 'Invert Direction:'}</span>
+                      </span>
+                      <span className="text-[9px] font-mono font-bold text-indigo-700">
+                        {invertDirection ? 'DIRECTION 0,0' : 'DIRECTION 1,0'}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1 bg-white/90 p-0.5 rounded-lg border border-indigo-100 shadow-2xs">
+                      <button
+                        type="button"
+                        onClick={() => updateInvertDirection(false)}
+                        className={`py-1 rounded-md text-[9px] font-bold transition-all cursor-pointer text-center ${
+                          !invertDirection
+                            ? 'bg-indigo-600 text-white shadow-2xs font-black'
+                            : 'text-stone-600 hover:bg-stone-50'
+                        }`}
+                        title="স্বাভাবিক হেড ডিরেকশন (DIRECTION 1,0)"
+                      >
+                        DIRECTION 1,0 ({isBn ? 'স্বাভাবিক' : 'Normal'})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateInvertDirection(true)}
+                        className={`py-1 rounded-md text-[9px] font-bold transition-all cursor-pointer text-center ${
+                          invertDirection
+                            ? 'bg-indigo-600 text-white shadow-2xs font-black'
+                            : 'text-stone-600 hover:bg-stone-50'
+                        }`}
+                        title="১৮০° উল্টো হেড ডিরেকশন (DIRECTION 0,0)"
+                      >
+                        DIRECTION 0,0 ({isBn ? 'ইনভার্ট' : 'Inverted'})
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -3661,6 +3997,232 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
           </div>
         </div>
       </div>
+
+      {/* TSPL Print Setting / Layout Customization Modal */}
+      {showTsplModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl border border-stone-200 w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[92vh]">
+            {/* Modal Header */}
+            <div className="p-4 border-b border-stone-200 bg-linear-to-r from-indigo-50/80 to-blue-50/80 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs">
+                  <Compass className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm sm:text-base text-stone-900">
+                    {isBn ? 'TSPL লেআউট ও পজিশন সেটিংস' : 'TSPL Print & Layout Settings'}
+                  </h3>
+                  <p className="text-[11px] text-stone-500 font-medium">
+                    {isBn
+                      ? 'Xprinter, Rongta, TSC লেবেল প্রিন্টারের পজিশন ও ডিরেকশন'
+                      : 'Customize barcode position, vertical offset & print direction'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTsplModal(false)}
+                className="w-8 h-8 rounded-lg hover:bg-stone-200 text-stone-500 hover:text-stone-800 flex items-center justify-center cursor-pointer transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 overflow-y-auto space-y-4 text-xs">
+              {/* 1. Barcode Position: Top or Bottom */}
+              <div className="bg-stone-50 p-3 rounded-xl border border-stone-200 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="font-black text-stone-800 flex items-center gap-1.5 text-xs">
+                    <ArrowUpDown className="w-4 h-4 text-indigo-600" />
+                    <span>{isBn ? '১. বারকোড অবস্থান (Barcode Position)' : '1. Barcode Position'}</span>
+                  </label>
+                  <span className="text-[10px] font-mono font-black text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200">
+                    {barcodePosition === 'top' ? 'TOP (উপরে)' : 'BOTTOM (নিচে)'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-stone-500 leading-tight">
+                  {isBn
+                    ? 'Top দিলে বারকোড সবার উপরে থাকবে এবং দোকানের নাম ও মূল্য নিচে থাকবে। Bottom দিলে দোকানের নাম উপরে এবং বারকোড নিচে থাকবে।'
+                    : 'Choose whether the barcode appears at the top or the bottom of the printed label sticker.'}
+                </p>
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => updateBarcodePosition('top')}
+                    className={`py-2 px-3 rounded-xl font-black text-xs transition-all cursor-pointer flex items-center justify-center gap-2 border ${
+                      barcodePosition === 'top'
+                        ? 'bg-indigo-600 text-white border-indigo-700 shadow-xs'
+                        : 'bg-white text-stone-700 border-stone-300 hover:bg-stone-100'
+                    }`}
+                  >
+                    <span>⬆️ {isBn ? 'উপরে বারকোড (Top)' : 'Top Barcode'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updateBarcodePosition('bottom')}
+                    className={`py-2 px-3 rounded-xl font-black text-xs transition-all cursor-pointer flex items-center justify-center gap-2 border ${
+                      barcodePosition === 'bottom'
+                        ? 'bg-indigo-600 text-white border-indigo-700 shadow-xs'
+                        : 'bg-white text-stone-700 border-stone-300 hover:bg-stone-100'
+                    }`}
+                  >
+                    <span>⬇️ {isBn ? 'নিচে বারকোড (Bottom)' : 'Bottom Barcode'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* 2. Vertical Offset (Y-Axis): -50 to +50 mm/px */}
+              <div className="bg-stone-50 p-3 rounded-xl border border-stone-200 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="font-black text-stone-800 flex items-center gap-1.5 text-xs">
+                    <MoveVertical className="w-4 h-4 text-indigo-600" />
+                    <span>{isBn ? '২. ভার্টিক্যাল অফসেট (Vertical Offset Y-Axis)' : '2. Vertical Offset (Y-Axis)'}</span>
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-mono font-black text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                      {verticalOffsetY > 0 ? `+${verticalOffsetY}` : verticalOffsetY} px
+                    </span>
+                    {verticalOffsetY !== 0 && (
+                      <button
+                        type="button"
+                        onClick={() => updateVerticalOffsetY(0)}
+                        className="text-[10px] text-stone-500 hover:text-stone-800 underline cursor-pointer"
+                      >
+                        {isBn ? '০ রিসেট' : 'Reset'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <p className="text-[11px] text-stone-500 leading-tight">
+                  {isBn
+                    ? 'প্রিন্টারের রোলার ফিডের কারণে লেখা বা বারকোড বেশি উপরে বা নিচে সরে গেলে -৫০ থেকে +৫০ পর্যন্ত অ্যাডজাস্ট করুন।'
+                    : 'Fine-tune the vertical alignment (-50 to +50) to offset all TSPL elements up or down.'}
+                </p>
+                <div className="flex items-center gap-3 pt-1">
+                  <input
+                    type="range"
+                    min="-50"
+                    max="50"
+                    step="1"
+                    value={verticalOffsetY}
+                    onChange={(e) => updateVerticalOffsetY(Number(e.target.value))}
+                    className="w-full accent-indigo-600 cursor-pointer h-2"
+                  />
+                  <input
+                    type="number"
+                    min="-50"
+                    max="50"
+                    value={verticalOffsetY}
+                    onChange={(e) => updateVerticalOffsetY(Number(e.target.value) || 0)}
+                    className="w-16 bg-white border border-stone-300 rounded-lg px-2 py-1 text-xs font-mono font-bold text-center"
+                  />
+                </div>
+                {/* Step Shortcuts */}
+                <div className="flex items-center justify-between gap-1 pt-1">
+                  {[-10, -5, -1, 0, 1, 5, 10].map((val) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => (val === 0 ? updateVerticalOffsetY(0) : updateVerticalOffsetY(verticalOffsetY + val))}
+                      className="px-2 py-1 rounded-md bg-white border border-stone-200 hover:bg-stone-100 text-[10px] font-mono font-bold text-stone-700 cursor-pointer"
+                    >
+                      {val === 0 ? '0' : val > 0 ? `+${val}` : `${val}`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 3. Invert Direction: DIRECTION 1,0 vs DIRECTION 0,0 */}
+              <div className="bg-stone-50 p-3 rounded-xl border border-stone-200 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="font-black text-stone-800 flex items-center gap-1.5 text-xs">
+                    <RotateCcw className="w-4 h-4 text-indigo-600" />
+                    <span>{isBn ? '৩. ইনভার্ট ডিরেকশন (Invert Direction)' : '3. Invert Direction'}</span>
+                  </label>
+                  <span className="text-[10px] font-mono font-black text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200">
+                    {invertDirection ? 'DIRECTION 0,0' : 'DIRECTION 1,0'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-stone-500 leading-tight">
+                  {isBn
+                    ? 'যদি প্রিন্টারে স্টিকার উল্টো বা ১৮০ ডিগ্রি ঘুরে প্রিন্ট হয়, তবে DIRECTION 0,0 মোড নির্বাচন করুন।'
+                    : 'Switch between normal feed (DIRECTION 1,0) and inverted 180° feed (DIRECTION 0,0).'}
+                </p>
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => updateInvertDirection(false)}
+                    className={`py-2 px-3 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center justify-center gap-2 border ${
+                      !invertDirection
+                        ? 'bg-indigo-600 text-white border-indigo-700 shadow-xs'
+                        : 'bg-white text-stone-700 border-stone-300 hover:bg-stone-100'
+                    }`}
+                  >
+                    <span>DIRECTION 1,0 ({isBn ? 'স্বাভাবিক' : 'Normal'})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updateInvertDirection(true)}
+                    className={`py-2 px-3 rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center justify-center gap-2 border ${
+                      invertDirection
+                        ? 'bg-indigo-600 text-white border-indigo-700 shadow-xs'
+                        : 'bg-white text-stone-700 border-stone-300 hover:bg-stone-100'
+                    }`}
+                  >
+                    <span>DIRECTION 0,0 ({isBn ? '১৮০° ইনভার্ট' : 'Inverted'})</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* 4. Generated TSPL Command Script Box */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-stone-700 text-xs">
+                    {isBn ? 'জেনারেটকৃত TSPL কমান্ড স্ক্রিপ্ট:' : 'Generated TSPL Command Script:'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(currentTsplCode);
+                      onShowToast(isBn ? 'TSPL কমান্ড কপি হয়েছে!' : 'TSPL commands copied!', 'success');
+                    }}
+                    className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    <Copy className="w-3 h-3" />
+                    <span>{isBn ? 'কপি করুন' : 'Copy'}</span>
+                  </button>
+                </div>
+                <div className="bg-stone-900 text-emerald-400 p-2.5 rounded-xl font-mono text-[10px] overflow-x-auto max-h-36 whitespace-pre border border-stone-800 select-all">
+                  {currentTsplCode}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-3 bg-stone-100 border-t border-stone-200 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={handleNativeTsplPrint}
+                disabled={isBtPrinting}
+                className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
+                title="সরাসরি TSPL কমান্ড প্রিন্টারে পাঠিয়ে টেস্ট করুন"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>{isBn ? 'TSPL টেস্ট প্রিন্ট' : 'Native TSPL Test'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowTsplModal(false)}
+                className="px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white rounded-xl font-bold text-xs cursor-pointer shadow-xs"
+              >
+                {isBn ? 'ঠিক আছে ও বন্ধ করুন' : 'Done & Close'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

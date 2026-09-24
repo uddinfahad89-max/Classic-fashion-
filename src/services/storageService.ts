@@ -1307,6 +1307,9 @@ class StorageService {
       printerProtocol: 'tspl',
       darknessMode: 'dark',
       invertPolarity: true,
+      barcodePosition: 'bottom',
+      verticalOffsetY: 0,
+      invertDirection: false,
     };
     try {
       const raw = localStorage.getItem('pos_barcode_printer_preferences_v1');
@@ -1325,6 +1328,15 @@ class StorageService {
           invertPolarity: typeof parsed.invertPolarity === 'boolean'
             ? parsed.invertPolarity
             : defaults.invertPolarity,
+          barcodePosition: (parsed.barcodePosition === 'top' || parsed.barcodePosition === 'bottom')
+            ? parsed.barcodePosition
+            : defaults.barcodePosition,
+          verticalOffsetY: typeof parsed.verticalOffsetY === 'number'
+            ? Math.max(-50, Math.min(50, parsed.verticalOffsetY))
+            : defaults.verticalOffsetY,
+          invertDirection: typeof parsed.invertDirection === 'boolean'
+            ? parsed.invertDirection
+            : defaults.invertDirection,
         };
       }
     } catch (e) {
@@ -1349,6 +1361,9 @@ export interface BarcodePrinterPreferences {
   printerProtocol: 'escpos' | 'tspl';
   darknessMode: 'normal' | 'dark' | 'extra_dark';
   invertPolarity: boolean;
+  barcodePosition: 'top' | 'bottom';
+  verticalOffsetY: number;
+  invertDirection: boolean;
 }
 
 export const storageService = new StorageService();

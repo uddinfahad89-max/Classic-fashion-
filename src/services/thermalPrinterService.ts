@@ -914,7 +914,9 @@ export class ThermalPrinterService {
     heightMm: number = 25,
     copies: number = 1,
     darknessThreshold: number = 165,
-    invertPolarity: boolean = true
+    invertPolarity: boolean = true,
+    invertDirection: boolean = false,
+    verticalOffsetY: number = 0
   ): Uint8Array {
     // 203 DPI = 8 dots/mm (Standard for Xprinter, Rongta, Gprinter, etc.)
     const targetWidthDots = Math.round(widthMm * 8); // e.g. 50 * 8 = 400 dots
@@ -931,7 +933,10 @@ export class ThermalPrinterService {
     // 1. Solid Pure White Background (#FFFFFF)
     ctx.fillStyle = '#FFFFFF';
     ctx.fillRect(0, 0, targetWidthDots, targetHeightDots);
-    ctx.drawImage(canvas, 0, 0, targetWidthDots, targetHeightDots);
+
+    // Apply Vertical Offset value (Y-Axis shift in dots)
+    const offsetYDots = Math.round(verticalOffsetY * 3.5);
+    ctx.drawImage(canvas, 0, offsetYDots, targetWidthDots, targetHeightDots);
 
     const imgData = ctx.getImageData(0, 0, targetWidthDots, targetHeightDots);
     const data = imgData.data;
@@ -969,11 +974,12 @@ export class ThermalPrinterService {
       }
     }
 
+    const directionCmd = invertDirection ? 'DIRECTION 0,0' : 'DIRECTION 1,0';
     const enc = new TextEncoder();
     const cmdHeader = enc.encode(
       `SIZE ${widthMm} mm, ${heightMm} mm\r\n` +
       `GAP 2 mm, 0 mm\r\n` +
-      `DIRECTION 1\r\n` +
+      `${directionCmd}\r\n` +
       `REFERENCE 0,0\r\n` +
       `CLS\r\n` +
       `BITMAP 0,0,${widthBytes},${targetHeightDots},0,`
@@ -988,6 +994,137 @@ export class ThermalPrinterService {
     return result;
   }
 
+  // Native TSPL Label Command Generator with layout customization & dynamic Y offsets
+  generateTsplCommandString(options: {
+    storeName?: string;
+    itemName?: string;
+    barcodeValue?: string;
+    barcodeType?: 'CODE128' | 'EAN13' | 'QR';
+    mrp?: number;
+    salePrice?: number;
+    widthMm?: number;
+    heightMm?: number;
+    copies?: number;
+    barcodePosition?: 'top' | 'bottom';
+    verticalOffsetY?: number; // -50 to +50 mm/px
+    invertDirection?: boolean; // false = 'DIRECTION 1,0', true = 'DIRECTION 0,0'
+    showStoreName?: boolean;
+    showItemName?: boolean;
+    showPrice?: boolean;
+  }): string {
+    const {
+      storeName = '',
+      itemName = '',
+      barcodeValue = '12345678',
+      barcodeType = 'CODE128',
+      mrp,
+      salePrice = 0,
+      widthMm = 50,
+      heightMm = 25,
+      copies = 1,
+      barcodePosition = 'bottom',
+      verticalOffsetY = 0,
+      invertDirection = false,
+      showStoreName = true,
+      showItemName = true,
+      showPrice = true,
+    } = options;
+
+    const directionStr = invertDirection ? 'DIRECTION 0,0' : 'DIRECTION 1,0';
+    // Apply Vertical Offset value to all Y-coordinates in the TSPL string command
+    const yOffset = Math.round(verticalOffsetY * 3); // convert mm/px scale to dots
+
+    let elements = '';
+    const priceText = mrp ? `MRP: ${mrp}` : `PRICE: ${salePrice}`;
+
+    if (barcodePosition === 'top') {
+      // 1. BARCODE at the TOP
+      const barcodeY = Math.max(5, 18 + yOffset);
+      if (barcodeType === 'QR') {
+        elements += `QRCODE 140,${barcodeY},L,4,A,0,"${barcodeValue}"\r\n`;
+      } else {
+        elements += `BARCODE 40,${barcodeY},"128",48,1,0,2,2,"${barcodeValue}"\r\n`;
+      }
+
+      // 2. Shop/Item details BELOW it
+      let currentY = barcodeY + 68;
+      if (showStoreName && storeName) {
+        elements += `TEXT 200,${currentY},"3",0,1,1,2,"${storeName}"\r\n`;
+        currentY += 28;
+      }
+      if (showItemName && itemName) {
+        elements += `TEXT 200,${currentY},"2",0,1,1,2,"${itemName}"\r\n`;
+        currentY += 24;
+      }
+      if (showPrice) {
+        elements += `TEXT 200,${currentY},"3",0,1,1,2,"${priceText}"\r\n`;
+      }
+    } else {
+      // 1. Shop/Item details at the TOP
+      let currentY = Math.max(5, 12 + yOffset);
+      if (showStoreName && storeName) {
+        elements += `TEXT 200,${currentY},"3",0,1,1,2,"${storeName}"\r\n`;
+        currentY += 26;
+      }
+      if (showItemName && itemName) {
+        elements += `TEXT 200,${currentY},"2",0,1,1,2,"${itemName}"\r\n`;
+        currentY += 22;
+      }
+      if (showPrice) {
+        elements += `TEXT 200,${currentY},"3",0,1,1,2,"${priceText}"\r\n`;
+        currentY += 26;
+      }
+
+      // 2. BARCODE at the BOTTOM
+      const barcodeY = Math.max(currentY + 2, 105 + yOffset);
+      if (barcodeType === 'QR') {
+        elements += `QRCODE 140,${barcodeY},L,4,A,0,"${barcodeValue}"\r\n`;
+      } else {
+        elements += `BARCODE 40,${barcodeY},"128",48,1,0,2,2,"${barcodeValue}"\r\n`;
+      }
+    }
+
+    return (
+      `SIZE ${widthMm} mm, ${heightMm} mm\r\n` +
+      `GAP 2 mm, 0 mm\r\n` +
+      `${directionStr}\r\n` +
+      `REFERENCE 0,0\r\n` +
+      `CLS\r\n` +
+      elements +
+      `PRINT ${Math.max(1, copies)},1\r\n`
+    );
+  }
+
+  // Send native TSPL text commands directly over Bluetooth GATT stream
+  async printNativeTsplViaBluetooth(
+    tsplString: string
+  ): Promise<{ success: boolean; message: string; deviceName?: string }> {
+    if (!this.isConnected || !this.characteristic || !this.bluetoothDevice?.gatt?.connected) {
+      const reconnected = await this.autoReconnect();
+      if (!reconnected || !this.characteristic) {
+        return {
+          success: false,
+          message: 'Bluetooth thermal printer is not connected. Please pair or connect your printer.',
+        };
+      }
+    }
+    try {
+      const enc = new TextEncoder();
+      const bytes = enc.encode(tsplString);
+      await this.writeRawChunks(bytes);
+      return {
+        success: true,
+        deviceName: this.bluetoothDevice?.name || 'Bluetooth Label Printer',
+        message: 'Native TSPL command sent to printer successfully!',
+      };
+    } catch (e: any) {
+      return {
+        success: false,
+        message: e?.message || 'Failed to stream TSPL command',
+      };
+    }
+  }
+
   // Direct Bluetooth Thermal Print for Barcode & Price Tag Sticker (ESC/POS & TSPL)
   async printLabelBitmapViaBluetooth(
     canvas: HTMLCanvasElement,
@@ -997,7 +1134,9 @@ export class ThermalPrinterService {
     protocol: 'escpos' | 'tspl' = 'escpos',
     widthMm: number = 50,
     heightMm: number = 25,
-    invertPolarity: boolean = true
+    invertPolarity: boolean = true,
+    invertDirection: boolean = false,
+    verticalOffsetY: number = 0
   ): Promise<{ success: boolean; message: string; deviceName?: string }> {
     if (!this.isConnected || !this.characteristic || !this.bluetoothDevice?.gatt?.connected) {
       const reconnected = await this.autoReconnect();
@@ -1020,7 +1159,9 @@ export class ThermalPrinterService {
           heightMm,
           safeCopies,
           darknessThreshold,
-          invertPolarity
+          invertPolarity,
+          invertDirection,
+          verticalOffsetY
         );
         if (!tsplBytes || tsplBytes.length === 0) {
           return { success: false, message: 'Failed to generate TSPL label commands' };
