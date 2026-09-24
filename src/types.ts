@@ -58,6 +58,7 @@ export interface BarcodeLabelConfig {
   customOfferText?: string;
   showPunchHole?: boolean;
   showFooterNote?: boolean;
+  cleanWhiteMode?: boolean;
 }
 
 export type Language = 'bn' | 'en' | 'hi';

@@ -151,7 +151,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
   const isBn = language === 'bn';
   const sym = settings.currencySymbol || 'Rs. ';
 
-  const [activeControlTab, setActiveControlTab] = useState<'content' | 'design'>('design');
+  const [activeControlTab, setActiveControlTab] = useState<'easy' | 'content' | 'design'>('easy');
 
   const [labelConfig, setLabelConfig] = useState<BarcodeLabelConfig>(() => {
     const saved = storageService.getBarcodeCustomDesign();
@@ -193,6 +193,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
       customOfferText: '',
       showPunchHole: false,
       showFooterNote: true,
+      cleanWhiteMode: true,
     };
     if (saved) {
       const cleanCustomOffer = (saved.customOfferText || '').replace(/save.*29.*%?/gi, '').trim();
@@ -201,15 +202,21 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
         ...saved,
         showDiscountBadge: false,
         customOfferText: cleanCustomOffer,
+        cleanWhiteMode: saved.cleanWhiteMode !== false,
       };
     }
     return defaults;
   });
 
   const [showPunchHole, setShowPunchHole] = useState(Boolean(labelConfig.showPunchHole));
+  const [barcodeDataUrl, setBarcodeDataUrl] = useState<string>('');
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string>('');
   const [isGeneratingImg, setIsGeneratingImg] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
+
+  // Helper to detect label printer model names
+  const isLabelPrinterModel = (name?: string) =>
+    Boolean(name && /4B|2034|XP|label|tsc|postek|gprinter/i.test(name));
 
   // Bluetooth Thermal Printer states
   const [btConnected, setBtConnected] = useState(thermalPrinterService.getIsConnected());
@@ -217,7 +224,10 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
   const [btDeviceName, setBtDeviceName] = useState<string | undefined>(thermalPrinterService.getDeviceName());
   const [isBtPrinting, setIsBtPrinting] = useState(false);
   const [paperRollWidth, setPaperRollWidth] = useState<'50mm_label' | '58mm' | '80mm'>('50mm_label');
-  const [printerProtocol, setPrinterProtocol] = useState<'escpos' | 'tspl'>('escpos');
+  const [printerProtocol, setPrinterProtocol] = useState<'escpos' | 'tspl'>(() => {
+    const dev = thermalPrinterService.getDeviceName();
+    return isLabelPrinterModel(dev) ? 'tspl' : 'escpos';
+  });
   const [darknessMode, setDarknessMode] = useState<'normal' | 'dark' | 'extra_dark'>('dark');
 
   // Reactively subscribe to Bluetooth printer connection status changes
@@ -226,14 +236,13 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
       setBtConnected(status.connected);
       setBtConnecting(status.isConnecting);
       setBtDeviceName(status.deviceName);
-      if (status.deviceName && /4B|2034|XP|label/i.test(status.deviceName)) {
+      if (status.deviceName && isLabelPrinterModel(status.deviceName)) {
         setPrinterProtocol('tspl');
       }
     });
     return unsub;
   }, []);
 
-  const barcodeSvgRef = useRef<SVGSVGElement | null>(null);
   const labelPreviewRef = useRef<HTMLDivElement | null>(null);
 
   // Robust capture helper using html2canvas-pro with oklch support
@@ -256,62 +265,77 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     onShowToast(isBn ? 'নতুন বারকোড তৈরি হয়েছে!' : 'New barcode generated!', 'info');
   };
 
-  // Render Barcode SVG or QR Code whenever barcodeValue changes or design changes
+  // Render Barcode PNG image via Canvas or QR Code whenever barcodeValue changes or design changes
+  // Using Canvas raster PNG completely eliminates the infamous SVG-black-box rendering artifact
   useEffect(() => {
     if (!labelConfig.barcodeValue) return;
 
     if (labelConfig.barcodeType === 'QR') {
       const qrText = `${labelConfig.storeName} | ${labelConfig.itemName} | ${sym}${labelConfig.salePrice} | SKU: ${labelConfig.barcodeValue}`;
-      QRCode.toDataURL(qrText, { width: 140, margin: 1, errorCorrectionLevel: 'M' })
+      QRCode.toDataURL(qrText, {
+        width: 160,
+        margin: 1,
+        errorCorrectionLevel: 'M',
+        color: { dark: '#000000', light: '#ffffff' },
+      })
         .then((url) => setQrCodeDataUrl(url))
         .catch(() => {});
     } else {
-      if (barcodeSvgRef.current) {
-        try {
-          const cleanCode = labelConfig.barcodeValue.trim() || '1001';
-          const barWidth =
-            labelConfig.sizePreset === '1x1'
-              ? 1.0
-              : labelConfig.barcodeThickness === 'thin'
-              ? 1.0
-              : labelConfig.barcodeThickness === 'thick'
-              ? 1.8
-              : 1.4;
-          const barHeight =
-            labelConfig.sizePreset === '1x1'
-              ? 20
-              : labelConfig.barcodeHeight === 'compact'
-              ? 20
-              : labelConfig.barcodeHeight === 'tall'
-              ? 42
-              : 30;
-          const showText = labelConfig.showBarcodeText !== false;
+      try {
+        const offscreenCanvas = document.createElement('canvas');
+        const cleanCode = labelConfig.barcodeValue.trim() || '1001';
+        const barWidth =
+          labelConfig.sizePreset === '1x1'
+            ? 1.2
+            : labelConfig.barcodeThickness === 'thin'
+            ? 1.1
+            : labelConfig.barcodeThickness === 'thick'
+            ? 2.0
+            : 1.5;
+        const barHeight =
+          labelConfig.sizePreset === '1x1'
+            ? 22
+            : labelConfig.barcodeHeight === 'compact'
+            ? 24
+            : labelConfig.barcodeHeight === 'tall'
+            ? 46
+            : 34;
+        const showText = labelConfig.showBarcodeText !== false;
 
-          JsBarcode(barcodeSvgRef.current, cleanCode, {
-            format: labelConfig.barcodeType,
-            width: barWidth,
-            height: barHeight,
-            displayValue: showText,
-            fontSize: 10,
-            font: 'monospace',
-            margin: 2,
-            background: 'transparent',
+        const effectiveFormat =
+          labelConfig.barcodeType === 'EAN13' && /^\d{12,13}$/.test(cleanCode)
+            ? 'EAN13'
+            : 'CODE128';
+
+        JsBarcode(offscreenCanvas, cleanCode, {
+          format: effectiveFormat,
+          width: barWidth,
+          height: barHeight,
+          displayValue: showText,
+          fontSize: 11,
+          font: 'monospace',
+          textMargin: 2,
+          margin: 4,
+          background: '#ffffff', // PURE WHITE BACKGROUND - PREVENTS BLACK BOXES
+          lineColor: '#000000',  // PURE BLACK CRISP BARS
+        });
+        setBarcodeDataUrl(offscreenCanvas.toDataURL('image/png'));
+      } catch (err) {
+        console.error('Barcode generation error, using fallback:', err);
+        try {
+          const offscreenCanvas = document.createElement('canvas');
+          JsBarcode(offscreenCanvas, labelConfig.barcodeValue || '1001', {
+            format: 'CODE128',
+            width: 1.4,
+            height: 32,
+            displayValue: true,
+            fontSize: 11,
+            margin: 4,
+            background: '#ffffff',
             lineColor: '#000000',
           });
-        } catch (err) {
-          // If formatting error (e.g. EAN-13 length), fallback to CODE128
-          try {
-            JsBarcode(barcodeSvgRef.current, labelConfig.barcodeValue, {
-              format: 'CODE128',
-              width: 1.3,
-              height: 30,
-              displayValue: true,
-              fontSize: 10,
-              margin: 2,
-              background: 'transparent',
-            });
-          } catch {}
-        }
+          setBarcodeDataUrl(offscreenCanvas.toDataURL('image/png'));
+        } catch {}
       }
     }
   }, [
@@ -868,32 +892,44 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
 
   return (
     <div id="barcode-tag-studio-tab" className="max-w-4xl mx-auto space-y-3 sm:space-y-4 pb-28 pt-1">
-      {/* Top Header Toolbar: Custom Barcode Designer vs Product Details */}
+      {/* Top Header Toolbar: Easy Mode vs Custom Designer vs Product Details */}
       <div className="bg-white p-2.5 sm:p-3 rounded-2xl border border-stone-200 shadow-xs space-y-2">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-          {/* Main Mode Switcher */}
+          {/* Main Mode Switcher: 3 Clear Tabs */}
           <div className="flex items-center gap-1.5 p-1 bg-stone-100 rounded-xl border border-stone-200/80 flex-1">
+            <button
+              type="button"
+              id="btn-tab-easy"
+              onClick={() => setActiveControlTab('easy')}
+              className={`flex-1 py-2 px-3 rounded-lg font-extrabold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                activeControlTab === 'easy'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/60'
+              }`}
+            >
+              <Sparkles className="w-4 h-4 text-amber-300" />
+              <span>{isBn ? '⚡ সহজ প্রিন্ট' : '⚡ Easy Print'}</span>
+              <span
+                className={`text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase ${
+                  activeControlTab === 'easy' ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-800'
+                }`}
+              >
+                {isBn ? 'সহজ' : 'EASY'}
+              </span>
+            </button>
+
             <button
               type="button"
               id="btn-tab-custom-design"
               onClick={() => setActiveControlTab('design')}
               className={`flex-1 py-2 px-3 rounded-lg font-extrabold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                 activeControlTab === 'design'
-                  ? 'bg-linear-to-r from-blue-600 to-indigo-600 text-white shadow-xs'
+                  ? 'bg-stone-900 text-white shadow-xs'
                   : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/60'
               }`}
             >
               <Palette className="w-4 h-4 text-amber-300" />
-              <span>{isBn ? '🎨 নিজের মতো ডিজাইন সাজান' : '🎨 Customize Barcode Design'}</span>
-              <span
-                className={`text-[9px] font-black px-1.5 py-0.5 rounded-full uppercase ${
-                  activeControlTab === 'design'
-                    ? 'bg-white/20 text-white'
-                    : 'bg-blue-100 text-blue-800'
-                }`}
-              >
-                {isBn ? 'কাস্টম' : 'CUSTOM'}
-              </span>
+              <span>{isBn ? '🎨 ডিজাইন সাজান' : '🎨 Customize Design'}</span>
             </button>
 
             <button
@@ -907,7 +943,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
               }`}
             >
               <ShoppingBag className="w-4 h-4 text-blue-400" />
-              <span>{isBn ? 'পণ্যের বিবরণ ও দাম' : 'Product & Pricing'}</span>
+              <span>{isBn ? 'বিলের তথ্য' : 'Bill Data'}</span>
             </button>
           </div>
 
@@ -993,6 +1029,289 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 items-start">
         {/* LEFT COLUMN: Controls & Form (7 Cols on desktop) */}
         <div className="lg:col-span-7 space-y-4">
+
+          {/* Tab 1: ULTRA-SIMPLE EASY MODE (সহজ মোড - ১-ক্লিক প্রিন্ট) */}
+          {activeControlTab === 'easy' && (
+            <div className="bg-white p-4 sm:p-5 rounded-2xl border border-stone-200 shadow-xs space-y-4">
+              {/* 1. Primary Barcode Format Switcher: 1D Barcode vs QR Code */}
+              <div className="bg-linear-to-r from-blue-50/80 to-indigo-50/80 border border-blue-200 rounded-2xl p-3.5 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-black text-stone-900 flex items-center gap-1.5">
+                    <BarcodeIcon className="w-4 h-4 text-blue-600" />
+                    <span>{isBn ? '১. কোডের ধরন বাছুন (বারকোড নাকি কিউআর)' : '1. Choose Code Format'}</span>
+                  </label>
+                  <span className="text-[10px] font-black text-blue-800 bg-blue-100 px-2 py-0.5 rounded-full">
+                    {labelConfig.barcodeType === 'QR'
+                      ? (isBn ? 'কিউআর কোড' : 'QR Code')
+                      : (isBn ? 'স্ট্যান্ডার্ড বারকোড' : '1D Barcode')}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLabelConfig((prev) => ({
+                        ...prev,
+                        barcodeType: 'CODE128',
+                        layoutStyle: prev.layoutStyle === 'qr_centric' ? 'classic' : prev.layoutStyle,
+                      }));
+                      onShowToast(isBn ? 'স্ট্যান্ডার্ড বারকোড নির্বাচন করা হয়েছে' : '1D Barcode selected', 'info');
+                    }}
+                    className={`py-3 px-3 rounded-xl font-bold text-xs transition-all flex flex-col items-center justify-center gap-1 cursor-pointer border ${
+                      labelConfig.barcodeType !== 'QR'
+                        ? 'bg-stone-900 text-white border-stone-900 shadow-md ring-2 ring-blue-500/50'
+                        : 'bg-white hover:bg-stone-100 text-stone-700 border-stone-200'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 font-black text-xs sm:text-sm">
+                      <span className="tracking-widest">▌▌▌</span>
+                      <span>{isBn ? 'স্ট্যান্ডার্ড বারকোড' : '1D Barcode'}</span>
+                    </div>
+                    <span className={`text-[10px] ${labelConfig.barcodeType !== 'QR' ? 'text-emerald-300' : 'text-stone-500'}`}>
+                      {isBn ? '✓ স্ক্যানার ফ্রেন্ডলি (প্রস্তাবিত)' : '✓ Universal Scanner'}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLabelConfig((prev) => ({
+                        ...prev,
+                        barcodeType: 'QR',
+                      }));
+                      onShowToast(isBn ? 'কিউআর কোড নির্বাচন করা হয়েছে' : 'QR Code selected', 'info');
+                    }}
+                    className={`py-3 px-3 rounded-xl font-bold text-xs transition-all flex flex-col items-center justify-center gap-1 cursor-pointer border ${
+                      labelConfig.barcodeType === 'QR'
+                        ? 'bg-stone-900 text-white border-stone-900 shadow-md ring-2 ring-blue-500/50'
+                        : 'bg-white hover:bg-stone-100 text-stone-700 border-stone-200'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 font-black text-xs sm:text-sm">
+                      <QrIcon className="w-4 h-4 text-blue-400" />
+                      <span>{isBn ? 'কিউআর কোড (QR)' : 'QR Code'}</span>
+                    </div>
+                    <span className={`text-[10px] ${labelConfig.barcodeType === 'QR' ? 'text-blue-300' : 'text-stone-500'}`}>
+                      {isBn ? 'মোবাইল ক্যামেরা দিয়ে স্ক্যান' : 'Smartphone Camera'}
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              {/* 2. Clean White Mode Guarantee */}
+              <div className="p-3 bg-emerald-50/80 border border-emerald-200 rounded-xl flex items-center justify-between">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={labelConfig.cleanWhiteMode !== false}
+                    onChange={(e) => {
+                      setLabelConfig((prev) => ({ ...prev, cleanWhiteMode: e.target.checked }));
+                      onShowToast(
+                        e.target.checked
+                          ? (isBn ? '✅ সাদা ব্যাকগ্রাউন্ড মোড সক্রিয় (কোনো কালো দাগ পড়বে না)' : 'Clean White Print Enabled')
+                          : (isBn ? 'ক্লিন হোয়াইট মোড বন্ধ' : 'Clean White Disabled'),
+                        'info'
+                      );
+                    }}
+                    className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                  />
+                  <div>
+                    <span className="font-extrabold text-emerald-950 block text-xs leading-tight">
+                      {isBn ? '✅ সাদা ব্যাকগ্রাউন্ড মোড (কোনো কালো দাগ পড়বে না)' : 'Clean White Print (No black blotches)'}
+                    </span>
+                    <span className="text-[10px] text-emerald-700 font-medium block">
+                      {isBn ? 'স্টিকারে কোনো কালো ব্যান্ড হবে না, বারকোড শতভাগ পরিষ্কার ও স্পষ্ট প্রিন্ট হবে' : 'Removes black thermal fills to keep barcodes crisp'}
+                    </span>
+                  </div>
+                </label>
+                <span className="text-[10px] font-black text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-md shrink-0 ml-2">
+                  {isBn ? 'প্রস্তাবিত' : 'Recommended'}
+                </span>
+              </div>
+
+              {/* 3. Essential Product Inputs */}
+              <div className="space-y-3 pt-1">
+                {/* Product Name */}
+                <div>
+                  <label className="text-xs font-bold text-stone-700 mb-1 flex items-center justify-between">
+                    <span>{isBn ? 'পণ্যের নাম (Product Name)' : 'Product Name'}</span>
+                    {recentBillItems.length > 0 && (
+                      <select
+                        onChange={(e) => {
+                          const sel = recentBillItems.find((item) => item.name === e.target.value);
+                          if (sel) {
+                            setLabelConfig((prev) => ({
+                              ...prev,
+                              itemName: sel.name,
+                              salePrice: sel.price,
+                              mrp: Math.round(sel.price * 1.3),
+                            }));
+                          }
+                        }}
+                        value=""
+                        className="text-[10px] font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded px-1.5 py-0.5 cursor-pointer"
+                      >
+                        <option value="" disabled>
+                          {isBn ? '⚡ বিল থেকে আইটেম বাছুন' : '⚡ Pick from Bills'}
+                        </option>
+                        {recentBillItems.map((item, idx) => (
+                          <option key={idx} value={item.name}>
+                            {item.name} ({sym}{item.price})
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </label>
+                  <input
+                    type="text"
+                    value={labelConfig.itemName}
+                    onChange={(e) => setLabelConfig((prev) => ({ ...prev, itemName: e.target.value }))}
+                    placeholder={isBn ? 'যেমন: কটন শাড়ি / লেডিস কুর্তি / টি-শার্ট' : 'e.g. Cotton Saree / T-Shirt'}
+                    className="w-full bg-stone-50 hover:bg-stone-100/60 focus:bg-white text-stone-900 font-bold border border-stone-200 rounded-xl px-3 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                  />
+                </div>
+
+                {/* Row: Size/Variant & Barcode Code with Auto Gen */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-bold text-stone-700 mb-1 flex items-center justify-between">
+                      <span>{isBn ? 'সাইজ / ভ্যারিয়েন্ট (Size)' : 'Size / Variant'}</span>
+                      <span className="text-[10px] text-stone-400 font-mono">Free Size, M, L, XL...</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={labelConfig.sizeOrVariant || ''}
+                      onChange={(e) => setLabelConfig((prev) => ({ ...prev, sizeOrVariant: e.target.value }))}
+                      placeholder={isBn ? 'Free Size / L / XL / 32' : 'Free Size / L / XL / 32'}
+                      className="w-full bg-stone-50 hover:bg-stone-100/60 focus:bg-white text-stone-900 font-bold border border-stone-200 rounded-xl px-3 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-bold text-stone-700">
+                        {isBn ? 'বারকোড নম্বর / SKU' : 'Barcode SKU'}
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleGenerateBarcode}
+                        className="text-[10px] font-black text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2 py-0.5 rounded-md cursor-pointer transition-all flex items-center gap-1"
+                      >
+                        <Sparkles className="w-3 h-3 text-amber-500" />
+                        <span>{isBn ? 'অটো কোড' : 'Auto'}</span>
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      value={labelConfig.barcodeValue}
+                      onChange={(e) => setLabelConfig((prev) => ({ ...prev, barcodeValue: e.target.value }))}
+                      placeholder="CF-1002"
+                      className="w-full bg-stone-50 hover:bg-stone-100/60 focus:bg-white text-stone-900 font-black font-mono border border-stone-200 rounded-xl px-3 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                    />
+                  </div>
+                </div>
+
+                {/* Row: MRP and Sale Price */}
+                <div className="grid grid-cols-2 gap-3 p-3 bg-stone-50/80 rounded-xl border border-stone-200">
+                  <div>
+                    <label className="text-xs font-bold text-stone-600 mb-1 flex items-center gap-1">
+                      <span className="line-through text-stone-400">MRP</span>
+                      <span>{isBn ? 'আসল দাম (MRP)' : 'Original MRP'}</span>
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-2 text-xs font-bold text-stone-400">{sym}</span>
+                      <input
+                        type="number"
+                        min="0"
+                        value={labelConfig.mrp || ''}
+                        onChange={(e) =>
+                          setLabelConfig((prev) => ({ ...prev, mrp: Number(e.target.value) || 0 }))
+                        }
+                        placeholder="1200"
+                        className="w-full bg-white text-stone-900 font-bold border border-stone-200 rounded-lg pl-8 pr-2 py-1.5 text-xs sm:text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-black text-stone-900 mb-1 flex items-center gap-1">
+                      <Tag className="w-3 h-3 text-blue-600" />
+                      <span>{isBn ? 'বিক্রয় মূল্য (Sale Price)' : 'Sale Price'}</span>
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-2 text-xs font-bold text-blue-600">{sym}</span>
+                      <input
+                        type="number"
+                        min="0"
+                        value={labelConfig.salePrice || ''}
+                        onChange={(e) =>
+                          setLabelConfig((prev) => ({ ...prev, salePrice: Number(e.target.value) || 0 }))
+                        }
+                        placeholder="850"
+                        className="w-full bg-white text-stone-950 font-black border-2 border-blue-400 rounded-lg pl-8 pr-2 py-1.5 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Store Header */}
+                <div>
+                  <label className="text-xs font-bold text-stone-700 mb-1 flex items-center justify-between">
+                    <span>{isBn ? 'দোকানের নাম (Store Header)' : 'Store Header'}</span>
+                    <label className="flex items-center gap-1 cursor-pointer text-[10px] text-stone-500">
+                      <input
+                        type="checkbox"
+                        checked={labelConfig.showStoreName}
+                        onChange={(e) =>
+                          setLabelConfig((prev) => ({ ...prev, showStoreName: e.target.checked }))
+                        }
+                        className="rounded text-blue-600"
+                      />
+                      <span>{isBn ? 'স্টিকারে দেখান' : 'Show on Tag'}</span>
+                    </label>
+                  </label>
+                  <input
+                    type="text"
+                    value={labelConfig.storeName}
+                    onChange={(e) => setLabelConfig((prev) => ({ ...prev, storeName: e.target.value }))}
+                    placeholder="MY FASHION STORE"
+                    className="w-full bg-stone-50 hover:bg-stone-100/60 focus:bg-white text-stone-900 font-bold border border-stone-200 rounded-xl px-3 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                  />
+                </div>
+              </div>
+
+              {/* Direct Print Button & Test Print right inside Easy Mode */}
+              <div className="pt-2 border-t border-stone-100 flex flex-col sm:flex-row items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleBtThermalPrint}
+                  disabled={isBtPrinting}
+                  className="flex-1 w-full bg-blue-600 hover:bg-blue-700 active:scale-98 text-white font-black py-3 px-4 rounded-xl text-sm flex items-center justify-center gap-2 shadow-sm cursor-pointer disabled:opacity-50"
+                >
+                  <Printer className={`w-4 h-4 ${isBtPrinting ? 'animate-bounce' : ''}`} />
+                  <span>
+                    {isBtPrinting
+                      ? (isBn ? 'প্রিন্ট হচ্ছে...' : 'Printing...')
+                      : (isBn
+                          ? `🖨️ ${labelConfig.barcodeType === 'QR' ? 'কিউআর কোড' : 'বারকোড'} প্রিন্ট দিন (${labelConfig.quantity}টি)`
+                          : `🖨️ Print ${labelConfig.barcodeType === 'QR' ? 'QR Code' : 'Barcode'} (${labelConfig.quantity})`)}
+                  </span>
+                </button>
+
+                {btConnected && (
+                  <button
+                    type="button"
+                    onClick={handleTestPrint}
+                    className="w-full sm:w-auto px-4 py-3 bg-stone-100 hover:bg-stone-200 text-stone-800 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 cursor-pointer border border-stone-200"
+                  >
+                    <Printer className="w-3.5 h-3.5 text-stone-600" />
+                    <span>{isBn ? '⚡ টেস্ট প্রিন্ট' : 'Test Print'}</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Card B: Tag Details & Product Info */}
           {activeControlTab === 'content' && (
@@ -2030,32 +2349,76 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
               </div>
             </div>
 
-            {/* Quick theme pill switcher on top of preview */}
-            <div className="flex items-center gap-1 overflow-x-auto pb-1 no-scrollbar">
-              {[
-                { id: 'classic' as TagLayoutStyle, label: isBn ? '👗 ক্লাসিক' : 'Classic' },
-                { id: 'modern_badge' as TagLayoutStyle, label: isBn ? '✨ বুটিক' : 'Boutique' },
-                { id: 'bold_price' as TagLayoutStyle, label: isBn ? '🏷️ অফার' : 'Deal' },
-                { id: 'qr_centric' as TagLayoutStyle, label: isBn ? '🔲 কিউআর' : 'QR' },
-                { id: 'compact_split' as TagLayoutStyle, label: isBn ? '📦 স্প্লিট' : 'Split' },
-                { id: 'minimal' as TagLayoutStyle, label: isBn ? '🌿 মিনিমাল' : 'Minimal' },
-              ].map((tp) => {
-                const isSelected = (labelConfig.layoutStyle || 'classic') === tp.id;
-                return (
+            {/* Quick theme pill switcher & Code switcher on top of preview */}
+            <div className="space-y-1.5 pb-1">
+              <div className="flex items-center justify-between p-1 bg-stone-100 rounded-xl border border-stone-200">
+                <span className="text-[10px] font-bold text-stone-600 pl-1 flex items-center gap-1">
+                  <span>{isBn ? 'কোড মোড:' : 'Format:'}</span>
+                </span>
+                <div className="flex items-center gap-1">
                   <button
-                    key={tp.id}
                     type="button"
-                    onClick={() => handleApplyTheme(tp.id)}
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap transition-all cursor-pointer ${
-                      isSelected
-                        ? 'bg-stone-900 text-white shadow-xs'
-                        : 'bg-stone-100 hover:bg-stone-200 text-stone-700'
+                    onClick={() => {
+                      setLabelConfig((prev) => ({
+                        ...prev,
+                        barcodeType: 'CODE128',
+                        layoutStyle: prev.layoutStyle === 'qr_centric' ? 'classic' : prev.layoutStyle,
+                      }));
+                      onShowToast(isBn ? 'স্ট্যান্ডার্ড বারকোড নির্বাচন করা হয়েছে' : '1D Barcode selected', 'info');
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer flex items-center gap-1 ${
+                      labelConfig.barcodeType !== 'QR'
+                        ? 'bg-blue-600 text-white shadow-2xs'
+                        : 'text-stone-600 hover:bg-stone-200'
                     }`}
                   >
-                    {tp.label}
+                    <span>▌▌▌</span>
+                    <span>{isBn ? 'বারকোড' : 'Barcode'}</span>
                   </button>
-                );
-              })}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLabelConfig((prev) => ({ ...prev, barcodeType: 'QR' }));
+                      onShowToast(isBn ? 'কিউআর কোড নির্বাচন করা হয়েছে' : 'QR Code selected', 'info');
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer flex items-center gap-1 ${
+                      labelConfig.barcodeType === 'QR'
+                        ? 'bg-blue-600 text-white shadow-2xs'
+                        : 'text-stone-600 hover:bg-stone-200'
+                    }`}
+                  >
+                    <QrIcon className="w-3 h-3" />
+                    <span>{isBn ? 'কিউআর (QR)' : 'QR Code'}</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1 overflow-x-auto pb-0.5 no-scrollbar">
+                {[
+                  { id: 'classic' as TagLayoutStyle, label: isBn ? '👗 ক্লাসিক' : 'Classic' },
+                  { id: 'modern_badge' as TagLayoutStyle, label: isBn ? '✨ বুটিক' : 'Boutique' },
+                  { id: 'bold_price' as TagLayoutStyle, label: isBn ? '🏷️ অফার' : 'Deal' },
+                  { id: 'qr_centric' as TagLayoutStyle, label: isBn ? '🔲 কিউআর' : 'QR' },
+                  { id: 'compact_split' as TagLayoutStyle, label: isBn ? '📦 স্প্লিট' : 'Split' },
+                  { id: 'minimal' as TagLayoutStyle, label: isBn ? '🌿 মিনিমাল' : 'Minimal' },
+                ].map((tp) => {
+                  const isSelected = (labelConfig.layoutStyle || 'classic') === tp.id;
+                  return (
+                    <button
+                      key={tp.id}
+                      type="button"
+                      onClick={() => handleApplyTheme(tp.id)}
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-stone-900 text-white shadow-xs'
+                          : 'bg-stone-100 hover:bg-stone-200 text-stone-700'
+                      }`}
+                    >
+                      {tp.label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             {/* Visual Thermal Sticker Container */}
@@ -2063,7 +2426,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
               <div
                 ref={labelPreviewRef}
                 id="thermal-sticker-live-card"
-                className={`bg-white text-stone-900 relative shadow-md transition-all select-none overflow-hidden flex flex-col justify-between ${
+                className={`bg-white text-stone-900 relative transition-all select-none overflow-hidden flex flex-col justify-between ${
                   !labelConfig.showBorder || labelConfig.borderStyle === 'none'
                     ? 'border-0'
                     : labelConfig.borderStyle === 'bold'
@@ -2085,10 +2448,12 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                 style={{
                   width: `${Math.min(320, widthMm * 5.4)}px`,
                   minHeight: `${Math.max(120, heightMm * 5.4)}px`,
+                  backgroundColor: '#ffffff',
+                  boxShadow: 'none',
                   padding:
                     labelConfig.layoutStyle === 'compact_split'
                       ? '6px'
-                      : labelConfig.headerStyle === 'solid_banner' && labelConfig.showStoreName
+                      : !labelConfig.cleanWhiteMode && labelConfig.headerStyle === 'solid_banner' && labelConfig.showStoreName
                       ? '0 0 6px 0'
                       : '6px 8px',
                 }}
@@ -2125,7 +2490,13 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                           {labelConfig.itemName || 'Product Title'}
                         </div>
                         {labelConfig.showSize && labelConfig.sizeOrVariant && (
-                          <span className="text-[8px] font-black bg-stone-900 text-white px-1 py-0.2 rounded-xs inline-block mt-0.5">
+                          <span
+                            className={`text-[8px] font-black px-1 py-0.2 rounded-xs inline-block mt-0.5 ${
+                              labelConfig.cleanWhiteMode !== false
+                                ? 'border border-stone-800 bg-white text-stone-900'
+                                : 'bg-stone-900 text-white'
+                            }`}
+                          >
                             {labelConfig.sizeOrVariant}
                           </span>
                         )}
@@ -2142,7 +2513,13 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                           {sym}{labelConfig.salePrice}
                         </div>
                         {labelConfig.customOfferText ? (
-                          <span className="text-[8px] font-black bg-stone-900 text-white px-1 py-0.2 rounded-xs inline-block leading-none mt-0.5">
+                          <span
+                            className={`text-[8px] font-black px-1 py-0.2 rounded-xs inline-block leading-none mt-0.5 ${
+                              labelConfig.cleanWhiteMode !== false
+                                ? 'border border-stone-800 bg-white text-stone-900'
+                                : 'bg-stone-900 text-white'
+                            }`}
+                          >
                             {labelConfig.customOfferText}
                           </span>
                         ) : Boolean(labelConfig.showDiscountBadge) && discountPercent > 0 ? (
@@ -2161,16 +2538,19 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                       ) : null}
                     </div>
 
-                    {/* Right Column: Barcode or QR Code */}
-                    <div className="w-5/12 flex flex-col items-center justify-center border-l border-stone-200 pl-1.5 h-full">
-                      {labelConfig.barcodeType === 'QR' && qrCodeDataUrl ? (
-                        <img src={qrCodeDataUrl} alt="QR" className="w-16 h-16 object-contain" />
-                      ) : (
-                        <svg
-                          ref={barcodeSvgRef}
-                          className="w-full max-h-16 overflow-visible"
-                        ></svg>
-                      )}
+                    {/* Right Column: Barcode or QR Code Image */}
+                    <div className="w-5/12 flex flex-col items-center justify-center border-l border-stone-200 pl-1.5 h-full bg-white">
+                      {labelConfig.barcodeType === 'QR' ? (
+                        qrCodeDataUrl ? (
+                          <img src={qrCodeDataUrl} alt="QR" className="w-16 h-16 object-contain select-none mx-auto" />
+                        ) : null
+                      ) : barcodeDataUrl ? (
+                        <img
+                          src={barcodeDataUrl}
+                          alt="Barcode"
+                          className="w-full max-h-16 object-contain select-none mx-auto"
+                        />
+                      ) : null}
                     </div>
                   </div>
                 ) : (
@@ -2179,16 +2559,29 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                     {/* Top: Store Name Banner or Underline */}
                     {labelConfig.showStoreName && labelConfig.storeName && (
                       labelConfig.headerStyle === 'solid_banner' ? (
-                        <div className="bg-stone-950 text-white py-1 px-2 text-center w-full">
-                          <div className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider leading-tight">
-                            {labelConfig.storeName}
-                          </div>
-                          {labelConfig.showStorePhone && labelConfig.storePhone && (
-                            <div className="text-[8px] text-stone-300 font-mono leading-none mt-0.5">
-                              📞 {labelConfig.storePhone}
+                        labelConfig.cleanWhiteMode !== false ? (
+                          <div className="border-b-2 border-stone-900 pb-0.5 px-2 text-center w-full bg-white text-stone-950">
+                            <div className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider leading-tight">
+                              {labelConfig.storeName}
                             </div>
-                          )}
-                        </div>
+                            {labelConfig.showStorePhone && labelConfig.storePhone && (
+                              <div className="text-[8px] text-stone-600 font-mono leading-none mt-0.5">
+                                📞 {labelConfig.storePhone}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="bg-stone-950 text-white py-1 px-2 text-center w-full">
+                            <div className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider leading-tight">
+                              {labelConfig.storeName}
+                            </div>
+                            {labelConfig.showStorePhone && labelConfig.storePhone && (
+                              <div className="text-[8px] text-stone-300 font-mono leading-none mt-0.5">
+                                📞 {labelConfig.storePhone}
+                              </div>
+                            )}
+                          </div>
+                        )
                       ) : labelConfig.headerStyle === 'pill' ? (
                         <div className={`text-center pt-1 px-2 ${showPunchHole ? 'pt-2.5' : ''}`}>
                           <span className="inline-block bg-stone-100 text-stone-950 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full border border-stone-300 leading-tight">
@@ -2250,33 +2643,42 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                         {labelConfig.itemName || 'Product Title'}
                       </span>
                       {labelConfig.showSize && labelConfig.sizeOrVariant && (
-                        <span className="text-[9px] font-black bg-stone-900 text-white px-1.5 py-0.2 rounded-xs shrink-0 tracking-tight">
+                        <span
+                          className={`text-[9px] font-black px-1.5 py-0.2 rounded-xs shrink-0 tracking-tight ${
+                            labelConfig.cleanWhiteMode !== false
+                              ? 'border border-stone-800 bg-white text-stone-900'
+                              : 'bg-stone-900 text-white'
+                          }`}
+                        >
                           {labelConfig.sizeOrVariant}
                         </span>
                       )}
                     </div>
 
-                    {/* Middle: Barcode SVG or QR Code */}
+                    {/* Middle: Barcode Image or QR Code */}
                     {labelConfig.showBarcode && (
-                      <div className="flex flex-col items-center justify-center py-1 px-1">
-                        {labelConfig.barcodeType === 'QR' && qrCodeDataUrl ? (
+                      <div className="flex flex-col items-center justify-center py-1 px-1 bg-white">
+                        {labelConfig.barcodeType === 'QR' ? (
+                          qrCodeDataUrl ? (
+                            <img
+                              src={qrCodeDataUrl}
+                              alt="QR"
+                              className="w-14 h-14 object-contain select-none mx-auto"
+                            />
+                          ) : null
+                        ) : barcodeDataUrl ? (
                           <img
-                            src={qrCodeDataUrl}
-                            alt="QR"
-                            className="w-14 h-14 object-contain"
-                          />
-                        ) : (
-                          <svg
-                            ref={barcodeSvgRef}
-                            className={`w-full overflow-visible ${
+                            src={barcodeDataUrl}
+                            alt="Barcode"
+                            className={`w-full object-contain select-none mx-auto ${
                               labelConfig.barcodeHeight === 'compact'
                                 ? 'max-h-8'
                                 : labelConfig.barcodeHeight === 'tall'
                                 ? 'max-h-14'
                                 : 'max-h-11'
                             }`}
-                          ></svg>
-                        )}
+                          />
+                        ) : null}
                       </div>
                     )}
 
@@ -2302,9 +2704,15 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                               {isBn ? 'মূল্য:' : 'PRICE:'}
                             </span>
                             {labelConfig.priceStyle === 'highlight_pill' ? (
-                              <span className="bg-stone-950 text-white px-2 py-0.5 rounded-md text-xs sm:text-sm font-black font-mono tracking-tight leading-none">
-                                {sym}{labelConfig.salePrice}
-                              </span>
+                              labelConfig.cleanWhiteMode !== false ? (
+                                <span className="border border-stone-900 bg-white text-stone-950 px-2 py-0.5 rounded-md text-xs sm:text-sm font-black font-mono tracking-tight leading-none">
+                                  {sym}{labelConfig.salePrice}
+                                </span>
+                              ) : (
+                                <span className="bg-stone-950 text-white px-2 py-0.5 rounded-md text-xs sm:text-sm font-black font-mono tracking-tight leading-none">
+                                  {sym}{labelConfig.salePrice}
+                                </span>
+                              )
                             ) : labelConfig.priceStyle === 'big_hero' ? (
                               <span className="text-base sm:text-lg font-black font-mono text-stone-950 tracking-tight leading-none">
                                 {sym}{labelConfig.salePrice}
@@ -2321,7 +2729,13 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                       {/* Offers, Savings & Footer Notes */}
                       <div className="flex items-center justify-between text-[8px] text-stone-500 font-medium pt-0.5">
                         {labelConfig.customOfferText ? (
-                          <span className="font-bold text-white bg-stone-950 px-1.5 py-0.2 rounded-xs">
+                          <span
+                            className={`font-bold px-1.5 py-0.2 rounded-xs ${
+                              labelConfig.cleanWhiteMode !== false
+                                ? 'border border-stone-800 bg-white text-stone-900'
+                                : 'text-white bg-stone-950'
+                            }`}
+                          >
                             {labelConfig.customOfferText}
                           </span>
                         ) : Boolean(labelConfig.showDiscountBadge) && discountPercent > 0 ? (
