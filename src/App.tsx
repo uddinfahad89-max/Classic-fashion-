@@ -40,6 +40,8 @@ import { BackExitPill } from './components/BackExitPill';
 import { useNetworkStatus } from './utils/useNetworkStatus';
 import { backHandler } from './utils/backHandler';
 import { useBackHandler } from './utils/useBackHandler';
+import { supabaseService } from './services/supabaseService';
+import { supabase, isSupabaseConfigured } from './supabaseClient.js';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('invoices');
@@ -92,33 +94,59 @@ export default function App() {
 
   // Initial load
   useEffect(() => {
-    setBills(storageService.getBills());
-    setCashEntries(storageService.getCashEntries());
-    setCustomerDues(storageService.getCustomerDues());
-    const currentSettings = storageService.getSettings();
-    setSettings(currentSettings);
-    if (!currentSettings.storeName || currentSettings.storeName.trim() === '') {
-      setIsOnboardingOpen(true);
-    }
     const prof = storageService.getUserProfile();
-    setUserProfile(prof);
+    const currentSettings = storageService.getSettings();
     setLanguage(storageService.getLanguage());
-    setPurchaseTrips(storageService.getPurchaseTrips());
 
-    // Auto sync from server only if user is logged in
-    const syncId = prof.phone || prof.email;
-    if (prof.isLoggedIn && syncId) {
-      storageService.restoreFromAccountVaultAsync(syncId).then((restored) => {
-        if (restored) {
-          setBills(storageService.getBills());
-          setCashEntries(storageService.getCashEntries());
-          setCustomerDues(storageService.getCustomerDues());
-          setPurchaseTrips(storageService.getPurchaseTrips());
-          setSettings(storageService.getSettings());
-          setUserProfile(storageService.getUserProfile());
-        }
-      });
+    // Clean blank state on new device / unauthenticated session
+    if (!prof.isLoggedIn || !currentSettings.storeName || currentSettings.storeName.trim() === '') {
+      setBills([]);
+      setCashEntries([]);
+      setCustomerDues([]);
+      setPurchaseTrips([]);
+      setSettings(currentSettings);
+      setUserProfile(prof);
+      setIsOnboardingOpen(true);
+    } else {
+      setBills(storageService.getBills());
+      setCashEntries(storageService.getCashEntries());
+      setCustomerDues(storageService.getCustomerDues());
+      setPurchaseTrips(storageService.getPurchaseTrips());
+      setSettings(currentSettings);
+      setUserProfile(prof);
     }
+
+    // Auto sync from Supabase cloud or server vault if user has an active session
+    supabase.auth.getSession().then(({ data }) => {
+      if (data?.session?.user) {
+        const userId = data.session.user.id;
+        const userEmail = data.session.user.email || prof.email || '';
+        supabaseService.restoreUserData(userId, userEmail).then((restored) => {
+          if (restored && (restored.settings.storeName || restored.bills.length > 0)) {
+            setBills(restored.bills);
+            setCashEntries(restored.cashEntries);
+            setCustomerDues(restored.customerDues);
+            setPurchaseTrips(restored.purchaseTrips);
+            setSettings(restored.settings);
+            setUserProfile(restored.userProfile);
+            storageService.saveSettings(restored.settings);
+            storageService.saveUserProfile(restored.userProfile);
+          }
+        });
+      } else if (prof.isLoggedIn && (prof.phone || prof.email)) {
+        const syncId = prof.phone || prof.email;
+        storageService.restoreFromAccountVaultAsync(syncId).then((restored) => {
+          if (restored) {
+            setBills(storageService.getBills());
+            setCashEntries(storageService.getCashEntries());
+            setCustomerDues(storageService.getCustomerDues());
+            setPurchaseTrips(storageService.getPurchaseTrips());
+            setSettings(storageService.getSettings());
+            setUserProfile(storageService.getUserProfile());
+          }
+        });
+      }
+    });
 
     thermalPrinterService.setStatusListener((status) => {
       setBluetoothStatus(status);
@@ -212,13 +240,14 @@ export default function App() {
     10
   );
 
-  const handleSaveOnboarding = (data: {
+  const handleSaveOnboarding = async (data: {
     storeName: string;
     storePhone: string;
     storeAddress: string;
     ownerEmail?: string;
     ownerPin?: string;
     ownerName?: string;
+    password?: string;
   }) => {
     const updated: ThermalPrinterSettings = {
       ...settings,
@@ -238,7 +267,19 @@ export default function App() {
         data.storePhone
       );
       setUserProfile(loggedIn);
+
+      // Also sync profile to Supabase if session exists
+      const activeUserId = await supabaseService.getActiveUserId();
+      if (activeUserId) {
+        await supabaseService.syncProfile(updated, loggedIn, activeUserId);
+      }
     }
+
+    // New onboarding user starts with clean blank lists
+    setBills([]);
+    setCashEntries([]);
+    setCustomerDues([]);
+    setPurchaseTrips([]);
 
     setIsOnboardingOpen(false);
     showToast(
@@ -247,6 +288,66 @@ export default function App() {
         : `Shop & account setup completed: ${data.storeName}`,
       'success'
     );
+  };
+
+  const handleLoginExisting = async (
+    email: string,
+    password: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    // 1. Try Supabase cloud login & restore
+    if (isSupabaseConfigured()) {
+      const sbRes = await supabaseService.signIn(email, password);
+      if (sbRes.success && sbRes.restored) {
+        setBills(sbRes.restored.bills);
+        setCashEntries(sbRes.restored.cashEntries);
+        setCustomerDues(sbRes.restored.customerDues);
+        setPurchaseTrips(sbRes.restored.purchaseTrips);
+        setSettings(sbRes.restored.settings);
+        setUserProfile(sbRes.restored.userProfile);
+
+        storageService.saveSettings(sbRes.restored.settings);
+        storageService.saveUserProfile(sbRes.restored.userProfile);
+        setIsOnboardingOpen(false);
+
+        showToast(
+          language === 'bn'
+            ? `স্বাগতম! আপনার ক্লাউড ডেটা (${sbRes.restored.bills.length}টি বিল) সফলভাবে রিস্টোর হয়েছে।`
+            : `Welcome back! Restored ${sbRes.restored.bills.length} bills from Supabase.`,
+          'success'
+        );
+        return { success: true };
+      } else if (sbRes.error) {
+        return { success: false, error: sbRes.error };
+      }
+    }
+
+    // 2. Fallback: Local vault restore by email
+    const localRestore = await storageService.restoreFromAccountVaultAsync(email);
+    if (localRestore) {
+      const prof = storageService.loginUser(email, 'Store Owner', password.slice(0, 4), 'Owner');
+      setUserProfile(prof);
+      setBills(storageService.getBills());
+      setCashEntries(storageService.getCashEntries());
+      setCustomerDues(storageService.getCustomerDues());
+      setPurchaseTrips(storageService.getPurchaseTrips());
+      setSettings(storageService.getSettings());
+      setIsOnboardingOpen(false);
+      showToast(
+        language === 'bn'
+          ? 'অ্যাকাউন্ট সফলভাবে রিস্টোর হয়েছে'
+          : 'Account restored successfully',
+        'success'
+      );
+      return { success: true };
+    }
+
+    return {
+      success: false,
+      error:
+        language === 'bn'
+          ? 'কোনো অ্যাকাউন্ট পাওয়া যায়নি। অনুগ্রহ করে সঠিক ইমেল ও পাসওয়ার্ড দিন।'
+          : 'No account found. Please check your email and password.',
+    };
   };
 
   // Connect Bluetooth Thermal Printer
@@ -387,6 +488,7 @@ export default function App() {
   };
 
   const handleLogoutUser = () => {
+    supabaseService.signOut();
     const updated = storageService.logoutUser();
     setUserProfile(updated);
     setBills([]);
@@ -394,6 +496,7 @@ export default function App() {
     setCustomerDues([]);
     setPurchaseTrips([]);
     setSettings(storageService.getSettings());
+    setIsOnboardingOpen(true);
     showToast(language === 'bn' ? 'লগআউট সফল হয়েছে' : 'Logged out successfully', 'info');
   };
 
@@ -437,6 +540,13 @@ export default function App() {
     storageService.saveBill(bill);
     setBills(storageService.getBills());
     setSettings(storageService.getSettings());
+
+    // Sync to Supabase cloud in background
+    supabaseService.getActiveUserId().then((userId) => {
+      if (userId) {
+        supabaseService.syncInvoice(bill, userId);
+      }
+    });
 
     // 2. If paid via Cash or UPI, automatically record as Income in Cashbook
     if (bill.paymentMethod === 'cash' || bill.paymentMethod === 'upi' || bill.paymentMethod === 'card') {
@@ -487,6 +597,14 @@ export default function App() {
     storageService.deleteBill(id);
     const updatedBills = storageService.getBills();
     setBills(updatedBills);
+
+    // Sync deletion to Supabase cloud
+    supabaseService.getActiveUserId().then((userId) => {
+      if (userId) {
+        supabaseService.deleteInvoice(id, userId);
+      }
+    });
+
     if (receiptBill && (receiptBill.id === id || receiptBill.invoiceNo === id)) {
       setReceiptBill(null);
     }
@@ -505,6 +623,13 @@ export default function App() {
     storageService.saveBill(updatedBill);
     const freshBills = storageService.getBills();
     setBills(freshBills);
+
+    // Sync update to Supabase cloud
+    supabaseService.getActiveUserId().then((userId) => {
+      if (userId) {
+        supabaseService.syncInvoice(updatedBill, userId);
+      }
+    });
     if (receiptBill && (receiptBill.id === updatedBill.id || receiptBill.invoiceNo === updatedBill.invoiceNo)) {
       setReceiptBill(updatedBill);
     }
@@ -521,12 +646,27 @@ export default function App() {
   // 2. CASHBOOK HANDLERS
   const handleAddCashEntry = (type: CashEntryType, amount: number, note: string) => {
     storageService.addCashEntry(type, amount, note);
-    setCashEntries(storageService.getCashEntries());
+    const updated = storageService.getCashEntries();
+    setCashEntries(updated);
+
+    // Sync to Supabase
+    supabaseService.getActiveUserId().then((userId) => {
+      if (userId && updated[0]) {
+        supabaseService.syncCashEntry(updated[0], userId);
+      }
+    });
   };
 
   const handleDeleteCashEntry = (id: string) => {
     storageService.deleteCashEntry(id);
     setCashEntries(storageService.getCashEntries());
+
+    // Sync deletion to Supabase
+    supabaseService.getActiveUserId().then((userId) => {
+      if (userId) {
+        supabaseService.deleteCashEntry(id, userId);
+      }
+    });
   };
 
   // 3. CUSTOMER DUE & PAYABLE HANDLERS
@@ -538,7 +678,19 @@ export default function App() {
     type: DueType = 'receivable'
   ) => {
     storageService.addOrUpdateCustomerDue(name, amount, phone || '', note || '', type);
-    setCustomerDues(storageService.getCustomerDues());
+    const updatedDues = storageService.getCustomerDues();
+    setCustomerDues(updatedDues);
+
+    // Sync to Supabase
+    supabaseService.getActiveUserId().then((userId) => {
+      if (userId) {
+        const found = updatedDues.find((d) => d.name === name);
+        if (found) {
+          supabaseService.syncCustomerDue(found, userId);
+        }
+      }
+    });
+
     if (type === 'payable') {
       showToast(`কাস্টমার পাওনাদার হিসেবে ${settings.currencySymbol}${amount.toFixed(2)} যুক্ত করা হয়েছে`, 'info');
     } else {
@@ -551,7 +703,18 @@ export default function App() {
     const isPayable = target?.type === 'payable';
 
     storageService.recordCustomerPayment(id, amount, note || '');
-    setCustomerDues(storageService.getCustomerDues());
+    const updatedDues = storageService.getCustomerDues();
+    setCustomerDues(updatedDues);
+
+    // Sync updated due to Supabase
+    supabaseService.getActiveUserId().then((userId) => {
+      if (userId) {
+        const updatedTarget = updatedDues.find((d) => d.id === id);
+        if (updatedTarget) {
+          supabaseService.syncCustomerDue(updatedTarget, userId);
+        }
+      }
+    });
 
     // Cashbook sync:
     // If receiving money for due -> Cashbook Income
@@ -571,12 +734,25 @@ export default function App() {
       );
       showToast(`বাকি আদায় ${settings.currencySymbol}${amount.toFixed(2)} ক্যাশবুকে জমা হয়েছে`, 'success');
     }
-    setCashEntries(storageService.getCashEntries());
+    const freshCash = storageService.getCashEntries();
+    setCashEntries(freshCash);
+    supabaseService.getActiveUserId().then((userId) => {
+      if (userId && freshCash[0]) {
+        supabaseService.syncCashEntry(freshCash[0], userId);
+      }
+    });
   };
 
   const handleDeleteCustomerDue = (id: string) => {
     storageService.deleteCustomerDue(id);
     setCustomerDues(storageService.getCustomerDues());
+
+    // Sync deletion to Supabase
+    supabaseService.getActiveUserId().then((userId) => {
+      if (userId) {
+        supabaseService.deleteCustomerDue(id, userId);
+      }
+    });
   };
 
   // 4. LANGUAGE SELECT & TOGGLE HANDLER
@@ -999,10 +1175,11 @@ export default function App() {
         }}
       />
 
-      {/* First-Time Onboarding Modal with Voice Prompt */}
+      {/* First-Time Onboarding & Multi-User Cloud Modal */}
       <OnboardingModal
         isOpen={isOnboardingOpen}
         onSave={handleSaveOnboarding}
+        onLoginExisting={handleLoginExisting}
         language={language}
         onSelectLanguage={handleSelectLanguage}
       />

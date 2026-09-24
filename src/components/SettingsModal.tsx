@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, X, Save, Check, Bluetooth, Power, Trash2, FileText, CheckCircle2, Zap, HelpCircle, Download, Upload, Database, Tag } from 'lucide-react';
+import { Settings, X, Save, Check, Bluetooth, Power, Trash2, FileText, CheckCircle2, Zap, HelpCircle, Download, Upload, Database, Tag, Copy, Cloud, ShieldCheck } from 'lucide-react';
 import { ThermalPrinterSettings, BluetoothDeviceInfo, Language } from '../types';
 import { translations } from '../utils/i18n';
 import { storageService } from '../services/storageService';
+import { SUPABASE_SQL_SETUP_SCRIPT } from '../services/supabaseService';
+import { isSupabaseConfigured, getSupabaseConfig, setCustomSupabaseCredentials } from '../supabaseClient.js';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -36,6 +38,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [form, setForm] = useState<ThermalPrinterSettings>(settings);
   const [saved, setSaved] = useState(false);
   const [backupMsg, setBackupMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [copiedSql, setCopiedSql] = useState(false);
+  const [showSqlDetails, setShowSqlDetails] = useState(false);
+  const sbConfig = getSupabaseConfig();
+  const [customSbUrl, setCustomSbUrl] = useState(sbConfig.url || '');
+  const [customSbKey, setCustomSbKey] = useState(sbConfig.key || '');
+  const [sbSavedMsg, setSbSavedMsg] = useState(false);
 
   useEffect(() => {
     setForm(settings);
@@ -554,6 +562,88 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               >
                 {backupMsg.text}
               </p>
+            )}
+          </div>
+
+          {/* Supabase Multi-User Cloud & SQL Editor Section */}
+          <div className="p-3.5 bg-indigo-50/70 rounded-2xl border border-indigo-200 space-y-2.5">
+            <div className="font-bold text-stone-900 text-xs flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <Cloud className="w-4 h-4 text-indigo-600" />
+                <span>{isBn ? 'Supabase মাল্টি-ইউজার ক্লাউড ডাটাবেস' : 'Supabase Multi-User Cloud Database'}</span>
+              </span>
+              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                isSupabaseConfigured() ? 'bg-emerald-100 text-emerald-800' : 'bg-stone-200 text-stone-700'
+              }`}>
+                {isSupabaseConfigured() ? '✓ Connected' : 'Configurable'}
+              </span>
+            </div>
+
+            <p className="text-[11px] text-stone-600 leading-tight">
+              {isBn
+                ? 'ক্লাউড ডেটাবেসে আপনার ও অন্যান্য ব্যবহারকারীর ডেটা পৃথক (RLS Isolated) রাখতে Supabase SQL রান করুন।'
+                : 'Run this SQL in Supabase SQL Editor to enable complete data isolation and multi-user cloud backup.'}
+            </p>
+
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(SUPABASE_SQL_SETUP_SCRIPT);
+                  setCopiedSql(true);
+                  setTimeout(() => setCopiedSql(false), 3000);
+                }}
+                className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer transition-all"
+              >
+                {copiedSql ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copiedSql ? (isBn ? 'কপি হয়েছে!' : 'Copied!') : (isBn ? 'Supabase SQL স্ক্রিপ্ট কপি করুন' : 'Copy Supabase SQL Script')}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowSqlDetails(!showSqlDetails)}
+                className="px-3 py-2 bg-white hover:bg-stone-100 border border-stone-300 text-stone-700 font-bold text-xs rounded-xl cursor-pointer"
+              >
+                {showSqlDetails ? (isBn ? 'সংক্ষিপ্ত' : 'Hide') : (isBn ? 'সেটিংস' : 'Config')}
+              </button>
+            </div>
+
+            {showSqlDetails && (
+              <div className="pt-2 border-t border-indigo-200/80 space-y-2 text-xs">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-stone-700">Project URL:</label>
+                  <input
+                    type="url"
+                    value={customSbUrl}
+                    onChange={(e) => setCustomSbUrl(e.target.value)}
+                    placeholder="https://your-project.supabase.co"
+                    className="w-full px-2.5 py-1.5 bg-white border border-stone-300 rounded-lg font-mono text-[11px]"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-stone-700">Anon Public Key:</label>
+                  <input
+                    type="password"
+                    value={customSbKey}
+                    onChange={(e) => setCustomSbKey(e.target.value)}
+                    placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                    className="w-full px-2.5 py-1.5 bg-white border border-stone-300 rounded-lg font-mono text-[11px]"
+                  />
+                </div>
+                <div className="flex items-center justify-between pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomSupabaseCredentials(customSbUrl, customSbKey);
+                      setSbSavedMsg(true);
+                      setTimeout(() => setSbSavedMsg(false), 3000);
+                    }}
+                    className="px-3 py-1.5 bg-stone-900 text-white font-bold text-[11px] rounded-lg cursor-pointer hover:bg-black"
+                  >
+                    {sbSavedMsg ? 'Saved!' : 'Save Credentials'}
+                  </button>
+                </div>
+              </div>
             )}
           </div>
 

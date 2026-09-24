@@ -24,49 +24,6 @@ function getVaultFilePath(identifier: string): string {
   return path.join(DATA_DIR, `${norm}.json`);
 }
 
-// Initial seed for Fahad Uddin's account if not already on disk
-function ensureFahadSeed() {
-  try {
-    const fahadPath = getVaultFilePath('9707502246');
-    const emailPath = getVaultFilePath('uddinfahad89@gmail.com');
-    const fahadSeed = {
-      identifier: '9707502246',
-      email: 'uddinfahad89@gmail.com',
-      phone: '9707502246',
-      name: 'Fahad Uddin',
-      role: 'Owner',
-      pin: '1234',
-      isAppLockEnabled: false,
-      settings: {
-        storeName: 'Classic fashion',
-        storePhone: '9707502246',
-        storeAddress: 'Main Market, Goalpara, Assam',
-        signatoryName: 'Fahad Uddin',
-        upiId: '9707502246@upi',
-        paperWidth: '58mm',
-        currencySymbol: '₹',
-        currencyName: 'INR',
-        footerNote: 'ধন্যবাদ! আবার আসবেন (Thank you! Visit again)',
-        autoPrintOnCheckout: false,
-        defaultInvoiceFormat: 'tax_invoice',
-        nextInvoiceNumber: 1,
-      },
-      bills: [],
-      cashEntries: [],
-      customerDues: [],
-      purchaseTrips: [],
-      lastActive: Date.now(),
-    };
-
-    if (!fs.existsSync(fahadPath)) {
-      fs.writeFileSync(fahadPath, JSON.stringify(fahadSeed, null, 2), 'utf-8');
-      fs.writeFileSync(emailPath, JSON.stringify(fahadSeed, null, 2), 'utf-8');
-    }
-  } catch (err) {
-    console.warn('Seed initialization error:', err);
-  }
-}
-
 // Clean any old legacy demo data across all vault files on startup
 function cleanAllVaultFiles() {
   try {
@@ -104,7 +61,6 @@ function cleanAllVaultFiles() {
 }
 
 cleanAllVaultFiles();
-ensureFahadSeed();
 
 // ----------------- API ENDPOINTS -----------------
 
@@ -210,20 +166,6 @@ app.get('/api/vault/:identifier', (req, res) => {
         }
       } catch (e) {
         console.warn('Index search failure:', e);
-      }
-    }
-
-    // 3. Special case for Fahad account
-    if (
-      norm.includes('9707502246') ||
-      norm.includes('uddinfahad') ||
-      norm.includes('fahad')
-    ) {
-      ensureFahadSeed();
-      const fahadPath = getVaultFilePath('9707502246');
-      if (fs.existsSync(fahadPath)) {
-        const data = JSON.parse(fs.readFileSync(fahadPath, 'utf-8'));
-        return res.json({ success: true, vault: data });
       }
     }
 

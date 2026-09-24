@@ -255,7 +255,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     const inferredName =
       name.trim() ||
       userProfile.name ||
-      (cleanPhone.includes('9707502246') ? 'Fahad Uddin' : '') ||
       (cleanPhone ? `User ${cleanPhone.slice(-4)}` : 'Store Owner');
 
     const result = await onLogin(
@@ -956,7 +955,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                         required
                         value={signupPhone}
                         onChange={(e) => setSignupPhone(e.target.value)}
-                        placeholder={isBn ? '017XXXXXXXX বা 9707502246' : 'e.g. 9707502246'}
+                        placeholder={isBn ? '০১XXXXXXXXX / ৯৮XXXXXXXX' : 'e.g. 01700000000'}
                         className="w-full pl-9 pr-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs sm:text-sm font-mono font-semibold focus:outline-none focus:border-emerald-600 focus:bg-white transition-all"
                       />
                     </div>

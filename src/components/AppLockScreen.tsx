@@ -226,7 +226,7 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
           <Store className="w-7 h-7" />
         </div>
         <h1 className="text-xl font-black text-white tracking-wide">
-          {settings.storeName || 'Classic fashion'}
+          {settings.storeName || (isBn ? 'দোকানের নাম' : 'My Store')}
         </h1>
         <p className="text-xs text-stone-400 mt-1 flex items-center gap-1.5 justify-center">
           <ShieldCheck className="w-4 h-4 text-emerald-400" />

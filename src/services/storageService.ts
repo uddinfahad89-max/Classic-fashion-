@@ -480,51 +480,6 @@ class StorageService {
     return input.trim().toLowerCase().replace(/[\s+()_-]/g, '');
   }
 
-  isFahadAccount(id: string): boolean {
-    if (!id) return false;
-    const norm = this.normalizeIdentifier(id);
-    return (
-      norm.includes('9707502246') ||
-      norm.includes('uddinfahad') ||
-      norm.includes('fahad') ||
-      norm.endsWith('9707502246')
-    );
-  }
-
-  getFahadHistoricSeed(): AccountVaultData {
-    const fahadSettings: ThermalPrinterSettings = {
-      storeName: 'Classic fashion',
-      storePhone: '9707502246',
-      storeAddress: 'Main Market, Goalpara, Assam',
-      signatoryName: 'Fahad Uddin',
-      upiId: '9707502246@upi',
-      paperWidth: '58mm',
-      currencySymbol: '',
-      currencyName: 'INR',
-      hideCurrencySymbol: true,
-      footerNote: 'Thank you! Visit again.',
-      autoPrintOnCheckout: false,
-      defaultInvoiceFormat: 'tax_invoice',
-      nextInvoiceNumber: 1049,
-    };
-
-    return {
-      identifier: '9707502246',
-      email: 'uddinfahad89@gmail.com',
-      phone: '9707502246',
-      name: 'Fahad Uddin',
-      role: 'Owner',
-      pin: '1234',
-      isAppLockEnabled: false,
-      settings: fahadSettings,
-      bills: [],
-      cashEntries: [],
-      customerDues: [],
-      purchaseTrips: [],
-      lastActive: Date.now(),
-    };
-  }
-
   getSavedAccounts(): SavedAccountItem[] {
     try {
       const indexRaw = localStorage.getItem(VAULT_KEYS.ACCOUNTS_INDEX);
@@ -736,13 +691,6 @@ class StorageService {
         }
       }
 
-      // If still not found and identifier is Fahad's phone/email, load seed!
-      if (!vaultRaw && this.isFahadAccount(identifier)) {
-        const seed = this.getFahadHistoricSeed();
-        this.saveToAccountVault(seed);
-        vaultRaw = JSON.stringify(seed);
-      }
-
       if (!vaultRaw) return false;
 
       const vault: AccountVaultData = JSON.parse(vaultRaw);
@@ -837,7 +785,6 @@ class StorageService {
     const inferredName =
       name?.trim() ||
       current.name ||
-      (this.isFahadAccount(finalPhone) || this.isFahadAccount(finalEmail) ? 'Fahad Uddin' : '') ||
       (finalEmail ? finalEmail.split('@')[0] : '') ||
       (finalPhone ? `User ${finalPhone.slice(-4)}` : 'Store Owner');
 
@@ -1352,6 +1299,56 @@ class StorageService {
       console.warn('Failed to save barcode custom design:', e);
     }
   }
+
+  // --- PERMANENT BARCODE LABEL PRINTER PREFERENCES ---
+  getBarcodePrinterPreferences(): BarcodePrinterPreferences {
+    const defaults: BarcodePrinterPreferences = {
+      paperRollWidth: '50mm_label',
+      printerProtocol: 'tspl',
+      darknessMode: 'dark',
+      invertPolarity: true,
+    };
+    try {
+      const raw = localStorage.getItem('pos_barcode_printer_preferences_v1');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        return {
+          paperRollWidth: (parsed.paperRollWidth === '50mm_label' || parsed.paperRollWidth === '58mm' || parsed.paperRollWidth === '80mm')
+            ? parsed.paperRollWidth
+            : defaults.paperRollWidth,
+          printerProtocol: (parsed.printerProtocol === 'tspl' || parsed.printerProtocol === 'escpos')
+            ? parsed.printerProtocol
+            : defaults.printerProtocol,
+          darknessMode: (parsed.darknessMode === 'normal' || parsed.darknessMode === 'dark' || parsed.darknessMode === 'extra_dark')
+            ? parsed.darknessMode
+            : defaults.darknessMode,
+          invertPolarity: typeof parsed.invertPolarity === 'boolean'
+            ? parsed.invertPolarity
+            : defaults.invertPolarity,
+        };
+      }
+    } catch (e) {
+      console.warn('Failed to read barcode printer preferences from localStorage:', e);
+    }
+    return defaults;
+  }
+
+  saveBarcodePrinterPreferences(prefs: Partial<BarcodePrinterPreferences>): void {
+    try {
+      const current = this.getBarcodePrinterPreferences();
+      const updated: BarcodePrinterPreferences = { ...current, ...prefs };
+      localStorage.setItem('pos_barcode_printer_preferences_v1', JSON.stringify(updated));
+    } catch (e) {
+      console.warn('Failed to save barcode printer preferences to localStorage:', e);
+    }
+  }
+}
+
+export interface BarcodePrinterPreferences {
+  paperRollWidth: '50mm_label' | '58mm' | '80mm';
+  printerProtocol: 'escpos' | 'tspl';
+  darknessMode: 'normal' | 'dark' | 'extra_dark';
+  invertPolarity: boolean;
 }
 
 export const storageService = new StorageService();

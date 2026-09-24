@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Barcode as BarcodeIcon,
   Printer,
@@ -156,7 +156,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
   const [labelConfig, setLabelConfig] = useState<BarcodeLabelConfig>(() => {
     const saved = storageService.getBarcodeCustomDesign();
     const defaults: BarcodeLabelConfig = {
-      storeName: settings.storeName || 'MY FASHION STORE',
+      storeName: settings.storeName || '',
       storePhone: settings.storePhone || '',
       itemName: 'Cotton Saree',
       barcodeValue: 'CF-1002',
@@ -219,18 +219,45 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
   const isLabelPrinterModel = (name?: string) =>
     Boolean(name && /4B|2034|XP|label|tsc|postek|gprinter/i.test(name));
 
+  // Permanent Default Barcode Label Print Settings (Persisted in localStorage):
+  // 1. Paper / Sticker Size: "50×25mm Sticker Roll" ('50mm_label')
+  // 2. Printer Protocol: "TSPL (লেবেল)" ('tspl')
+  // 3. Darkness (Burn): "Dark" ('dark')
+  // 4. Print Polarity: "Black on White" (invertPolarity = true)
+  const savedPrinterPrefs = useMemo(() => storageService.getBarcodePrinterPreferences(), []);
+
   // Bluetooth Thermal Printer states
   const [btConnected, setBtConnected] = useState(thermalPrinterService.getIsConnected());
   const [btConnecting, setBtConnecting] = useState(thermalPrinterService.getIsConnecting());
   const [btDeviceName, setBtDeviceName] = useState<string | undefined>(thermalPrinterService.getDeviceName());
   const [isBtPrinting, setIsBtPrinting] = useState(false);
-  const [paperRollWidth, setPaperRollWidth] = useState<'50mm_label' | '58mm' | '80mm'>('50mm_label');
-  const [printerProtocol, setPrinterProtocol] = useState<'escpos' | 'tspl'>(() => {
-    const dev = thermalPrinterService.getDeviceName();
-    return isLabelPrinterModel(dev) ? 'tspl' : 'escpos';
-  });
-  const [darknessMode, setDarknessMode] = useState<'normal' | 'dark' | 'extra_dark'>('dark');
-  const [invertPolarity, setInvertPolarity] = useState<boolean>(true);
+
+  // States restored permanently from localStorage:
+  const [paperRollWidth, setPaperRollWidth] = useState<'50mm_label' | '58mm' | '80mm'>(savedPrinterPrefs.paperRollWidth);
+  const [printerProtocol, setPrinterProtocol] = useState<'escpos' | 'tspl'>(savedPrinterPrefs.printerProtocol);
+  const [darknessMode, setDarknessMode] = useState<'normal' | 'dark' | 'extra_dark'>(savedPrinterPrefs.darknessMode);
+  const [invertPolarity, setInvertPolarity] = useState<boolean>(savedPrinterPrefs.invertPolarity);
+
+  // Persistence handlers that automatically update state and lock to localStorage
+  const updatePaperRollWidth = (width: '50mm_label' | '58mm' | '80mm') => {
+    setPaperRollWidth(width);
+    storageService.saveBarcodePrinterPreferences({ paperRollWidth: width });
+  };
+
+  const updatePrinterProtocol = (proto: 'escpos' | 'tspl') => {
+    setPrinterProtocol(proto);
+    storageService.saveBarcodePrinterPreferences({ printerProtocol: proto });
+  };
+
+  const updateDarknessMode = (mode: 'normal' | 'dark' | 'extra_dark') => {
+    setDarknessMode(mode);
+    storageService.saveBarcodePrinterPreferences({ darknessMode: mode });
+  };
+
+  const updateInvertPolarity = (polarity: boolean) => {
+    setInvertPolarity(polarity);
+    storageService.saveBarcodePrinterPreferences({ invertPolarity: polarity });
+  };
 
   // Reactively subscribe to Bluetooth printer connection status changes
   useEffect(() => {
@@ -240,6 +267,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
       setBtDeviceName(status.deviceName);
       if (status.deviceName && isLabelPrinterModel(status.deviceName)) {
         setPrinterProtocol('tspl');
+        storageService.saveBarcodePrinterPreferences({ printerProtocol: 'tspl' });
       }
     });
     return unsub;
@@ -3296,6 +3324,17 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
 
               {/* Roll / Sticker Size & Protocol & Darkness Controls */}
               <div className="space-y-2.5 pt-1.5 border-t border-indigo-100/80 text-[11px]">
+                {/* Permanent Defaults Indicator */}
+                <div className="flex items-center justify-between pb-1 border-b border-indigo-100/60 text-[10px]">
+                  <span className="font-extrabold text-stone-700 flex items-center gap-1">
+                    <span>⚡ {isBn ? 'স্থায়ী ডিফল্ট ও সেটিংস:' : 'Permanent Defaults:'}</span>
+                  </span>
+                  <span className="font-black text-[9px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
+                    <span>🔒</span>
+                    <span>{isBn ? 'লোকালস্টোরেজে লকড' : 'Saved in localStorage'}</span>
+                  </span>
+                </div>
+
                 {/* 1. Paper / Sticker Size: 50x25mm (Default), 58mm, 80mm */}
                 <div className="space-y-1">
                   <div className="flex items-center justify-between">
@@ -3314,7 +3353,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                     <button
                       type="button"
                       onClick={() => {
-                        setPaperRollWidth('50mm_label');
+                        updatePaperRollWidth('50mm_label');
                         setLabelConfig((prev) => ({
                           ...prev,
                           sizePreset: '2x1',
@@ -3334,7 +3373,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={() => setPaperRollWidth('58mm')}
+                      onClick={() => updatePaperRollWidth('58mm')}
                       className={`py-1.5 rounded-md text-[10px] font-bold transition-all cursor-pointer flex flex-col items-center leading-tight ${
                         paperRollWidth === '58mm'
                           ? 'bg-indigo-600 text-white shadow-xs'
@@ -3346,7 +3385,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={() => setPaperRollWidth('80mm')}
+                      onClick={() => updatePaperRollWidth('80mm')}
                       className={`py-1.5 rounded-md text-[10px] font-bold transition-all cursor-pointer flex flex-col items-center leading-tight ${
                         paperRollWidth === '80mm'
                           ? 'bg-indigo-600 text-white shadow-xs'
@@ -3371,7 +3410,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                     <div className="grid grid-cols-2 gap-1 bg-white/90 p-0.5 rounded-lg border border-indigo-100 shadow-2xs">
                       <button
                         type="button"
-                        onClick={() => setPrinterProtocol('escpos')}
+                        onClick={() => updatePrinterProtocol('escpos')}
                         className={`py-1 rounded-md text-[9px] font-bold transition-all cursor-pointer text-center ${
                           printerProtocol === 'escpos'
                             ? 'bg-indigo-600 text-white shadow-2xs'
@@ -3383,7 +3422,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                       </button>
                       <button
                         type="button"
-                        onClick={() => setPrinterProtocol('tspl')}
+                        onClick={() => updatePrinterProtocol('tspl')}
                         className={`py-1 rounded-md text-[9px] font-bold transition-all cursor-pointer text-center ${
                           printerProtocol === 'tspl'
                             ? 'bg-indigo-600 text-white shadow-2xs'
@@ -3404,7 +3443,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                     <div className="grid grid-cols-3 gap-0.5 bg-white/90 p-0.5 rounded-lg border border-indigo-100 shadow-2xs">
                       <button
                         type="button"
-                        onClick={() => setDarknessMode('normal')}
+                        onClick={() => updateDarknessMode('normal')}
                         className={`py-1 rounded-md text-[9px] font-bold transition-all cursor-pointer ${
                           darknessMode === 'normal'
                             ? 'bg-indigo-600 text-white shadow-2xs'
@@ -3416,7 +3455,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                       </button>
                       <button
                         type="button"
-                        onClick={() => setDarknessMode('dark')}
+                        onClick={() => updateDarknessMode('dark')}
                         className={`py-1 rounded-md text-[9px] font-bold transition-all cursor-pointer ${
                           darknessMode === 'dark'
                             ? 'bg-indigo-600 text-white shadow-2xs'
@@ -3428,7 +3467,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                       </button>
                       <button
                         type="button"
-                        onClick={() => setDarknessMode('extra_dark')}
+                        onClick={() => updateDarknessMode('extra_dark')}
                         className={`py-1 rounded-md text-[9px] font-bold transition-all cursor-pointer ${
                           darknessMode === 'extra_dark'
                             ? 'bg-indigo-600 text-white shadow-2xs'
@@ -3457,7 +3496,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                   <div className="grid grid-cols-2 gap-1 bg-white/90 p-0.5 rounded-lg border border-indigo-100 shadow-2xs">
                     <button
                       type="button"
-                      onClick={() => setInvertPolarity(true)}
+                      onClick={() => updateInvertPolarity(true)}
                       className={`py-1.5 rounded-md text-[9px] font-bold transition-all cursor-pointer text-center ${
                         invertPolarity
                           ? 'bg-indigo-600 text-white shadow-2xs font-black'
@@ -3469,7 +3508,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={() => setInvertPolarity(false)}
+                      onClick={() => updateInvertPolarity(false)}
                       className={`py-1.5 rounded-md text-[9px] font-bold transition-all cursor-pointer text-center ${
                         !invertPolarity
                           ? 'bg-indigo-600 text-white shadow-2xs font-black'
@@ -3534,13 +3573,16 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                   <div className="text-left leading-tight min-w-0">
                     <div className="font-black text-sm sm:text-base flex items-center gap-1.5 flex-wrap">
                       <span>{isBn ? '🖨️ সরাসরি বারকোড প্রিন্ট করুন' : '🖨️ Print Barcode Label'}</span>
+                      <span className="text-[10px] bg-amber-400 text-stone-950 font-black px-1.5 py-0.2 rounded-xs">
+                        ⚡ {isBn ? '১-ট্যাপ ফাস্ট' : '1-Tap Fast'}
+                      </span>
                       {btConnected ? (
                         <span className="text-[10px] bg-emerald-400 text-stone-950 font-black px-1.5 py-0.2 rounded-xs">
                           {isBn ? 'প্রিন্টার রেডি' : 'Ready'}
                         </span>
                       ) : (
-                        <span className="text-[10px] bg-amber-400 text-stone-950 font-black px-1.5 py-0.2 rounded-xs">
-                          {isBn ? 'কানেক্ট করুন' : 'Tap to Pair'}
+                        <span className="text-[10px] bg-indigo-100 text-indigo-900 font-bold px-1.5 py-0.2 rounded-xs">
+                          {isBn ? 'অটো-কানেক্ট' : 'Auto-Connect'}
                         </span>
                       )}
                     </div>
@@ -3548,8 +3590,8 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                       {isBtPrinting
                         ? (isBn ? 'প্রিন্টারে ডেটা পাঠানো হচ্ছে...' : 'Streaming data to printer...')
                         : (isBn
-                            ? `${paperRollWidth === '50mm_label' ? '৫০×২৫ মিমি স্টিকার • ' : ''}${labelConfig.quantity}টি কপি প্রিন্ট হবে`
-                            : `${paperRollWidth === '50mm_label' ? '50×25mm Sticker • ' : ''}Print ${labelConfig.quantity} cop${labelConfig.quantity > 1 ? 'ies' : 'y'}`)}
+                            ? `স্থায়ী ডিফল্ট: ${paperRollWidth === '50mm_label' ? '৫০×২৫ মিমি স্টিকার' : paperRollWidth} • ${printerProtocol.toUpperCase()} • ${labelConfig.quantity}টি কপি`
+                            : `Default: ${paperRollWidth === '50mm_label' ? '50×25mm Sticker' : paperRollWidth} • ${printerProtocol.toUpperCase()} • ${labelConfig.quantity} cop${labelConfig.quantity > 1 ? 'ies' : 'y'}`)}
                     </div>
                   </div>
                 </div>
