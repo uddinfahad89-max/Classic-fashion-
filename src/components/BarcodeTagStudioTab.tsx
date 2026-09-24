@@ -230,6 +230,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     return isLabelPrinterModel(dev) ? 'tspl' : 'escpos';
   });
   const [darknessMode, setDarknessMode] = useState<'normal' | 'dark' | 'extra_dark'>('dark');
+  const [invertPolarity, setInvertPolarity] = useState<boolean>(true);
 
   // Reactively subscribe to Bluetooth printer connection status changes
   useEffect(() => {
@@ -246,14 +247,15 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
 
   const labelPreviewRef = useRef<HTMLDivElement | null>(null);
 
-  // Robust capture helper using html2canvas-pro with solid white background and pure black rendering
-  const captureLabelCanvas = async (scale = 3): Promise<HTMLCanvasElement | null> => {
+  // Fast and robust capture helper using html2canvas-pro with solid white background and pure black rendering
+  const captureLabelCanvas = async (scale = 1.8): Promise<HTMLCanvasElement | null> => {
     if (!labelPreviewRef.current) return null;
     const captured = await html2canvas(labelPreviewRef.current, {
       scale,
       backgroundColor: '#ffffff',
       useCORS: true,
       logging: false,
+      imageTimeout: 0,
       onclone: (clonedDoc) => {
         // High Contrast Output: Ensure no dark mode CSS interferes with the generated label canvas
         const card = clonedDoc.getElementById('thermal-sticker-live-card');
@@ -271,20 +273,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
         }
       },
     });
-    if (!captured) return null;
-
-    // 1. Solid White Canvas Background: explicitly set solid white background before rendering
-    const pristineCanvas = document.createElement('canvas');
-    pristineCanvas.width = captured.width;
-    pristineCanvas.height = captured.height;
-    const ctx = pristineCanvas.getContext('2d');
-    if (!ctx) return captured;
-
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fillRect(0, 0, pristineCanvas.width, pristineCanvas.height);
-    ctx.drawImage(captured, 0, 0);
-
-    return pristineCanvas;
+    return captured;
   };
 
   // Auto-generate SKU / Barcode
@@ -788,7 +777,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
         onShowToast(isBn ? 'ব্লুটুথ থার্মাল প্রিন্টারে স্টিকার পাঠানো হচ্ছে...' : 'Streaming sticker to Bluetooth thermal printer...', 'info');
       }
 
-      const canvas = await captureLabelCanvas(3);
+      const canvas = await captureLabelCanvas(1.8);
       if (!canvas) throw new Error('Preview not ready');
       const imgUrl = canvas.toDataURL('image/png');
 
@@ -869,7 +858,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
             : `Sending ${paperRollWidth === '50mm_label' ? '50x25mm ' : ''}test sticker to printer...`,
           'info'
         );
-        const canvas = await captureLabelCanvas(2.5);
+        const canvas = await captureLabelCanvas(1.8);
         if (!canvas) throw new Error('Preview not ready');
         const threshold = darknessMode === 'extra_dark' ? 145 : darknessMode === 'dark' ? 160 : 175;
         const res = await thermalPrinterService.printLabelBitmapViaBluetooth(
@@ -879,7 +868,8 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
           threshold,
           printerProtocol,
           widthMm,
-          heightMm
+          heightMm,
+          invertPolarity
         );
         if (res.success) {
           onShowToast(
@@ -932,8 +922,8 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
         'info'
       );
 
-      // Render crisp canvas representation of the sticker
-      const canvas = await captureLabelCanvas(2.5);
+      // Render crisp canvas representation of the sticker with ultra-fast capture
+      const canvas = await captureLabelCanvas(1.8);
       if (!canvas) throw new Error('Preview not ready');
 
       // Darkness threshold:
@@ -947,7 +937,8 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
         threshold,
         printerProtocol,
         widthMm,
-        heightMm
+        heightMm,
+        invertPolarity
       );
 
       if (result.success) {
@@ -3448,6 +3439,46 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                         {isBn ? 'খুব গাঢ়' : 'Max'}
                       </button>
                     </div>
+                  </div>
+                </div>
+
+                {/* 3. Bitmap Polarity Control (Bitwise Inversion / Anti-Inverted Print) */}
+                <div className="space-y-1 pt-1.5 border-t border-indigo-100/80">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-stone-700 flex items-center gap-1">
+                      <span>{isBn ? 'প্রিন্ট পোলারিটি (কালার মোড):' : 'Print Polarity (Color Mode):'}</span>
+                    </span>
+                    <span className="text-[9px] font-black text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200">
+                      {invertPolarity
+                        ? (isBn ? '⚪ সাদা কাগজ (কালো লেখা)' : '⚪ Black on White Paper')
+                        : (isBn ? '⚫ ইনভার্টেড মোড' : '⚫ Inverted Mode')}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1 bg-white/90 p-0.5 rounded-lg border border-indigo-100 shadow-2xs">
+                    <button
+                      type="button"
+                      onClick={() => setInvertPolarity(true)}
+                      className={`py-1.5 rounded-md text-[9px] font-bold transition-all cursor-pointer text-center ${
+                        invertPolarity
+                          ? 'bg-indigo-600 text-white shadow-2xs font-black'
+                          : 'text-stone-600 hover:bg-stone-50'
+                      }`}
+                      title={isBn ? 'সাদা স্টিকারে কালো টেক্সট ও বারকোড (সুপারিশকৃত)' : 'Standard Black on White Label (Recommended)'}
+                    >
+                      ⚪ {isBn ? 'সাদা কাগজ (কালো লেখা)' : 'Black on White'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setInvertPolarity(false)}
+                      className={`py-1.5 rounded-md text-[9px] font-bold transition-all cursor-pointer text-center ${
+                        !invertPolarity
+                          ? 'bg-indigo-600 text-white shadow-2xs font-black'
+                          : 'text-stone-600 hover:bg-stone-50'
+                      }`}
+                      title={isBn ? 'ইনভার্টেড (কালো ব্যাকগ্রাউন্ডে সাদা লেখা)' : 'Inverted (White on Black)'}
+                    >
+                      ⚫ {isBn ? 'ইনভার্ট (কালো ব্যাকগ্রাউন্ড)' : 'Invert (White on Black)'}
+                    </button>
                   </div>
                 </div>
               </div>
