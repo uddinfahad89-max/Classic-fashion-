@@ -987,7 +987,7 @@ export class ThermalPrinterService {
     return result;
   }
 
-  // Native TSPL Label Command Generator
+  // Native TSPL Label Command Generator for 50mm x 25mm stickers
   generateTsplCommandString(options: {
     storeName?: string;
     itemName?: string;
@@ -1005,7 +1005,7 @@ export class ThermalPrinterService {
     const {
       storeName = '',
       itemName = '',
-      barcodeValue = '12345678',
+      barcodeValue = '1001',
       barcodeType = 'CODE128',
       mrp,
       salePrice = 0,
@@ -1017,29 +1017,109 @@ export class ThermalPrinterService {
       showPrice = true,
     } = options;
 
+    // 203 DPI = 8 dots/mm (50mm = 400 dots, 25mm = 200 dots)
+    const labelWidthDots = Math.round(widthMm * 8);
+
     let elements = '';
-    const priceText = mrp ? `MRP: ${mrp}` : `PRICE: ${salePrice}`;
 
-    // 1. BARCODE at the TOP
-    const barcodeY = 18;
+    // ==========================================
+    // 1. LINE 1 (TOP): SHOP NAME (CENTERED)
+    // ==========================================
+    const cleanStore = (storeName || itemName || 'MY STORE').trim().replace(/["\r\n]/g, '');
+    if ((showStoreName && cleanStore) || (!showStoreName && showItemName && itemName)) {
+      const line1Text = showStoreName && cleanStore ? cleanStore : (itemName || '').trim().replace(/["\r\n]/g, '');
+
+      // Font "3" (16x24 dots) for up to 22 chars, Font "2" (12x20 dots) for longer names
+      let font1 = '3';
+      let charWidth1 = 16;
+      if (line1Text.length * charWidth1 > labelWidthDots - 24) {
+        font1 = '2';
+        charWidth1 = 12;
+      }
+
+      const textWidth1 = Math.min(line1Text.length * charWidth1, labelWidthDots - 16);
+      const x1 = Math.max(8, Math.round((labelWidthDots - textWidth1) / 2));
+      const y1 = 14;
+
+      elements += `TEXT ${x1},${y1},"${font1}",0,1,1,"${line1Text.slice(0, 30)}"\r\n`;
+    }
+
+    // ==========================================
+    // 2. LINE 2 (MIDDLE): BARCODE (CODE128 + CENTERED HUMAN-READABLE NUMBERS)
+    // ==========================================
+    const cleanCode = (barcodeValue || '1001').trim().replace(/["\r\n]/g, '');
+    const barcodeY = 50; // Positioned comfortably below Line 1
+    const barcodeHeight = 44; // Barcode height in dots
+
     if (barcodeType === 'QR') {
-      elements += `QRCODE 140,${barcodeY},L,4,A,0,"${barcodeValue}"\r\n`;
+      const qrWidthDots = 110;
+      const qrX = Math.max(10, Math.round((labelWidthDots - qrWidthDots) / 2));
+      elements += `QRCODE ${qrX},${barcodeY},L,4,A,0,"${cleanCode}"\r\n`;
     } else {
-      elements += `BARCODE 40,${barcodeY},"128",48,2,0,2,2,"${barcodeValue}"\r\n`;
+      // Code128 total module count = (characters + 2 overhead) * 11 modules + 2 stop modules
+      const code128Modules = (cleanCode.length + 2) * 11 + 2;
+      // Use narrow=2 dots for standard lengths, or narrow=1 dot if barcode exceeds label width
+      const narrow = code128Modules * 2 <= labelWidthDots - 30 ? 2 : 1;
+      const barcodeWidthDots = code128Modules * narrow;
+
+      // Mathematically calculate safe left offset to center barcode with zero right-edge clipping
+      const barcodeX = Math.max(8, Math.round((labelWidthDots - barcodeWidthDots) / 2));
+
+      // human_readable = 2 enables centered numbers beneath the barcode bars
+      elements += `BARCODE ${barcodeX},${barcodeY},"128",${barcodeHeight},2,0,${narrow},${narrow},"${cleanCode}"\r\n`;
     }
 
-    // 2. Shop/Item details BELOW it
-    let currentY = barcodeY + 68;
-    if (showStoreName && storeName) {
-      elements += `TEXT 200,${currentY},"3",0,1,1,2,"${storeName}"\r\n`;
-      currentY += 28;
-    }
-    if (showItemName && itemName) {
-      elements += `TEXT 200,${currentY},"2",0,1,1,2,"${itemName}"\r\n`;
-      currentY += 24;
-    }
-    if (showPrice) {
-      elements += `TEXT 200,${currentY},"3",0,1,1,2,"${priceText}"\r\n`;
+    // ==========================================
+    // 3. LINE 3 (BOTTOM): MRP / PRICE (CENTERED)
+    // ==========================================
+    if (showPrice || (showItemName && itemName && showStoreName)) {
+      let priceText = '';
+      if (mrp && salePrice && mrp > salePrice) {
+        priceText = `MRP: ${mrp}  SALE: ${salePrice}`;
+      } else if (salePrice) {
+        priceText = `PRICE: ${salePrice}`;
+      } else if (mrp) {
+        priceText = `MRP: ${mrp}`;
+      } else if (showItemName && itemName) {
+        priceText = itemName.trim().replace(/["\r\n]/g, '');
+      } else {
+        priceText = `PRICE: 0`;
+      }
+
+      const cleanItem = (itemName || '').trim().replace(/["\r\n]/g, '');
+      if (showItemName && cleanItem && showStoreName && cleanStore) {
+        // Line 3a: Compact Item Name
+        const itemFont = '2';
+        const itemCharWidth = 12;
+        const itemWidth = Math.min(cleanItem.length * itemCharWidth, labelWidthDots - 16);
+        const itemX = Math.max(8, Math.round((labelWidthDots - itemWidth) / 2));
+        const itemY = 124;
+        elements += `TEXT ${itemX},${itemY},"${itemFont}",0,1,1,"${cleanItem.slice(0, 30)}"\r\n`;
+
+        // Line 3b: Price
+        let pFont = '3';
+        let pCharWidth = 16;
+        if (priceText.length * pCharWidth > labelWidthDots - 20) {
+          pFont = '2';
+          pCharWidth = 12;
+        }
+        const pWidth = Math.min(priceText.length * pCharWidth, labelWidthDots - 16);
+        const pX = Math.max(8, Math.round((labelWidthDots - pWidth) / 2));
+        const pY = 152;
+        elements += `TEXT ${pX},${pY},"${pFont}",0,1,1,"${priceText}"\r\n`;
+      } else {
+        // Single prominent centered bottom line
+        let pFont = '3';
+        let pCharWidth = 16;
+        if (priceText.length * pCharWidth > labelWidthDots - 24) {
+          pFont = '2';
+          pCharWidth = 12;
+        }
+        const pWidth = Math.min(priceText.length * pCharWidth, labelWidthDots - 16);
+        const pX = Math.max(8, Math.round((labelWidthDots - pWidth) / 2));
+        const pY = 142;
+        elements += `TEXT ${pX},${pY},"${pFont}",0,1,1,"${priceText}"\r\n`;
+      }
     }
 
     return (
@@ -1051,6 +1131,25 @@ export class ThermalPrinterService {
       elements +
       `PRINT ${Math.max(1, copies)},1\r\n`
     );
+  }
+
+  // Print label using native TSPL commands directly via Bluetooth
+  async printNativeTsplLabelViaBluetooth(options: {
+    storeName?: string;
+    itemName?: string;
+    barcodeValue?: string;
+    barcodeType?: 'CODE128' | 'EAN13' | 'QR';
+    mrp?: number;
+    salePrice?: number;
+    widthMm?: number;
+    heightMm?: number;
+    copies?: number;
+    showStoreName?: boolean;
+    showItemName?: boolean;
+    showPrice?: boolean;
+  }): Promise<{ success: boolean; message: string; deviceName?: string }> {
+    const tsplCmd = this.generateTsplCommandString(options);
+    return this.printNativeTsplViaBluetooth(tsplCmd);
   }
 
   // Send native TSPL text commands directly over Bluetooth GATT stream

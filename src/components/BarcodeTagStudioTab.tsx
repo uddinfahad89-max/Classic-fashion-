@@ -914,6 +914,43 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
   // Quick test print on thermal printer (50x25mm label test or receipt test)
   const handleTestPrint = async () => {
     try {
+      if (printerProtocol === 'tspl') {
+        if (!thermalPrinterService.getIsConnected()) {
+          const conn = await thermalPrinterService.connect();
+          if (!conn.success) {
+            onShowToast(isBn ? 'প্রিন্টার কানেক্ট করুন' : 'Please connect printer', 'error');
+            return;
+          }
+        }
+        onShowToast(
+          isBn ? '৫০×২৫ মিমি TSPL টেস্ট স্টিকার পাঠানো হচ্ছে...' : 'Sending 50x25mm TSPL test label...',
+          'info'
+        );
+        const res = await thermalPrinterService.printNativeTsplLabelViaBluetooth({
+          storeName: labelConfig.storeName,
+          itemName: labelConfig.itemName,
+          barcodeValue: labelConfig.barcodeValue,
+          barcodeType: labelConfig.barcodeType,
+          mrp: labelConfig.mrp,
+          salePrice: labelConfig.salePrice,
+          widthMm: 50,
+          heightMm: 25,
+          copies: 1,
+          showStoreName: labelConfig.showStoreName,
+          showItemName: labelConfig.showItemName,
+          showPrice: labelConfig.showSalePrice || labelConfig.showMrp,
+        });
+        if (res.success) {
+          onShowToast(
+            isBn ? '✅ ৫০×২৫ মিমি TSPL টেস্ট স্টিকার প্রিন্ট সম্পন্ন!' : '✅ 50x25mm TSPL test label printed!',
+            'success'
+          );
+        } else {
+          onShowToast(res.message, 'error');
+        }
+        return;
+      }
+
       if (labelPreviewRef.current) {
         onShowToast(
           isBn
@@ -921,7 +958,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
             : `Sending ${paperRollWidth === '50mm_label' ? '50x25mm ' : ''}test sticker to printer...`,
           'info'
         );
-        const canvas = await captureLabelCanvas(1.8);
+        const canvas = await captureLabelCanvas(2.2);
         if (!canvas) throw new Error('Preview not ready');
         const threshold = darknessMode === 'extra_dark' ? 145 : darknessMode === 'dark' ? 160 : 175;
         const res = await thermalPrinterService.printLabelBitmapViaBluetooth(
@@ -954,6 +991,51 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
       }
     } catch (e: any) {
       onShowToast(e?.message || 'Test print failed', 'error');
+    }
+  };
+
+  // Direct Native TSPL Hardware Command Print
+  const handleNativeTsplPrint = async () => {
+    try {
+      if (!thermalPrinterService.getIsConnected()) {
+        const conn = await thermalPrinterService.connect();
+        if (!conn.success) {
+          onShowToast(isBn ? 'প্রিন্টার কানেক্ট করা যায়নি' : 'Could not connect printer', 'error');
+          return;
+        }
+      }
+      onShowToast(
+        isBn
+          ? `৫০×২৫ মিমি নেটিভ TSPL কমান্ড পাঠানো হচ্ছে (${labelConfig.quantity}টি)...`
+          : `Sending native TSPL command (${labelConfig.quantity} label(s))...`,
+        'info'
+      );
+      const res = await thermalPrinterService.printNativeTsplLabelViaBluetooth({
+        storeName: labelConfig.storeName,
+        itemName: labelConfig.itemName,
+        barcodeValue: labelConfig.barcodeValue,
+        barcodeType: labelConfig.barcodeType,
+        mrp: labelConfig.mrp,
+        salePrice: labelConfig.salePrice,
+        widthMm: 50,
+        heightMm: 25,
+        copies: labelConfig.quantity,
+        showStoreName: labelConfig.showStoreName,
+        showItemName: labelConfig.showItemName,
+        showPrice: labelConfig.showSalePrice || labelConfig.showMrp,
+      });
+      if (res.success) {
+        onShowToast(
+          isBn
+            ? `✅ ৫০×২৫ মিমি ${labelConfig.quantity}টি TSPL স্টিকার প্রিন্ট সম্পন্ন!`
+            : `✅ ${labelConfig.quantity} TSPL label(s) printed successfully!`,
+          'success'
+        );
+      } else {
+        onShowToast(res.message, 'error');
+      }
+    } catch (e: any) {
+      onShowToast(e?.message || 'TSPL print failed', 'error');
     }
   };
 
@@ -3541,6 +3623,18 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                         TSPL (লেবেল)
                       </button>
                     </div>
+
+                    {printerProtocol === 'tspl' && btConnected && (
+                      <button
+                        type="button"
+                        onClick={handleNativeTsplPrint}
+                        className="w-full mt-1.5 py-1 px-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-[9.5px] font-bold rounded-lg transition-all flex items-center justify-center gap-1 shadow-2xs cursor-pointer"
+                        title={isBn ? 'নেটিভ TSPL হার্ডওয়্যার কমান্ড সরাসরি প্রিন্টারে পাঠান' : 'Send native TSPL hardware command directly to printer'}
+                      >
+                        <Printer className="w-3 h-3" />
+                        <span>{isBn ? '⚡ সরাসরি TSPL কমান্ড প্রিন্ট' : '⚡ Direct TSPL Print'}</span>
+                      </button>
+                    )}
                   </div>
 
                   {/* Print Density / Darkness for sharp barcodes */}
