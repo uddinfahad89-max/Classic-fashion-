@@ -1022,7 +1022,7 @@ export class ThermalPrinterService {
       widthMm = 50,
       heightMm = 25,
       copies = 1,
-      barcodePosition = 'bottom',
+      barcodePosition = 'top',
       verticalOffsetY = 0,
       invertDirection = false,
       showStoreName = true,

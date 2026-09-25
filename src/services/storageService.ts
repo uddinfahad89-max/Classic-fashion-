@@ -1307,12 +1307,18 @@ class StorageService {
       printerProtocol: 'tspl',
       darknessMode: 'dark',
       invertPolarity: true,
-      barcodePosition: 'bottom',
+      barcodePosition: 'top',
       verticalOffsetY: 0,
       invertDirection: false,
     };
     try {
-      const raw = localStorage.getItem('pos_barcode_printer_preferences_v1');
+      // Clear legacy/buggy v1 if present to restore original barcode position
+      const rawV1 = localStorage.getItem('pos_barcode_printer_preferences_v1');
+      if (rawV1) {
+        localStorage.removeItem('pos_barcode_printer_preferences_v1');
+      }
+
+      const raw = localStorage.getItem('pos_barcode_printer_preferences_v2');
       if (raw) {
         const parsed = JSON.parse(raw);
         return {
@@ -1349,10 +1355,29 @@ class StorageService {
     try {
       const current = this.getBarcodePrinterPreferences();
       const updated: BarcodePrinterPreferences = { ...current, ...prefs };
-      localStorage.setItem('pos_barcode_printer_preferences_v1', JSON.stringify(updated));
+      localStorage.setItem('pos_barcode_printer_preferences_v2', JSON.stringify(updated));
     } catch (e) {
       console.warn('Failed to save barcode printer preferences to localStorage:', e);
     }
+  }
+
+  resetBarcodePrinterPreferences(): BarcodePrinterPreferences {
+    const defaults: BarcodePrinterPreferences = {
+      paperRollWidth: '50mm_label',
+      printerProtocol: 'tspl',
+      darknessMode: 'dark',
+      invertPolarity: true,
+      barcodePosition: 'top',
+      verticalOffsetY: 0,
+      invertDirection: false,
+    };
+    try {
+      localStorage.removeItem('pos_barcode_printer_preferences_v1');
+      localStorage.setItem('pos_barcode_printer_preferences_v2', JSON.stringify(defaults));
+    } catch (e) {
+      console.warn('Failed to reset barcode printer preferences:', e);
+    }
+    return defaults;
   }
 }
 

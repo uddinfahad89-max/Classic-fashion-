@@ -208,7 +208,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
       showFooterNote: true,
       cleanWhiteMode: true,
       mrpOffset: 0,
-      barcodePosition: savedPrinterPrefs.barcodePosition || 'bottom',
+      barcodePosition: savedPrinterPrefs.barcodePosition || 'top',
       verticalOffsetY: savedPrinterPrefs.verticalOffsetY || 0,
       invertDirection: savedPrinterPrefs.invertDirection || false,
     };
@@ -220,7 +220,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
         showDiscountBadge: false,
         customOfferText: cleanCustomOffer,
         cleanWhiteMode: saved.cleanWhiteMode !== false,
-        barcodePosition: saved.barcodePosition || defaults.barcodePosition,
+        barcodePosition: savedPrinterPrefs.barcodePosition || 'top',
         verticalOffsetY: typeof saved.verticalOffsetY === 'number' ? saved.verticalOffsetY : defaults.verticalOffsetY,
         invertDirection: typeof saved.invertDirection === 'boolean' ? saved.invertDirection : defaults.invertDirection,
       };
@@ -249,7 +249,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
   const [printerProtocol, setPrinterProtocol] = useState<'escpos' | 'tspl'>(savedPrinterPrefs.printerProtocol);
   const [darknessMode, setDarknessMode] = useState<'normal' | 'dark' | 'extra_dark'>(savedPrinterPrefs.darknessMode);
   const [invertPolarity, setInvertPolarity] = useState<boolean>(savedPrinterPrefs.invertPolarity);
-  const [barcodePosition, setBarcodePosition] = useState<'top' | 'bottom'>(savedPrinterPrefs.barcodePosition || 'bottom');
+  const [barcodePosition, setBarcodePosition] = useState<'top' | 'bottom'>(savedPrinterPrefs.barcodePosition || 'top');
   const [verticalOffsetY, setVerticalOffsetY] = useState<number>(savedPrinterPrefs.verticalOffsetY || 0);
   const [invertDirection, setInvertDirection] = useState<boolean>(savedPrinterPrefs.invertDirection || false);
   const [showTsplModal, setShowTsplModal] = useState<boolean>(false);
@@ -292,6 +292,24 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     setInvertDirection(inv);
     storageService.saveBarcodePrinterPreferences({ invertDirection: inv });
     setLabelConfig((prev) => ({ ...prev, invertDirection: inv }));
+  };
+
+  // Restore barcode settings to original defaults (top position, zero offset)
+  const handleRestoreOriginalBarcodeSetting = () => {
+    updateBarcodePosition('top');
+    updateVerticalOffsetY(0);
+    updateInvertDirection(false);
+    storageService.resetBarcodePrinterPreferences();
+    setLabelConfig((prev) => ({
+      ...prev,
+      barcodePosition: 'top',
+      verticalOffsetY: 0,
+      invertDirection: false,
+    }));
+    onShowToast(
+      isBn ? '✅ বারকোড সেটিং সফলভাবে আগের মতো (উপরে) করা হয়েছে!' : '✅ Barcode setting restored to original default (Top)!',
+      'success'
+    );
   };
 
   // Reactively subscribe to Bluetooth printer connection status changes
@@ -602,6 +620,9 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
 
   // Reset Design to default
   const handleResetDesign = () => {
+    updateBarcodePosition('top');
+    updateVerticalOffsetY(0);
+    updateInvertDirection(false);
     setLabelConfig((prev) => ({
       ...prev,
       layoutStyle: 'classic',
@@ -626,10 +647,13 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
       showBatch: true,
       showFooterNote: true,
       mrpOffset: 0,
+      barcodePosition: 'top',
+      verticalOffsetY: 0,
+      invertDirection: false,
     }));
     setShowPunchHole(false);
     onShowToast(
-      isBn ? 'ডিজাইন স্ট্যান্ডার্ড ডিফল্টে রিসেট হয়েছে' : 'Design reset to default',
+      isBn ? 'বারকোড ও ডিজাইন আগের মতো ডিফল্টে রিসেট হয়েছে' : 'Barcode & design reset to default (Top barcode)',
       'info'
     );
   };
@@ -648,6 +672,8 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
   // Apply Quick Templates
   const handleApplyTemplate = (type: 'garment' | 'grocery' | 'footwear' | 'jewel' | 'photo1') => {
     if (type === 'photo1') {
+      updateBarcodePosition('top');
+      updateVerticalOffsetY(0);
       setLabelConfig((prev) => ({
         ...prev,
         layoutStyle: 'ultra_simple',
@@ -674,10 +700,12 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
         headerStyle: 'minimal',
         priceStyle: 'standard',
         cornerRadius: 'none',
+        barcodePosition: 'top',
+        verticalOffsetY: 0,
       }));
       setShowPunchHole(false);
       onShowToast(
-        isBn ? 'ছবি ১-এর মতো সুপার সিম্পল লেবেল তৈরি হয়েছে' : 'Photo 1 simple label loaded',
+        isBn ? 'ছবি ১-এর মতো আগের সুপার সিম্পল লেবেল তৈরি হয়েছে' : 'Photo 1 simple label loaded',
         'success'
       );
     } else if (type === 'garment') {
@@ -1229,6 +1257,15 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
             >
               <span>🏷️</span>
               <span>{isBn ? '১" মিনি' : '1" Mini'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleRestoreOriginalBarcodeSetting}
+              className="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-[11px] font-black transition-all flex items-center gap-1 cursor-pointer ml-auto shrink-0 shadow-2xs"
+              title={isBn ? 'বারকোড সেটিং আগের মতো করুন (উপরে বারকোড ও নরমাল লেআউট)' : 'Restore barcode setting like before (Top barcode)'}
+            >
+              <RotateCcw className="w-3 h-3 text-amber-700" />
+              <span>{isBn ? '↺ আগের মতো বারকোড সেটিং' : '↺ Restore Barcode Setting'}</span>
             </button>
           </div>
         </div>
@@ -3741,9 +3778,22 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                         <ArrowUpDown className="w-3 h-3 text-indigo-500" />
                         <span>{isBn ? 'বারকোড অবস্থান (Barcode Position):' : 'Barcode Position:'}</span>
                       </span>
-                      <span className="text-[9px] font-mono font-bold text-indigo-700">
-                        {barcodePosition === 'top' ? (isBn ? 'উপরে (Top)' : 'Top') : (isBn ? 'নিচে (Bottom)' : 'Bottom')}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[9px] font-mono font-bold text-indigo-700">
+                          {barcodePosition === 'top' ? (isBn ? 'উপরে (Top)' : 'Top') : (isBn ? 'নিচে (Bottom)' : 'Bottom')}
+                        </span>
+                        {barcodePosition !== 'top' && (
+                          <button
+                            type="button"
+                            onClick={handleRestoreOriginalBarcodeSetting}
+                            className="text-[9px] font-bold text-amber-700 bg-amber-100 hover:bg-amber-200 px-1.5 py-0.5 rounded cursor-pointer transition-all flex items-center gap-0.5"
+                            title={isBn ? 'আগের মতো উপরে করুন' : 'Restore to Top'}
+                          >
+                            <RotateCcw className="w-2.5 h-2.5" />
+                            <span>{isBn ? 'আগের মতো' : 'Reset'}</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <div className="grid grid-cols-2 gap-1 bg-white/90 p-0.5 rounded-lg border border-indigo-100 shadow-2xs">
                       <button
@@ -3754,9 +3804,9 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                             ? 'bg-indigo-600 text-white shadow-2xs font-black'
                             : 'text-stone-600 hover:bg-stone-50'
                         }`}
-                        title={isBn ? 'বারকোড উপরে এবং বিবরণ নিচে' : 'Barcode at top, details below'}
+                        title={isBn ? 'বারকোড উপরে এবং বিবরণ নিচে (আগের মতো)' : 'Barcode at top, details below (Original)'}
                       >
-                        <span>⬆️ {isBn ? 'উপরে (Top)' : 'Top'}</span>
+                        <span>⬆️ {isBn ? 'উপরে (আগের মতো)' : 'Top (Original)'}</span>
                       </button>
                       <button
                         type="button"
@@ -4037,14 +4087,26 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                     <ArrowUpDown className="w-4 h-4 text-indigo-600" />
                     <span>{isBn ? '১. বারকোড অবস্থান (Barcode Position)' : '1. Barcode Position'}</span>
                   </label>
-                  <span className="text-[10px] font-mono font-black text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200">
-                    {barcodePosition === 'top' ? 'TOP (উপরে)' : 'BOTTOM (নিচে)'}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-mono font-black text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200">
+                      {barcodePosition === 'top' ? 'TOP (উপরে - আগের মতো)' : 'BOTTOM (নিচে)'}
+                    </span>
+                    {barcodePosition !== 'top' && (
+                      <button
+                        type="button"
+                        onClick={handleRestoreOriginalBarcodeSetting}
+                        className="text-[10px] font-bold text-amber-700 bg-amber-100 hover:bg-amber-200 px-2 py-0.5 rounded cursor-pointer transition-all flex items-center gap-1"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        <span>{isBn ? 'আগের মতো করুন' : 'Reset'}</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <p className="text-[11px] text-stone-500 leading-tight">
                   {isBn
-                    ? 'Top দিলে বারকোড সবার উপরে থাকবে এবং দোকানের নাম ও মূল্য নিচে থাকবে। Bottom দিলে দোকানের নাম উপরে এবং বারকোড নিচে থাকবে।'
-                    : 'Choose whether the barcode appears at the top or the bottom of the printed label sticker.'}
+                    ? 'আগের মতো (Top): বারকোড স্টিকারের উপরে থাকবে এবং দোকানের নাম ও মূল্য নিচে থাকবে। Bottom: দোকানের নাম উপরে এবং বারকোড নিচে থাকবে।'
+                    : 'Original Top: Barcode appears at the top of the sticker. Bottom: Barcode appears at the bottom.'}
                 </p>
                 <div className="grid grid-cols-2 gap-2 pt-1">
                   <button
@@ -4056,7 +4118,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                         : 'bg-white text-stone-700 border-stone-300 hover:bg-stone-100'
                     }`}
                   >
-                    <span>⬆️ {isBn ? 'উপরে বারকোড (Top)' : 'Top Barcode'}</span>
+                    <span>⬆️ {isBn ? 'উপরে বারকোড (আগের মতো)' : 'Top Barcode (Original)'}</span>
                   </button>
                   <button
                     type="button"
