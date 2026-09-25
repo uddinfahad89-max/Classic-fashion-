@@ -51,6 +51,8 @@ export interface BarcodeLabelConfig {
   barcodeHeight?: TagBarcodeHeight;
   barcodeThickness?: TagBarcodeThickness;
   showBarcodeText?: boolean;
+  barcodeNumberFont?: 'sans' | 'ocr' | 'mono';
+  barcodeNumberSize?: 'normal' | 'large';
   cornerRadius?: TagCornerRadius;
   titleFontSize?: TagTitleFontSize;
   textAlign?: TagAlignment;
@@ -62,10 +64,6 @@ export interface BarcodeLabelConfig {
   cleanWhiteMode?: boolean;
   mrpPrefix?: string;
   mrpOffset?: number; // Vertical offset in px for moving MRP up/down
-  // TSPL Print Setting / Layout Customization:
-  barcodePosition?: 'top' | 'bottom'; // Toggle between 'Top' or 'Bottom'
-  verticalOffsetY?: number; // -50 to +50 mm/px to fine-tune element positions up and down
-  invertDirection?: boolean; // Toggle between 'DIRECTION 1,0' (false) and 'DIRECTION 0,0' (true)
 }
 
 export type Language = 'bn' | 'en' | 'hi';

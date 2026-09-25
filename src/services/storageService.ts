@@ -1307,18 +1307,9 @@ class StorageService {
       printerProtocol: 'tspl',
       darknessMode: 'dark',
       invertPolarity: true,
-      barcodePosition: 'top',
-      verticalOffsetY: 0,
-      invertDirection: false,
     };
     try {
-      // Clear legacy/buggy v1 if present to restore original barcode position
-      const rawV1 = localStorage.getItem('pos_barcode_printer_preferences_v1');
-      if (rawV1) {
-        localStorage.removeItem('pos_barcode_printer_preferences_v1');
-      }
-
-      const raw = localStorage.getItem('pos_barcode_printer_preferences_v2');
+      const raw = localStorage.getItem('pos_barcode_printer_preferences_v2') || localStorage.getItem('pos_barcode_printer_preferences_v1');
       if (raw) {
         const parsed = JSON.parse(raw);
         return {
@@ -1334,15 +1325,6 @@ class StorageService {
           invertPolarity: typeof parsed.invertPolarity === 'boolean'
             ? parsed.invertPolarity
             : defaults.invertPolarity,
-          barcodePosition: (parsed.barcodePosition === 'top' || parsed.barcodePosition === 'bottom')
-            ? parsed.barcodePosition
-            : defaults.barcodePosition,
-          verticalOffsetY: typeof parsed.verticalOffsetY === 'number'
-            ? Math.max(-50, Math.min(50, parsed.verticalOffsetY))
-            : defaults.verticalOffsetY,
-          invertDirection: typeof parsed.invertDirection === 'boolean'
-            ? parsed.invertDirection
-            : defaults.invertDirection,
         };
       }
     } catch (e) {
@@ -1367,12 +1349,8 @@ class StorageService {
       printerProtocol: 'tspl',
       darknessMode: 'dark',
       invertPolarity: true,
-      barcodePosition: 'top',
-      verticalOffsetY: 0,
-      invertDirection: false,
     };
     try {
-      localStorage.removeItem('pos_barcode_printer_preferences_v1');
       localStorage.setItem('pos_barcode_printer_preferences_v2', JSON.stringify(defaults));
     } catch (e) {
       console.warn('Failed to reset barcode printer preferences:', e);
@@ -1386,9 +1364,6 @@ export interface BarcodePrinterPreferences {
   printerProtocol: 'escpos' | 'tspl';
   darknessMode: 'normal' | 'dark' | 'extra_dark';
   invertPolarity: boolean;
-  barcodePosition: 'top' | 'bottom';
-  verticalOffsetY: number;
-  invertDirection: boolean;
 }
 
 export const storageService = new StorageService();
