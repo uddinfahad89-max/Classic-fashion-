@@ -1023,59 +1023,60 @@ export class ThermalPrinterService {
     let elements = '';
 
     // ==========================================
-    // 1. LINE 1 (TOP): SHOP NAME (CENTERED)
+    // 1. LINE 1 (TOP): SHOP NAME (FONT "3", CENTERED)
     // ==========================================
     const cleanStore = (storeName || itemName || 'MY STORE').trim().replace(/["\r\n]/g, '');
     if ((showStoreName && cleanStore) || (!showStoreName && showItemName && itemName)) {
       const line1Text = showStoreName && cleanStore ? cleanStore : (itemName || '').trim().replace(/["\r\n]/g, '');
 
-      // Font "3" (16x24 dots) for up to 22 chars, Font "2" (12x20 dots) for longer names
-      let font1 = '3';
-      let charWidth1 = 16;
-      if (line1Text.length * charWidth1 > labelWidthDots - 24) {
-        font1 = '2';
-        charWidth1 = 12;
-      }
+      // Font "3" (16x24 dots) - standard centered title
+      const charWidth1 = 16;
+      const textWidth1 = Math.min(line1Text.length * charWidth1, labelWidthDots - 80);
+      // Safe left padding around 40-50 dots so text never clips
+      const x1 = Math.max(40, Math.round((labelWidthDots - textWidth1) / 2));
+      const y1 = 12;
 
-      const textWidth1 = Math.min(line1Text.length * charWidth1, labelWidthDots - 16);
-      const x1 = Math.max(8, Math.round((labelWidthDots - textWidth1) / 2));
-      const y1 = 14;
-
-      elements += `TEXT ${x1},${y1},"${font1}",0,1,1,"${line1Text.slice(0, 30)}"\r\n`;
+      elements += `TEXT ${x1},${y1},"3",0,1,1,"${line1Text.slice(0, 22)}"\r\n`;
     }
 
     // ==========================================
-    // 2. LINE 2 (MIDDLE): BARCODE (CODE128 + CENTERED HUMAN-READABLE NUMBERS)
+    // 2. LINE 2 (MIDDLE): MEDIUM BARCODE + NUMBER BELOW (FONT "2")
     // ==========================================
     const cleanCode = (barcodeValue || '1001').trim().replace(/["\r\n]/g, '');
-    const barcodeY = 50; // Positioned comfortably below Line 1
-    const barcodeHeight = 44; // Barcode height in dots
+    const barcodeY = 46;
+    const barcodeHeight = 42; // Standard medium height for 25mm label (4barcode app reference)
 
     if (barcodeType === 'QR') {
-      const qrWidthDots = 110;
-      const qrX = Math.max(10, Math.round((labelWidthDots - qrWidthDots) / 2));
+      const qrWidthDots = 100;
+      const qrX = Math.max(50, Math.round((labelWidthDots - qrWidthDots) / 2));
       elements += `QRCODE ${qrX},${barcodeY},L,4,A,0,"${cleanCode}"\r\n`;
     } else {
-      // Code128 total module count = (characters + 2 overhead) * 11 modules + 2 stop modules
-      const code128Modules = (cleanCode.length + 2) * 11 + 2;
-      // Use narrow=2 dots for standard lengths, or narrow=1 dot if barcode exceeds label width
-      const narrow = code128Modules * 2 <= labelWidthDots - 30 ? 2 : 1;
-      const barcodeWidthDots = code128Modules * narrow;
+      // Standard medium bar thickness: narrow = 2, wide = 3 (not ultra-thin, perfectly balanced)
+      const narrow = 2;
+      const wide = 3;
 
-      // Mathematically calculate safe left offset to center barcode with zero right-edge clipping
-      const barcodeX = Math.max(8, Math.round((labelWidthDots - barcodeWidthDots) / 2));
+      // Position Barcode X = 50 to 55 to keep it centered and leave safe 50-dot margins on both sides
+      const barcodeX = 52;
 
-      // human_readable = 2 enables centered numbers beneath the barcode bars
-      elements += `BARCODE ${barcodeX},${barcodeY},"128",${barcodeHeight},2,0,${narrow},${narrow},"${cleanCode}"\r\n`;
+      // Draw barcode bars (human_readable = 0 so we render clear Font "2" numbers directly below)
+      elements += `BARCODE ${barcodeX},${barcodeY},"128",${barcodeHeight},0,0,${narrow},${wide},"${cleanCode}"\r\n`;
+
+      // Barcode Number directly below it using Font "2" (12x20 dots, centered)
+      const numCharWidth = 12;
+      const numTextWidth = cleanCode.length * numCharWidth;
+      const numX = Math.max(40, Math.round((labelWidthDots - numTextWidth) / 2));
+      const numY = barcodeY + barcodeHeight + 4; // y = 46 + 42 + 4 = 92 dots
+
+      elements += `TEXT ${numX},${numY},"2",0,1,1,"${cleanCode}"\r\n`;
     }
 
     // ==========================================
-    // 3. LINE 3 (BOTTOM): MRP / PRICE (CENTERED)
+    // 3. LINE 3 (BOTTOM): MRP / PRICE (FONT "3", CENTERED)
     // ==========================================
     if (showPrice || (showItemName && itemName && showStoreName)) {
       let priceText = '';
       if (mrp && salePrice && mrp > salePrice) {
-        priceText = `MRP: ${mrp}  SALE: ${salePrice}`;
+        priceText = `MRP: ${mrp}  TK: ${salePrice}`;
       } else if (salePrice) {
         priceText = `PRICE: ${salePrice}`;
       } else if (mrp) {
@@ -1086,40 +1087,14 @@ export class ThermalPrinterService {
         priceText = `PRICE: 0`;
       }
 
-      const cleanItem = (itemName || '').trim().replace(/["\r\n]/g, '');
-      if (showItemName && cleanItem && showStoreName && cleanStore) {
-        // Line 3a: Compact Item Name
-        const itemFont = '2';
-        const itemCharWidth = 12;
-        const itemWidth = Math.min(cleanItem.length * itemCharWidth, labelWidthDots - 16);
-        const itemX = Math.max(8, Math.round((labelWidthDots - itemWidth) / 2));
-        const itemY = 124;
-        elements += `TEXT ${itemX},${itemY},"${itemFont}",0,1,1,"${cleanItem.slice(0, 30)}"\r\n`;
+      // Font "3" (16x24 dots) - standard centered price
+      const pCharWidth = 16;
+      const pWidth = Math.min(priceText.length * pCharWidth, labelWidthDots - 80);
+      // Safe left padding around 40-50 dots
+      const pX = Math.max(40, Math.round((labelWidthDots - pWidth) / 2));
+      const pY = 140;
 
-        // Line 3b: Price
-        let pFont = '3';
-        let pCharWidth = 16;
-        if (priceText.length * pCharWidth > labelWidthDots - 20) {
-          pFont = '2';
-          pCharWidth = 12;
-        }
-        const pWidth = Math.min(priceText.length * pCharWidth, labelWidthDots - 16);
-        const pX = Math.max(8, Math.round((labelWidthDots - pWidth) / 2));
-        const pY = 152;
-        elements += `TEXT ${pX},${pY},"${pFont}",0,1,1,"${priceText}"\r\n`;
-      } else {
-        // Single prominent centered bottom line
-        let pFont = '3';
-        let pCharWidth = 16;
-        if (priceText.length * pCharWidth > labelWidthDots - 24) {
-          pFont = '2';
-          pCharWidth = 12;
-        }
-        const pWidth = Math.min(priceText.length * pCharWidth, labelWidthDots - 16);
-        const pX = Math.max(8, Math.round((labelWidthDots - pWidth) / 2));
-        const pY = 142;
-        elements += `TEXT ${pX},${pY},"${pFont}",0,1,1,"${priceText}"\r\n`;
-      }
+      elements += `TEXT ${pX},${pY},"3",0,1,1,"${priceText.slice(0, 22)}"\r\n`;
     }
 
     return (
