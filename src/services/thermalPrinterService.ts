@@ -1031,41 +1031,44 @@ export class ThermalPrinterService {
       showItemName = false,
       showPrice = true,
       showBarcode = true,
-      direction = '1,0',
+      direction = '0,0',
       alignment = 'center',
       shopX,
-      shopY = 16,
+      shopY = 22,
       shopFont = '3',
       barcodeX,
-      barcodeY = 48,
-      barcodeHeight = 44,
+      barcodeY = 52,
+      barcodeHeight = 45,
       barcodeRatio = '2:3',
       priceX,
-      priceY = 142,
+      priceY = 135,
       priceFont = '3',
     } = options;
 
     // 203 DPI = 8 dots/mm (50mm = 400 dots, 25mm = 200 dots)
+    // On 4Barcode printers with a 50mm sticker roll, the physical sticker starts at ~50 dots from printhead X=0,
+    // so the true center of the 50mm (400-dot) sticker is at X = 250 dots (50 + 200).
     const labelWidthDots = Math.round(widthMm * 8);
+    const rollLeftOffsetDots = 50;
 
     const getFontCharWidth = (f: string) => {
       if (f === '1') return 8;
-      if (f === '2') return 12;
-      if (f === '4') return 24;
-      return 16; // default Font "3" (16x24 dots)
+      if (f === '2') return 10;
+      if (f === '4') return 18;
+      return 12; // TSPL Font "3" effective width on 203 DPI label printer
     };
 
     const calcAlignedX = (textLen: number, charW: number, align: 'left' | 'center' | 'right') => {
       const textWidth = textLen * charW;
-      if (align === 'left') return 20;
-      if (align === 'right') return Math.max(10, labelWidthDots - 20 - textWidth);
-      return Math.max(10, Math.round((labelWidthDots - textWidth) / 2));
+      if (align === 'left') return rollLeftOffsetDots + 15;
+      if (align === 'right') return Math.max(rollLeftOffsetDots + 10, rollLeftOffsetDots + labelWidthDots - 15 - textWidth);
+      return Math.max(rollLeftOffsetDots + 10, Math.round(rollLeftOffsetDots + (labelWidthDots - textWidth) / 2));
     };
 
     let elements = '';
 
     // ==========================================
-    // 1. LINE 1 (TOP, Y=16): SHOP NAME
+    // 1. LINE 1 (TOP, Y=22): SHOP NAME
     // ==========================================
     const cleanStore = (storeName || itemName || 'MY STORE').trim().replace(/["\r\n]/g, '');
     if ((showStoreName && cleanStore) || (!showStoreName && showItemName && itemName)) {
@@ -1078,7 +1081,7 @@ export class ThermalPrinterService {
     }
 
     // ==========================================
-    // 2. LINE 2 (MIDDLE, Y=48): BARCODE + CLEAN CENTERED NUMBER BELOW
+    // 2. LINE 2 (MIDDLE, Y=52): BARCODE (human_readable = 1)
     // ==========================================
     if (showBarcode !== false) {
       const cleanCode = (barcodeValue || '1001').trim().replace(/["\r\n]/g, '');
@@ -1101,17 +1104,13 @@ export class ThermalPrinterService {
           barcodeX !== undefined
             ? Math.max(0, Math.round(barcodeX))
             : alignment === 'left'
-            ? 20
+            ? rollLeftOffsetDots + 15
             : alignment === 'right'
-            ? Math.max(10, labelWidthDots - 20 - estBarcodeWidth)
-            : Math.max(20, Math.round((labelWidthDots - estBarcodeWidth) / 2));
+            ? Math.max(rollLeftOffsetDots + 10, rollLeftOffsetDots + labelWidthDots - 15 - estBarcodeWidth)
+            : Math.max(rollLeftOffsetDots + 10, Math.round(rollLeftOffsetDots + (labelWidthDots - estBarcodeWidth) / 2));
 
-        // Draw barcode bars with human_readable=0 and render crisp Font "2" digits centered below
-        elements += `BARCODE ${bX},${bY},"128",${bHeight},0,0,${narrow},${wide},"${cleanCode}"\r\n`;
-        const numCharW = 12; // Font "2" (12x20 dots)
-        const numX = calcAlignedX(cleanCode.length, numCharW, alignment);
-        const numY = bY + bHeight + 6;
-        elements += `TEXT ${numX},${numY},"2",0,1,1,"${cleanCode}"\r\n`;
+        // Print BARCODE with human_readable = 1 (no extra TEXT command)
+        elements += `BARCODE ${bX},${bY},"128",${bHeight},1,0,${narrow},${wide},"${cleanCode}"\r\n`;
       }
     }
 
