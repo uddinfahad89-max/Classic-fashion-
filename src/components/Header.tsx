@@ -35,6 +35,7 @@ import {
   Mail,
   Zap,
   HelpCircle,
+  Package,
 } from 'lucide-react';
 import {
   ThermalPrinterSettings,
@@ -71,6 +72,8 @@ interface HeaderProps {
   viewMode: 'grid' | 'list';
   onViewModeChange: (mode: 'grid' | 'list') => void;
   totalInvoicesCount?: number;
+  totalProductsCount?: number;
+  onOpenProductStock?: () => void;
   networkStatus?: NetworkStatusInfo;
   onOpenDataSaver?: () => void;
   onOpenBluetoothHelp?: () => void;
@@ -99,6 +102,8 @@ export const Header: React.FC<HeaderProps> = ({
   viewMode,
   onViewModeChange,
   totalInvoicesCount = 0,
+  totalProductsCount = 0,
+  onOpenProductStock,
   networkStatus,
   onOpenDataSaver,
   onOpenBluetoothHelp,
@@ -798,6 +803,26 @@ export const Header: React.FC<HeaderProps> = ({
                   <ShoppingBag className="w-5 h-5 text-blue-600" />
                   <span>{isBn ? 'নতুন বিলিং (New POS)' : 'New Billing / POS'}</span>
                 </button>
+
+                {/* 2B. Product Stock Manager */}
+                {onOpenProductStock && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsDrawerOpen(false);
+                      onOpenProductStock();
+                    }}
+                    className="w-full text-left px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-bold flex items-center justify-between text-stone-700 hover:bg-stone-100 transition-colors cursor-pointer"
+                  >
+                    <span className="flex items-center gap-3">
+                      <Package className="w-5 h-5 text-blue-600" />
+                      <span>{isBn ? 'প্রোডাক্ট স্টক যোগ (Product Stock)' : 'Product Stock'}</span>
+                    </span>
+                    <span className="text-[10px] font-mono font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                      {totalProductsCount}
+                    </span>
+                  </button>
+                )}
 
                 {/* 3. Customer Dues */}
                 <button

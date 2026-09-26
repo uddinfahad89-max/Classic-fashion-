@@ -14,6 +14,7 @@ import {
   Language,
   PurchaseTrip,
   PurchaseExpenseItem,
+  ProductStockItem,
 } from './types';
 import { storageService } from './services/storageService';
 import { thermalPrinterService } from './services/thermalPrinterService';
@@ -26,6 +27,7 @@ import { CashbookTab } from './components/CashbookTab';
 import { CustomerDueTab } from './components/CustomerDueTab';
 import { PurchaseTripTab } from './components/PurchaseTripTab';
 import { BarcodeTagStudioTab } from './components/BarcodeTagStudioTab';
+import { ProductStockModal } from './components/ProductStockModal';
 import { PrintReceiptModal } from './components/PrintReceiptModal';
 import { EditInvoiceModal } from './components/EditInvoiceModal';
 import { SettingsModal } from './components/SettingsModal';
@@ -44,7 +46,7 @@ import { supabaseService } from './services/supabaseService';
 import { supabase, isSupabaseConfigured } from './supabaseClient.js';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<ActiveTab>('invoices');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('billing');
   const [searchTerm, setSearchTerm] = useState('');
   const [sortOption, setSortOption] = useState<SortOption>('date-desc');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -56,6 +58,8 @@ export default function App() {
   const [userProfile, setUserProfile] = useState<UserProfile>(storageService.getUserProfile());
   const [language, setLanguage] = useState<Language>(storageService.getLanguage());
   const [purchaseTrips, setPurchaseTrips] = useState<PurchaseTrip[]>([]);
+  const [products, setProducts] = useState<ProductStockItem[]>(() => storageService.getProducts());
+  const [isProductStockOpen, setIsProductStockOpen] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isAppLocked, setIsAppLocked] = useState(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
@@ -112,6 +116,7 @@ export default function App() {
       setCashEntries(storageService.getCashEntries());
       setCustomerDues(storageService.getCustomerDues());
       setPurchaseTrips(storageService.getPurchaseTrips());
+      setProducts(storageService.getProducts());
       setSettings(currentSettings);
       setUserProfile(prof);
     }
@@ -141,6 +146,7 @@ export default function App() {
             setCashEntries(storageService.getCashEntries());
             setCustomerDues(storageService.getCustomerDues());
             setPurchaseTrips(storageService.getPurchaseTrips());
+            setProducts(storageService.getProducts());
             setSettings(storageService.getSettings());
             setUserProfile(storageService.getUserProfile());
           }
@@ -438,6 +444,7 @@ export default function App() {
     setCashEntries(restoredCash);
     setCustomerDues(restoredDues);
     setPurchaseTrips(restoredPurchases);
+    setProducts(storageService.getProducts());
     setSettings(restoredSettings);
     setIsOnboardingOpen(false);
 
@@ -536,9 +543,11 @@ export default function App() {
 
   // 1. BILLING HANDLERS
   const handlePrintBill = async (bill: BillInvoice) => {
-    // 1. Save bill in history
+    // 1. Save bill in history & deduct/sync product stock
     storageService.saveBill(bill);
+    storageService.deductStockForBill(bill.items);
     setBills(storageService.getBills());
+    setProducts(storageService.getProducts());
     setSettings(storageService.getSettings());
 
     // Sync to Supabase cloud in background
@@ -913,6 +922,49 @@ export default function App() {
     setSettings(updated);
   };
 
+  // Product Stock Handlers
+  const handleSaveProductStock = (data: {
+    id?: string;
+    name: string;
+    price: number;
+    purchasePrice?: number;
+    stock?: number;
+    addStockDelta?: number;
+    unit?: string;
+    category?: string;
+  }) => {
+    const saved = storageService.addOrUpdateProduct(data);
+    setProducts(storageService.getProducts());
+    showToast(
+      language === 'bn'
+        ? `"${saved.name}" স্টকে সেভ হয়েছে (দর: ${settings.currencySymbol}${saved.price}, স্টক: ${saved.stock})`
+        : `"${saved.name}" saved to stock (Price: ${settings.currencySymbol}${saved.price}, Stock: ${saved.stock})`,
+      'success'
+    );
+  };
+
+  const handleAdjustProductStock = (productId: string, delta: number) => {
+    const updated = storageService.adjustProductStock(productId, delta);
+    setProducts(storageService.getProducts());
+    if (updated) {
+      showToast(
+        language === 'bn'
+          ? `"${updated.name}" এর বর্তমান স্টক: ${updated.stock}`
+          : `"${updated.name}" stock updated to ${updated.stock}`,
+        'info'
+      );
+    }
+  };
+
+  const handleDeleteProductStock = (productId: string) => {
+    storageService.deleteProduct(productId);
+    setProducts(storageService.getProducts());
+    showToast(
+      language === 'bn' ? 'প্রোডাক্ট তালিকা থেকে মুছে ফেলা হয়েছে' : 'Product removed from stock',
+      'info'
+    );
+  };
+
   return (
     <div className="min-h-screen bg-stone-100/70 text-stone-900 flex flex-col font-sans">
       {/* Google Sheets / Workspace Top Header & Sub-header */}
@@ -939,6 +991,8 @@ export default function App() {
         viewMode={viewMode}
         onViewModeChange={setViewMode}
         totalInvoicesCount={bills.length}
+        totalProductsCount={products.length}
+        onOpenProductStock={() => setIsProductStockOpen(true)}
         networkStatus={networkStatus}
         onOpenDataSaver={() => setIsDataSaverOpen(true)}
         onOpenBluetoothHelp={() => setIsBluetoothHelpOpen(true)}
@@ -957,6 +1011,12 @@ export default function App() {
             onClearBill={handleClearBill}
             language={language}
             onOpenCalculator={() => setIsCalculatorOpen(true)}
+            products={products}
+            onOpenProductStock={() => setIsProductStockOpen(true)}
+            onQuickSaveProduct={(data) => {
+              storageService.addOrUpdateProduct(data);
+              setProducts(storageService.getProducts());
+            }}
           />
         )}
 
@@ -1160,9 +1220,40 @@ export default function App() {
           setBills(storageService.getBills());
           setCashEntries(storageService.getCashEntries());
           setCustomerDues(storageService.getCustomerDues());
+          setProducts(storageService.getProducts());
           setSettings(storageService.getSettings());
           showToast(language === 'bn' ? 'ডাটা ব্যাকআপ সফলভাবে রিস্টোর হয়েছে!' : 'Data backup restored successfully!');
         }}
+      />
+
+      {/* Product Stock Manager Modal */}
+      <ProductStockModal
+        isOpen={isProductStockOpen}
+        onClose={() => setIsProductStockOpen(false)}
+        products={products}
+        onSaveProduct={handleSaveProductStock}
+        onAdjustStock={handleAdjustProductStock}
+        onDeleteProduct={handleDeleteProductStock}
+        onSelectForBill={(prod, qty = 1) => {
+          const newItem: BillItem = {
+            id: 'item-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+            name: prod.name,
+            price: prod.price,
+            qty,
+            total: prod.price * qty,
+            productId: prod.id,
+          };
+          setBillItems((prev) => [...prev, newItem]);
+          setActiveTab('billing');
+          showToast(
+            language === 'bn'
+              ? `"${prod.name}" বিলে যোগ করা হয়েছে`
+              : `"${prod.name}" added to bill`,
+            'success'
+          );
+        }}
+        settings={settings}
+        language={language}
       />
 
       {/* Bluetooth Setup & Troubleshooting Guide Modal */}

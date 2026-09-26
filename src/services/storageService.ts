@@ -11,6 +11,7 @@ import {
   PurchaseExpenseItem,
   SavedAccountItem,
   BarcodeLabelConfig,
+  ProductStockItem,
 } from '../types';
 
 const STORAGE_KEYS = {
@@ -22,6 +23,7 @@ const STORAGE_KEYS = {
   PAIRED_PRINTERS: 'pos_paired_printers_list',
   USER: 'simple_pos_user',
   PURCHASES: 'simple_pos_purchase_trips',
+  PRODUCTS: 'simple_pos_products_stock',
   LANG: 'simple_pos_language',
 };
 
@@ -43,6 +45,7 @@ export interface AccountVaultData {
   cashEntries: CashEntry[];
   customerDues: CustomerDue[];
   purchaseTrips: PurchaseTrip[];
+  products?: ProductStockItem[];
   lastActive: number;
 }
 
@@ -571,6 +574,7 @@ class StorageService {
       const cashEntries = this.getCashEntries();
       const customerDues = this.getCustomerDues();
       const purchaseTrips = this.getPurchaseTrips();
+      const products = this.getProducts();
 
       const vaultData: AccountVaultData = {
         identifier: profile.phone || profile.email || norm,
@@ -585,6 +589,7 @@ class StorageService {
         cashEntries,
         customerDues,
         purchaseTrips,
+        products,
         lastActive: Date.now(),
       };
 
@@ -637,6 +642,9 @@ class StorageService {
               }
               if (Array.isArray(serverVault.purchaseTrips)) {
                 localStorage.setItem(STORAGE_KEYS.PURCHASES, JSON.stringify(serverVault.purchaseTrips));
+              }
+              if (Array.isArray(serverVault.products)) {
+                localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(serverVault.products));
               }
 
               const restoredProfile: UserProfile = {
@@ -710,6 +718,9 @@ class StorageService {
       }
       if (Array.isArray(vault.purchaseTrips)) {
         localStorage.setItem(STORAGE_KEYS.PURCHASES, JSON.stringify(vault.purchaseTrips));
+      }
+      if (Array.isArray(vault.products)) {
+        localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(vault.products));
       }
 
       const restoredProfile: UserProfile = {
@@ -1215,6 +1226,182 @@ class StorageService {
     this.savePurchaseTrips(trips);
   }
 
+  // --- PRODUCT STOCK & INVENTORY ---
+  getProducts(): ProductStockItem[] {
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.PRODUCTS);
+      let list: ProductStockItem[] = [];
+      if (data) {
+        const parsed = JSON.parse(data);
+        if (Array.isArray(parsed)) {
+          list = parsed;
+        }
+      }
+      // If product list is empty, seed once from any existing invoices so past items appear in autocomplete
+      if (list.length === 0) {
+        const bills = this.getBills();
+        if (bills.length > 0) {
+          const map = new Map<string, ProductStockItem>();
+          for (const bill of bills) {
+            for (const item of bill.items || []) {
+              const cleanName = (item.name || '').trim();
+              if (!cleanName) continue;
+              const key = cleanName.toLowerCase();
+              if (!map.has(key)) {
+                map.set(key, {
+                  id: 'prod-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+                  name: cleanName,
+                  price: item.price || 0,
+                  stock: 0,
+                  unit: 'Pcs',
+                  updatedAt: bill.timestamp || Date.now(),
+                });
+              }
+            }
+          }
+          if (map.size > 0) {
+            list = Array.from(map.values());
+            localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(list));
+          }
+        }
+      }
+      return list;
+    } catch {
+      return [];
+    }
+  }
+
+  saveProducts(products: ProductStockItem[]): void {
+    try {
+      localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(products));
+      this.syncActiveAccountVault();
+    } catch (e) {
+      console.error('Failed to save products stock:', e);
+    }
+  }
+
+  addOrUpdateProduct(data: {
+    id?: string;
+    name: string;
+    price: number;
+    purchasePrice?: number;
+    stock?: number;
+    addStockDelta?: number;
+    unit?: string;
+    category?: string;
+    barcode?: string;
+  }): ProductStockItem {
+    const products = this.getProducts();
+    const cleanName = data.name.trim();
+    const now = Date.now();
+
+    const existingIdx = products.findIndex(
+      (p) =>
+        (data.id && p.id === data.id) ||
+        p.name.trim().toLowerCase() === cleanName.toLowerCase()
+    );
+
+    if (existingIdx >= 0) {
+      const existing = products[existingIdx];
+      const updatedStock =
+        data.addStockDelta !== undefined
+          ? Math.max(0, (existing.stock || 0) + data.addStockDelta)
+          : data.stock !== undefined
+          ? Math.max(0, data.stock)
+          : existing.stock || 0;
+
+      const updated: ProductStockItem = {
+        ...existing,
+        name: cleanName || existing.name,
+        price: data.price > 0 ? data.price : existing.price,
+        purchasePrice:
+          data.purchasePrice !== undefined ? data.purchasePrice : existing.purchasePrice,
+        stock: updatedStock,
+        unit: data.unit || existing.unit || 'Pcs',
+        category: data.category !== undefined ? data.category : existing.category,
+        barcode: data.barcode !== undefined ? data.barcode : existing.barcode,
+        updatedAt: now,
+      };
+      products[existingIdx] = updated;
+      this.saveProducts(products);
+      return updated;
+    } else {
+      const initialStock =
+        data.addStockDelta !== undefined
+          ? Math.max(0, data.addStockDelta)
+          : data.stock !== undefined
+          ? Math.max(0, data.stock)
+          : 0;
+
+      const newProd: ProductStockItem = {
+        id: 'prod-' + now + '-' + Math.random().toString(36).substring(2, 6),
+        name: cleanName,
+        price: Math.max(0, data.price || 0),
+        purchasePrice: data.purchasePrice,
+        stock: initialStock,
+        unit: data.unit || 'Pcs',
+        category: data.category || '',
+        barcode: data.barcode || '',
+        updatedAt: now,
+      };
+      products.unshift(newProd);
+      this.saveProducts(products);
+      return newProd;
+    }
+  }
+
+  adjustProductStock(productId: string, delta: number): ProductStockItem | null {
+    const products = this.getProducts();
+    const idx = products.findIndex((p) => p.id === productId);
+    if (idx < 0) return null;
+    products[idx].stock = Math.max(0, (products[idx].stock || 0) + delta);
+    products[idx].updatedAt = Date.now();
+    this.saveProducts(products);
+    return products[idx];
+  }
+
+  deductStockForBill(items: { name: string; price: number; qty: number }[]): void {
+    const products = this.getProducts();
+    let changed = false;
+    const now = Date.now();
+
+    for (const item of items) {
+      const cleanName = (item.name || '').trim();
+      if (!cleanName) continue;
+      const idx = products.findIndex(
+        (p) => p.name.trim().toLowerCase() === cleanName.toLowerCase()
+      );
+      if (idx >= 0) {
+        products[idx].stock = Math.max(0, (products[idx].stock || 0) - (item.qty || 1));
+        if (item.price > 0) {
+          products[idx].price = item.price;
+        }
+        products[idx].updatedAt = now;
+        changed = true;
+      } else {
+        // Also auto-save new billed product so next time typing its first letter brings it up immediately!
+        products.unshift({
+          id: 'prod-' + now + '-' + Math.random().toString(36).substring(2, 6),
+          name: cleanName,
+          price: item.price || 0,
+          stock: 0,
+          unit: 'Pcs',
+          updatedAt: now,
+        });
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      this.saveProducts(products);
+    }
+  }
+
+  deleteProduct(productId: string): void {
+    const products = this.getProducts().filter((p) => p.id !== productId);
+    this.saveProducts(products);
+  }
+
   // --- OFFLINE BACKUP & EXPORT (DATA SAFETY NET) ---
   exportAllDataOffline(): string {
     const backupData = {
@@ -1225,6 +1412,7 @@ class StorageService {
       customerDues: this.getCustomerDues(),
       cashEntries: this.getCashEntries(),
       purchaseTrips: this.getPurchaseTrips(),
+      products: this.getProducts(),
       settings: this.getSettings(),
       user: this.getUserProfile(),
       language: this.getLanguage(),
@@ -1264,6 +1452,9 @@ class StorageService {
       }
       if (data.purchaseTrips && Array.isArray(data.purchaseTrips)) {
         localStorage.setItem(STORAGE_KEYS.PURCHASES, JSON.stringify(data.purchaseTrips));
+      }
+      if (data.products && Array.isArray(data.products)) {
+        localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(data.products));
       }
       if (data.settings && typeof data.settings === 'object') {
         localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(data.settings));

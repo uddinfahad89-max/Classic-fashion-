@@ -89,6 +89,19 @@ export interface BillItem {
   qty: number;
   total: number;
   barcode?: string;
+  productId?: string;
+}
+
+export interface ProductStockItem {
+  id: string;
+  name: string;
+  price: number;
+  purchasePrice?: number;
+  stock: number;
+  unit?: string;
+  category?: string;
+  barcode?: string;
+  updatedAt: number;
 }
 
 export interface BillInvoice {

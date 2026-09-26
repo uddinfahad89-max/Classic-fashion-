@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   Printer,
   Plus,
@@ -15,8 +15,9 @@ import {
   CreditCard,
   Clock,
   Calculator,
-  Hash,
-  FileText,
+  Package,
+  Check,
+  Sparkles,
 } from 'lucide-react';
 import {
   BillItem,
@@ -25,6 +26,7 @@ import {
   ThermalPrinterSettings,
   BluetoothDeviceInfo,
   Language,
+  ProductStockItem,
 } from '../types';
 import { storageService } from '../services/storageService';
 import { translations } from '../utils/i18n';
@@ -41,6 +43,13 @@ interface BillingTabProps {
   onClearBill: () => void;
   language?: Language;
   onOpenCalculator?: () => void;
+  products?: ProductStockItem[];
+  onOpenProductStock?: () => void;
+  onQuickSaveProduct?: (data: {
+    name: string;
+    price: number;
+    stock?: number;
+  }) => void;
 }
 
 export const BillingTab: React.FC<BillingTabProps> = ({
@@ -53,6 +62,9 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   onClearBill,
   language = 'bn',
   onOpenCalculator,
+  products = [],
+  onOpenProductStock,
+  onQuickSaveProduct,
 }) => {
   const t = translations[language];
   const isBn = language === 'bn';
@@ -61,11 +73,18 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   const [itemName, setItemName] = useState('');
   const [itemPrice, setItemPrice] = useState('');
   const [itemQty, setItemQty] = useState('1');
+  const [itemStockInput, setItemStockInput] = useState('');
+  const [showInlineStockAdd, setShowInlineStockAdd] = useState(false);
+
+  // First-letter Autocomplete state
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0);
+  const suggestionContainerRef = useRef<HTMLDivElement>(null);
 
   // Checkout meta
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
-  // Automatically generated sequential invoice number (Vyapar style - fully automatic, manual input hidden)
+  // Automatically generated sequential invoice number
   const [invoiceNo, setInvoiceNo] = useState(() => storageService.getNextInvoiceNumber());
   const [discountType, setDiscountType] = useState<'fixed' | 'percent'>('fixed');
   const [discountValue, setDiscountValue] = useState('');
@@ -77,16 +96,139 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     setInvoiceNo(storageService.getNextInvoiceNumber());
   }, [settings.invoicePrefix, settings.nextInvoiceNumber]);
 
+  // Close suggestions dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        suggestionContainerRef.current &&
+        !suggestionContainerRef.current.contains(e.target as Node)
+      ) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   // Khatabook Calculator Modal State
   const [isCalculatorModalOpen, setIsCalculatorModalOpen] = useState(false);
   const [calculatorTarget, setCalculatorTarget] = useState<'item' | 'paid' | 'discount'>('item');
 
-  useBackHandler('billingCalculatorModal', isCalculatorModalOpen, () => {
-    setIsCalculatorModalOpen(false);
-    return true;
-  }, 35);
+  useBackHandler(
+    'billingCalculatorModal',
+    isCalculatorModalOpen,
+    () => {
+      setIsCalculatorModalOpen(false);
+      return true;
+    },
+    35
+  );
 
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const priceInputRef = useRef<HTMLInputElement>(null);
+  const qtyInputRef = useRef<HTMLInputElement>(null);
+
+  // Build unified product list (saved stock products + any historical items from bills)
+  const allSavedProducts = useMemo(() => {
+    const map = new Map<string, ProductStockItem>();
+    for (const p of products) {
+      if (p.name && p.name.trim()) {
+        map.set(p.name.trim().toLowerCase(), p);
+      }
+    }
+    return Array.from(map.values());
+  }, [products]);
+
+  // Instant First-Letter Matching Products
+  const matchingProducts = useMemo(() => {
+    const q = itemName.trim().toLowerCase();
+    if (!q) return [];
+
+    const exactStartsWith: ProductStockItem[] = [];
+    const wordStartsWith: ProductStockItem[] = [];
+    const containsMatch: ProductStockItem[] = [];
+
+    for (const prod of allSavedProducts) {
+      const pName = prod.name.trim().toLowerCase();
+      if (pName.startsWith(q)) {
+        exactStartsWith.push(prod);
+      } else if (pName.split(/\s+/).some((w) => w.startsWith(q))) {
+        wordStartsWith.push(prod);
+      } else if (pName.includes(q)) {
+        containsMatch.push(prod);
+      }
+    }
+
+    return [...exactStartsWith, ...wordStartsWith, ...containsMatch].slice(0, 8);
+  }, [allSavedProducts, itemName]);
+
+  // Reset active suggestion index when query changes
+  useEffect(() => {
+    setActiveSuggestionIndex(0);
+  }, [itemName]);
+
+  // Select a product from the first-letter autocomplete dropdown
+  const handleSelectSuggestedProduct = (prod: ProductStockItem, addDirectly = false) => {
+    if (addDirectly) {
+      const validQty = parseInt(itemQty, 10) > 0 ? parseInt(itemQty, 10) : 1;
+      const price = prod.price || 0;
+      const newItem: BillItem = {
+        id: 'item-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+        name: prod.name,
+        price,
+        qty: validQty,
+        total: price * validQty,
+        productId: prod.id,
+      };
+      setBillItems((prev) => [...prev, newItem]);
+      setItemName('');
+      setItemPrice('');
+      setItemQty('1');
+      setShowSuggestions(false);
+      if (nameInputRef.current) {
+        nameInputRef.current.focus();
+      }
+      return;
+    }
+
+    setItemName(prod.name);
+    if (prod.price > 0) {
+      setItemPrice(String(prod.price));
+    }
+    setShowSuggestions(false);
+    // Focus price if 0, otherwise focus quantity for rapid billing
+    setTimeout(() => {
+      if (!prod.price || prod.price <= 0) {
+        priceInputRef.current?.focus();
+      } else {
+        qtyInputRef.current?.focus();
+        qtyInputRef.current?.select();
+      }
+    }, 20);
+  };
+
+  // Keyboard navigation for first-letter autocomplete
+  const handleNameKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!showSuggestions || matchingProducts.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActiveSuggestionIndex((prev) =>
+        prev < matchingProducts.length - 1 ? prev + 1 : 0
+      );
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActiveSuggestionIndex((prev) =>
+        prev > 0 ? prev - 1 : matchingProducts.length - 1
+      );
+    } else if (e.key === 'Tab' && matchingProducts[activeSuggestionIndex]) {
+      // Pressing Tab auto-completes the highlighted product name & price
+      e.preventDefault();
+      handleSelectSuggestedProduct(matchingProducts[activeSuggestionIndex], false);
+    } else if (e.key === 'Escape') {
+      setShowSuggestions(false);
+    }
+  };
 
   // Calculations
   const subtotal = billItems.reduce((sum, item) => sum + item.total, 0);
@@ -121,6 +263,9 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       };
 
       setBillItems((prev) => [...prev, newItem]);
+      if (onQuickSaveProduct && name && finalPrice > 0) {
+        onQuickSaveProduct({ name, price: finalPrice });
+      }
       setItemName('');
       setItemPrice('');
       setItemQty('1');
@@ -145,20 +290,43 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   const handleAddItem = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
 
-    const name = itemName.trim();
-    const price = parseFloat(itemPrice);
+    // If user typed first letter(s) and didn't enter price yet, but a matching product exists with a price, auto-fill it!
+    let finalName = itemName.trim();
+    let price = parseFloat(itemPrice);
+
+    if (
+      finalName &&
+      (isNaN(price) || price <= 0) &&
+      matchingProducts.length > 0 &&
+      matchingProducts[activeSuggestionIndex]?.price > 0
+    ) {
+      const matched = matchingProducts[activeSuggestionIndex];
+      finalName = matched.name;
+      price = matched.price;
+    }
+
     const qty = parseInt(itemQty, 10);
 
-    if (!name || isNaN(price) || price <= 0) {
+    if (!finalName || isNaN(price) || price <= 0) {
       alert(t.enterValidNamePrice);
       return;
     }
 
     const validQty = isNaN(qty) || qty <= 0 ? 1 : qty;
 
+    // Also save/update in Product Stock if user entered stock or auto-save so next time typing first letter brings it up
+    const parsedStock = itemStockInput !== '' ? parseInt(itemStockInput, 10) : undefined;
+    if (onQuickSaveProduct) {
+      onQuickSaveProduct({
+        name: finalName,
+        price,
+        stock: parsedStock !== undefined && !isNaN(parsedStock) ? parsedStock : undefined,
+      });
+    }
+
     const newItem: BillItem = {
       id: 'item-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
-      name,
+      name: finalName,
       price,
       qty: validQty,
       total: price * validQty,
@@ -170,6 +338,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     setItemName('');
     setItemPrice('');
     setItemQty('1');
+    setItemStockInput('');
+    setShowSuggestions(false);
     if (nameInputRef.current) {
       nameInputRef.current.focus();
     }
@@ -211,13 +381,12 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       hour12: true,
     });
 
-    // Use the invoice number (guaranteed sequential and automatically populated)
     let finalInvoiceNo = invoiceNo.trim();
     if (!finalInvoiceNo) {
       finalInvoiceNo = storageService.getNextInvoiceNumber();
     }
 
-    const actualPaid = paidNum > 0 ? paidNum : (paymentMethod === 'due' ? 0 : grandTotal);
+    const actualPaid = paidNum > 0 ? paidNum : paymentMethod === 'due' ? 0 : grandTotal;
     const balanceAmount = paymentMethod === 'due' ? Math.max(0, grandTotal - actualPaid) : 0;
 
     const bill: BillInvoice = {
@@ -248,7 +417,6 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     setDiscountValue('');
     setPaidAmount('');
 
-    // Automatically generate and load the next sequential invoice number for the next bill
     setTimeout(() => {
       const nextInv = storageService.getNextInvoiceNumber();
       setInvoiceNo(nextInv);
@@ -261,25 +429,56 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     !settings.currencySymbol;
   const sym = hideCurrency ? '' : settings.currencySymbol;
 
+  // Helper to highlight matching first letter(s) in product suggestion
+  const renderHighlightedName = (name: string, query: string) => {
+    const q = query.trim();
+    if (!q) return <span>{name}</span>;
+    const lowerName = name.toLowerCase();
+    const lowerQ = q.toLowerCase();
+    const matchIdx = lowerName.indexOf(lowerQ);
+    if (matchIdx === -1) return <span>{name}</span>;
+
+    const before = name.slice(0, matchIdx);
+    const match = name.slice(matchIdx, matchIdx + q.length);
+    const after = name.slice(matchIdx + q.length);
+
+    return (
+      <span>
+        {before}
+        <span className="bg-blue-100 text-blue-800 font-black px-0.5 rounded">{match}</span>
+        {after}
+      </span>
+    );
+  };
+
   return (
     <div className="max-w-2xl mx-auto px-4 py-4 sm:py-6 space-y-4">
       {/* 1. CUSTOMER DETAILS CARD (SECTION 1 - TOP) */}
-      <div id="billing-customer-section" className="bg-white rounded-2xl p-4 sm:p-5 shadow-xs border border-stone-200">
+      <div
+        id="billing-customer-section"
+        className="bg-white rounded-2xl p-4 sm:p-5 shadow-xs border border-stone-200"
+      >
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-bold text-stone-900 flex items-center gap-1.5">
             <User className="w-4 h-4 text-blue-600" />
             <span>{isBn ? 'ক্রেতার বিবরণ' : 'Customer Details'}</span>
           </h2>
-          {/* Automatic Sequential Invoice Number Badge (Vyapar style - auto generated, manual input hidden) */}
+          {/* Automatic Sequential Invoice Number Badge */}
           <div className="flex items-center gap-1.5">
             <span
               id="billing-auto-invoice-badge"
-              title={isBn ? 'স্বয়ংক্রিয় পরবর্তী ইনভয়েস নম্বর' : 'Sequential Auto-Generated Invoice Number'}
+              title={
+                isBn
+                  ? 'স্বয়ংক্রিয় পরবর্তী ইনভয়েস নম্বর'
+                  : 'Sequential Auto-Generated Invoice Number'
+              }
               className="text-[11px] font-mono font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200 shadow-2xs flex items-center gap-1.5"
             >
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
               <span>{invoiceNo || storageService.getNextInvoiceNumber()}</span>
-              <span className="text-[10px] text-blue-600 font-sans font-medium">({isBn ? 'অটো' : 'Auto'})</span>
+              <span className="text-[10px] text-blue-600 font-sans font-medium">
+                ({isBn ? 'অটো' : 'Auto'})
+              </span>
             </span>
           </div>
         </div>
@@ -327,27 +526,233 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         </div>
       </div>
 
-      {/* 2. INSTANT ITEM ENTRY CARD (SECTION 2 - MIDDLE) */}
-      <div id="billing-item-entry-section" className="bg-white rounded-2xl p-4 sm:p-5 shadow-xs border border-stone-200">
-        <div className="flex items-center justify-between mb-3">
+      {/* 2. INSTANT ITEM ENTRY & PRODUCT STOCK CARD (SECTION 2 - MIDDLE) */}
+      <div
+        id="billing-item-entry-section"
+        className="bg-white rounded-2xl p-4 sm:p-5 shadow-xs border border-stone-200"
+      >
+        <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
           <h2 className="text-sm font-bold text-stone-900 flex items-center gap-1.5">
             <Receipt className="w-4 h-4 text-blue-600" />
             <span>{t.instantItemEntry}</span>
           </h2>
-          <span className="text-[11px] text-stone-400 font-medium">{t.typeAndAddDirectly}</span>
+
+          {/* PRODUCT STOCK ADD & MANAGE BUTTON */}
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              id="btn-inline-stock-toggle"
+              onClick={() => setShowInlineStockAdd((prev) => !prev)}
+              className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition-all flex items-center gap-1 cursor-pointer ${
+                showInlineStockAdd
+                  ? 'bg-emerald-600 text-white border-emerald-600'
+                  : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200'
+              }`}
+              title={
+                isBn
+                  ? 'সরাসরি এখানে নতুন প্রোডাক্ট ও স্টক যোগ করুন'
+                  : 'Quick add product stock inline'
+              }
+            >
+              <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+              <span>{isBn ? 'স্টক যোগ' : 'Add Stock'}</span>
+            </button>
+
+            {onOpenProductStock && (
+              <button
+                type="button"
+                id="btn-open-product-stock"
+                onClick={onOpenProductStock}
+                className="px-2.5 py-1.5 rounded-xl text-[11px] font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+              >
+                <Package className="w-3.5 h-3.5 text-blue-600" />
+                <span>{isBn ? 'প্রোডাক্ট স্টক তালিকা' : 'Product Stock'}</span>
+                <span className="bg-blue-600 text-white text-[10px] font-mono font-black px-1.5 py-0.2 rounded-full">
+                  {allSavedProducts.length}
+                </span>
+              </button>
+            )}
+          </div>
         </div>
 
+        {/* Optional Quick Inline "Add Product to Stock Only" Box */}
+        {showInlineStockAdd && (
+          <div className="mb-3.5 p-3 rounded-2xl bg-emerald-50/70 border border-emerald-200 space-y-2.5 animate-in fade-in duration-150">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-extrabold text-emerald-900 flex items-center gap-1.5">
+                <Package className="w-4 h-4 text-emerald-600" />
+                <span>
+                  {isBn
+                    ? 'নতুন প্রোডাক্ট স্টকে সেভ করুন (Save Product to Stock)'
+                    : 'Save Product to Stock'}
+                </span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowInlineStockAdd(false)}
+                className="text-[11px] font-bold text-stone-500 hover:text-stone-800 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <input
+                type="text"
+                value={itemName}
+                onChange={(e) => setItemName(e.target.value)}
+                placeholder={isBn ? 'প্রোডাক্টের নাম (যেমন: শার্ট)' : 'Product Name'}
+                className="border border-emerald-300 bg-white px-3 py-2 rounded-xl text-xs font-semibold focus:outline-none focus:border-emerald-600"
+              />
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={itemPrice}
+                onChange={(e) => setItemPrice(e.target.value)}
+                placeholder={isBn ? 'বিক্রয় মূল্য (দর)' : 'Selling Price'}
+                className="border border-emerald-300 bg-white px-3 py-2 rounded-xl text-xs font-mono font-bold focus:outline-none focus:border-emerald-600"
+              />
+              <div className="flex gap-1.5">
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={itemStockInput}
+                  onChange={(e) => setItemStockInput(e.target.value)}
+                  placeholder={isBn ? 'স্টক সংখ্যা (পিস)' : 'Stock Qty'}
+                  className="w-full border border-emerald-300 bg-white px-3 py-2 rounded-xl text-xs font-mono font-bold focus:outline-none focus:border-emerald-600"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const cleanName = itemName.trim();
+                    const parsedPrice = parseFloat(itemPrice) || 0;
+                    const parsedStock = parseInt(itemStockInput, 10) || 0;
+                    if (!cleanName) {
+                      alert(isBn ? 'প্রোডাক্টের নাম লিখুন' : 'Enter product name');
+                      return;
+                    }
+                    if (onQuickSaveProduct) {
+                      onQuickSaveProduct({
+                        name: cleanName,
+                        price: parsedPrice,
+                        stock: parsedStock,
+                      });
+                    }
+                    setItemName('');
+                    setItemPrice('');
+                    setItemStockInput('');
+                    setShowInlineStockAdd(false);
+                  }}
+                  className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shrink-0 flex items-center gap-1 cursor-pointer shadow-2xs"
+                >
+                  <Check className="w-3.5 h-3.5 stroke-[3]" />
+                  <span>{isBn ? 'সেভ' : 'Save'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <form onSubmit={handleAddItem} className="space-y-2.5">
-          <div>
+          {/* ITEM NAME INPUT WITH INSTANT FIRST-LETTER AUTOCOMPLETE */}
+          <div ref={suggestionContainerRef} className="relative">
             <input
               ref={nameInputRef}
               type="text"
               id="itemName"
+              autoComplete="off"
               value={itemName}
-              onChange={(e) => setItemName(e.target.value)}
-              placeholder={t.itemNamePlaceholder}
-              className="w-full border border-stone-200 bg-stone-50/80 px-3 py-2 rounded-xl text-xs sm:text-sm font-medium focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
+              onFocus={() => {
+                if (itemName.trim().length > 0) {
+                  setShowSuggestions(true);
+                }
+              }}
+              onChange={(e) => {
+                const val = e.target.value;
+                setItemName(val);
+                setShowSuggestions(val.trim().length > 0);
+              }}
+              onKeyDown={handleNameKeyDown}
+              placeholder={
+                isBn
+                  ? 'প্রোডাক্টের প্রথম অক্ষর বা নাম লিখুন (যেমন: S, শ, প...)'
+                  : t.itemNamePlaceholder
+              }
+              className="w-full border border-stone-200 bg-stone-50/80 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-medium focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
             />
+
+            {/* FIRST-LETTER INSTANT AUTOCOMPLETE DROPDOWN */}
+            {showSuggestions && matchingProducts.length > 0 && (
+              <div
+                id="product-autocomplete-dropdown"
+                className="absolute left-0 right-0 top-full mt-1.5 z-30 bg-white rounded-2xl shadow-xl border border-blue-200 overflow-hidden divide-y divide-stone-100 animate-in fade-in slide-in-from-top-1 duration-100"
+              >
+                <div className="px-3 py-1.5 bg-blue-50/80 flex items-center justify-between text-[10px] font-bold text-blue-700">
+                  <span className="flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-blue-600" />
+                    <span>
+                      {isBn
+                        ? 'সেভ করা প্রোডাক্ট (ট্যাপ করলে নাম ও দাম বসবে)'
+                        : 'Saved Products (Tap to fill name & price)'}
+                    </span>
+                  </span>
+                  <span>{matchingProducts.length}টি পাওয়া গেছে</span>
+                </div>
+
+                <div className="max-h-60 overflow-y-auto divide-y divide-stone-100">
+                  {matchingProducts.map((prod, idx) => {
+                    const isHighlighted = idx === activeSuggestionIndex;
+                    const hasStock = (prod.stock || 0) > 0;
+                    return (
+                      <div
+                        key={prod.id}
+                        onClick={() => handleSelectSuggestedProduct(prod, false)}
+                        className={`px-3 py-2.5 flex items-center justify-between gap-2 cursor-pointer transition-colors ${
+                          isHighlighted ? 'bg-blue-50/90' : 'hover:bg-stone-50'
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs sm:text-sm font-bold text-stone-900 truncate">
+                            {renderHighlightedName(prod.name, itemName)}
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5 text-[11px]">
+                            <span className="font-mono font-extrabold text-blue-700">
+                              {sym || 'Rs '}
+                              {prod.price.toFixed(0)}
+                            </span>
+                            <span
+                              className={`font-mono px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                                hasStock
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                  : 'bg-stone-100 text-stone-500'
+                              }`}
+                            >
+                              {isBn ? 'স্টক:' : 'Stock:'} {prod.stock || 0} {prod.unit || 'Pcs'}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSelectSuggestedProduct(prod, true);
+                            }}
+                            className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-[11px] font-bold flex items-center gap-1 shadow-2xs cursor-pointer"
+                            title={isBn ? 'সরাসরি বিলে যোগ করুন' : 'Directly add to bill'}
+                          >
+                            <Plus className="w-3 h-3 stroke-[3]" />
+                            <span>{isBn ? 'বিলে যোগ' : 'Add'}</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="flex gap-2">
@@ -358,6 +763,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 </span>
               ) : null}
               <input
+                ref={priceInputRef}
                 type="number"
                 id="itemPrice"
                 min="0.01"
@@ -365,7 +771,9 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 value={itemPrice}
                 onChange={(e) => setItemPrice(e.target.value)}
                 placeholder={t.unitPrice}
-                className={`w-full border border-stone-200 bg-stone-50/80 ${sym ? (sym.length > 2 ? 'pl-11' : 'pl-8') : 'pl-3'} pr-8 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all`}
+                className={`w-full border border-stone-200 bg-stone-50/80 ${
+                  sym ? (sym.length > 2 ? 'pl-11' : 'pl-8') : 'pl-3'
+                } pr-8 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all`}
               />
               <button
                 type="button"
@@ -382,6 +790,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
 
             <div className="w-1/2">
               <input
+                ref={qtyInputRef}
                 type="number"
                 id="itemQty"
                 min="1"
@@ -405,7 +814,10 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       </div>
 
       {/* 3. CURRENT BILL ITEMS LIST (SECTION 3) */}
-      <div id="billing-items-list-section" className="bg-white rounded-2xl shadow-xs border border-stone-200 overflow-hidden">
+      <div
+        id="billing-items-list-section"
+        className="bg-white rounded-2xl shadow-xs border border-stone-200 overflow-hidden"
+      >
         <div className="p-3.5 border-b border-stone-200 bg-stone-50/70 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-xs font-bold text-stone-800">{t.currentBillItems}</span>
@@ -434,9 +846,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         </div>
 
         {billItems.length === 0 ? (
-          <div className="p-8 text-center text-stone-400 text-xs">
-            {t.noItemsInBill}
-          </div>
+          <div className="p-8 text-center text-stone-400 text-xs">{t.noItemsInBill}</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-xs sm:text-sm">
@@ -496,7 +906,10 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       </div>
 
       {/* 4. PAYMENT & CHECKOUT SUMMARY (SECTION 4 - BOTTOM) */}
-      <div id="billing-checkout-summary-section" className="bg-white rounded-2xl p-4 sm:p-5 shadow-xs border border-stone-200 space-y-4">
+      <div
+        id="billing-checkout-summary-section"
+        className="bg-white rounded-2xl p-4 sm:p-5 shadow-xs border border-stone-200 space-y-4"
+      >
         {/* 1. TOP: Discount Section */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
@@ -505,7 +918,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
               <span>{t.discountSection}</span>
             </label>
 
-            {/* Mode Switcher: Fixed ₹ vs Percent % */}
+            {/* Mode Switcher: Fixed vs Percent % */}
             <div className="flex items-center bg-stone-100 p-0.5 rounded-lg border border-stone-200">
               <button
                 type="button"
@@ -535,7 +948,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
 
           <div className="flex gap-2">
             <div className="relative flex-1">
-              {(discountType === 'percent' || sym) ? (
+              {discountType === 'percent' || sym ? (
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-xs text-stone-400">
                   {discountType === 'fixed' ? sym : '%'}
                 </span>
@@ -548,7 +961,13 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 value={discountValue}
                 onChange={(e) => setDiscountValue(e.target.value)}
                 placeholder={discountType === 'fixed' ? '0.00' : '0'}
-                className={`w-full border border-stone-200 bg-stone-50/80 ${(discountType === 'percent' || sym) ? (discountType === 'fixed' && sym && sym.length > 2 ? 'pl-11' : 'pl-8') : 'pl-3'} pr-8 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all`}
+                className={`w-full border border-stone-200 bg-stone-50/80 ${
+                  discountType === 'percent' || sym
+                    ? discountType === 'fixed' && sym && sym.length > 2
+                      ? 'pl-11'
+                      : 'pl-8'
+                    : 'pl-3'
+                } pr-8 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all`}
               />
               <button
                 type="button"
@@ -576,7 +995,9 @@ export const BillingTab: React.FC<BillingTabProps> = ({
 
           {/* Quick preset chips */}
           <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-[11px] text-stone-400 font-medium">{isBn ? 'দ্রুত:' : 'Quick:'}</span>
+            <span className="text-[11px] text-stone-400 font-medium">
+              {isBn ? 'দ্রুত:' : 'Quick:'}
+            </span>
             {discountType === 'percent'
               ? [5, 10, 15, 20, 25].map((pct) => (
                   <button
@@ -603,7 +1024,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                         : 'bg-stone-50 hover:bg-stone-100 text-stone-700 border-stone-200'
                     }`}
                   >
-                    {sym}{amt}
+                    {sym}
+                    {amt}
                   </button>
                 ))}
           </div>
@@ -621,7 +1043,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                   : 'Flat discount applied'}
               </span>
               <span className="font-bold">
-                {isBn ? 'সাশ্রয়' : 'Saves'} -{sym}{discountAmount.toFixed(2)}
+                {isBn ? 'সাশ্রয়' : 'Saves'} -{sym}
+                {discountAmount.toFixed(2)}
               </span>
             </div>
           )}
@@ -631,7 +1054,10 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         <div className="bg-stone-50/90 border border-stone-200 p-3.5 rounded-2xl space-y-2">
           <div className="flex items-center justify-between text-xs text-stone-600">
             <span>{t.subtotalText}</span>
-            <span className="font-mono font-bold text-stone-900">{sym}{subtotal.toFixed(2)}</span>
+            <span className="font-mono font-bold text-stone-900">
+              {sym}
+              {subtotal.toFixed(2)}
+            </span>
           </div>
 
           <div className="flex items-center justify-between text-xs text-stone-600">
@@ -643,7 +1069,11 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 </span>
               )}
             </span>
-            <span className={`font-mono font-bold ${discountAmount > 0 ? 'text-emerald-600' : 'text-stone-400'}`}>
+            <span
+              className={`font-mono font-bold ${
+                discountAmount > 0 ? 'text-emerald-600' : 'text-stone-400'
+              }`}
+            >
               {discountAmount > 0 ? `-${sym}${discountAmount.toFixed(2)}` : `${sym}0.00`}
             </span>
           </div>
@@ -653,8 +1083,12 @@ export const BillingTab: React.FC<BillingTabProps> = ({
               <span className="text-xs font-bold text-stone-800 block">{t.grandTotalText}</span>
               <span className="text-[11px] text-stone-500">{t.finalPayableSub}</span>
             </div>
-            <div id="grandTotal" className="text-xl sm:text-2xl font-black text-green-700 font-mono">
-              {sym}{grandTotal.toFixed(2)}
+            <div
+              id="grandTotal"
+              className="text-xl sm:text-2xl font-black text-green-700 font-mono"
+            >
+              {sym}
+              {grandTotal.toFixed(2)}
             </div>
           </div>
         </div>
@@ -671,7 +1105,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 onClick={() => setPaidAmount(grandTotal.toFixed(2))}
                 className="text-[11px] text-blue-600 hover:text-blue-700 font-bold underline cursor-pointer"
               >
-                {t.exactBtn} ({sym}{grandTotal.toFixed(2)})
+                {t.exactBtn} ({sym}
+                {grandTotal.toFixed(2)})
               </button>
             )}
           </div>
@@ -702,12 +1137,15 @@ export const BillingTab: React.FC<BillingTabProps> = ({
           {paidNum > grandTotal && (
             <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-900 text-xs font-bold flex items-center justify-between">
               <span>{t.changeToReturn}</span>
-              <span className="font-mono text-sm">{sym}{changeAmount.toFixed(2)}</span>
+              <span className="font-mono text-sm">
+                {sym}
+                {changeAmount.toFixed(2)}
+              </span>
             </div>
           )}
         </div>
 
-        {/* 4. BOTTOM: Payment Method Selection Buttons (Right before Print button) */}
+        {/* 4. BOTTOM: Payment Method Selection Buttons */}
         <div className="pt-2 border-t border-stone-100">
           <label className="block text-[11px] font-bold uppercase tracking-wider text-stone-500 mb-2">
             {t.paymentModeLabel}
@@ -732,7 +1170,11 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                       : 'bg-stone-50 text-stone-700 border-stone-200 hover:bg-stone-100 hover:border-stone-300'
                   }`}
                 >
-                  <Icon className={`w-4 h-4 shrink-0 ${isSelected ? 'text-white' : 'text-stone-500'}`} />
+                  <Icon
+                    className={`w-4 h-4 shrink-0 ${
+                      isSelected ? 'text-white' : 'text-stone-500'
+                    }`}
+                  />
                   <span className="truncate">{method.label}</span>
                 </button>
               );
@@ -740,7 +1182,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
           </div>
         </div>
 
-        {/* 5. VERY BOTTOM: Primary Action Button (Create Invoice, Print & Save) */}
+        {/* 5. VERY BOTTOM: Primary Action Button */}
         <button
           id="billing-print-btn"
           onClick={handleCheckoutAndPrint}
