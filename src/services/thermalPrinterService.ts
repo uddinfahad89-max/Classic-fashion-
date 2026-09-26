@@ -570,7 +570,6 @@ export class ThermalPrinterService {
     lines.push(divider);
 
     // Totals
-    lines.push(padBetween('SUBTOTAL:', `${sym}${bill.subtotal.toFixed(2)}`));
     if (bill.discount > 0) {
       const discountLabel =
         bill.discountType === 'percent' && bill.discountValue

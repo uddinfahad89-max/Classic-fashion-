@@ -31,9 +31,6 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({ bill, settings
 
   const paidAmount = bill.paidAmount !== undefined ? bill.paidAmount : (bill.paymentStatus === 'PAID' ? bill.grandTotal : 0);
   const balance = bill.balance !== undefined ? bill.balance : Math.max(0, bill.grandTotal - paidAmount);
-  const youSaved = discountAmount;
-  const previousBalance = bill.previousBalance !== undefined ? bill.previousBalance : 0;
-  const currentBalance = bill.currentBalance !== undefined ? bill.currentBalance : previousBalance + balance;
 
   // Amount in words
   const amountInWords = numberToWords(bill.grandTotal, currencyName);
@@ -168,15 +165,8 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({ bill, settings
           </p>
         </div>
 
-        {/* Right: Subtotal, Discount, Total, Received, Balance */}
+        {/* Right: Discount, Total, Received, Balance */}
         <div className="space-y-1.5 text-sm sm:text-base text-stone-800">
-          <div className="flex justify-between items-center py-0.5">
-            <span className="font-normal text-stone-800">Sub Total</span>
-            <span className="font-normal text-stone-900">
-              {currencyPrefix}{bill.subtotal.toFixed(1)}
-            </span>
-          </div>
-
           <div className="flex justify-between items-center py-0.5">
             <span className="font-normal text-stone-800">
               Discount {discountPercent > 0 ? `(${discountPercent.toFixed(1)}%)` : ''}
@@ -207,28 +197,7 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({ bill, settings
               {currencyPrefix}{balance.toFixed(1)}
             </span>
           </div>
-
-          <div className="flex justify-between items-center py-0.5">
-            <span className="font-normal text-stone-800">You Saved</span>
-            <span className="font-normal text-stone-900">
-              {currencyPrefix}{youSaved.toFixed(1)}
-            </span>
-          </div>
-
-          <div className="flex justify-between items-center py-0.5">
-            <span className="font-normal text-stone-800">Previous Balance</span>
-            <span className="font-normal text-stone-900">
-              {currencyPrefix}{previousBalance.toFixed(1)}
-            </span>
-          </div>
-
-          <div className="flex justify-between items-center py-0.5">
-            <span className="font-normal text-stone-800">Current Balance</span>
-            <span className="font-normal text-stone-900">
-              {currencyPrefix}{currentBalance.toFixed(1)}
-            </span>
-          </div>
-          {/* Bottom underline under Current Balance */}
+          {/* Bottom underline */}
           <div className="border-b border-stone-800 pt-0.5"></div>
         </div>
       </div>
