@@ -535,9 +535,9 @@ export class ThermalPrinterService {
     const lines: string[] = [];
 
     // Header
-    lines.push(padCenter(settings.storeName.toUpperCase()));
-    if (settings.storeAddress) lines.push(padCenter(settings.storeAddress));
-    if (settings.storePhone) lines.push(padCenter(`Tel: ${settings.storePhone}`));
+    lines.push(padCenter(settings.storeName.trim().toUpperCase()));
+    if (settings.storeAddress) lines.push(padCenter(settings.storeAddress.trim().toUpperCase()));
+    if (settings.storePhone) lines.push(padCenter(`Tel: ${settings.storePhone.trim()}`));
     lines.push(doubleDiv);
 
     // Bill Meta
@@ -570,6 +570,7 @@ export class ThermalPrinterService {
     lines.push(divider);
 
     // Totals
+    lines.push(padBetween('SUBTOTAL:', `${sym}${bill.subtotal.toFixed(2)}`));
     if (bill.discount > 0) {
       const discountLabel =
         bill.discountType === 'percent' && bill.discountValue
@@ -601,8 +602,13 @@ export class ThermalPrinterService {
     // Keep only clean printable ASCII
     cleanFooter = cleanFooter.replace(/[^\x20-\x7E]/g, '').trim();
     cleanFooter = cleanFooter.replace(/\?/g, '').trim();
-    if (!cleanFooter || cleanFooter.length < 3) {
-      cleanFooter = 'Thank you! Visit again.';
+    if (
+      !cleanFooter ||
+      cleanFooter.length < 3 ||
+      cleanFooter.toLowerCase() === 'thank you for shopping with us! visit again.' ||
+      cleanFooter.toLowerCase() === 'thank you! visit again.'
+    ) {
+      cleanFooter = '(Thank you! Visit again)';
     }
 
     lines.push(padCenter(cleanFooter));
@@ -615,11 +621,33 @@ export class ThermalPrinterService {
   generateEscPosCommands(bill: BillInvoice, settings: ThermalPrinterSettings): Uint8Array {
     const commands: number[] = [];
 
-    // ESC @: Initialize printer
-    commands.push(0x1b, 0x40);
+    // 1. Flush any unfinished command state with CR LF + ESC LF (non-printable) so '@' is never printed
+    commands.push(0x0d, 0x0a, 0x1b, 0x0a);
 
-    // ESC t 0: Select code page (PC437 / Standard)
+    // 2. ESC @ (Initialize printer twice for guaranteed clean state)
+    commands.push(0x1b, 0x40, 0x1b, 0x40);
+
+    // 3. ESC t 0: Select standard PC437 code page & FS .: Cancel Chinese multi-byte mode
     commands.push(0x1b, 0x74, 0x00);
+    commands.push(0x1c, 0x2e);
+
+    // 4. Reset font & character spacing: Font A (12x24), 1x1 size, 0 right spacing, Left align
+    commands.push(0x1b, 0x21, 0x00); // ESC ! 0
+    commands.push(0x1b, 0x4d, 0x00); // ESC M 0 (Font A 12x24)
+    commands.push(0x1d, 0x21, 0x00); // GS ! 0 (Normal 1x1 size)
+    commands.push(0x1b, 0x20, 0x00); // ESC SP 0 (0 dot spacing)
+    commands.push(0x1b, 0x61, 0x00); // ESC a 0 (Left align)
+
+    // 5. Explicitly set Left Margin = 0 (GS L 0 0) and Print Area Width (GS W nL nH)
+    // 80mm = 576 dots (48 chars * 12 dots) -> nL = 0x40 (64), nH = 0x02 (2)
+    // 58mm = 384 dots (32 chars * 12 dots) -> nL = 0x80 (128), nH = 0x01 (1)
+    commands.push(0x1d, 0x50, 0x00, 0x00); // GS P 0 0 (Default dot motion units)
+    commands.push(0x1d, 0x4c, 0x00, 0x00); // GS L 0 0 (Left margin = 0 dots)
+    if (settings.paperWidth === '80mm') {
+      commands.push(0x1d, 0x57, 0x40, 0x02); // GS W 576 dots (full 80mm / 48 chars width)
+    } else {
+      commands.push(0x1d, 0x57, 0x80, 0x01); // GS W 384 dots (58mm / 32 chars width)
+    }
 
     const appendText = (str: string) => {
       for (let i = 0; i < str.length; i++) {
@@ -787,8 +815,8 @@ export class ThermalPrinterService {
       Boolean(this.characteristic.properties?.writeWithoutResponse) &&
       typeof this.characteristic.writeValueWithoutResponse === 'function';
 
-    // Optimize chunk size: 128 bytes allows 2x-3x higher throughput while remaining safe for BLE MTU
-    const CHUNK_SIZE = canWriteWithoutResponse ? 128 : 96;
+    // Safe BLE MTU chunk size (64 bytes) with 15ms pacing to prevent UART buffer overflow or dropped characters
+    const CHUNK_SIZE = 64;
 
     for (let i = 0; i < data.length; i += CHUNK_SIZE) {
       const chunk = data.slice(i, i + CHUNK_SIZE);
@@ -808,14 +836,14 @@ export class ThermalPrinterService {
           written = true;
         } catch (chunkErr) {
           if (attempts >= 2) throw chunkErr;
-          await new Promise((r) => setTimeout(r, 10));
+          await new Promise((r) => setTimeout(r, 15));
         }
       }
 
-      // Ultra-low latency transmission: writeWithResponse already waits for BLE ACK,
-      // while writeWithoutResponse only needs a tiny 2ms pause to prevent buffer overrun
       if (canWriteWithoutResponse) {
-        await new Promise((r) => setTimeout(r, 2));
+        await new Promise((r) => setTimeout(r, 15));
+      } else {
+        await new Promise((r) => setTimeout(r, 5));
       }
     }
   }
@@ -1348,7 +1376,20 @@ export class ThermalPrinterService {
     ].join('\n');
 
     try {
-      const commands: number[] = [0x1b, 0x40, 0x1b, 0x74, 0x00];
+      const commands: number[] = [
+        0x0d, 0x0a, 0x1b, 0x0a,
+        0x1b, 0x40, 0x1b, 0x40,
+        0x1b, 0x74, 0x00,
+        0x1c, 0x2e,
+        0x1b, 0x21, 0x00,
+        0x1b, 0x4d, 0x00,
+        0x1d, 0x21, 0x00,
+        0x1b, 0x20, 0x00,
+        0x1b, 0x61, 0x00,
+        0x1d, 0x50, 0x00, 0x00,
+        0x1d, 0x4c, 0x00, 0x00,
+        ...(settings.paperWidth === '80mm' ? [0x1d, 0x57, 0x40, 0x02] : [0x1d, 0x57, 0x80, 0x01]),
+      ];
       for (let i = 0; i < text.length; i++) {
         const charCode = text.charCodeAt(i);
         if (charCode < 128) {
