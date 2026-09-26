@@ -972,7 +972,7 @@ export class ThermalPrinterService {
     const cmdHeader = enc.encode(
       `SIZE ${widthMm} mm, ${heightMm} mm\r\n` +
       `GAP 2 mm, 0 mm\r\n` +
-      `DIRECTION 0,0\r\n` +
+      `DIRECTION 1,0\r\n` +
       `REFERENCE 0,0\r\n` +
       `CLS\r\n` +
       `BITMAP 0,0,${widthBytes},${targetHeightDots},0,`
@@ -1031,17 +1031,17 @@ export class ThermalPrinterService {
       showItemName = false,
       showPrice = true,
       showBarcode = true,
-      direction = '0,0',
+      direction = '1,0',
       alignment = 'center',
       shopX,
-      shopY = 15,
+      shopY = 16,
       shopFont = '3',
       barcodeX,
-      barcodeY = 50,
-      barcodeHeight = 50,
+      barcodeY = 48,
+      barcodeHeight = 44,
       barcodeRatio = '2:3',
       priceX,
-      priceY = 140,
+      priceY = 142,
       priceFont = '3',
     } = options;
 
@@ -1065,7 +1065,7 @@ export class ThermalPrinterService {
     let elements = '';
 
     // ==========================================
-    // 1. LINE 1 (TOP, Y=15): SHOP NAME
+    // 1. LINE 1 (TOP, Y=16): SHOP NAME
     // ==========================================
     const cleanStore = (storeName || itemName || 'MY STORE').trim().replace(/["\r\n]/g, '');
     if ((showStoreName && cleanStore) || (!showStoreName && showItemName && itemName)) {
@@ -1078,7 +1078,7 @@ export class ThermalPrinterService {
     }
 
     // ==========================================
-    // 2. LINE 2 (MIDDLE, Y=50): BARCODE (human_readable = 1, NO separate TEXT command)
+    // 2. LINE 2 (MIDDLE, Y=48): BARCODE + CLEAN CENTERED NUMBER BELOW
     // ==========================================
     if (showBarcode !== false) {
       const cleanCode = (barcodeValue || '1001').trim().replace(/["\r\n]/g, '');
@@ -1092,7 +1092,11 @@ export class ThermalPrinterService {
       } else {
         const narrow = barcodeRatio === '1:2' ? 1 : 2;
         const wide = barcodeRatio === '1:2' ? 2 : barcodeRatio === '2:2' ? 2 : 3;
-        const estBarcodeWidth = ((cleanCode.length + 2) * 11 + 2) * narrow;
+        // Accurate Code128 module count: numeric pairs use Subset C (1 symbol per 2 digits)
+        const isPureNumericEven = /^\d+$/.test(cleanCode) && cleanCode.length >= 4;
+        const dataSymbols = isPureNumericEven ? Math.ceil(cleanCode.length / 2) : cleanCode.length;
+        const totalModules = (dataSymbols + 3) * 11 + 2;
+        const estBarcodeWidth = totalModules * narrow;
         const bX =
           barcodeX !== undefined
             ? Math.max(0, Math.round(barcodeX))
@@ -1102,8 +1106,12 @@ export class ThermalPrinterService {
             ? Math.max(10, labelWidthDots - 20 - estBarcodeWidth)
             : Math.max(20, Math.round((labelWidthDots - estBarcodeWidth) / 2));
 
-        // IMPORTANT: human_readable = 1 in BARCODE command; no separate TEXT command for barcode digits
-        elements += `BARCODE ${bX},${bY},"128",${bHeight},1,0,${narrow},${wide},"${cleanCode}"\r\n`;
+        // Draw barcode bars with human_readable=0 and render crisp Font "2" digits centered below
+        elements += `BARCODE ${bX},${bY},"128",${bHeight},0,0,${narrow},${wide},"${cleanCode}"\r\n`;
+        const numCharW = 12; // Font "2" (12x20 dots)
+        const numX = calcAlignedX(cleanCode.length, numCharW, alignment);
+        const numY = bY + bHeight + 6;
+        elements += `TEXT ${numX},${numY},"2",0,1,1,"${cleanCode}"\r\n`;
       }
     }
 

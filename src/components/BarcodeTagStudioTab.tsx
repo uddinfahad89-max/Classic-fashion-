@@ -208,14 +208,14 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
       mrpPrefix: 'MRP: Rs. ',
       mrpOffset: 0,
       // Custom TSPL Barcode Label Editor defaults (50mm x 25mm = 400 x 200 dots)
-      tsplDirection: '0,0',
+      tsplDirection: '1,0',
       tsplAlign: 'center',
-      tsplShopY: 15,
+      tsplShopY: 16,
       tsplShopFont: '3',
-      tsplBarcodeY: 50,
-      tsplBarcodeHeight: 50,
+      tsplBarcodeY: 48,
+      tsplBarcodeHeight: 44,
       tsplBarcodeRatio: '2:3',
-      tsplPriceY: 140,
+      tsplPriceY: 142,
       tsplPriceFont: '3',
       tsplCustomX: false,
     };
@@ -232,14 +232,14 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
         showDiscountBadge: false,
         customOfferText: cleanCustomOffer,
         cleanWhiteMode: saved.cleanWhiteMode !== false,
-        tsplDirection: saved.tsplDirection || '0,0',
+        tsplDirection: '1,0',
         tsplAlign: saved.tsplAlign || 'center',
-        tsplShopY: saved.tsplShopY ?? 15,
+        tsplShopY: saved.tsplShopY && saved.tsplShopY <= 35 ? saved.tsplShopY : 16,
         tsplShopFont: saved.tsplShopFont || '3',
-        tsplBarcodeY: saved.tsplBarcodeY ?? 50,
-        tsplBarcodeHeight: saved.tsplBarcodeHeight ?? 50,
+        tsplBarcodeY: saved.tsplBarcodeY ?? 48,
+        tsplBarcodeHeight: saved.tsplBarcodeHeight ?? 44,
         tsplBarcodeRatio: saved.tsplBarcodeRatio || '2:3',
-        tsplPriceY: saved.tsplPriceY && saved.tsplPriceY >= 115 ? saved.tsplPriceY : 140,
+        tsplPriceY: saved.tsplPriceY && saved.tsplPriceY >= 125 ? saved.tsplPriceY : 142,
         tsplPriceFont: saved.tsplPriceFont || '3',
       };
     }
@@ -954,7 +954,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     const labelW = 400; // 50mm * 8 dots/mm
     const getCharW = (f?: string) => (f === '1' ? 8 : f === '2' ? 12 : f === '4' ? 24 : 16);
     const align: 'left' | 'center' | 'right' = labelConfig.tsplAlign || 'center';
-    const direction: '0,0' | '1,0' = labelConfig.tsplDirection || '0,0';
+    const direction: '0,0' | '1,0' = labelConfig.tsplDirection || '1,0';
 
     const shopText = (labelConfig.storeName || labelConfig.itemName || 'MY SHOP').trim();
     const shopFont: '1' | '2' | '3' | '4' = labelConfig.tsplShopFont || '3';
@@ -967,14 +967,17 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
         ? Math.max(10, labelW - 20 - shopTextW)
         : Math.max(10, Math.round((labelW - shopTextW) / 2));
     const shopX = labelConfig.tsplCustomX && labelConfig.tsplShopX !== undefined ? labelConfig.tsplShopX : autoShopX;
-    const shopY = labelConfig.tsplShopY ?? 15;
+    const shopY = labelConfig.tsplShopY ?? 16;
 
     const barcodeCode = (labelConfig.barcodeValue || '1001').trim();
-    const barcodeHeight = labelConfig.tsplBarcodeHeight ?? 50;
+    const barcodeHeight = labelConfig.tsplBarcodeHeight ?? 44;
     const barcodeRatio: '2:3' | '1:2' | '2:2' = labelConfig.tsplBarcodeRatio || '2:3';
     const narrow = barcodeRatio === '1:2' ? 1 : 2;
     const wide = barcodeRatio === '1:2' ? 2 : barcodeRatio === '2:2' ? 2 : 3;
-    const estBarcodeW = ((barcodeCode.length + 2) * 11 + 2) * narrow;
+    const isPureNumericEven = /^\d+$/.test(barcodeCode) && barcodeCode.length >= 4;
+    const dataSymbols = isPureNumericEven ? Math.ceil(barcodeCode.length / 2) : barcodeCode.length;
+    const totalModules = (dataSymbols + 3) * 11 + 2;
+    const estBarcodeW = totalModules * narrow;
     const autoBarcodeX =
       align === 'left'
         ? 20
@@ -983,7 +986,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
         : Math.max(20, Math.round((labelW - estBarcodeW) / 2));
     const barcodeX =
       labelConfig.tsplCustomX && labelConfig.tsplBarcodeX !== undefined ? labelConfig.tsplBarcodeX : autoBarcodeX;
-    const barcodeY = labelConfig.tsplBarcodeY ?? 50;
+    const barcodeY = labelConfig.tsplBarcodeY ?? 48;
 
     const rawPrefix = (labelConfig.mrpPrefix || 'MRP: Rs. ').trim();
     const pricePrefix = rawPrefix ? `${rawPrefix} ` : 'MRP: ';
@@ -1000,7 +1003,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
         : Math.max(10, Math.round((labelW - priceTextW) / 2));
     const priceX =
       labelConfig.tsplCustomX && labelConfig.tsplPriceX !== undefined ? labelConfig.tsplPriceX : autoPriceX;
-    const priceY = labelConfig.tsplPriceY ?? 140;
+    const priceY = labelConfig.tsplPriceY ?? 142;
 
     return {
       align,
@@ -1213,8 +1216,8 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
         'info'
       );
 
-      // When TSPL protocol is active, send the generated native TSPL string directly!
-      if (printerProtocol === 'tspl') {
+      // When TSPL protocol or 50x25mm label roll is active, send the generated native TSPL string directly!
+      if (printerProtocol === 'tspl' || paperRollWidth === '50mm_label') {
         const result = await thermalPrinterService.printNativeTsplViaBluetooth(liveTsplCommand);
         if (result.success) {
           onShowToast(
@@ -1840,18 +1843,18 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                         onClick={() => {
                           setLabelConfig((prev) => ({
                             ...prev,
-                            tsplDirection: '0,0',
+                            tsplDirection: '1,0',
                             tsplAlign: 'center',
                             tsplCustomX: false,
                             tsplShopX: undefined,
-                            tsplShopY: 15,
+                            tsplShopY: 16,
                             tsplShopFont: '3',
                             tsplBarcodeX: undefined,
-                            tsplBarcodeY: 50,
-                            tsplBarcodeHeight: 50,
+                            tsplBarcodeY: 48,
+                            tsplBarcodeHeight: 44,
                             tsplBarcodeRatio: '2:3',
                             tsplPriceX: undefined,
-                            tsplPriceY: 140,
+                            tsplPriceY: 142,
                             tsplPriceFont: '3',
                             mrpPrefix: 'MRP: Rs. ',
                           }));
@@ -1920,25 +1923,25 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                         <div className="grid grid-cols-2 gap-1">
                           <button
                             type="button"
-                            onClick={() => setLabelConfig((prev) => ({ ...prev, tsplDirection: '0,0' }))}
+                            onClick={() => setLabelConfig((prev) => ({ ...prev, tsplDirection: '1,0' }))}
                             className={`py-1 px-2 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
-                              (labelConfig.tsplDirection || '0,0') === '0,0'
+                              (labelConfig.tsplDirection || '1,0') === '1,0'
                                 ? 'bg-emerald-600 text-white shadow-2xs'
                                 : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
                             }`}
                           >
-                            DIRECTION 0,0 ({isBn ? 'সোজা' : 'Upright'})
+                            DIRECTION 1,0 ({isBn ? 'সোজা' : 'Upright'})
                           </button>
                           <button
                             type="button"
-                            onClick={() => setLabelConfig((prev) => ({ ...prev, tsplDirection: '1,0' }))}
+                            onClick={() => setLabelConfig((prev) => ({ ...prev, tsplDirection: '0,0' }))}
                             className={`py-1 px-2 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
-                              labelConfig.tsplDirection === '1,0'
+                              labelConfig.tsplDirection === '0,0'
                                 ? 'bg-indigo-600 text-white shadow-2xs'
                                 : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
                             }`}
                           >
-                            DIRECTION 1,0 ({isBn ? 'উল্টো' : 'Flipped'})
+                            DIRECTION 0,0 ({isBn ? 'উল্টো' : 'Flipped'})
                           </button>
                         </div>
                       </div>
