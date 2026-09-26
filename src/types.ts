@@ -18,7 +18,7 @@ export type TagBarcodeHeight = 'compact' | 'standard' | 'tall';
 export type TagBarcodeThickness = 'thin' | 'medium' | 'thick';
 export type TagCornerRadius = 'none' | 'small' | 'medium' | 'pill';
 export type TagTitleFontSize = 'small' | 'medium' | 'large';
-export type TagAlignment = 'center' | 'left';
+export type TagAlignment = 'center' | 'left' | 'right';
 
 export interface BarcodeLabelConfig {
   storeName: string;
@@ -64,6 +64,20 @@ export interface BarcodeLabelConfig {
   cleanWhiteMode?: boolean;
   mrpPrefix?: string;
   mrpOffset?: number; // Vertical offset in px for moving MRP up/down
+  // Custom TSPL Barcode Label Editor parameters (50mm x 25mm = 400 x 200 dots)
+  tsplDirection?: '0,0' | '1,0';
+  tsplAlign?: 'left' | 'center' | 'right';
+  tsplShopX?: number;
+  tsplShopY?: number;
+  tsplShopFont?: '1' | '2' | '3' | '4';
+  tsplBarcodeX?: number;
+  tsplBarcodeY?: number;
+  tsplBarcodeHeight?: number;
+  tsplBarcodeRatio?: '2:3' | '1:2' | '2:2';
+  tsplPriceX?: number;
+  tsplPriceY?: number;
+  tsplPriceFont?: '1' | '2' | '3' | '4';
+  tsplCustomX?: boolean;
 }
 
 export type Language = 'bn' | 'en' | 'hi';

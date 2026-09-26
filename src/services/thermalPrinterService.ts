@@ -972,7 +972,7 @@ export class ThermalPrinterService {
     const cmdHeader = enc.encode(
       `SIZE ${widthMm} mm, ${heightMm} mm\r\n` +
       `GAP 2 mm, 0 mm\r\n` +
-      `DIRECTION 1,0\r\n` +
+      `DIRECTION 0,0\r\n` +
       `REFERENCE 0,0\r\n` +
       `CLS\r\n` +
       `BITMAP 0,0,${widthBytes},${targetHeightDots},0,`
@@ -995,12 +995,26 @@ export class ThermalPrinterService {
     barcodeType?: 'CODE128' | 'EAN13' | 'QR';
     mrp?: number;
     salePrice?: number;
+    pricePrefix?: string;
     widthMm?: number;
     heightMm?: number;
     copies?: number;
     showStoreName?: boolean;
     showItemName?: boolean;
     showPrice?: boolean;
+    showBarcode?: boolean;
+    direction?: '0,0' | '1,0';
+    alignment?: 'left' | 'center' | 'right';
+    shopX?: number;
+    shopY?: number;
+    shopFont?: '1' | '2' | '3' | '4';
+    barcodeX?: number;
+    barcodeY?: number;
+    barcodeHeight?: number;
+    barcodeRatio?: '2:3' | '1:2' | '2:2';
+    priceX?: number;
+    priceY?: number;
+    priceFont?: '1' | '2' | '3' | '4';
   }): string {
     const {
       storeName = '',
@@ -1009,99 +1023,107 @@ export class ThermalPrinterService {
       barcodeType = 'CODE128',
       mrp,
       salePrice = 0,
+      pricePrefix = 'MRP: Rs. ',
       widthMm = 50,
       heightMm = 25,
       copies = 1,
       showStoreName = true,
-      showItemName = true,
+      showItemName = false,
       showPrice = true,
+      showBarcode = true,
+      direction = '0,0',
+      alignment = 'center',
+      shopX,
+      shopY = 15,
+      shopFont = '3',
+      barcodeX,
+      barcodeY = 50,
+      barcodeHeight = 50,
+      barcodeRatio = '2:3',
+      priceX,
+      priceY = 140,
+      priceFont = '3',
     } = options;
 
     // 203 DPI = 8 dots/mm (50mm = 400 dots, 25mm = 200 dots)
     const labelWidthDots = Math.round(widthMm * 8);
 
+    const getFontCharWidth = (f: string) => {
+      if (f === '1') return 8;
+      if (f === '2') return 12;
+      if (f === '4') return 24;
+      return 16; // default Font "3" (16x24 dots)
+    };
+
+    const calcAlignedX = (textLen: number, charW: number, align: 'left' | 'center' | 'right') => {
+      const textWidth = textLen * charW;
+      if (align === 'left') return 20;
+      if (align === 'right') return Math.max(10, labelWidthDots - 20 - textWidth);
+      return Math.max(10, Math.round((labelWidthDots - textWidth) / 2));
+    };
+
     let elements = '';
 
     // ==========================================
-    // 1. LINE 1 (TOP): SHOP NAME (FONT "3", CENTERED)
+    // 1. LINE 1 (TOP, Y=15): SHOP NAME
     // ==========================================
     const cleanStore = (storeName || itemName || 'MY STORE').trim().replace(/["\r\n]/g, '');
     if ((showStoreName && cleanStore) || (!showStoreName && showItemName && itemName)) {
-      const line1Text = showStoreName && cleanStore ? cleanStore : (itemName || '').trim().replace(/["\r\n]/g, '');
+      const line1Text = (showStoreName && cleanStore ? cleanStore : (itemName || '')).trim().replace(/["\r\n]/g, '');
+      const charW1 = getFontCharWidth(shopFont);
+      const x1 = shopX !== undefined ? Math.max(0, Math.round(shopX)) : calcAlignedX(line1Text.length, charW1, alignment);
+      const y1 = Math.max(0, Math.round(shopY));
 
-      // Font "3" (16x24 dots) - standard centered title
-      const charWidth1 = 16;
-      const textWidth1 = Math.min(line1Text.length * charWidth1, labelWidthDots - 80);
-      // Safe left padding around 40-50 dots so text never clips
-      const x1 = Math.max(40, Math.round((labelWidthDots - textWidth1) / 2));
-      const y1 = 12;
-
-      elements += `TEXT ${x1},${y1},"3",0,1,1,"${line1Text.slice(0, 22)}"\r\n`;
+      elements += `TEXT ${x1},${y1},"${shopFont}",0,1,1,"${line1Text}"\r\n`;
     }
 
     // ==========================================
-    // 2. LINE 2 (MIDDLE): MEDIUM BARCODE + NUMBER BELOW (FONT "2")
+    // 2. LINE 2 (MIDDLE, Y=50): BARCODE (human_readable = 1, NO separate TEXT command)
     // ==========================================
-    const cleanCode = (barcodeValue || '1001').trim().replace(/["\r\n]/g, '');
-    const barcodeY = 46;
-    const barcodeHeight = 42; // Standard medium height for 25mm label (4barcode app reference)
+    if (showBarcode !== false) {
+      const cleanCode = (barcodeValue || '1001').trim().replace(/["\r\n]/g, '');
+      const bY = Math.max(0, Math.round(barcodeY));
+      const bHeight = Math.max(20, Math.min(120, Math.round(barcodeHeight)));
 
-    if (barcodeType === 'QR') {
-      const qrWidthDots = 100;
-      const qrX = Math.max(50, Math.round((labelWidthDots - qrWidthDots) / 2));
-      elements += `QRCODE ${qrX},${barcodeY},L,4,A,0,"${cleanCode}"\r\n`;
-    } else {
-      // Standard medium bar thickness: narrow = 2, wide = 3 (not ultra-thin, perfectly balanced)
-      const narrow = 2;
-      const wide = 3;
-
-      // Position Barcode X = 50 to 55 to keep it centered and leave safe 50-dot margins on both sides
-      const barcodeX = 52;
-
-      // Draw barcode bars (human_readable = 0 so we render clear Font "2" numbers directly below)
-      elements += `BARCODE ${barcodeX},${barcodeY},"128",${barcodeHeight},0,0,${narrow},${wide},"${cleanCode}"\r\n`;
-
-      // Barcode Number directly below it using Font "2" (12x20 dots, centered)
-      const numCharWidth = 12;
-      const numTextWidth = cleanCode.length * numCharWidth;
-      const numX = Math.max(40, Math.round((labelWidthDots - numTextWidth) / 2));
-      const numY = barcodeY + barcodeHeight + 4; // y = 46 + 42 + 4 = 92 dots
-
-      elements += `TEXT ${numX},${numY},"2",0,1,1,"${cleanCode}"\r\n`;
-    }
-
-    // ==========================================
-    // 3. LINE 3 (BOTTOM): MRP / PRICE (FONT "3", CENTERED)
-    // ==========================================
-    if (showPrice || (showItemName && itemName && showStoreName)) {
-      let priceText = '';
-      if (mrp && salePrice && mrp > salePrice) {
-        priceText = `MRP: ${mrp}  TK: ${salePrice}`;
-      } else if (salePrice) {
-        priceText = `PRICE: ${salePrice}`;
-      } else if (mrp) {
-        priceText = `MRP: ${mrp}`;
-      } else if (showItemName && itemName) {
-        priceText = itemName.trim().replace(/["\r\n]/g, '');
+      if (barcodeType === 'QR') {
+        const qrWidthDots = 100;
+        const qrX = barcodeX !== undefined ? Math.max(0, Math.round(barcodeX)) : calcAlignedX(1, qrWidthDots, alignment);
+        elements += `QRCODE ${qrX},${bY},L,4,A,0,"${cleanCode}"\r\n`;
       } else {
-        priceText = `PRICE: 0`;
+        const narrow = barcodeRatio === '1:2' ? 1 : 2;
+        const wide = barcodeRatio === '1:2' ? 2 : barcodeRatio === '2:2' ? 2 : 3;
+        const estBarcodeWidth = ((cleanCode.length + 2) * 11 + 2) * narrow;
+        const bX =
+          barcodeX !== undefined
+            ? Math.max(0, Math.round(barcodeX))
+            : alignment === 'left'
+            ? 20
+            : alignment === 'right'
+            ? Math.max(10, labelWidthDots - 20 - estBarcodeWidth)
+            : Math.max(20, Math.round((labelWidthDots - estBarcodeWidth) / 2));
+
+        // IMPORTANT: human_readable = 1 in BARCODE command; no separate TEXT command for barcode digits
+        elements += `BARCODE ${bX},${bY},"128",${bHeight},1,0,${narrow},${wide},"${cleanCode}"\r\n`;
       }
+    }
 
-      // Font "3" (16x24 dots) - standard centered price
-      const pCharWidth = 16;
-      const pWidth = Math.min(priceText.length * pCharWidth, labelWidthDots - 80);
-      // Safe left padding around 40-50 dots
-      const pX = Math.max(40, Math.round((labelWidthDots - pWidth) / 2));
-      const pY = 140;
+    // ==========================================
+    // 3. LINE 3 (BOTTOM, Y=140): MRP / PRICE
+    // ==========================================
+    if (showPrice) {
+      const activePrice = mrp || salePrice || 0;
+      const priceText = `${pricePrefix}${activePrice}`.trim().replace(/["\r\n]/g, '');
+      const charW3 = getFontCharWidth(priceFont);
+      const pX = priceX !== undefined ? Math.max(0, Math.round(priceX)) : calcAlignedX(priceText.length, charW3, alignment);
+      const pY = Math.max(0, Math.round(priceY));
 
-      elements += `TEXT ${pX},${pY},"3",0,1,1,"${priceText.slice(0, 22)}"\r\n`;
+      elements += `TEXT ${pX},${pY},"${priceFont}",0,1,1,"${priceText}"\r\n`;
     }
 
     return (
       `SIZE ${widthMm} mm, ${heightMm} mm\r\n` +
       `GAP 2 mm, 0 mm\r\n` +
-      `DIRECTION 1,0\r\n` +
-      `REFERENCE 0,0\r\n` +
+      `DIRECTION ${direction}\r\n` +
       `CLS\r\n` +
       elements +
       `PRINT ${Math.max(1, copies)},1\r\n`
@@ -1109,20 +1131,11 @@ export class ThermalPrinterService {
   }
 
   // Print label using native TSPL commands directly via Bluetooth
-  async printNativeTsplLabelViaBluetooth(options: {
-    storeName?: string;
-    itemName?: string;
-    barcodeValue?: string;
-    barcodeType?: 'CODE128' | 'EAN13' | 'QR';
-    mrp?: number;
-    salePrice?: number;
-    widthMm?: number;
-    heightMm?: number;
-    copies?: number;
-    showStoreName?: boolean;
-    showItemName?: boolean;
-    showPrice?: boolean;
-  }): Promise<{ success: boolean; message: string; deviceName?: string }> {
+  async printNativeTsplLabelViaBluetooth(options: Parameters<ThermalPrinterService['generateTsplCommandString']>[0]): Promise<{
+    success: boolean;
+    message: string;
+    deviceName?: string;
+  }> {
     const tsplCmd = this.generateTsplCommandString(options);
     return this.printNativeTsplViaBluetooth(tsplCmd);
   }
