@@ -559,8 +559,9 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* 2. SUB-HEADER BAR (Exactly Matching Screenshot: "Date opened by me ↓" and [≡] [⊞] pills) */}
-        <div className="max-w-4xl mx-auto px-4 sm:px-5 py-2 flex items-center justify-between border-t border-stone-100 bg-[#fbfcfd]">
+        {/* 2. SUB-HEADER BAR */}
+        {activeTab !== 'invoices' && (
+          <div className="max-w-4xl mx-auto px-4 sm:px-5 py-2 flex items-center justify-between border-t border-stone-100 bg-[#fbfcfd]">
           {/* Left: Sort Filter Dropdown ("Date opened by me ↓") */}
           <div className="relative" ref={sortRef}>
             <button
@@ -708,6 +709,7 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           </div>
         </div>
+        )}
       </header>
 
       {/* 3. GOOGLE WORKSPACE STYLE NAVIGATION DRAWER (Slides in from Left) */}

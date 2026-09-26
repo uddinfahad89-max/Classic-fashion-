@@ -2,36 +2,20 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   FileText,
   Search,
-  Calendar,
-  Filter,
+  ListFilter,
   Printer,
   Eye,
-  Smartphone,
   Trash2,
-  CheckCircle2,
-  AlertCircle,
-  Tag,
-  CreditCard,
-  Banknote,
-  SmartphoneNfc,
-  ChevronDown,
-  ChevronUp,
   Edit2,
-  Download,
-  Share2,
   MessageCircle,
   X,
-  PlusCircle,
   MoreVertical,
-  Table,
-  Clock,
-  User,
-  Users,
   Plus,
+  CheckCircle2,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { BillInvoice, ThermalPrinterSettings, Language } from '../types';
 import { thermalPrinterService } from '../services/thermalPrinterService';
-import { translations } from '../utils/i18n';
 import { EditInvoiceModal } from './EditInvoiceModal';
 import { SortOption } from './Header';
 
@@ -52,32 +36,90 @@ interface InvoicesTabProps {
 
 type DateFilterPreset = 'all' | 'today' | 'yesterday' | 'week' | 'custom';
 
+const MONTH_NAMES = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sept',
+  'Oct',
+  'Nov',
+  'Dec',
+];
+
+function formatPartyDate(timestamp?: number, rawDate?: string): string {
+  if (timestamp && !isNaN(timestamp)) {
+    const d = new Date(timestamp);
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = MONTH_NAMES[d.getMonth()] || 'Jan';
+    const year = d.getFullYear();
+    return `${day} ${month} ${year}`;
+  }
+  if (rawDate) {
+    const datePart = rawDate.split(' ')[0];
+    const parts = datePart.split(/[-/]/);
+    if (parts.length === 3) {
+      // Check DD-MM-YYYY vs YYYY-MM-DD
+      if (parts[0].length === 4) {
+        const year = Number(parts[0]);
+        const monthIdx = Number(parts[1]) - 1;
+        const day = String(Number(parts[2])).padStart(2, '0');
+        return `${day} ${MONTH_NAMES[monthIdx] || parts[1]} ${year}`;
+      } else {
+        const day = String(Number(parts[0])).padStart(2, '0');
+        const monthIdx = Number(parts[1]) - 1;
+        const year = parts[2];
+        return `${day} ${MONTH_NAMES[monthIdx] || parts[1]} ${year}`;
+      }
+    }
+    return datePart;
+  }
+  return '';
+}
+
+function getPartyDisplayName(customerName?: string): string {
+  const trimmed = (customerName || '').trim();
+  if (
+    !trimmed ||
+    trimmed.toLowerCase() === 'customer' ||
+    trimmed.toLowerCase() === 'cash customer' ||
+    trimmed.toLowerCase() === 'walk-in customer' ||
+    trimmed === 'সাধারণ ক্রেতা'
+  ) {
+    return 'Cash Sale';
+  }
+  return trimmed;
+}
+
 export const InvoicesTab: React.FC<InvoicesTabProps> = ({
   bills,
   settings,
   language = 'bn',
   onViewReceipt,
   onDeleteBill,
-  onEditBill,
   onUpdateBill,
   onLoadIntoBilling,
   externalSearchTerm = '',
-  viewMode = 'grid',
   sortOption = 'date-desc',
   onNavigateToBilling,
 }) => {
-  const t = translations[language];
   const isBn = language === 'bn';
-  const sym = settings.currencySymbol || '₹';
+  const rawSym = (settings.currencySymbol || 'Rs').replace(/\?/g, '').trim();
+  const sym = rawSym === '₹' || !rawSym ? 'Rs' : rawSym;
 
   const [localSearchTerm, setLocalSearchTerm] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [showSummaryCard, setShowSummaryCard] = useState(false);
   const [datePreset, setDatePreset] = useState<DateFilterPreset>('all');
   const [customDate, setCustomDate] = useState('');
   const [paymentFilter, setPaymentFilter] = useState<'all' | 'cash' | 'upi' | 'card' | 'due'>('all');
-  const [expandedInvoiceId, setExpandedInvoiceId] = useState<string | null>(null);
-  const [actionFeedback, setActionFeedback] = useState<{ id: string; message: string } | null>(null);
+  const [localSort, setLocalSort] = useState<SortOption>(sortOption);
   const [editingBill, setEditingBill] = useState<BillInvoice | null>(null);
-  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [deleteConfirmBill, setDeleteConfirmBill] = useState<{
     id: string;
     invoiceNo: string;
@@ -85,26 +127,28 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
     customerName?: string;
   } | null>(null);
 
-  const cardMenuRef = useRef<HTMLDivElement>(null);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setLocalSort(sortOption);
+  }, [sortOption]);
 
   useEffect(() => {
     const handleOutside = (e: MouseEvent) => {
-      if (cardMenuRef.current && !cardMenuRef.current.contains(e.target as Node)) {
-        setActiveMenuId(null);
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
+        setShowMoreMenu(false);
       }
     };
-    if (activeMenuId) {
+    if (showMoreMenu) {
       document.addEventListener('mousedown', handleOutside);
     }
     return () => {
       document.removeEventListener('mousedown', handleOutside);
     };
-  }, [activeMenuId]);
+  }, [showMoreMenu]);
 
-  // Combined search term (Header search takes priority if present, otherwise local)
-  const effectiveSearchTerm = (externalSearchTerm || localSearchTerm).trim();
+  const effectiveSearchTerm = (localSearchTerm || externalSearchTerm).trim();
 
-  // Helper date matchers
   const isSameDay = (timestamp: number, targetDate: Date) => {
     const d = new Date(timestamp);
     return (
@@ -117,11 +161,13 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
   // Filter & Sort bills
   const filteredBills = useMemo(() => {
     const filtered = bills.filter((bill) => {
-      // 1. Search filter (Invoice #, Customer Name, Customer Phone, Item Name)
       if (effectiveSearchTerm) {
         const query = effectiveSearchTerm.toLowerCase();
+        const partyName = getPartyDisplayName(bill.customerName).toLowerCase();
         const matchesInvoice = bill.invoiceNo.toLowerCase().includes(query);
-        const matchesCustomer = bill.customerName?.toLowerCase().includes(query) || false;
+        const matchesCustomer =
+          (bill.customerName?.toLowerCase().includes(query) || false) ||
+          partyName.includes(query);
         const matchesPhone = bill.customerPhone?.toLowerCase().includes(query) || false;
         const matchesItem = bill.items.some((it) => it.name.toLowerCase().includes(query));
 
@@ -130,7 +176,6 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
         }
       }
 
-      // 2. Date filter
       if (datePreset === 'today') {
         if (!isSameDay(bill.timestamp, new Date())) return false;
       } else if (datePreset === 'yesterday') {
@@ -146,7 +191,6 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
         if (!isSameDay(bill.timestamp, target)) return false;
       }
 
-      // 3. Payment filter
       if (paymentFilter !== 'all') {
         if (bill.paymentMethod !== paymentFilter) return false;
       }
@@ -154,9 +198,8 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
       return true;
     });
 
-    // 4. Sort
     return filtered.sort((a, b) => {
-      switch (sortOption) {
+      switch (localSort) {
         case 'date-desc':
           return b.timestamp - a.timestamp;
         case 'date-asc':
@@ -164,14 +207,15 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
         case 'amount-desc':
           return b.grandTotal - a.grandTotal;
         case 'name-asc':
-          return (a.customerName || a.invoiceNo).localeCompare(b.customerName || b.invoiceNo);
+          return getPartyDisplayName(a.customerName).localeCompare(
+            getPartyDisplayName(b.customerName)
+          );
         default:
           return b.timestamp - a.timestamp;
       }
     });
-  }, [bills, effectiveSearchTerm, datePreset, customDate, paymentFilter, sortOption]);
+  }, [bills, effectiveSearchTerm, datePreset, customDate, paymentFilter, localSort]);
 
-  // Financial Stats of filtered bills
   const stats = useMemo(() => {
     const totalCount = filteredBills.length;
     const totalRevenue = filteredBills.reduce((sum, b) => sum + b.grandTotal, 0);
@@ -185,620 +229,298 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
     return { totalCount, totalRevenue, paidRevenue, dueRevenue };
   }, [filteredBills]);
 
-  // Quick Print via Bluetooth / Browser
-  const handleQuickPrint = async (bill: BillInvoice) => {
-    setActionFeedback({ id: bill.id, message: isBn ? 'প্রিন্ট হচ্ছে...' : 'Printing...' });
-    const res = await thermalPrinterService.printViaBluetooth(bill, settings);
-    if (res.success) {
-      setActionFeedback({ id: bill.id, message: isBn ? 'প্রিন্ট সম্পন্ন!' : 'Printed via BLE!' });
-    } else {
-      thermalPrinterService.printViaBrowser(bill, settings);
-      setActionFeedback({ id: bill.id, message: isBn ? 'ব্রাউজার প্রিন্ট' : 'Browser Print' });
-    }
-    setTimeout(() => setActionFeedback(null), 2200);
-  };
-
-  // WhatsApp Share bill
-  const handleWhatsAppShare = (bill: BillInvoice) => {
-    const cleanPhone = bill.customerPhone ? bill.customerPhone.replace(/[^0-9]/g, '') : '';
-    const store = settings.storeName || 'Our Store';
-
-    let itemsText = bill.items
-      .map((it) => `• ${it.name} (${it.qty} x ${sym}${it.price}) = ${sym}${it.total}`)
-      .join('\n');
-
-    let message = isBn
-      ? `🧾 *${store} - বিল চালান #${bill.invoiceNo}*\nতারিখ: ${bill.date}\nকাস্টমার: ${bill.customerName || 'সম্মানিত ক্রেতা'}\n\n*পণ্য বিবরণ:*\n${itemsText}\n\n*মোট বিল:* ${sym}${bill.grandTotal.toFixed(2)}\n*পেমেন্ট:* ${bill.paymentMethod.toUpperCase()} (${bill.paymentMethod === 'due' ? 'বাকি' : 'পরিশোধিত'})\n\nআমাদের সাথে কেনাকাটার জন্য ধন্যবাদ!`
-      : `🧾 *${store} - Invoice #${bill.invoiceNo}*\nDate: ${bill.date}\nCustomer: ${bill.customerName || 'Valued Customer'}\n\n*Items:*\n${itemsText}\n\n*Grand Total:* ${sym}${bill.grandTotal.toFixed(2)}\n*Status:* ${bill.paymentMethod.toUpperCase()} (${bill.paymentMethod === 'due' ? 'DUE' : 'PAID'})\n\nThank you for your business!`;
-
-    const url = cleanPhone
-      ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`
-      : `https://wa.me/?text=${encodeURIComponent(message)}`;
-
-    window.open(url, '_blank');
-  };
-
-  const handleDelete = (bill: BillInvoice) => {
-    setDeleteConfirmBill({
-      id: bill.id,
-      invoiceNo: bill.invoiceNo,
-      amount: bill.grandTotal,
-      customerName: bill.customerName,
+  const formatAmount = (amount: number) => {
+    const rounded = Math.round(amount * 100) / 100;
+    const isWhole = rounded % 1 === 0;
+    return rounded.toLocaleString('en-IN', {
+      minimumFractionDigits: isWhole ? 0 : 2,
+      maximumFractionDigits: 2,
     });
   };
 
-  const toggleExpand = (id: string) => {
-    setExpandedInvoiceId((prev) => (prev === id ? null : id));
-  };
+  const hasActiveFilters = datePreset !== 'all' || paymentFilter !== 'all';
 
   return (
-    <div className="max-w-4xl mx-auto px-3 sm:px-4 py-3 space-y-3 pb-28 relative">
-      {/* 1. KHATABOOK / STATS SUMMARY PILLS */}
-      <div className="bg-white rounded-3xl p-3 sm:p-4 shadow-2xs border border-stone-200/90 space-y-2.5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
-              <Table className="w-4 h-4" />
-            </div>
-            <h2 className="text-xs sm:text-sm font-bold text-stone-900">
-              {isBn ? 'ইনভয়েস শিট ও রেজিস্টার' : 'Invoices & Sheet Register'}
-            </h2>
-          </div>
-          <span className="text-[11px] font-mono font-bold text-stone-600 bg-stone-100 px-2.5 py-0.5 rounded-full">
-            {filteredBills.length} {isBn ? 'টি ফাইল' : 'files'}
-          </span>
+    <div className="max-w-3xl mx-auto bg-white min-h-[calc(100vh-120px)] pb-24 shadow-2xs">
+      {/* 1. TOP BAR: SEARCH PARTY | FILTER ICON | + New Party | 3-DOTS (Exact match to uploaded reference) */}
+      <div className="px-4 py-3 border-b border-stone-200 flex items-center justify-between gap-2 bg-white sticky top-0 z-20">
+        {/* Left: Blue Magnifying Glass + SEARCH PARTY Input */}
+        <div className="flex items-center gap-2.5 flex-1 min-w-0">
+          <Search className="w-5 h-5 text-[#0066cc] stroke-[2.2] shrink-0" />
+          <input
+            type="text"
+            value={localSearchTerm}
+            onChange={(e) => setLocalSearchTerm(e.target.value)}
+            placeholder="SEARCH PARTY"
+            className="w-full bg-transparent border-none text-sm text-stone-900 placeholder:text-stone-400 placeholder:tracking-wider placeholder:font-normal focus:outline-none"
+          />
+          {localSearchTerm && (
+            <button
+              type="button"
+              onClick={() => setLocalSearchTerm('')}
+              className="p-1 text-stone-400 hover:text-stone-600 rounded-full cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
 
-        {/* 3 Metric Pills */}
-        <div className="grid grid-cols-3 gap-2 text-center">
-          {/* Total Sales */}
-          <div className="p-2 rounded-2xl bg-[#f8fafc] border border-stone-200/80">
+        {/* Right: Filter Circle + "+ New Party" Pill + 3 Dots */}
+        <div className="flex items-center gap-2 shrink-0">
+          {/* Circular Filter Button */}
+          <button
+            type="button"
+            onClick={() => setShowFilters((prev) => !prev)}
+            className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors cursor-pointer relative ${
+              showFilters || hasActiveFilters
+                ? 'bg-blue-100 text-[#0066cc]'
+                : 'bg-[#f1f3f5] hover:bg-stone-200 text-stone-600'
+            }`}
+            title={isBn ? 'ফিল্টার ও তারিখ' : 'Filter Party & Dates'}
+          >
+            <ListFilter className="w-4 h-4 stroke-[2.2]" />
+            {hasActiveFilters && (
+              <span className="w-2 h-2 rounded-full bg-[#0066cc] absolute top-1.5 right-1.5" />
+            )}
+          </button>
+
+          {/* + New Party Button */}
+          <button
+            type="button"
+            onClick={() => {
+              if (onNavigateToBilling) {
+                onNavigateToBilling();
+              }
+            }}
+            className="px-3.5 py-1.5 rounded-full bg-[#e8f3ff] hover:bg-[#d8ebff] active:scale-[0.98] text-[#0066cc] font-semibold text-xs sm:text-sm flex items-center gap-1 transition-all cursor-pointer whitespace-nowrap"
+          >
+            <Plus className="w-4 h-4 stroke-[2.5]" />
+            <span>New Party</span>
+          </button>
+
+          {/* 3 Vertical Dots Menu */}
+          <div className="relative" ref={moreMenuRef}>
+            <button
+              type="button"
+              onClick={() => setShowMoreMenu((prev) => !prev)}
+              className="p-1.5 text-stone-400 hover:text-stone-700 rounded-full hover:bg-stone-100 transition-colors cursor-pointer"
+              title="More options"
+            >
+              <MoreVertical className="w-5 h-5" />
+            </button>
+
+            {showMoreMenu && (
+              <div className="absolute right-0 top-10 w-52 bg-white rounded-2xl shadow-xl border border-stone-200 py-1.5 z-40 animate-in fade-in zoom-in-95 duration-150 divide-y divide-stone-100">
+                <div className="py-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowSummaryCard((prev) => !prev);
+                      setShowMoreMenu(false);
+                    }}
+                    className="w-full text-left px-3.5 py-2 text-xs font-semibold text-stone-700 hover:bg-stone-50 flex items-center justify-between cursor-pointer"
+                  >
+                    <span>{isBn ? 'মোট হিসাব সামারি দেখুন' : 'Show Sales Summary'}</span>
+                    {showSummaryCard && <CheckCircle2 className="w-3.5 h-3.5 text-[#129958]" />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowFilters((prev) => !prev);
+                      setShowMoreMenu(false);
+                    }}
+                    className="w-full text-left px-3.5 py-2 text-xs font-semibold text-stone-700 hover:bg-stone-50 flex items-center justify-between cursor-pointer"
+                  >
+                    <span>{isBn ? 'তারিখ ও পেমেন্ট ফিল্টার' : 'Date & Mode Filters'}</span>
+                    {showFilters && <CheckCircle2 className="w-3.5 h-3.5 text-[#0066cc]" />}
+                  </button>
+                </div>
+
+                <div className="py-1">
+                  <div className="px-3.5 py-1 text-[10px] font-bold text-stone-400 uppercase">
+                    {isBn ? 'সাজানোর ক্রম' : 'Sort By'}
+                  </div>
+                  {(
+                    [
+                      { id: 'date-desc', label: isBn ? 'নতুন বিল আগে' : 'Newest First' },
+                      { id: 'date-asc', label: isBn ? 'পুরোনো বিল আগে' : 'Oldest First' },
+                      { id: 'amount-desc', label: isBn ? 'টাকার পরিমাণ (বেশি)' : 'Amount (High to Low)' },
+                      { id: 'name-asc', label: isBn ? 'পার্টির নাম (A-Z)' : 'Party Name (A-Z)' },
+                    ] as { id: SortOption; label: string }[]
+                  ).map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => {
+                        setLocalSort(opt.id);
+                        setShowMoreMenu(false);
+                      }}
+                      className={`w-full text-left px-3.5 py-1.5 text-xs font-medium flex items-center justify-between cursor-pointer ${
+                        localSort === opt.id
+                          ? 'text-[#0066cc] font-bold bg-blue-50/60'
+                          : 'text-stone-700 hover:bg-stone-50'
+                      }`}
+                    >
+                      <span>{opt.label}</span>
+                      {localSort === opt.id && <CheckCircle2 className="w-3.5 h-3.5 text-[#0066cc]" />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Collapsible Summary Bar (only shown if toggled from 3-dots menu) */}
+      {showSummaryCard && (
+        <div className="px-4 py-3 bg-stone-50 border-b border-stone-200 grid grid-cols-3 gap-2 text-center animate-in fade-in duration-150">
+          <div className="p-2 rounded-xl bg-white border border-stone-200/80">
             <span className="block text-[10px] uppercase font-bold text-stone-500">
               {isBn ? 'মোট বিক্রয়' : 'Total Sales'}
             </span>
-            <span className="text-xs sm:text-sm font-black text-stone-900 font-mono block mt-0.5">
-              {sym}{stats.totalRevenue.toFixed(0)}
-            </span>
-            <span className="text-[9px] text-stone-400 font-medium">
-              {stats.totalCount} {isBn ? 'টি চালান' : 'sheets'}
+            <span className="text-xs sm:text-sm font-black text-stone-900 block mt-0.5">
+              {sym} {formatAmount(stats.totalRevenue)}
             </span>
           </div>
-
-          {/* Paid Sales */}
-          <div className="p-2 rounded-2xl bg-emerald-50/80 border border-emerald-200/70">
-            <span className="block text-[10px] uppercase font-bold text-emerald-700">
-              {isBn ? 'নগদ আদায়' : 'Paid Sales'}
+          <div className="p-2 rounded-xl bg-white border border-emerald-200/80">
+            <span className="block text-[10px] uppercase font-bold text-[#129958]">
+              {isBn ? 'নগদ আদায়' : 'Paid'}
             </span>
-            <span className="text-xs sm:text-sm font-black text-emerald-700 font-mono block mt-0.5">
-              {sym}{stats.paidRevenue.toFixed(0)}
-            </span>
-            <span className="text-[9px] text-emerald-600 font-medium">
-              {isBn ? 'পরিশোধিত' : 'Settled'}
+            <span className="text-xs sm:text-sm font-black text-[#129958] block mt-0.5">
+              {sym} {formatAmount(stats.paidRevenue)}
             </span>
           </div>
-
-          {/* Due Sales */}
-          <div className="p-2 rounded-2xl bg-rose-50/80 border border-rose-200/70">
-            <span className="block text-[10px] uppercase font-bold text-rose-700">
-              {isBn ? 'বাকি বিক্রয়' : 'Due Sales'}
+          <div className="p-2 rounded-xl bg-white border border-rose-200/80">
+            <span className="block text-[10px] uppercase font-bold text-rose-600">
+              {isBn ? 'বাকি' : 'Due'}
             </span>
-            <span className="text-xs sm:text-sm font-black text-rose-700 font-mono block mt-0.5">
-              {sym}{stats.dueRevenue.toFixed(0)}
-            </span>
-            <span className="text-[9px] text-rose-600 font-medium">
-              {isBn ? 'বকেয়া' : 'Unpaid'}
+            <span className="text-xs sm:text-sm font-black text-rose-600 block mt-0.5">
+              {sym} {formatAmount(stats.dueRevenue)}
             </span>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* 2. FILTER CONTROLS (Date Presets & Payment Mode) */}
-      <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs bg-white p-2 sm:p-2.5 rounded-2xl border border-stone-200/80 shadow-2xs">
-        <div className="flex items-center gap-1 overflow-x-auto pb-0.5">
-          {(['all', 'today', 'yesterday', 'week', 'custom'] as DateFilterPreset[]).map((preset) => (
-            <button
-              key={preset}
-              type="button"
-              onClick={() => setDatePreset(preset)}
-              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all cursor-pointer capitalize ${
-                datePreset === preset
-                  ? 'bg-blue-600 text-white shadow-2xs'
-                  : 'bg-stone-50 border border-stone-200 text-stone-600 hover:bg-stone-100'
-              }`}
-            >
-              {preset === 'all'
-                ? isBn
-                  ? 'সব'
-                  : 'All'
-                : preset === 'today'
-                ? isBn
-                  ? 'আজ'
-                  : 'Today'
-                : preset === 'yesterday'
-                ? isBn
-                  ? 'গতকাল'
-                  : 'Yesterday'
-                : preset === 'week'
-                ? isBn
-                  ? '৭ দিন'
-                  : '7 Days'
-                : isBn
-                ? 'তারিখ'
-                : 'Custom'}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex items-center gap-1 ml-auto">
-          <select
-            value={paymentFilter}
-            onChange={(e) => setPaymentFilter(e.target.value as any)}
-            className="bg-stone-50 border border-stone-200 text-stone-700 text-[11px] font-bold px-2 py-1 rounded-xl focus:outline-none focus:border-blue-500 cursor-pointer shadow-2xs"
-          >
-            <option value="all">{isBn ? 'সকল পেমেন্ট' : 'All Modes'}</option>
-            <option value="cash">{isBn ? 'নগদ (Cash)' : 'Cash'}</option>
-            <option value="upi">UPI</option>
-            <option value="card">{isBn ? 'কার্ড (Card)' : 'Card'}</option>
-            <option value="due">{isBn ? 'বাকি (Due)' : 'Due / Credit'}</option>
-          </select>
-        </div>
-
-        {datePreset === 'custom' && (
-          <div className="w-full flex items-center gap-2 pt-1.5 border-t border-stone-100 mt-1">
-            <span className="text-xs text-stone-500 font-medium">
-              {isBn ? 'তারিখ নির্বাচন:' : 'Select Date:'}
-            </span>
-            <input
-              type="date"
-              value={customDate}
-              onChange={(e) => setCustomDate(e.target.value)}
-              className="bg-white border border-stone-200 text-xs px-2.5 py-1 rounded-xl font-mono focus:outline-none focus:border-blue-500"
-            />
-          </div>
-        )}
-      </div>
-
-      {/* 3. MAIN CARDS VIEW (GRID MODE OR LIST MODE) */}
-      {filteredBills.length === 0 ? (
-        <div className="bg-white rounded-3xl p-10 text-center border border-stone-200 space-y-2">
-          <FileText className="w-10 h-10 text-stone-300 mx-auto" />
-          <p className="text-xs font-bold text-stone-700">
-            {isBn ? 'কোনো ইনভয়েস পাওয়া যায়নি' : 'No invoices or sheets found'}
-          </p>
-          <p className="text-[11px] text-stone-400">
-            {isBn
-              ? 'ফিল্টার বা সার্চ পরিবর্তন করুন অথবা নতুন বিল তৈরি করুন'
-              : 'Try clearing search filters or create a new bill'}
-          </p>
-        </div>
-      ) : viewMode === 'grid' ? (
-        /* ================= 2-COLUMN GOOGLE SHEETS GRID CARDS (EXACT MATCH TO SCREENSHOT) ================= */
-        <div className="grid grid-cols-2 gap-2.5 sm:gap-3.5">
-          {filteredBills.map((bill) => {
-            const isDue = bill.paymentMethod === 'due';
-            const feedback = actionFeedback?.id === bill.id ? actionFeedback.message : null;
-            const isMenuOpen = activeMenuId === bill.id;
-
-            return (
-              <div
-                key={bill.id}
-                className="bg-white rounded-2xl border border-stone-200/90 hover:border-blue-300 shadow-2xs hover:shadow-md transition-all flex flex-col justify-between overflow-hidden relative group cursor-pointer select-none"
-                onClick={() => onViewReceipt(bill)}
+      {/* Collapsible Filter Bar (when Filter icon is tapped) */}
+      {showFilters && (
+        <div className="px-4 py-2.5 bg-stone-50 border-b border-stone-200 flex flex-wrap items-center justify-between gap-2 text-xs animate-in fade-in duration-150">
+          <div className="flex items-center gap-1 overflow-x-auto pb-0.5">
+            {(['all', 'today', 'yesterday', 'week', 'custom'] as DateFilterPreset[]).map((preset) => (
+              <button
+                key={preset}
+                type="button"
+                onClick={() => setDatePreset(preset)}
+                className={`px-2.5 py-1 rounded-full text-[11px] font-semibold transition-all cursor-pointer ${
+                  datePreset === preset
+                    ? 'bg-[#0066cc] text-white'
+                    : 'bg-white border border-stone-200 text-stone-600 hover:bg-stone-100'
+                }`}
               >
-                {/* Top Card Header: Green Sheet Icon with [+] + Title + 3-Dot (⋮) Menu */}
-                <div
-                  className="p-2.5 sm:p-3 flex items-start justify-between gap-1.5"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div
-                    className="flex items-start gap-2 min-w-0 flex-1 cursor-pointer"
-                    onClick={() => onViewReceipt(bill)}
-                  >
-                    {/* Green Google Sheets Icon with White [+] */}
-                    <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-md bg-[#0f9d58] text-white flex items-center justify-center font-bold shrink-0 shadow-2xs">
-                      <Plus className="w-4 h-4 stroke-[3]" />
-                    </div>
+                {preset === 'all'
+                  ? 'All'
+                  : preset === 'today'
+                  ? 'Today'
+                  : preset === 'yesterday'
+                  ? 'Yesterday'
+                  : preset === 'week'
+                  ? '7 Days'
+                  : 'Custom'}
+              </button>
+            ))}
+          </div>
 
-                    {/* Title (Invoice No / Customer Name) */}
-                    <div className="min-w-0 flex-1">
-                      <h3 className="text-xs sm:text-[13px] font-bold text-stone-900 leading-tight truncate">
-                        {bill.customerName || bill.invoiceNo}
-                      </h3>
-                      <p className="text-[10px] sm:text-[11px] text-stone-500 font-mono truncate">
-                        #{bill.invoiceNo}
-                      </p>
-                    </div>
-                  </div>
+          <div className="flex items-center gap-1.5 ml-auto">
+            <select
+              value={paymentFilter}
+              onChange={(e) => setPaymentFilter(e.target.value as any)}
+              className="bg-white border border-stone-200 text-stone-700 text-[11px] font-semibold px-2.5 py-1 rounded-full focus:outline-none focus:border-[#0066cc] cursor-pointer"
+            >
+              <option value="all">All Modes</option>
+              <option value="cash">Cash</option>
+              <option value="upi">UPI</option>
+              <option value="card">Card</option>
+              <option value="due">Due</option>
+            </select>
 
-                  {/* 3-Dot (⋮) Menu Button */}
-                  <div className="relative shrink-0" ref={isMenuOpen ? cardMenuRef : undefined}>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setActiveMenuId(isMenuOpen ? null : bill.id);
-                      }}
-                      className="p-1 rounded-full text-stone-500 hover:text-stone-900 hover:bg-stone-100 transition-colors cursor-pointer"
-                      title={isBn ? 'অপশন' : 'Options'}
-                    >
-                      <MoreVertical className="w-4 h-4" />
-                    </button>
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={() => {
+                  setDatePreset('all');
+                  setPaymentFilter('all');
+                  setCustomDate('');
+                }}
+                className="text-[11px] text-rose-600 font-semibold px-2 py-0.5 hover:underline cursor-pointer"
+              >
+                Reset
+              </button>
+            )}
+          </div>
 
-                    {/* Dropdown Menu for this Sheet Card */}
-                    {isMenuOpen && (
-                      <div
-                        className="absolute right-0 top-7 w-44 bg-white rounded-2xl shadow-xl border border-stone-200 py-1.5 z-40 animate-in fade-in zoom-in-95 duration-150 divide-y divide-stone-100"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <div className="py-1">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setActiveMenuId(null);
-                              onViewReceipt(bill);
-                            }}
-                            className="w-full text-left px-3 py-1.5 text-xs font-semibold text-stone-700 hover:bg-stone-50 flex items-center gap-2 cursor-pointer"
-                          >
-                            <Eye className="w-3.5 h-3.5 text-blue-600" />
-                            <span>{isBn ? 'চালান দেখুন' : 'View Receipt'}</span>
-                          </button>
+          {datePreset === 'custom' && (
+            <div className="w-full flex items-center gap-2 pt-1.5 border-t border-stone-200/70 mt-1">
+              <span className="text-xs text-stone-500 font-medium">Date:</span>
+              <input
+                type="date"
+                value={customDate}
+                onChange={(e) => setCustomDate(e.target.value)}
+                className="bg-white border border-stone-200 text-xs px-2.5 py-1 rounded-lg font-mono focus:outline-none focus:border-[#0066cc]"
+              />
+            </div>
+          )}
+        </div>
+      )}
 
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setActiveMenuId(null);
-                              handleQuickPrint(bill);
-                            }}
-                            className="w-full text-left px-3 py-1.5 text-xs font-semibold text-stone-700 hover:bg-stone-50 flex items-center gap-2 cursor-pointer"
-                          >
-                            <Printer className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>{isBn ? 'থার্মাল প্রিন্ট' : 'Thermal Print'}</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setActiveMenuId(null);
-                              handleWhatsAppShare(bill);
-                            }}
-                            className="w-full text-left px-3 py-1.5 text-xs font-semibold text-stone-700 hover:bg-stone-50 flex items-center gap-2 cursor-pointer"
-                          >
-                            <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>WhatsApp</span>
-                          </button>
-                        </div>
-
-                        {onUpdateBill && (
-                          <div className="py-1">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setActiveMenuId(null);
-                                setEditingBill(bill);
-                              }}
-                              className="w-full text-left px-3 py-1.5 text-xs font-semibold text-stone-700 hover:bg-stone-50 flex items-center gap-2 cursor-pointer"
-                            >
-                              <Edit2 className="w-3.5 h-3.5 text-stone-500" />
-                              <span>{isBn ? 'এডিট করুন' : 'Edit Bill'}</span>
-                            </button>
-                          </div>
-                        )}
-
-                        <div className="py-1">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setActiveMenuId(null);
-                              handleDelete(bill);
-                            }}
-                            className="w-full text-left px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 flex items-center gap-2 cursor-pointer"
-                          >
-                            <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-                            <span>{isBn ? 'মুছে ফেলুন' : 'Delete'}</span>
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Card Body: Miniature Spreadsheet Grid Lines Preview (As Seen in Google Sheets!) */}
-                <div className="px-2.5 sm:px-3 pb-2.5 flex-1 flex flex-col justify-between">
-                  <div className="w-full bg-[#f8fafc] border border-stone-200/70 rounded-xl p-2 sm:p-2.5 space-y-1.5 min-h-[90px] sm:min-h-[105px] flex flex-col justify-between">
-                    {/* Mini Sheet Rows */}
-                    <div className="space-y-1">
-                      {bill.items.slice(0, 3).map((item, idx) => (
-                        <div
-                          key={idx}
-                          className="flex items-center justify-between text-[10px] text-stone-600 leading-tight"
-                        >
-                          <span className="truncate max-w-[90px] font-medium">{item.name}</span>
-                          <span className="font-mono text-stone-400 shrink-0">
-                            {item.qty}x • {sym}{item.price}
-                          </span>
-                        </div>
-                      ))}
-                      {bill.items.length > 3 && (
-                        <div className="text-[9px] text-stone-400 italic">
-                          +{bill.items.length - 3} {isBn ? 'টি আইটেম...' : 'more items...'}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Total & Status Row inside Preview Box */}
-                    <div className="pt-1 border-t border-stone-200/80 flex items-center justify-between">
-                      <span className="text-[10px] text-stone-400 font-bold uppercase">
-                        {isDue ? (isBn ? 'বাকি' : 'DUE') : (isBn ? 'পরিশোধ' : 'PAID')}
-                      </span>
-                      <span className="text-xs sm:text-sm font-black text-stone-900 font-mono">
-                        {sym}{bill.grandTotal.toFixed(0)}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Card Bottom Meta & Badges */}
-                  <div className="pt-2 flex items-center justify-between text-[10px] text-stone-400">
-                    <div className="flex items-center gap-1 font-mono">
-                      <Clock className="w-3 h-3 text-stone-400" />
-                      <span>{bill.date.split(' ')[0]}</span>
-                    </div>
-
-                    {/* Bottom Right Badges: Due or Paid badge with icon */}
-                    <div className="flex items-center gap-1">
-                      {isDue ? (
-                        <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-rose-100 text-rose-800">
-                          {isBn ? 'বাকি' : 'DUE'}
-                        </span>
-                      ) : (
-                        <div
-                          className="w-4 h-4 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center"
-                          title="Paid"
-                        >
-                          <CheckCircle2 className="w-3 h-3 text-emerald-700" />
-                        </div>
-                      )}
-                      {bill.customerPhone && (
-                        <div
-                          className="w-4 h-4 rounded-full bg-stone-100 text-stone-600 flex items-center justify-center"
-                          title="Customer contact saved"
-                        >
-                          <User className="w-2.5 h-2.5 text-stone-600" />
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Direct Card Action Buttons: Edit, Delete, Print, Share */}
-                  <div
-                    className="pt-2 mt-1.5 border-t border-stone-100 flex items-center justify-between gap-1"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEditingBill(bill);
-                        }}
-                        className="px-2 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
-                        title={isBn ? 'ইনভয়েস এডিট করুন' : 'Edit Invoice'}
-                      >
-                        <Edit2 className="w-3 h-3 text-blue-600" />
-                        <span>{isBn ? 'এডিট' : 'Edit'}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDelete(bill);
-                        }}
-                        className="px-2 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[11px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
-                        title={isBn ? 'ইনভয়েস মুছুন' : 'Delete Invoice'}
-                      >
-                        <Trash2 className="w-3 h-3 text-rose-600" />
-                        <span>{isBn ? 'মুছুন' : 'Delete'}</span>
-                      </button>
-                    </div>
-
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onViewReceipt(bill);
-                        }}
-                        className="p-1 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-700 transition-colors cursor-pointer"
-                        title={isBn ? 'প্রিন্ট ও চালান ভিউ' : 'View & Print'}
-                      >
-                        <Printer className="w-3 h-3" />
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleWhatsAppShare(bill);
-                        }}
-                        className="p-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition-colors cursor-pointer"
-                        title="WhatsApp"
-                      >
-                        <MessageCircle className="w-3 h-3 text-emerald-600" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Feedback pill if print happened */}
-                {feedback && (
-                  <div className="absolute inset-x-0 bottom-0 bg-blue-600 text-white text-[10px] font-bold py-1 px-2 text-center animate-in fade-in">
-                    {feedback}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+      {/* 2. PARTY / INVOICE LIST ROWS (Exact match to uploaded screenshot) */}
+      {filteredBills.length === 0 ? (
+        <div className="py-16 px-4 text-center space-y-2">
+          <FileText className="w-10 h-10 text-stone-300 mx-auto" />
+          <p className="text-sm font-semibold text-stone-700">
+            {isBn ? 'কোনো পার্টি বা বিল পাওয়া যায়নি' : 'No party or invoices found'}
+          </p>
+          <p className="text-xs text-stone-400">
+            {isBn
+              ? 'নতুন বিল তৈরি করতে উপরে "+ New Party" বাটনে ট্যাপ করুন'
+              : 'Tap "+ New Party" above to create a new bill'}
+          </p>
         </div>
       ) : (
-        /* ================= CLASSIC DETAILED LIST VIEW ================= */
-        <div className="space-y-2">
+        <div className="divide-y divide-stone-100 bg-white">
           {filteredBills.map((bill) => {
-            const isExpanded = expandedInvoiceId === bill.id;
-            const isDue = bill.paymentMethod === 'due';
-            const feedback = actionFeedback?.id === bill.id ? actionFeedback.message : null;
+            const partyName = getPartyDisplayName(bill.customerName);
+            const formattedDate = formatPartyDate(bill.timestamp, bill.date);
 
             return (
               <div
                 key={bill.id}
-                className="bg-white rounded-2xl border border-stone-200/90 hover:border-stone-300 p-3 sm:p-3.5 shadow-2xs transition-all space-y-2"
+                onClick={() => onViewReceipt(bill)}
+                className="px-4 py-3.5 flex items-center justify-between gap-3 hover:bg-stone-50/80 active:bg-stone-100 transition-colors cursor-pointer select-none"
               >
-                {/* Header Row */}
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <div className="w-6 h-6 rounded bg-[#0f9d58] text-white flex items-center justify-center font-bold shrink-0">
-                      <Plus className="w-3.5 h-3.5 stroke-[3]" />
-                    </div>
-                    <span className="text-xs sm:text-sm font-bold text-stone-900 font-mono">
-                      #{bill.invoiceNo}
-                    </span>
-
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                        isDue
-                          ? 'bg-rose-100 text-rose-800 border border-rose-200'
-                          : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                      }`}
-                    >
-                      {isDue ? (isBn ? 'বাকি' : 'DUE') : (isBn ? 'পরিশোধিত' : 'PAID')} • {bill.paymentMethod}
-                    </span>
-
-                    {feedback && (
-                      <span className="text-[10px] font-bold text-blue-600 animate-pulse flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3" /> {feedback}
-                      </span>
-                    )}
+                {/* Left Column: Party Name & Date */}
+                <div className="min-w-0 flex-1">
+                  <div className="text-[15px] sm:text-[16px] font-normal text-stone-900 leading-snug truncate">
+                    {partyName}
                   </div>
-
-                  {/* Grand Total */}
-                  <div className="text-right">
-                    <div className="text-base font-black text-stone-900 font-mono tracking-tight">
-                      {sym}{bill.grandTotal.toFixed(2)}
-                    </div>
+                  <div className="text-[12px] sm:text-[13px] font-normal text-stone-400 mt-0.5">
+                    {formattedDate}
                   </div>
                 </div>
 
-                {/* Customer & Items Summary */}
-                <div className="flex items-center justify-between text-[11px] text-stone-500 font-medium">
-                  <div className="truncate flex items-center gap-1.5">
-                    <span className="font-bold text-stone-800">
-                      {bill.customerName || (isBn ? 'সাধারণ ক্রেতা' : 'Walk-in Customer')}
-                    </span>
-                    {bill.customerPhone && (
-                      <span className="font-mono text-stone-400">({bill.customerPhone})</span>
-                    )}
+                {/* Right Column: Amount & You'll Get */}
+                <div className="text-right shrink-0">
+                  <div className="text-[15px] sm:text-[16px] font-normal text-[#129958] leading-snug">
+                    {sym} {formatAmount(bill.grandTotal)}
                   </div>
-                  <div className="shrink-0 flex items-center gap-1.5 text-stone-400">
-                    <span>{bill.items.length} {isBn ? 'আইটেম' : 'items'}</span>
-                    <span>•</span>
-                    <span>{bill.date.split(' ')[0]}</span>
+                  <div className="text-[12px] font-normal text-[#129958] mt-0.5">
+                    You&apos;ll Get
                   </div>
                 </div>
-
-                {/* Actions Row */}
-                <div className="pt-2 border-t border-stone-100 flex items-center justify-between gap-1 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() => toggleExpand(bill.id)}
-                    className="text-[11px] font-bold text-stone-500 hover:text-stone-800 flex items-center gap-1 cursor-pointer"
-                  >
-                    <span>{isExpanded ? (isBn ? 'সংক্ষেপ করুন' : 'Hide Details') : (isBn ? 'আইটেম দেখুন' : 'View Items')}</span>
-                    {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                  </button>
-
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => handleQuickPrint(bill)}
-                      className="p-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 transition-all cursor-pointer"
-                      title={isBn ? 'থার্মাল প্রিন্ট' : 'Print Thermal Slip'}
-                    >
-                      <Printer className="w-4 h-4" />
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleWhatsAppShare(bill)}
-                      className="p-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200/80 transition-all cursor-pointer"
-                      title="WhatsApp"
-                    >
-                      <MessageCircle className="w-4 h-4 text-emerald-600" />
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => onViewReceipt(bill)}
-                      className="p-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200/80 transition-all cursor-pointer"
-                      title={isBn ? 'ট্যাক্স চালান দেখুন' : 'View Tax Invoice'}
-                    >
-                      <Eye className="w-4 h-4 text-blue-600" />
-                    </button>
-
-                    {onUpdateBill && (
-                      <button
-                        type="button"
-                        onClick={() => setEditingBill(bill)}
-                        className="p-1.5 rounded-xl text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition-all cursor-pointer"
-                        title={isBn ? 'বিল এডিট' : 'Edit Bill'}
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(bill)}
-                      className="p-1.5 rounded-xl text-rose-600 hover:text-rose-700 bg-rose-50/80 hover:bg-rose-100 border border-rose-200/70 transition-all cursor-pointer"
-                      title={isBn ? 'বিল মুছুন' : 'Delete Bill'}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Expanded Items */}
-                {isExpanded && (
-                  <div className="pt-2 border-t border-dashed border-stone-200 space-y-1 text-xs">
-                    {bill.items.map((it, idx) => (
-                      <div key={idx} className="flex justify-between py-0.5 text-stone-600">
-                        <span>{it.name} ({it.qty} x {sym}{it.price})</span>
-                        <span className="font-mono font-bold text-stone-800">{sym}{it.total.toFixed(2)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
             );
           })}
         </div>
       )}
-
-      {/* 4. GOOGLE SHEETS STYLE MATERIAL 3 FLOATING ACTION BUTTON (FAB) (Matching Bottom Right [+] in Screenshot!) */}
-      <div className="fixed right-4 bottom-18 sm:bottom-20 z-30">
-        <button
-          id="google-sheets-fab-btn"
-          type="button"
-          onClick={() => {
-            if (onNavigateToBilling) {
-              onNavigateToBilling();
-            }
-          }}
-          aria-label="Create New Bill"
-          title={isBn ? 'নতুন বিল তৈরি করুন' : 'Create New Invoice'}
-          className="w-14 h-14 rounded-2xl bg-[#d3e3fd] hover:bg-[#c2e7ff] active:scale-95 text-[#041e49] shadow-lg hover:shadow-xl flex items-center justify-center transition-all cursor-pointer border border-[#c2e7ff]"
-        >
-          <Plus className="w-7 h-7 stroke-[2.5]" />
-        </button>
-      </div>
 
       {/* Edit Invoice Modal */}
       {editingBill && (
@@ -837,7 +559,7 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
                 {isBn ? 'ইনভয়েস মুছে ফেলতে চান?' : 'Delete this Invoice?'}
               </h3>
               <p className="text-xs text-stone-500 font-mono">
-                #{deleteConfirmBill.invoiceNo} • {sym}{deleteConfirmBill.amount.toFixed(2)}
+                #{deleteConfirmBill.invoiceNo} • {sym} {formatAmount(deleteConfirmBill.amount)}
               </p>
               {deleteConfirmBill.customerName && (
                 <p className="text-xs text-stone-600 font-medium">
