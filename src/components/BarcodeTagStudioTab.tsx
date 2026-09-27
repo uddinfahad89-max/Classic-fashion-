@@ -245,12 +245,12 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
         tsplShopX: hasOldLowX ? undefined : saved.tsplShopX,
         tsplBarcodeX: hasOldLowX ? undefined : saved.tsplBarcodeX,
         tsplPriceX: hasOldLowX ? undefined : saved.tsplPriceX,
-        tsplShopY: saved.tsplShopY && saved.tsplShopY <= 35 ? saved.tsplShopY : 22,
+        tsplShopY: saved.tsplShopY ?? 22,
         tsplShopFont: saved.tsplShopFont || '3',
         tsplBarcodeY: saved.tsplBarcodeY ?? 52,
         tsplBarcodeHeight: saved.tsplBarcodeHeight ?? 45,
         tsplBarcodeRatio: saved.tsplBarcodeRatio || '2:3',
-        tsplPriceY: saved.tsplPriceY && saved.tsplPriceY >= 120 ? saved.tsplPriceY : 135,
+        tsplPriceY: saved.tsplPriceY ?? 135,
         tsplPriceFont: saved.tsplPriceFont || '3',
       };
     }
@@ -315,6 +315,18 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
   }, []);
 
   const labelPreviewRef = useRef<HTMLDivElement | null>(null);
+  const interactiveCanvasRef = useRef<HTMLDivElement | null>(null);
+  const [selectedCanvasItem, setSelectedCanvasItem] = useState<'shop' | 'barcode' | 'price' | null>(null);
+  const [draggingCanvasItem, setDraggingCanvasItem] = useState<'shop' | 'barcode' | 'price' | null>(null);
+  const dragSessionRef = useRef<{
+    item: 'shop' | 'barcode' | 'price';
+    startClientX: number;
+    startClientY: number;
+    startDotX: number;
+    startDotY: number;
+    canvasWidth: number;
+    canvasHeight: number;
+  } | null>(null);
 
   // Fast and robust capture helper using html2canvas-pro with solid white background and pure black rendering
   const captureLabelCanvas = async (scale = 2.2): Promise<HTMLCanvasElement | null> => {
@@ -326,6 +338,8 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
       logging: false,
       imageTimeout: 0,
       onclone: (clonedDoc) => {
+        // Remove any interactive drag-and-drop selection overlays before bitmap capture
+        clonedDoc.querySelectorAll('[data-drag-ui="true"]').forEach((el) => el.remove());
         // High Contrast Output: Ensure no dark mode CSS interferes with the generated label canvas
         const card = clonedDoc.getElementById('thermal-sticker-live-card');
         if (card) {
@@ -334,6 +348,8 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
           card.querySelectorAll('*').forEach((el: any) => {
             if (el.tagName !== 'IMG') {
               el.style.color = '#000000';
+              el.style.outline = 'none';
+              el.style.boxShadow = 'none';
               if (el.style.borderColor) {
                 el.style.borderColor = '#000000';
               }
@@ -1074,6 +1090,110 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
       priceFont: tsplLayout.priceFont,
     });
   }, [labelConfig, tsplLayout]);
+
+  // Interactive 4Barcode-style Touch & Mouse Drag-and-Drop Handlers (1mm = 8 dots -> 50x25mm = 400x200 dots)
+  const handleCanvasItemPointerDown = (
+    item: 'shop' | 'barcode' | 'price',
+    e: React.PointerEvent<HTMLDivElement>
+  ) => {
+    e.stopPropagation();
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {}
+    const canvasEl = interactiveCanvasRef.current;
+    const rect = canvasEl ? canvasEl.getBoundingClientRect() : null;
+    const canvasWidth = rect && rect.width > 0 ? rect.width : 300;
+    const canvasHeight = rect && rect.height > 0 ? rect.height : 150;
+
+    const startDotX =
+      item === 'shop'
+        ? tsplLayout.shopX
+        : item === 'barcode'
+        ? tsplLayout.barcodeX
+        : tsplLayout.priceX;
+    const startDotY =
+      item === 'shop'
+        ? tsplLayout.shopY
+        : item === 'barcode'
+        ? tsplLayout.barcodeY
+        : tsplLayout.priceY;
+
+    setSelectedCanvasItem(item);
+    setDraggingCanvasItem(item);
+    dragSessionRef.current = {
+      item,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      startDotX,
+      startDotY,
+      canvasWidth,
+      canvasHeight,
+    };
+
+    // Lock current X coordinates so non-dragged elements stay in their exact place
+    setLabelConfig((prev) => ({
+      ...prev,
+      tsplCustomX: true,
+      tsplShopX: prev.tsplShopX ?? tsplLayout.shopX,
+      tsplBarcodeX: prev.tsplBarcodeX ?? tsplLayout.barcodeX,
+      tsplPriceX: prev.tsplPriceX ?? tsplLayout.priceX,
+    }));
+  };
+
+  const handleCanvasItemPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const session = dragSessionRef.current;
+    if (!session) return;
+    e.stopPropagation();
+
+    // 1mm = 8 dots => 50mm = 400 dots wide, 25mm = 200 dots high
+    const totalDotsX = 50 * 8; // 400 dots
+    const totalDotsY = 25 * 8; // 200 dots
+    const dotsPerPxX = totalDotsX / session.canvasWidth;
+    const dotsPerPxY = totalDotsY / session.canvasHeight;
+
+    const deltaDotsX = Math.round((e.clientX - session.startClientX) * dotsPerPxX);
+    const deltaDotsY = Math.round((e.clientY - session.startClientY) * dotsPerPxY);
+
+    const minDotX = tsplLayout.rollLeftOffset + 4;
+    const maxDotX = tsplLayout.rollLeftOffset + totalDotsX - 24;
+    const nextDotX = Math.max(minDotX, Math.min(maxDotX, session.startDotX + deltaDotsX));
+    const nextDotY = Math.max(2, Math.min(totalDotsY - 16, session.startDotY + deltaDotsY));
+
+    setLabelConfig((prev) => {
+      if (session.item === 'shop') {
+        return {
+          ...prev,
+          tsplCustomX: true,
+          tsplShopX: nextDotX,
+          tsplShopY: nextDotY,
+        };
+      }
+      if (session.item === 'barcode') {
+        return {
+          ...prev,
+          tsplCustomX: true,
+          tsplBarcodeX: nextDotX,
+          tsplBarcodeY: nextDotY,
+        };
+      }
+      return {
+        ...prev,
+        tsplCustomX: true,
+        tsplPriceX: nextDotX,
+        tsplPriceY: nextDotY,
+      };
+    });
+  };
+
+  const handleCanvasItemPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragSessionRef.current) return;
+    e.stopPropagation();
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {}
+    dragSessionRef.current = null;
+    setDraggingCanvasItem(null);
+  };
 
   // Quick test print on thermal printer (50x25mm label test or receipt test)
   const handleTestPrint = async () => {
@@ -2792,8 +2912,31 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
         {/* RIGHT COLUMN: Live Sticker Preview & Printing Actions (5 Cols on desktop) */}
         <div className="lg:col-span-5 space-y-4">
           <div className="bg-white p-4 sm:p-5 rounded-2xl border border-stone-200 shadow-xs space-y-3.5">
-            {/* Visual Thermal Sticker Container */}
-            <div className="bg-stone-100/90 p-3 sm:p-5 rounded-2xl border border-dashed border-stone-300 flex items-center justify-center min-h-[210px] overflow-hidden">
+            {/* Visual Thermal Sticker Container (Interactive 4Barcode Drag & Drop Canvas) */}
+            <div
+              onClick={() => setSelectedCanvasItem(null)}
+              className="bg-stone-100/90 p-3 sm:p-4 rounded-2xl border border-dashed border-stone-300 flex flex-col items-center justify-center min-h-[215px] gap-2 overflow-hidden"
+            >
+              <div className="flex items-center justify-between w-full max-w-[312px] px-1 text-[10px] font-bold text-stone-600">
+                <span className="flex items-center gap-1">
+                  <span>🖐️</span>
+                  <span>
+                    {isBn
+                      ? 'লেখা বা বারকোড ট্যাপ করে টেনে (Drag) পজিশন বসান'
+                      : 'Touch & drag any element to move'}
+                  </span>
+                </span>
+                {selectedCanvasItem && (
+                  <span className="font-mono font-black text-[9.5px] bg-indigo-600 text-white px-2 py-0.5 rounded-full shadow-2xs">
+                    {selectedCanvasItem === 'shop'
+                      ? `Shop: ${tsplLayout.shopX},${tsplLayout.shopY}`
+                      : selectedCanvasItem === 'barcode'
+                      ? `Code: ${tsplLayout.barcodeX},${tsplLayout.barcodeY}`
+                      : `MRP: ${tsplLayout.priceX},${tsplLayout.priceY}`}
+                  </span>
+                )}
+              </div>
+
               <div
                 ref={labelPreviewRef}
                 id="thermal-sticker-live-card"
@@ -2842,19 +2985,29 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                 {/* --- RENDER OPTION: ULTRA SIMPLE (50mm x 25mm Interactive Coordinate Canvas = 400 x 200 dots) --- */}
                 {labelConfig.layoutStyle === 'ultra_simple' ? (
                   <div
-                    className="relative w-full bg-white select-none overflow-hidden"
+                    ref={interactiveCanvasRef}
+                    className="relative w-full bg-white select-none overflow-hidden touch-none"
                     style={{
                       width: '300px',
                       height: '150px',
                       backgroundImage:
-                        'radial-gradient(circle, rgba(0,0,0,0.06) 1px, transparent 1px)',
+                        'radial-gradient(circle, rgba(0,0,0,0.07) 1px, transparent 1px)',
                       backgroundSize: '15px 15px',
                     }}
                   >
-                    {/* Line 1: Shop Name (Top) */}
+                    {/* Line 1: Shop Name (Top - Directly Draggable) */}
                     {labelConfig.showStoreName && tsplLayout.shopText && (
                       <div
-                        className="absolute font-mono font-black whitespace-nowrap leading-none"
+                        onClick={(e) => e.stopPropagation()}
+                        onPointerDown={(e) => handleCanvasItemPointerDown('shop', e)}
+                        onPointerMove={handleCanvasItemPointerMove}
+                        onPointerUp={handleCanvasItemPointerUp}
+                        onPointerCancel={handleCanvasItemPointerUp}
+                        className={`absolute font-mono font-black whitespace-nowrap leading-none cursor-grab active:cursor-grabbing touch-none px-1 py-0.5 rounded-xs ${
+                          selectedCanvasItem === 'shop'
+                            ? 'ring-1 ring-indigo-500 bg-indigo-50/40 z-20'
+                            : 'hover:ring-1 hover:ring-stone-300 z-10'
+                        }`}
                         style={{
                           left: `${Math.round((tsplLayout.shopX - tsplLayout.rollLeftOffset) * 0.75)}px`,
                           top: `${Math.round(tsplLayout.shopY * 0.75)}px`,
@@ -2873,10 +3026,19 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                       </div>
                     )}
 
-                    {/* Line 2: Barcode + Human Readable Digits (Middle) */}
+                    {/* Line 2: Barcode + Human Readable Digits (Middle - Directly Draggable) */}
                     {labelConfig.showBarcode && (
                       <div
-                        className="absolute flex flex-col items-start bg-white"
+                        onClick={(e) => e.stopPropagation()}
+                        onPointerDown={(e) => handleCanvasItemPointerDown('barcode', e)}
+                        onPointerMove={handleCanvasItemPointerMove}
+                        onPointerUp={handleCanvasItemPointerUp}
+                        onPointerCancel={handleCanvasItemPointerUp}
+                        className={`absolute flex flex-col items-start cursor-grab active:cursor-grabbing touch-none p-0.5 rounded-xs ${
+                          selectedCanvasItem === 'barcode'
+                            ? 'ring-1 ring-indigo-500 bg-indigo-50/30 z-20'
+                            : 'hover:ring-1 hover:ring-stone-300 z-10'
+                        }`}
                         style={{
                           left: `${Math.round((tsplLayout.barcodeX - tsplLayout.rollLeftOffset) * 0.75)}px`,
                           top: `${Math.round(tsplLayout.barcodeY * 0.75)}px`,
@@ -2887,31 +3049,42 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                             <img
                               src={qrCodeDataUrl}
                               alt="QR"
+                              draggable={false}
                               style={{
                                 width: `${Math.round(tsplLayout.barcodeHeight * 1.1)}px`,
                                 height: `${Math.round(tsplLayout.barcodeHeight * 1.1)}px`,
                               }}
-                              className="object-contain select-none"
+                              className="object-contain select-none pointer-events-none"
                             />
                           ) : null
                         ) : barcodeDataUrl ? (
                           <img
                             src={barcodeDataUrl}
                             alt="Barcode"
+                            draggable={false}
                             style={{
                               height: `${Math.round((tsplLayout.barcodeHeight + 18) * 0.82)}px`,
                               width: `${Math.max(85, Math.min(270, Math.round(tsplLayout.estBarcodeW * 0.75)))}px`,
                             }}
-                            className="object-fill select-none"
+                            className="object-fill select-none pointer-events-none"
                           />
                         ) : null}
                       </div>
                     )}
 
-                    {/* Line 3: MRP / Price (Bottom) */}
+                    {/* Line 3: MRP / Price (Bottom - Directly Draggable) */}
                     {(labelConfig.showMrp || labelConfig.showSalePrice) && (
                       <div
-                        className="absolute font-mono font-black whitespace-nowrap leading-none"
+                        onClick={(e) => e.stopPropagation()}
+                        onPointerDown={(e) => handleCanvasItemPointerDown('price', e)}
+                        onPointerMove={handleCanvasItemPointerMove}
+                        onPointerUp={handleCanvasItemPointerUp}
+                        onPointerCancel={handleCanvasItemPointerUp}
+                        className={`absolute font-mono font-black whitespace-nowrap leading-none cursor-grab active:cursor-grabbing touch-none px-1 py-0.5 rounded-xs ${
+                          selectedCanvasItem === 'price'
+                            ? 'ring-1 ring-indigo-500 bg-indigo-50/40 z-20'
+                            : 'hover:ring-1 hover:ring-stone-300 z-10'
+                        }`}
                         style={{
                           left: `${Math.round((tsplLayout.priceX - tsplLayout.rollLeftOffset) * 0.75)}px`,
                           top: `${Math.round(tsplLayout.priceY * 0.75)}px`,
@@ -3555,83 +3728,49 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                 </div>
               </div>
 
-              {/* Row B: Line 1 — Shop Name Position (X, Y) & Font Size */}
-              <div className="bg-white p-2.5 rounded-xl border border-indigo-100 space-y-2">
-                <div className="flex items-center justify-between gap-2">
+              {/* Row B: Line 1 — Shop Name Font Size & Live Drag Coordinates */}
+              <div className="bg-white p-2.5 rounded-xl border border-indigo-100 flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
                   <span className="text-[11px] font-black text-stone-800">
-                    {isBn ? '১. দোকানের নাম (Line 1: Shop Name)' : '1. Shop Name (Line 1)'}
+                    {isBn ? '১. দোকানের নাম (Line 1)' : '1. Shop Name (Line 1)'}
                   </span>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] font-bold text-stone-500">
-                      {isBn ? 'ফন্ট সাইজ:' : 'Font:'}
-                    </span>
-                    <select
-                      value={labelConfig.tsplShopFont || '3'}
-                      onChange={(e) =>
-                        setLabelConfig((prev) => ({
-                          ...prev,
-                          tsplShopFont: e.target.value as '1' | '2' | '3' | '4',
-                        }))
-                      }
-                      className="text-[10px] font-black bg-indigo-50 text-indigo-900 border border-indigo-200 rounded-md px-2 py-0.5 cursor-pointer"
-                    >
-                      <option value="1">Font "1" (Small 8×12)</option>
-                      <option value="2">Font "2" (Medium 12×20)</option>
-                      <option value="3">Font "3" (Standard 16×24)</option>
-                      <option value="4">Font "4" (Large 24×32)</option>
-                    </select>
-                  </div>
+                  <span className="text-[9.5px] font-mono font-bold bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-100">
+                    X:{tsplLayout.shopX}, Y:{tsplLayout.shopY}
+                  </span>
                 </div>
-
-                <div className="grid grid-cols-2 gap-3 text-[10px]">
-                  <div>
-                    <div className="flex justify-between font-bold text-stone-600 mb-0.5">
-                      <span>Shop X (Left/Right):</span>
-                      <span className="font-mono text-indigo-700">{tsplLayout.shopX} dots</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="50"
-                      max="360"
-                      value={tsplLayout.shopX}
-                      onChange={(e) =>
-                        setLabelConfig((prev) => ({
-                          ...prev,
-                          tsplCustomX: true,
-                          tsplShopX: Number(e.target.value),
-                        }))
-                      }
-                      className="w-full accent-indigo-600 cursor-pointer h-1.5 bg-stone-200 rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <div className="flex justify-between font-bold text-stone-600 mb-0.5">
-                      <span>Shop Y (Top/Bottom):</span>
-                      <span className="font-mono text-indigo-700">{tsplLayout.shopY} dots</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="2"
-                      max="160"
-                      value={tsplLayout.shopY}
-                      onChange={(e) =>
-                        setLabelConfig((prev) => ({
-                          ...prev,
-                          tsplShopY: Number(e.target.value),
-                        }))
-                      }
-                      className="w-full accent-indigo-600 cursor-pointer h-1.5 bg-stone-200 rounded-lg"
-                    />
-                  </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] font-bold text-stone-500">
+                    {isBn ? 'ফন্ট সাইজ:' : 'Font:'}
+                  </span>
+                  <select
+                    value={labelConfig.tsplShopFont || '3'}
+                    onChange={(e) =>
+                      setLabelConfig((prev) => ({
+                        ...prev,
+                        tsplShopFont: e.target.value as '1' | '2' | '3' | '4',
+                      }))
+                    }
+                    className="text-[10px] font-black bg-indigo-50 text-indigo-900 border border-indigo-200 rounded-md px-2 py-0.5 cursor-pointer"
+                  >
+                    <option value="1">Font "1" (Small 8×12)</option>
+                    <option value="2">Font "2" (Medium 12×20)</option>
+                    <option value="3">Font "3" (Standard 16×24)</option>
+                    <option value="4">Font "4" (Large 24×32)</option>
+                  </select>
                 </div>
               </div>
 
-              {/* Row C: Line 2 — Barcode Position (X, Y), Height (30-60px) & Width Ratio (2:3, 1:2) */}
+              {/* Row C: Line 2 — Barcode Width Ratio, Height Presets & Live Drag Coordinates */}
               <div className="bg-white p-2.5 rounded-xl border border-indigo-100 space-y-2">
                 <div className="flex items-center justify-between flex-wrap gap-2">
-                  <span className="text-[11px] font-black text-stone-800">
-                    {isBn ? '২. বারকোড (Line 2: CODE128 + Number)' : '2. Barcode (Line 2: CODE128)'}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-black text-stone-800">
+                      {isBn ? '২. বারকোড (Line 2: CODE128)' : '2. Barcode (Line 2: CODE128)'}
+                    </span>
+                    <span className="text-[9.5px] font-mono font-bold bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-100">
+                      X:{tsplLayout.barcodeX}, Y:{tsplLayout.barcodeY}
+                    </span>
+                  </div>
                   <div className="flex items-center gap-1">
                     <span className="text-[10px] font-bold text-stone-500">
                       {isBn ? 'বার অনুপাত:' : 'Width Ratio:'}
@@ -3658,164 +3797,70 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-[10px]">
-                  <div>
-                    <div className="flex justify-between font-bold text-stone-600 mb-0.5">
-                      <span>Barcode X:</span>
-                      <span className="font-mono text-indigo-700">{tsplLayout.barcodeX} dots</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="50"
-                      max="320"
-                      value={tsplLayout.barcodeX}
-                      onChange={(e) =>
-                        setLabelConfig((prev) => ({
-                          ...prev,
-                          tsplCustomX: true,
-                          tsplBarcodeX: Number(e.target.value),
-                        }))
-                      }
-                      className="w-full accent-indigo-600 cursor-pointer h-1.5 bg-stone-200 rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <div className="flex justify-between font-bold text-stone-600 mb-0.5">
-                      <span>Barcode Y:</span>
-                      <span className="font-mono text-indigo-700">{tsplLayout.barcodeY} dots</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="20"
-                      max="110"
-                      value={tsplLayout.barcodeY}
-                      onChange={(e) => {
-                        const nextBarcodeY = Number(e.target.value);
-                        setLabelConfig((prev) => {
-                          const bh = prev.tsplBarcodeHeight ?? 45;
-                          const minPriceY = Math.min(180, nextBarcodeY + bh + 32);
-                          const currentPriceY = prev.tsplPriceY ?? 135;
-                          return {
+                <div className="flex items-center justify-between gap-2 pt-1 border-t border-stone-100 text-[10px]">
+                  <span className="font-bold text-stone-600">
+                    {isBn ? 'বারকোড উচ্চতা (Height):' : 'Barcode Height:'}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    {[35, 45, 55].map((h) => (
+                      <button
+                        key={h}
+                        type="button"
+                        onClick={() =>
+                          setLabelConfig((prev) => ({
                             ...prev,
-                            tsplBarcodeY: nextBarcodeY,
-                            tsplPriceY: currentPriceY < minPriceY ? minPriceY : currentPriceY,
-                          };
-                        });
-                      }}
-                      className="w-full accent-indigo-600 cursor-pointer h-1.5 bg-stone-200 rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <div className="flex justify-between font-bold text-stone-600 mb-0.5">
-                      <span>{isBn ? 'বারকোড উচ্চতা:' : 'Height (30-60px):'}</span>
-                      <span className="font-mono text-indigo-700">{tsplLayout.barcodeHeight}px</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="30"
-                      max="60"
-                      value={tsplLayout.barcodeHeight}
-                      onChange={(e) => {
-                        const nextHeight = Number(e.target.value);
-                        setLabelConfig((prev) => {
-                          const by = prev.tsplBarcodeY ?? 52;
-                          const minPriceY = Math.min(180, by + nextHeight + 32);
-                          const currentPriceY = prev.tsplPriceY ?? 135;
-                          return {
-                            ...prev,
-                            tsplBarcodeHeight: nextHeight,
-                            tsplPriceY: currentPriceY < minPriceY ? minPriceY : currentPriceY,
-                          };
-                        });
-                      }}
-                      className="w-full accent-indigo-600 cursor-pointer h-1.5 bg-stone-200 rounded-lg"
-                    />
+                            tsplBarcodeHeight: h,
+                          }))
+                        }
+                        className={`px-2.5 py-0.5 rounded text-[10px] font-black cursor-pointer transition-all ${
+                          (labelConfig.tsplBarcodeHeight ?? 45) === h
+                            ? 'bg-indigo-600 text-white'
+                            : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
+                        }`}
+                      >
+                        {h}px
+                      </button>
+                    ))}
                   </div>
                 </div>
               </div>
 
-              {/* Row D: Line 3 — MRP / Price Position (X, Y), Prefix & Font Size */}
-              <div className="bg-white p-2.5 rounded-xl border border-indigo-100 space-y-2">
-                <div className="flex items-center justify-between flex-wrap gap-2">
+              {/* Row D: Line 3 — MRP / Price Prefix, Font Size & Live Drag Coordinates */}
+              <div className="bg-white p-2.5 rounded-xl border border-indigo-100 flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
                   <span className="text-[11px] font-black text-stone-800">
-                    {isBn ? '৩. দাম / MRP (Line 3: Price)' : '3. MRP / Price (Line 3)'}
+                    {isBn ? '৩. দাম / MRP (Line 3)' : '3. MRP / Price (Line 3)'}
                   </span>
-                  <div className="flex items-center gap-1.5">
-                    <input
-                      type="text"
-                      value={labelConfig.mrpPrefix ?? 'MRP: Rs. '}
-                      onChange={(e) =>
-                        setLabelConfig((prev) => ({ ...prev, mrpPrefix: e.target.value }))
-                      }
-                      placeholder="MRP: Rs. "
-                      className="w-24 text-[10px] font-mono font-bold bg-stone-50 border border-stone-200 rounded px-1.5 py-0.5 text-stone-800"
-                      title="Price Prefix"
-                    />
-                    <select
-                      value={labelConfig.tsplPriceFont || '3'}
-                      onChange={(e) =>
-                        setLabelConfig((prev) => ({
-                          ...prev,
-                          tsplPriceFont: e.target.value as '1' | '2' | '3' | '4',
-                        }))
-                      }
-                      className="text-[10px] font-black bg-indigo-50 text-indigo-900 border border-indigo-200 rounded-md px-2 py-0.5 cursor-pointer"
-                    >
-                      <option value="1">Font "1" (Small 8×12)</option>
-                      <option value="2">Font "2" (Medium 12×20)</option>
-                      <option value="3">Font "3" (Standard 16×24)</option>
-                      <option value="4">Font "4" (Large 24×32)</option>
-                    </select>
-                  </div>
+                  <span className="text-[9.5px] font-mono font-bold bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-100">
+                    X:{tsplLayout.priceX}, Y:{tsplLayout.priceY}
+                  </span>
                 </div>
-
-                <div className="grid grid-cols-2 gap-3 text-[10px]">
-                  <div>
-                    <div className="flex justify-between font-bold text-stone-600 mb-0.5">
-                      <span>MRP X (Left/Right):</span>
-                      <span className="font-mono text-indigo-700">{tsplLayout.priceX} dots</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="50"
-                      max="360"
-                      value={tsplLayout.priceX}
-                      onChange={(e) =>
-                        setLabelConfig((prev) => ({
-                          ...prev,
-                          tsplCustomX: true,
-                          tsplPriceX: Number(e.target.value),
-                        }))
-                      }
-                      className="w-full accent-indigo-600 cursor-pointer h-1.5 bg-stone-200 rounded-lg"
-                    />
-                  </div>
-                  <div>
-                    <div className="flex justify-between font-bold text-stone-600 mb-0.5">
-                      <span>MRP Y (Top/Bottom):</span>
-                      <span className="font-mono text-indigo-700">{tsplLayout.priceY} dots</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="115"
-                      max="180"
-                      value={tsplLayout.priceY}
-                      onChange={(e) => {
-                        const nextPriceY = Number(e.target.value);
-                        setLabelConfig((prev) => {
-                          const bh = prev.tsplBarcodeHeight ?? 45;
-                          const maxBarcodeY = Math.max(20, nextPriceY - bh - 32);
-                          const currentBarcodeY = prev.tsplBarcodeY ?? 52;
-                          return {
-                            ...prev,
-                            tsplPriceY: nextPriceY,
-                            tsplBarcodeY: currentBarcodeY > maxBarcodeY ? maxBarcodeY : currentBarcodeY,
-                          };
-                        });
-                      }}
-                      className="w-full accent-indigo-600 cursor-pointer h-1.5 bg-stone-200 rounded-lg"
-                    />
-                  </div>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    value={labelConfig.mrpPrefix ?? 'MRP: Rs. '}
+                    onChange={(e) =>
+                      setLabelConfig((prev) => ({ ...prev, mrpPrefix: e.target.value }))
+                    }
+                    placeholder="MRP: Rs. "
+                    className="w-24 text-[10px] font-mono font-bold bg-stone-50 border border-stone-200 rounded px-1.5 py-0.5 text-stone-800"
+                    title="Price Prefix"
+                  />
+                  <select
+                    value={labelConfig.tsplPriceFont || '3'}
+                    onChange={(e) =>
+                      setLabelConfig((prev) => ({
+                        ...prev,
+                        tsplPriceFont: e.target.value as '1' | '2' | '3' | '4',
+                      }))
+                    }
+                    className="text-[10px] font-black bg-indigo-50 text-indigo-900 border border-indigo-200 rounded-md px-2 py-0.5 cursor-pointer"
+                  >
+                    <option value="1">Font "1" (Small 8×12)</option>
+                    <option value="2">Font "2" (Medium 12×20)</option>
+                    <option value="3">Font "3" (Standard 16×24)</option>
+                    <option value="4">Font "4" (Large 24×32)</option>
+                  </select>
                 </div>
               </div>
             </div>
