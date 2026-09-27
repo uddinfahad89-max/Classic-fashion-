@@ -39,6 +39,8 @@ import {
   ShieldCheck,
   CheckSquare,
   Square,
+  MoreVertical,
+  X,
 } from 'lucide-react';
 import JsBarcode from 'jsbarcode';
 import QRCode from 'qrcode';
@@ -152,6 +154,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
   const sym = settings.currencySymbol || 'Rs. ';
 
   const [activeControlTab, setActiveControlTab] = useState<'easy' | 'content' | 'design'>('easy');
+  const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
 
   // Permanent Default Barcode Label Print Settings (Persisted in localStorage):
   // 1. Paper / Sticker Size: "50×25mm Sticker Roll" ('50mm_label')
@@ -1299,7 +1302,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
       {/* Top Header Toolbar: Easy Mode vs Custom Designer vs Product Details */}
       <div className="bg-white p-2.5 sm:p-3 rounded-2xl border border-stone-200 shadow-xs space-y-2">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-          {/* Main Mode Switcher: 3 Clear Tabs */}
+          {/* Main Mode Switcher: Easy Print + 3-Dot Menu for Hidden Options */}
           <div className="flex items-center gap-1.5 p-1 bg-stone-100 rounded-xl border border-stone-200/80 flex-1">
             <button
               type="button"
@@ -1322,32 +1325,26 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
               </span>
             </button>
 
-            <button
-              type="button"
-              id="btn-tab-custom-design"
-              onClick={() => setActiveControlTab('design')}
-              className={`flex-1 py-2 px-3 rounded-lg font-extrabold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                activeControlTab === 'design'
-                  ? 'bg-stone-900 text-white shadow-xs'
-                  : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/60'
-              }`}
-            >
-              <Palette className="w-4 h-4 text-amber-300" />
-              <span>{isBn ? '🎨 ডিজাইন সাজান' : '🎨 Customize Design'}</span>
-            </button>
+            {activeControlTab !== 'easy' && (
+              <span className="px-2.5 py-1.5 rounded-lg bg-stone-900 text-white text-[11px] font-bold flex items-center gap-1">
+                {activeControlTab === 'design'
+                  ? isBn
+                    ? '🎨 ডিজাইন মোড'
+                    : '🎨 Design Mode'
+                  : isBn
+                  ? '🛍️ বিলের তথ্য'
+                  : '🛍️ Bill Data'}
+              </span>
+            )}
 
             <button
               type="button"
-              id="btn-tab-content"
-              onClick={() => setActiveControlTab('content')}
-              className={`flex-1 py-2 px-3 rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                activeControlTab === 'content'
-                  ? 'bg-stone-900 text-white shadow-xs'
-                  : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/60'
-              }`}
+              id="btn-barcode-more-dots"
+              onClick={() => setIsMoreMenuOpen(true)}
+              className="py-2 px-3 rounded-lg bg-white hover:bg-stone-200/80 text-stone-800 border border-stone-200/90 font-bold text-xs transition-all flex items-center justify-center gap-1 cursor-pointer shadow-2xs shrink-0"
+              title={isBn ? 'আরো অপশন (৩ ডট মেনু)' : 'More Options (3-Dot Menu)'}
             >
-              <ShoppingBag className="w-4 h-4 text-blue-400" />
-              <span>{isBn ? 'বিলের তথ্য' : 'Bill Data'}</span>
+              <MoreVertical className="w-4 h-4 text-stone-700" />
             </button>
           </div>
 
@@ -1449,12 +1446,12 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
           {/* Tab 1: ULTRA-SIMPLE EASY MODE (সহজ মোড - ১-ক্লিক প্রিন্ট) */}
           {activeControlTab === 'easy' && (
             <div className="bg-white p-4 sm:p-5 rounded-2xl border border-stone-200 shadow-xs space-y-4">
-              {/* 1. Quick Mode Switcher: Photo 1 Simple vs Full Details */}
-              <div className="grid grid-cols-2 gap-2 p-1.5 bg-stone-100/90 rounded-2xl border border-stone-200">
+              {/* 1. Ultra Simple Mode Header + 3-Dot Quick Access */}
+              <div className="flex items-center gap-2 p-1.5 bg-stone-100/90 rounded-2xl border border-stone-200">
                 <button
                   type="button"
                   onClick={() => handleApplyTheme('ultra_simple')}
-                  className={`py-2.5 px-3 rounded-xl font-black text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  className={`flex-1 py-2.5 px-3 rounded-xl font-black text-xs transition-all flex items-center justify-center gap-2 cursor-pointer ${
                     labelConfig.layoutStyle === 'ultra_simple'
                       ? 'bg-emerald-600 text-white shadow-sm ring-2 ring-emerald-500/50'
                       : 'bg-white text-stone-800 hover:bg-stone-50 border border-stone-200'
@@ -1462,7 +1459,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                 >
                   <span className="text-base">📸</span>
                   <div className="text-left">
-                    <span className="block leading-tight">{isBn ? 'ছবি ১: সুপার সিম্পল' : 'Photo 1: Ultra Simple'}</span>
+                    <span className="block leading-tight">{isBn ? 'ছবি ১: সুপার সিম্পল (50×25mm)' : 'Photo 1: Ultra Simple (50×25mm)'}</span>
                     <span className={`text-[9px] font-normal block ${labelConfig.layoutStyle === 'ultra_simple' ? 'text-emerald-100' : 'text-stone-500'}`}>
                       {isBn ? 'দোকান + বারকোড + MRP' : 'Store + Barcode + MRP'}
                     </span>
@@ -1471,163 +1468,12 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => handleApplyTheme('classic')}
-                  className={`py-2.5 px-3 rounded-xl font-black text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                    labelConfig.layoutStyle !== 'ultra_simple'
-                      ? 'bg-stone-900 text-white shadow-sm ring-2 ring-blue-500/50'
-                      : 'bg-white text-stone-800 hover:bg-stone-50 border border-stone-200'
-                  }`}
+                  onClick={() => setIsMoreMenuOpen(true)}
+                  className="py-2.5 px-3 rounded-xl bg-white hover:bg-stone-50 text-stone-700 border border-stone-200 font-bold text-xs flex items-center justify-center gap-1 cursor-pointer shrink-0"
+                  title={isBn ? 'অন্যান্য মোড ও সেটিংস (৩ ডট)' : 'More Modes & Settings'}
                 >
-                  <span className="text-base">👗</span>
-                  <div className="text-left">
-                    <span className="block leading-tight">{isBn ? 'স্ট্যান্ডার্ড মোড' : 'Full Details Mode'}</span>
-                    <span className={`text-[9px] font-normal block ${labelConfig.layoutStyle !== 'ultra_simple' ? 'text-stone-300' : 'text-stone-500'}`}>
-                      {isBn ? 'নাম + সাইজ সহ বিস্তারিত' : 'Product name + Size'}
-                    </span>
-                  </div>
+                  <MoreVertical className="w-4 h-4 text-stone-600" />
                 </button>
-              </div>
-
-              {/* 2. Primary Barcode Format Switcher: 1D Barcode vs QR Code */}
-              <div className="bg-linear-to-r from-blue-50/80 to-indigo-50/80 border border-blue-200 rounded-2xl p-3.5 space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-black text-stone-900 flex items-center gap-1.5">
-                    <BarcodeIcon className="w-4 h-4 text-blue-600" />
-                    <span>{isBn ? 'কোডের ধরন বাছুন' : 'Code Format'}</span>
-                  </label>
-                  <span className="text-[10px] font-black text-blue-800 bg-blue-100 px-2 py-0.5 rounded-full">
-                    {labelConfig.barcodeType === 'QR'
-                      ? (isBn ? 'কিউআর কোড' : 'QR Code')
-                      : (isBn ? 'স্ট্যান্ডার্ড বারকোড (ছবি ১)' : '1D Barcode (Photo 1)')}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setLabelConfig((prev) => ({
-                        ...prev,
-                        barcodeType: 'CODE128',
-                        layoutStyle: prev.layoutStyle === 'qr_centric' ? 'classic' : prev.layoutStyle,
-                      }));
-                      onShowToast(isBn ? 'স্ট্যান্ডার্ড বারকোড নির্বাচন করা হয়েছে' : '1D Barcode selected', 'info');
-                    }}
-                    className={`py-2.5 px-3 rounded-xl font-bold text-xs transition-all flex flex-col items-center justify-center gap-1 cursor-pointer border ${
-                      labelConfig.barcodeType !== 'QR'
-                        ? 'bg-stone-900 text-white border-stone-900 shadow-md ring-2 ring-blue-500/50'
-                        : 'bg-white hover:bg-stone-100 text-stone-700 border-stone-200'
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5 font-black text-xs sm:text-sm">
-                      <span className="tracking-widest">▌▌▌</span>
-                      <span>{isBn ? 'স্ট্যান্ডার্ড বারকোড' : '1D Barcode'}</span>
-                    </div>
-                    <span className={`text-[10px] ${labelConfig.barcodeType !== 'QR' ? 'text-emerald-300' : 'text-stone-500'}`}>
-                      {isBn ? '✓ ছবি ১-এর মতো স্ক্যানার কোড' : '✓ Like Photo 1'}
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setLabelConfig((prev) => ({
-                        ...prev,
-                        barcodeType: 'QR',
-                      }));
-                      onShowToast(isBn ? 'কিউআর কোড নির্বাচন করা হয়েছে' : 'QR Code selected', 'info');
-                    }}
-                    className={`py-2.5 px-3 rounded-xl font-bold text-xs transition-all flex flex-col items-center justify-center gap-1 cursor-pointer border ${
-                      labelConfig.barcodeType === 'QR'
-                        ? 'bg-stone-900 text-white border-stone-900 shadow-md ring-2 ring-blue-500/50'
-                        : 'bg-white hover:bg-stone-100 text-stone-700 border-stone-200'
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5 font-black text-xs sm:text-sm">
-                      <QrIcon className="w-4 h-4 text-blue-400" />
-                      <span>{isBn ? 'কিউআর কোড (QR)' : 'QR Code'}</span>
-                    </div>
-                    <span className={`text-[10px] ${labelConfig.barcodeType === 'QR' ? 'text-blue-300' : 'text-stone-500'}`}>
-                      {isBn ? 'মোবাইল ক্যামেরা দিয়ে স্ক্যান' : 'Smartphone Camera'}
-                    </span>
-                  </button>
-                </div>
-              </div>
-
-              {/* 3. Sticker Roll Width Selector */}
-              <div className="p-3 bg-stone-50 border border-stone-200 rounded-xl space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-stone-700 flex items-center gap-1">
-                    <Tag className="w-3.5 h-3.5 text-stone-600" />
-                    <span>{isBn ? 'স্টিকারের সাইজ / প্রস্থ (Width):' : 'Sticker Width:'}</span>
-                  </span>
-                  <span className="text-[10px] font-mono font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
-                    {widthMm} × {heightMm} mm
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                  {[
-                    { id: '2x1' as LabelSizePreset, label: isBn ? '৫০ × ২৫ মিমি (ছবি ১)' : '50×25mm (Photo 1)' },
-                    { id: '2x1.2' as LabelSizePreset, label: '৫০ × ৩০ মিমি' },
-                    { id: '1.5x1' as LabelSizePreset, label: '৩৮ × ২৫ মিমি' },
-                    { id: '1x1' as LabelSizePreset, label: '২৫ × ২৫ মিমি' },
-                  ].map((sz) => {
-                    const isSelected = labelConfig.sizePreset === sz.id;
-                    return (
-                      <button
-                        key={sz.id}
-                        type="button"
-                        onClick={() => {
-                          const match = PRESET_SIZES.find((p) => p.id === sz.id);
-                          setLabelConfig((prev) => ({
-                            ...prev,
-                            sizePreset: sz.id,
-                            customWidthMm: match ? match.widthMm : prev.customWidthMm,
-                            customHeightMm: match ? match.heightMm : prev.customHeightMm,
-                          }));
-                        }}
-                        className={`text-[11px] font-bold py-1.5 px-2 rounded-lg transition-all cursor-pointer text-center ${
-                          isSelected
-                            ? 'bg-stone-900 text-white shadow-2xs font-black'
-                            : 'bg-white hover:bg-stone-100 text-stone-700 border border-stone-200'
-                        }`}
-                      >
-                        {sz.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* 4. Clean White Mode Guarantee */}
-              <div className="p-3 bg-emerald-50/80 border border-emerald-200 rounded-xl flex items-center justify-between">
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={labelConfig.cleanWhiteMode !== false}
-                    onChange={(e) => {
-                      setLabelConfig((prev) => ({ ...prev, cleanWhiteMode: e.target.checked }));
-                      onShowToast(
-                        e.target.checked
-                          ? (isBn ? '✅ সাদা ব্যাকগ্রাউন্ড মোড সক্রিয় (কোনো কালো দাগ পড়বে না)' : 'Clean White Print Enabled')
-                          : (isBn ? 'ক্লিন হোয়াইট মোড বন্ধ' : 'Clean White Disabled'),
-                        'info'
-                      );
-                    }}
-                    className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
-                  />
-                  <div>
-                    <span className="font-extrabold text-emerald-950 block text-xs leading-tight">
-                      {isBn ? '✅ সাদা ব্যাকগ্রাউন্ড মোড (কোনো কালো দাগ পড়বে না)' : 'Clean White Print (No black blotches)'}
-                    </span>
-                    <span className="text-[10px] text-emerald-700 font-medium block">
-                      {isBn ? 'স্টিকারে কোনো কালো ব্যান্ড হবে না, বারকোড শতভাগ পরিষ্কার ও স্পষ্ট প্রিন্ট হবে' : 'Removes black thermal fills to keep barcodes crisp'}
-                    </span>
-                  </div>
-                </label>
-                <span className="text-[10px] font-black text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-md shrink-0 ml-2">
-                  {isBn ? 'প্রস্তাবিত' : 'Recommended'}
-                </span>
               </div>
 
               {/* 5. Essential Product Inputs (All Optional as Requested) */}
@@ -1839,370 +1685,6 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                     </div>
                   </div>
                 </div>
-
-                  {/* Custom Barcode Label Editor (50mm x 25mm TSPL Studio) */}
-                  <div className="p-3.5 bg-indigo-50/70 rounded-2xl border border-indigo-200 space-y-3">
-                    <div className="flex items-center justify-between flex-wrap gap-2 border-b border-indigo-200/80 pb-2">
-                      <div className="flex items-center gap-1.5">
-                        <SlidersHorizontal className="w-4 h-4 text-indigo-600" />
-                        <span className="text-xs font-black text-indigo-950">
-                          {isBn
-                            ? '🎛️ কাস্টম বারকোড লেবেল এডিটর (50×25mm TSPL)'
-                            : '🎛️ Custom Barcode Label Editor (50×25mm TSPL)'}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setLabelConfig((prev) => ({
-                            ...prev,
-                            tsplDirection: '0,0',
-                            tsplAlign: 'center',
-                            tsplCustomX: false,
-                            tsplShopX: undefined,
-                            tsplShopY: 22,
-                            tsplShopFont: '3',
-                            tsplBarcodeX: undefined,
-                            tsplBarcodeY: 52,
-                            tsplBarcodeHeight: 45,
-                            tsplBarcodeRatio: '2:3',
-                            tsplPriceX: undefined,
-                            tsplPriceY: 135,
-                            tsplPriceFont: '3',
-                            mrpPrefix: 'MRP: Rs. ',
-                          }));
-                          onShowToast(
-                            isBn ? 'ডিফল্ট সেন্টার পজিশন রিসেট হয়েছে' : 'Reset to centered 50x25mm TSPL defaults',
-                            'info'
-                          );
-                        }}
-                        className="px-2 py-1 bg-white hover:bg-indigo-100 border border-indigo-200 rounded-lg text-[10px] font-bold text-indigo-700 flex items-center gap-1 cursor-pointer transition-all"
-                      >
-                        <RotateCcw className="w-3 h-3" />
-                        <span>{isBn ? 'অটো সেন্টার রিসেট' : 'Reset Center'}</span>
-                      </button>
-                    </div>
-
-                    {/* Row A: Alignment Toggles (Left, Center, Right) & Orientation (DIRECTION 0,0 vs 1,0) */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      <div className="bg-white p-2 rounded-xl border border-indigo-100 space-y-1">
-                        <span className="text-[10px] font-extrabold text-stone-600 block">
-                          {isBn ? 'অ্যালাইনমেন্ট (Alignment):' : 'Alignment (Auto X):'}
-                        </span>
-                        <div className="grid grid-cols-3 gap-1">
-                          {(['left', 'center', 'right'] as const).map((al) => {
-                            const active = !labelConfig.tsplCustomX && (labelConfig.tsplAlign || 'center') === al;
-                            return (
-                              <button
-                                key={al}
-                                type="button"
-                                onClick={() =>
-                                  setLabelConfig((prev) => ({
-                                    ...prev,
-                                    tsplAlign: al,
-                                    tsplCustomX: false,
-                                    tsplShopX: undefined,
-                                    tsplBarcodeX: undefined,
-                                    tsplPriceX: undefined,
-                                  }))
-                                }
-                                className={`py-1 px-2 rounded-lg text-[10px] font-black capitalize transition-all cursor-pointer ${
-                                  active
-                                    ? 'bg-indigo-600 text-white shadow-2xs'
-                                    : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
-                                }`}
-                              >
-                                {al === 'left'
-                                  ? isBn
-                                    ? '⬅ বামে'
-                                    : '⬅ Left'
-                                  : al === 'center'
-                                  ? isBn
-                                    ? '↔ মাঝে'
-                                    : '↔ Center'
-                                  : isBn
-                                  ? '➡ ডানে'
-                                  : '➡ Right'}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      <div className="bg-white p-2 rounded-xl border border-indigo-100 space-y-1">
-                        <span className="text-[10px] font-extrabold text-stone-600 block">
-                          {isBn ? 'প্রিন্ট ওরিয়েন্টেশন (DIRECTION):' : 'Print Orientation (DIRECTION):'}
-                        </span>
-                        <div className="grid grid-cols-2 gap-1">
-                          <button
-                            type="button"
-                            onClick={() => setLabelConfig((prev) => ({ ...prev, tsplDirection: '0,0' }))}
-                            className={`py-1 px-2 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
-                              (labelConfig.tsplDirection || '0,0') === '0,0'
-                                ? 'bg-emerald-600 text-white shadow-2xs'
-                                : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
-                            }`}
-                          >
-                            DIRECTION 0,0 ({isBn ? 'সোজা' : 'Upright'})
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setLabelConfig((prev) => ({ ...prev, tsplDirection: '1,0' }))}
-                            className={`py-1 px-2 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
-                              labelConfig.tsplDirection === '1,0'
-                                ? 'bg-indigo-600 text-white shadow-2xs'
-                                : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
-                            }`}
-                          >
-                            DIRECTION 1,0 ({isBn ? 'উল্টো' : 'Flipped'})
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Row B: Line 1 — Shop Name Position (X, Y) & Font Size */}
-                    <div className="bg-white p-2.5 rounded-xl border border-indigo-100 space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-[11px] font-black text-stone-800">
-                          {isBn ? '১. দোকানের নাম (Line 1: Shop Name)' : '1. Shop Name (Line 1)'}
-                        </span>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] font-bold text-stone-500">
-                            {isBn ? 'ফন্ট সাইজ:' : 'Font:'}
-                          </span>
-                          <select
-                            value={labelConfig.tsplShopFont || '3'}
-                            onChange={(e) =>
-                              setLabelConfig((prev) => ({
-                                ...prev,
-                                tsplShopFont: e.target.value as '1' | '2' | '3' | '4',
-                              }))
-                            }
-                            className="text-[10px] font-black bg-indigo-50 text-indigo-900 border border-indigo-200 rounded-md px-2 py-0.5 cursor-pointer"
-                          >
-                            <option value="1">Font "1" (Small 8×12)</option>
-                            <option value="2">Font "2" (Medium 12×20)</option>
-                            <option value="3">Font "3" (Standard 16×24)</option>
-                            <option value="4">Font "4" (Large 24×32)</option>
-                          </select>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3 text-[10px]">
-                        <div>
-                          <div className="flex justify-between font-bold text-stone-600 mb-0.5">
-                            <span>Shop X (Left/Right):</span>
-                            <span className="font-mono text-indigo-700">{tsplLayout.shopX} dots</span>
-                          </div>
-                          <input
-                            type="range"
-                            min="50"
-                            max="360"
-                            value={tsplLayout.shopX}
-                            onChange={(e) =>
-                              setLabelConfig((prev) => ({
-                                ...prev,
-                                tsplCustomX: true,
-                                tsplShopX: Number(e.target.value),
-                              }))
-                            }
-                            className="w-full accent-indigo-600 cursor-pointer h-1.5 bg-stone-200 rounded-lg"
-                          />
-                        </div>
-                        <div>
-                          <div className="flex justify-between font-bold text-stone-600 mb-0.5">
-                            <span>Shop Y (Top/Bottom):</span>
-                            <span className="font-mono text-indigo-700">{tsplLayout.shopY} dots</span>
-                          </div>
-                          <input
-                            type="range"
-                            min="2"
-                            max="160"
-                            value={tsplLayout.shopY}
-                            onChange={(e) =>
-                              setLabelConfig((prev) => ({
-                                ...prev,
-                                tsplShopY: Number(e.target.value),
-                              }))
-                            }
-                            className="w-full accent-indigo-600 cursor-pointer h-1.5 bg-stone-200 rounded-lg"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Row C: Line 2 — Barcode Position (X, Y), Height (30-60px) & Width Ratio (2:3, 1:2) */}
-                    <div className="bg-white p-2.5 rounded-xl border border-indigo-100 space-y-2">
-                      <div className="flex items-center justify-between flex-wrap gap-2">
-                        <span className="text-[11px] font-black text-stone-800">
-                          {isBn ? '২. বারকোড (Line 2: CODE128 + Number)' : '2. Barcode (Line 2: CODE128)'}
-                        </span>
-                        <div className="flex items-center gap-1">
-                          <span className="text-[10px] font-bold text-stone-500">
-                            {isBn ? 'বার অনুপাত:' : 'Width Ratio:'}
-                          </span>
-                          {(['2:3', '1:2', '2:2'] as const).map((rt) => (
-                            <button
-                              key={rt}
-                              type="button"
-                              onClick={() =>
-                                setLabelConfig((prev) => ({
-                                  ...prev,
-                                  tsplBarcodeRatio: rt,
-                                }))
-                              }
-                              className={`px-2 py-0.5 rounded text-[10px] font-black cursor-pointer transition-all ${
-                                (labelConfig.tsplBarcodeRatio || '2:3') === rt
-                                  ? 'bg-indigo-600 text-white'
-                                  : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
-                              }`}
-                            >
-                              {rt}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-[10px]">
-                        <div>
-                          <div className="flex justify-between font-bold text-stone-600 mb-0.5">
-                            <span>Barcode X:</span>
-                            <span className="font-mono text-indigo-700">{tsplLayout.barcodeX} dots</span>
-                          </div>
-                          <input
-                            type="range"
-                            min="50"
-                            max="320"
-                            value={tsplLayout.barcodeX}
-                            onChange={(e) =>
-                              setLabelConfig((prev) => ({
-                                ...prev,
-                                tsplCustomX: true,
-                                tsplBarcodeX: Number(e.target.value),
-                              }))
-                            }
-                            className="w-full accent-indigo-600 cursor-pointer h-1.5 bg-stone-200 rounded-lg"
-                          />
-                        </div>
-                        <div>
-                          <div className="flex justify-between font-bold text-stone-600 mb-0.5">
-                            <span>Barcode Y:</span>
-                            <span className="font-mono text-indigo-700">{tsplLayout.barcodeY} dots</span>
-                          </div>
-                          <input
-                            type="range"
-                            min="20"
-                            max="130"
-                            value={tsplLayout.barcodeY}
-                            onChange={(e) =>
-                              setLabelConfig((prev) => ({
-                                ...prev,
-                                tsplBarcodeY: Number(e.target.value),
-                              }))
-                            }
-                            className="w-full accent-indigo-600 cursor-pointer h-1.5 bg-stone-200 rounded-lg"
-                          />
-                        </div>
-                        <div>
-                          <div className="flex justify-between font-bold text-stone-600 mb-0.5">
-                            <span>{isBn ? 'বারকোড উচ্চতা:' : 'Height (30-60px):'}</span>
-                            <span className="font-mono text-indigo-700">{tsplLayout.barcodeHeight}px</span>
-                          </div>
-                          <input
-                            type="range"
-                            min="30"
-                            max="60"
-                            value={tsplLayout.barcodeHeight}
-                            onChange={(e) =>
-                              setLabelConfig((prev) => ({
-                                ...prev,
-                                tsplBarcodeHeight: Number(e.target.value),
-                              }))
-                            }
-                            className="w-full accent-indigo-600 cursor-pointer h-1.5 bg-stone-200 rounded-lg"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Row D: Line 3 — MRP / Price Position (X, Y), Prefix & Font Size */}
-                    <div className="bg-white p-2.5 rounded-xl border border-indigo-100 space-y-2">
-                      <div className="flex items-center justify-between flex-wrap gap-2">
-                        <span className="text-[11px] font-black text-stone-800">
-                          {isBn ? '৩. দাম / MRP (Line 3: Price)' : '3. MRP / Price (Line 3)'}
-                        </span>
-                        <div className="flex items-center gap-1.5">
-                          <input
-                            type="text"
-                            value={labelConfig.mrpPrefix ?? 'MRP: Rs. '}
-                            onChange={(e) =>
-                              setLabelConfig((prev) => ({ ...prev, mrpPrefix: e.target.value }))
-                            }
-                            placeholder="MRP: Rs. "
-                            className="w-24 text-[10px] font-mono font-bold bg-stone-50 border border-stone-200 rounded px-1.5 py-0.5 text-stone-800"
-                            title="Price Prefix"
-                          />
-                          <select
-                            value={labelConfig.tsplPriceFont || '3'}
-                            onChange={(e) =>
-                              setLabelConfig((prev) => ({
-                                ...prev,
-                                tsplPriceFont: e.target.value as '1' | '2' | '3' | '4',
-                              }))
-                            }
-                            className="text-[10px] font-black bg-indigo-50 text-indigo-900 border border-indigo-200 rounded-md px-2 py-0.5 cursor-pointer"
-                          >
-                            <option value="1">Font "1" (Small 8×12)</option>
-                            <option value="2">Font "2" (Medium 12×20)</option>
-                            <option value="3">Font "3" (Standard 16×24)</option>
-                            <option value="4">Font "4" (Large 24×32)</option>
-                          </select>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3 text-[10px]">
-                        <div>
-                          <div className="flex justify-between font-bold text-stone-600 mb-0.5">
-                            <span>MRP X (Left/Right):</span>
-                            <span className="font-mono text-indigo-700">{tsplLayout.priceX} dots</span>
-                          </div>
-                          <input
-                            type="range"
-                            min="50"
-                            max="360"
-                            value={tsplLayout.priceX}
-                            onChange={(e) =>
-                              setLabelConfig((prev) => ({
-                                ...prev,
-                                tsplCustomX: true,
-                                tsplPriceX: Number(e.target.value),
-                              }))
-                            }
-                            className="w-full accent-indigo-600 cursor-pointer h-1.5 bg-stone-200 rounded-lg"
-                          />
-                        </div>
-                        <div>
-                          <div className="flex justify-between font-bold text-stone-600 mb-0.5">
-                            <span>MRP Y (Top/Bottom):</span>
-                            <span className="font-mono text-indigo-700">{tsplLayout.priceY} dots</span>
-                          </div>
-                          <input
-                            type="range"
-                            min="115"
-                            max="180"
-                            value={tsplLayout.priceY}
-                            onChange={(e) =>
-                              setLabelConfig((prev) => ({
-                                ...prev,
-                                tsplPriceY: Number(e.target.value),
-                              }))
-                            }
-                            className="w-full accent-indigo-600 cursor-pointer h-1.5 bg-stone-200 rounded-lg"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
               </div>
             </div>
           )}
@@ -3311,7 +2793,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
         <div className="lg:col-span-5 space-y-4">
           <div className="bg-white p-4 sm:p-5 rounded-2xl border border-stone-200 shadow-xs space-y-3.5">
             {/* Visual Thermal Sticker Container */}
-            <div className="bg-stone-100/90 p-3 sm:p-5 rounded-2xl border border-dashed border-stone-300 flex items-center justify-center min-h-[220px] overflow-hidden">
+            <div className="bg-stone-100/90 p-3 sm:p-5 rounded-2xl border border-dashed border-stone-300 flex items-center justify-center min-h-[210px] overflow-hidden">
               <div
                 ref={labelPreviewRef}
                 id="thermal-sticker-live-card"
@@ -3764,24 +3246,8 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
               </div>
             </div>
 
-            {/* Live Generated TSPL Command Preview Box */}
-            <div className="p-3 bg-stone-900 text-emerald-400 rounded-xl border border-stone-800 space-y-1.5 font-mono text-[10px]">
-              <div className="flex items-center justify-between text-stone-300 font-sans">
-                <span className="text-[10px] font-bold flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                  <span>{isBn ? 'লাইভ TSPL প্রিন্টার কমান্ড (50×25mm):' : 'Live TSPL Command Output (50×25mm):'}</span>
-                </span>
-                <span className="text-[9px] bg-stone-800 text-stone-300 px-2 py-0.5 rounded">
-                  400 × 200 dots
-                </span>
-              </div>
-              <pre className="overflow-x-auto whitespace-pre leading-relaxed text-[10px] text-emerald-300 select-all">
-                {liveTsplCommand.trim()}
-              </pre>
-            </div>
-
-            {/* Bluetooth Thermal Printer Integration Card */}
-            <div className="p-3.5 bg-linear-to-br from-indigo-50/90 via-blue-50/60 to-sky-50/90 rounded-2xl border border-indigo-200/90 space-y-2.5 shadow-xs">
+            {/* Bluetooth Thermal Printer Integration Card (Compact — Advanced settings moved to 3-Dot Menu) */}
+            <div className="p-3.5 bg-linear-to-br from-indigo-50/90 via-blue-50/60 to-sky-50/90 rounded-2xl border border-indigo-200/90 shadow-xs">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
                   <div
@@ -3849,218 +3315,14 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                         : (isBn ? 'কানেক্ট করুন' : 'Connect')}
                     </span>
                   </button>
-                </div>
-              </div>
-
-              {/* Roll / Sticker Size & Protocol & Darkness Controls */}
-              <div className="space-y-2.5 pt-1.5 border-t border-indigo-100/80 text-[11px]">
-                {/* Permanent Defaults Indicator */}
-                <div className="flex items-center justify-between pb-1 border-b border-indigo-100/60 text-[10px]">
-                  <span className="font-extrabold text-stone-700 flex items-center gap-1">
-                    <span>⚡ {isBn ? 'স্থায়ী ডিফল্ট ও সেটিংস:' : 'Permanent Defaults:'}</span>
-                  </span>
-                  <span className="font-black text-[9px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
-                    <span>🔒</span>
-                    <span>{isBn ? 'লোকালস্টোরেজে লকড' : 'Saved in localStorage'}</span>
-                  </span>
-                </div>
-
-                {/* 1. Paper / Sticker Size: 50x25mm (Default), 58mm, 80mm */}
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-bold text-stone-700 flex items-center gap-1">
-                      <span>{isBn ? 'পেপার / স্টিকার রোল সাইজ:' : 'Paper / Sticker Size:'}</span>
-                    </span>
-                    <span className="text-[9px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200">
-                      {paperRollWidth === '50mm_label'
-                        ? (isBn ? '🏷️ ৫০×২৫ মিমি স্টিকার রোল' : '🏷️ 50×25mm Sticker Roll')
-                        : paperRollWidth === '58mm'
-                        ? (isBn ? '📄 ৫৮ মিমি রোল (২ ইঞ্চি)' : '📄 58mm Roll (2")')
-                        : (isBn ? '📄 ৮০ মিমি রোল (৩ ইঞ্চি)' : '📄 80mm Roll (3")')}
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-1 bg-white/95 p-0.5 rounded-lg border border-indigo-100 shadow-2xs">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        updatePaperRollWidth('50mm_label');
-                        setLabelConfig((prev) => ({
-                          ...prev,
-                          sizePreset: '2x1',
-                          customWidthMm: 50,
-                          customHeightMm: 25,
-                        }));
-                      }}
-                      className={`py-1.5 rounded-md text-[10px] font-bold transition-all cursor-pointer flex flex-col items-center leading-tight ${
-                        paperRollWidth === '50mm_label'
-                          ? 'bg-indigo-600 text-white shadow-xs'
-                          : 'text-stone-600 hover:bg-stone-50'
-                      }`}
-                      title={isBn ? '৫০মিমি × ২৫মিমি পোশাক প্রাইস ট্যাগ স্টিকার' : '50mm × 25mm Garment Price Tag Sticker'}
-                    >
-                      <span className="font-extrabold">50×25 mm</span>
-                      <span className="text-[8px] opacity-90">{isBn ? 'স্টিকার রোল' : 'Sticker Roll'}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => updatePaperRollWidth('58mm')}
-                      className={`py-1.5 rounded-md text-[10px] font-bold transition-all cursor-pointer flex flex-col items-center leading-tight ${
-                        paperRollWidth === '58mm'
-                          ? 'bg-indigo-600 text-white shadow-xs'
-                          : 'text-stone-600 hover:bg-stone-50'
-                      }`}
-                    >
-                      <span className="font-extrabold">58 mm</span>
-                      <span className="text-[8px] opacity-90">{isBn ? '২" পেপার' : '2" Paper'}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => updatePaperRollWidth('80mm')}
-                      className={`py-1.5 rounded-md text-[10px] font-bold transition-all cursor-pointer flex flex-col items-center leading-tight ${
-                        paperRollWidth === '80mm'
-                          ? 'bg-indigo-600 text-white shadow-xs'
-                          : 'text-stone-600 hover:bg-stone-50'
-                      }`}
-                    >
-                      <span className="font-extrabold">80 mm</span>
-                      <span className="text-[8px] opacity-90">{isBn ? '৩" পেপার' : '3" Paper'}</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* 2. Protocol & Burn Darkness */}
-                <div className="grid grid-cols-2 gap-2">
-                  {/* Command Protocol: ESC/POS vs TSPL */}
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-bold text-stone-600">
-                        {isBn ? 'প্রিন্টার কমান্ড মোড:' : 'Printer Protocol:'}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-1 bg-white/90 p-0.5 rounded-lg border border-indigo-100 shadow-2xs">
-                      <button
-                        type="button"
-                        onClick={() => updatePrinterProtocol('escpos')}
-                        className={`py-1 rounded-md text-[9px] font-bold transition-all cursor-pointer text-center ${
-                          printerProtocol === 'escpos'
-                            ? 'bg-indigo-600 text-white shadow-2xs'
-                            : 'text-stone-600 hover:bg-stone-50'
-                        }`}
-                        title={isBn ? 'সাধারণ থার্মাল POS প্রিন্টার' : 'Standard POS Thermal Printer'}
-                      >
-                        ESC/POS
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => updatePrinterProtocol('tspl')}
-                        className={`py-1 rounded-md text-[9px] font-bold transition-all cursor-pointer text-center ${
-                          printerProtocol === 'tspl'
-                            ? 'bg-indigo-600 text-white shadow-2xs'
-                            : 'text-stone-600 hover:bg-stone-50'
-                        }`}
-                        title={isBn ? 'লেবেল প্রিন্টার যেমন Xprinter, Gprinter, Rongta (গ্যাপ অটো ডিটেক্ট)' : 'Label Printer with Gap Alignment (Xprinter, Rongta, etc.)'}
-                      >
-                        TSPL (লেবেল)
-                      </button>
-                    </div>
-
-                    {printerProtocol === 'tspl' && btConnected && (
-                      <button
-                        type="button"
-                        onClick={handleNativeTsplPrint}
-                        className="w-full mt-1.5 py-1 px-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white text-[9.5px] font-bold rounded-lg transition-all flex items-center justify-center gap-1 shadow-2xs cursor-pointer"
-                        title={isBn ? 'নেটিভ TSPL হার্ডওয়্যার কমান্ড সরাসরি প্রিন্টারে পাঠান' : 'Send native TSPL hardware command directly to printer'}
-                      >
-                        <Printer className="w-3 h-3" />
-                        <span>{isBn ? '⚡ সরাসরি TSPL কমান্ড প্রিন্ট' : '⚡ Direct TSPL Print'}</span>
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Print Density / Darkness for sharp barcodes */}
-                  <div className="space-y-1">
-                    <span className="text-[10px] font-bold text-stone-600">
-                      {isBn ? 'বারকোড স্পষ্টতা (Burn):' : 'Darkness (Burn):'}
-                    </span>
-                    <div className="grid grid-cols-3 gap-0.5 bg-white/90 p-0.5 rounded-lg border border-indigo-100 shadow-2xs">
-                      <button
-                        type="button"
-                        onClick={() => updateDarknessMode('normal')}
-                        className={`py-1 rounded-md text-[9px] font-bold transition-all cursor-pointer ${
-                          darknessMode === 'normal'
-                            ? 'bg-indigo-600 text-white shadow-2xs'
-                            : 'text-stone-600 hover:bg-stone-50'
-                        }`}
-                        title="স্বাভাবিক হিট"
-                      >
-                        {isBn ? 'স্বাভাবিক' : 'Norm'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => updateDarknessMode('dark')}
-                        className={`py-1 rounded-md text-[9px] font-bold transition-all cursor-pointer ${
-                          darknessMode === 'dark'
-                            ? 'bg-indigo-600 text-white shadow-2xs'
-                            : 'text-stone-600 hover:bg-stone-50'
-                        }`}
-                        title="গাঢ় ও স্পষ্ট"
-                      >
-                        {isBn ? 'গাঢ়' : 'Dark'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => updateDarknessMode('extra_dark')}
-                        className={`py-1 rounded-md text-[9px] font-bold transition-all cursor-pointer ${
-                          darknessMode === 'extra_dark'
-                            ? 'bg-indigo-600 text-white shadow-2xs'
-                            : 'text-stone-600 hover:bg-stone-50'
-                        }`}
-                        title="সর্বোচ্চ স্পষ্টতা (স্ক্যানার ফ্রেন্ডলি)"
-                      >
-                        {isBn ? 'খুব গাঢ়' : 'Max'}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 3. Bitmap Polarity Control (Bitwise Inversion / Anti-Inverted Print) */}
-                <div className="space-y-1 pt-1.5 border-t border-indigo-100/80">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-bold text-stone-700 flex items-center gap-1">
-                      <span>{isBn ? 'প্রিন্ট পোলারিটি (কালার মোড):' : 'Print Polarity (Color Mode):'}</span>
-                    </span>
-                    <span className="text-[9px] font-black text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200">
-                      {invertPolarity
-                        ? (isBn ? '⚪ সাদা কাগজ (কালো লেখা)' : '⚪ Black on White Paper')
-                        : (isBn ? '⚫ ইনভার্টেড মোড' : '⚫ Inverted Mode')}
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-1 bg-white/90 p-0.5 rounded-lg border border-indigo-100 shadow-2xs">
-                    <button
-                      type="button"
-                      onClick={() => updateInvertPolarity(true)}
-                      className={`py-1.5 rounded-md text-[9px] font-bold transition-all cursor-pointer text-center ${
-                        invertPolarity
-                          ? 'bg-indigo-600 text-white shadow-2xs font-black'
-                          : 'text-stone-600 hover:bg-stone-50'
-                      }`}
-                      title={isBn ? 'সাদা স্টিকারে কালো টেক্সট ও বারকোড (সুপারিশকৃত)' : 'Standard Black on White Label (Recommended)'}
-                    >
-                      ⚪ {isBn ? 'সাদা কাগজ (কালো লেখা)' : 'Black on White'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => updateInvertPolarity(false)}
-                      className={`py-1.5 rounded-md text-[9px] font-bold transition-all cursor-pointer text-center ${
-                        !invertPolarity
-                          ? 'bg-indigo-600 text-white shadow-2xs font-black'
-                          : 'text-stone-600 hover:bg-stone-50'
-                      }`}
-                      title={isBn ? 'ইনভার্টেড (কালো ব্যাকগ্রাউন্ডে সাদা লেখা)' : 'Inverted (White on Black)'}
-                    >
-                      ⚫ {isBn ? 'ইনভার্ট (কালো ব্যাকগ্রাউন্ড)' : 'Invert (White on Black)'}
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsMoreMenuOpen(true)}
+                    className="p-1.5 bg-white hover:bg-stone-100 text-stone-700 border border-indigo-200 rounded-lg transition-all cursor-pointer shadow-2xs"
+                    title={isBn ? 'প্রিন্টার সেটিংস (৩ ডট)' : 'Printer Settings (3-Dot)'}
+                  >
+                    <MoreVertical className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               </div>
             </div>
@@ -4147,40 +3409,14 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                 </div>
               </button>
 
-              {/* Secondary Row: RawBT 1-Tap & Standard System/USB Print */}
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  id="btn-rawbt-print"
-                  onClick={handleRawBTPrint}
-                  className="w-full bg-emerald-700 hover:bg-emerald-600 active:scale-[0.99] text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                  title="অ্যান্ড্রয়েড RawBT প্রিন্টার অ্যাপের মাধ্যমে ১-ক্লিকে প্রিন্ট"
-                >
-                  <Smartphone className="w-3.5 h-3.5 text-emerald-200" />
-                  <span>{isBn ? 'RawBT অ্যাপ প্রিন্ট' : 'RawBT App Print'}</span>
-                </button>
-
-                <button
-                  type="button"
-                  id="btn-print-labels"
-                  onClick={handlePrintLabels}
-                  disabled={isPrinting}
-                  className="w-full bg-stone-700 hover:bg-stone-600 active:scale-[0.99] text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                  title="কম্পিউটার বা ইউএসবি প্রিন্টার ডায়ালগ"
-                >
-                  <Printer className="w-3.5 h-3.5 text-stone-200" />
-                  <span>{isBn ? 'সিস্টেম / USB প্রিন্ট' : 'System / USB Print'}</span>
-                </button>
-              </div>
-
-              {/* Download for 4Barcode App & PDF */}
-              <div className="grid grid-cols-2 gap-2">
+              {/* Save as PNG + 3-Dot More Options Button */}
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
                   id="btn-download-tag-img"
                   onClick={handleDownloadImage}
                   disabled={isGeneratingImg}
-                  className="w-full bg-stone-900 hover:bg-stone-800 active:scale-[0.99] text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  className="flex-1 bg-stone-900 hover:bg-stone-800 active:scale-[0.99] text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                   title="4Barcode অ্যাপ বা গ্যালারিতে সেভ করুন"
                 >
                   <Download className="w-3.5 h-3.5" />
@@ -4189,20 +3425,838 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
 
                 <button
                   type="button"
-                  id="btn-download-tag-pdf"
-                  onClick={handleDownloadPdfSheet}
-                  disabled={isGeneratingImg}
-                  className="w-full bg-stone-100 hover:bg-stone-200 active:scale-[0.99] text-stone-800 border border-stone-300 py-2.5 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                  title="A4 সাইজ স্টিকার শিট PDF"
+                  id="btn-bottom-more-dots"
+                  onClick={() => setIsMoreMenuOpen(true)}
+                  className="px-3.5 py-2.5 bg-stone-100 hover:bg-stone-200 active:scale-[0.99] text-stone-800 border border-stone-300 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1 cursor-pointer shrink-0"
+                  title={isBn ? 'আরো প্রিন্ট ও সেটিংস অপশন (৩ ডট)' : 'More Print & Settings Options'}
                 >
-                  <FileText className="w-3.5 h-3.5 text-blue-600" />
-                  <span>{isBn ? 'PDF শিট ডাউনলোড' : 'PDF Sheet'}</span>
+                  <MoreVertical className="w-4 h-4 text-stone-700" />
                 </button>
+              </div>
+            </div>
+
+            {/* Custom Barcode Label Editor (50mm x 25mm TSPL Studio) — Moved all the way to the VERY BOTTOM */}
+            <div className="p-3.5 bg-indigo-50/70 rounded-2xl border border-indigo-200 space-y-3 mt-2">
+              <div className="flex items-center justify-between flex-wrap gap-2 border-b border-indigo-200/80 pb-2">
+                <div className="flex items-center gap-1.5">
+                  <SlidersHorizontal className="w-4 h-4 text-indigo-600" />
+                  <span className="text-xs font-black text-indigo-950">
+                    {isBn
+                      ? '🎛️ কাস্টম বারকোড লেবেল এডিটর (50×25mm TSPL)'
+                      : '🎛️ Custom Barcode Label Editor (50×25mm TSPL)'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLabelConfig((prev) => ({
+                      ...prev,
+                      tsplDirection: '0,0',
+                      tsplAlign: 'center',
+                      tsplCustomX: false,
+                      tsplShopX: undefined,
+                      tsplShopY: 22,
+                      tsplShopFont: '3',
+                      tsplBarcodeX: undefined,
+                      tsplBarcodeY: 52,
+                      tsplBarcodeHeight: 45,
+                      tsplBarcodeRatio: '2:3',
+                      tsplPriceX: undefined,
+                      tsplPriceY: 135,
+                      tsplPriceFont: '3',
+                      mrpPrefix: 'MRP: Rs. ',
+                    }));
+                    onShowToast(
+                      isBn ? 'ডিফল্ট সেন্টার পজিশন রিসেট হয়েছে' : 'Reset to centered 50x25mm TSPL defaults',
+                      'info'
+                    );
+                  }}
+                  className="px-2 py-1 bg-white hover:bg-indigo-100 border border-indigo-200 rounded-lg text-[10px] font-bold text-indigo-700 flex items-center gap-1 cursor-pointer transition-all"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>{isBn ? 'অটো সেন্টার রিসেট' : 'Reset Center'}</span>
+                </button>
+              </div>
+
+              {/* Row A: Alignment Toggles (Left, Center, Right) & Orientation (DIRECTION 0,0 vs 1,0) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div className="bg-white p-2 rounded-xl border border-indigo-100 space-y-1">
+                  <span className="text-[10px] font-extrabold text-stone-600 block">
+                    {isBn ? 'অ্যালাইনমেন্ট (Alignment):' : 'Alignment (Auto X):'}
+                  </span>
+                  <div className="grid grid-cols-3 gap-1">
+                    {(['left', 'center', 'right'] as const).map((al) => {
+                      const active = !labelConfig.tsplCustomX && (labelConfig.tsplAlign || 'center') === al;
+                      return (
+                        <button
+                          key={al}
+                          type="button"
+                          onClick={() =>
+                            setLabelConfig((prev) => ({
+                              ...prev,
+                              tsplAlign: al,
+                              tsplCustomX: false,
+                              tsplShopX: undefined,
+                              tsplBarcodeX: undefined,
+                              tsplPriceX: undefined,
+                            }))
+                          }
+                          className={`py-1 px-2 rounded-lg text-[10px] font-black capitalize transition-all cursor-pointer ${
+                            active
+                              ? 'bg-indigo-600 text-white shadow-2xs'
+                              : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
+                          }`}
+                        >
+                          {al === 'left'
+                            ? isBn
+                              ? '⬅ বামে'
+                              : '⬅ Left'
+                            : al === 'center'
+                            ? isBn
+                              ? '↔ মাঝে'
+                              : '↔ Center'
+                            : isBn
+                            ? '➡ ডানে'
+                            : '➡ Right'}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="bg-white p-2 rounded-xl border border-indigo-100 space-y-1">
+                  <span className="text-[10px] font-extrabold text-stone-600 block">
+                    {isBn ? 'প্রিন্ট ওরিয়েন্টেশন (DIRECTION):' : 'Print Orientation (DIRECTION):'}
+                  </span>
+                  <div className="grid grid-cols-2 gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setLabelConfig((prev) => ({ ...prev, tsplDirection: '0,0' }))}
+                      className={`py-1 px-2 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
+                        (labelConfig.tsplDirection || '0,0') === '0,0'
+                          ? 'bg-emerald-600 text-white shadow-2xs'
+                          : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
+                      }`}
+                    >
+                      DIRECTION 0,0 ({isBn ? 'সোজা' : 'Upright'})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLabelConfig((prev) => ({ ...prev, tsplDirection: '1,0' }))}
+                      className={`py-1 px-2 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
+                        labelConfig.tsplDirection === '1,0'
+                          ? 'bg-indigo-600 text-white shadow-2xs'
+                          : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
+                      }`}
+                    >
+                      DIRECTION 1,0 ({isBn ? 'উল্টো' : 'Flipped'})
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Row B: Line 1 — Shop Name Position (X, Y) & Font Size */}
+              <div className="bg-white p-2.5 rounded-xl border border-indigo-100 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-black text-stone-800">
+                    {isBn ? '১. দোকানের নাম (Line 1: Shop Name)' : '1. Shop Name (Line 1)'}
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-bold text-stone-500">
+                      {isBn ? 'ফন্ট সাইজ:' : 'Font:'}
+                    </span>
+                    <select
+                      value={labelConfig.tsplShopFont || '3'}
+                      onChange={(e) =>
+                        setLabelConfig((prev) => ({
+                          ...prev,
+                          tsplShopFont: e.target.value as '1' | '2' | '3' | '4',
+                        }))
+                      }
+                      className="text-[10px] font-black bg-indigo-50 text-indigo-900 border border-indigo-200 rounded-md px-2 py-0.5 cursor-pointer"
+                    >
+                      <option value="1">Font "1" (Small 8×12)</option>
+                      <option value="2">Font "2" (Medium 12×20)</option>
+                      <option value="3">Font "3" (Standard 16×24)</option>
+                      <option value="4">Font "4" (Large 24×32)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 text-[10px]">
+                  <div>
+                    <div className="flex justify-between font-bold text-stone-600 mb-0.5">
+                      <span>Shop X (Left/Right):</span>
+                      <span className="font-mono text-indigo-700">{tsplLayout.shopX} dots</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="50"
+                      max="360"
+                      value={tsplLayout.shopX}
+                      onChange={(e) =>
+                        setLabelConfig((prev) => ({
+                          ...prev,
+                          tsplCustomX: true,
+                          tsplShopX: Number(e.target.value),
+                        }))
+                      }
+                      className="w-full accent-indigo-600 cursor-pointer h-1.5 bg-stone-200 rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <div className="flex justify-between font-bold text-stone-600 mb-0.5">
+                      <span>Shop Y (Top/Bottom):</span>
+                      <span className="font-mono text-indigo-700">{tsplLayout.shopY} dots</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="2"
+                      max="160"
+                      value={tsplLayout.shopY}
+                      onChange={(e) =>
+                        setLabelConfig((prev) => ({
+                          ...prev,
+                          tsplShopY: Number(e.target.value),
+                        }))
+                      }
+                      className="w-full accent-indigo-600 cursor-pointer h-1.5 bg-stone-200 rounded-lg"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Row C: Line 2 — Barcode Position (X, Y), Height (30-60px) & Width Ratio (2:3, 1:2) */}
+              <div className="bg-white p-2.5 rounded-xl border border-indigo-100 space-y-2">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <span className="text-[11px] font-black text-stone-800">
+                    {isBn ? '২. বারকোড (Line 2: CODE128 + Number)' : '2. Barcode (Line 2: CODE128)'}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-[10px] font-bold text-stone-500">
+                      {isBn ? 'বার অনুপাত:' : 'Width Ratio:'}
+                    </span>
+                    {(['2:3', '1:2', '2:2'] as const).map((rt) => (
+                      <button
+                        key={rt}
+                        type="button"
+                        onClick={() =>
+                          setLabelConfig((prev) => ({
+                            ...prev,
+                            tsplBarcodeRatio: rt,
+                          }))
+                        }
+                        className={`px-2 py-0.5 rounded text-[10px] font-black cursor-pointer transition-all ${
+                          (labelConfig.tsplBarcodeRatio || '2:3') === rt
+                            ? 'bg-indigo-600 text-white'
+                            : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
+                        }`}
+                      >
+                        {rt}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-[10px]">
+                  <div>
+                    <div className="flex justify-between font-bold text-stone-600 mb-0.5">
+                      <span>Barcode X:</span>
+                      <span className="font-mono text-indigo-700">{tsplLayout.barcodeX} dots</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="50"
+                      max="320"
+                      value={tsplLayout.barcodeX}
+                      onChange={(e) =>
+                        setLabelConfig((prev) => ({
+                          ...prev,
+                          tsplCustomX: true,
+                          tsplBarcodeX: Number(e.target.value),
+                        }))
+                      }
+                      className="w-full accent-indigo-600 cursor-pointer h-1.5 bg-stone-200 rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <div className="flex justify-between font-bold text-stone-600 mb-0.5">
+                      <span>Barcode Y:</span>
+                      <span className="font-mono text-indigo-700">{tsplLayout.barcodeY} dots</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="20"
+                      max="110"
+                      value={tsplLayout.barcodeY}
+                      onChange={(e) => {
+                        const nextBarcodeY = Number(e.target.value);
+                        setLabelConfig((prev) => {
+                          const bh = prev.tsplBarcodeHeight ?? 45;
+                          const minPriceY = Math.min(180, nextBarcodeY + bh + 32);
+                          const currentPriceY = prev.tsplPriceY ?? 135;
+                          return {
+                            ...prev,
+                            tsplBarcodeY: nextBarcodeY,
+                            tsplPriceY: currentPriceY < minPriceY ? minPriceY : currentPriceY,
+                          };
+                        });
+                      }}
+                      className="w-full accent-indigo-600 cursor-pointer h-1.5 bg-stone-200 rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <div className="flex justify-between font-bold text-stone-600 mb-0.5">
+                      <span>{isBn ? 'বারকোড উচ্চতা:' : 'Height (30-60px):'}</span>
+                      <span className="font-mono text-indigo-700">{tsplLayout.barcodeHeight}px</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="30"
+                      max="60"
+                      value={tsplLayout.barcodeHeight}
+                      onChange={(e) => {
+                        const nextHeight = Number(e.target.value);
+                        setLabelConfig((prev) => {
+                          const by = prev.tsplBarcodeY ?? 52;
+                          const minPriceY = Math.min(180, by + nextHeight + 32);
+                          const currentPriceY = prev.tsplPriceY ?? 135;
+                          return {
+                            ...prev,
+                            tsplBarcodeHeight: nextHeight,
+                            tsplPriceY: currentPriceY < minPriceY ? minPriceY : currentPriceY,
+                          };
+                        });
+                      }}
+                      className="w-full accent-indigo-600 cursor-pointer h-1.5 bg-stone-200 rounded-lg"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Row D: Line 3 — MRP / Price Position (X, Y), Prefix & Font Size */}
+              <div className="bg-white p-2.5 rounded-xl border border-indigo-100 space-y-2">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <span className="text-[11px] font-black text-stone-800">
+                    {isBn ? '৩. দাম / MRP (Line 3: Price)' : '3. MRP / Price (Line 3)'}
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="text"
+                      value={labelConfig.mrpPrefix ?? 'MRP: Rs. '}
+                      onChange={(e) =>
+                        setLabelConfig((prev) => ({ ...prev, mrpPrefix: e.target.value }))
+                      }
+                      placeholder="MRP: Rs. "
+                      className="w-24 text-[10px] font-mono font-bold bg-stone-50 border border-stone-200 rounded px-1.5 py-0.5 text-stone-800"
+                      title="Price Prefix"
+                    />
+                    <select
+                      value={labelConfig.tsplPriceFont || '3'}
+                      onChange={(e) =>
+                        setLabelConfig((prev) => ({
+                          ...prev,
+                          tsplPriceFont: e.target.value as '1' | '2' | '3' | '4',
+                        }))
+                      }
+                      className="text-[10px] font-black bg-indigo-50 text-indigo-900 border border-indigo-200 rounded-md px-2 py-0.5 cursor-pointer"
+                    >
+                      <option value="1">Font "1" (Small 8×12)</option>
+                      <option value="2">Font "2" (Medium 12×20)</option>
+                      <option value="3">Font "3" (Standard 16×24)</option>
+                      <option value="4">Font "4" (Large 24×32)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 text-[10px]">
+                  <div>
+                    <div className="flex justify-between font-bold text-stone-600 mb-0.5">
+                      <span>MRP X (Left/Right):</span>
+                      <span className="font-mono text-indigo-700">{tsplLayout.priceX} dots</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="50"
+                      max="360"
+                      value={tsplLayout.priceX}
+                      onChange={(e) =>
+                        setLabelConfig((prev) => ({
+                          ...prev,
+                          tsplCustomX: true,
+                          tsplPriceX: Number(e.target.value),
+                        }))
+                      }
+                      className="w-full accent-indigo-600 cursor-pointer h-1.5 bg-stone-200 rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <div className="flex justify-between font-bold text-stone-600 mb-0.5">
+                      <span>MRP Y (Top/Bottom):</span>
+                      <span className="font-mono text-indigo-700">{tsplLayout.priceY} dots</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="115"
+                      max="180"
+                      value={tsplLayout.priceY}
+                      onChange={(e) => {
+                        const nextPriceY = Number(e.target.value);
+                        setLabelConfig((prev) => {
+                          const bh = prev.tsplBarcodeHeight ?? 45;
+                          const maxBarcodeY = Math.max(20, nextPriceY - bh - 32);
+                          const currentBarcodeY = prev.tsplBarcodeY ?? 52;
+                          return {
+                            ...prev,
+                            tsplPriceY: nextPriceY,
+                            tsplBarcodeY: currentBarcodeY > maxBarcodeY ? maxBarcodeY : currentBarcodeY,
+                          };
+                        });
+                      }}
+                      className="w-full accent-indigo-600 cursor-pointer h-1.5 bg-stone-200 rounded-lg"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         </div>
       </div>
+
+      {/* 3-DOT (⋮) MORE OPTIONS MODAL — Holds all hidden advanced options */}
+      {isMoreMenuOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl shadow-2xl border border-stone-200 w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden my-auto">
+            {/* Modal Header */}
+            <div className="px-4 py-3.5 bg-stone-900 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <MoreVertical className="w-5 h-5 text-amber-400" />
+                <div>
+                  <h3 className="text-sm font-black">
+                    {isBn ? 'বারকোড ও প্রিন্টার অ্যাডভান্সড অপশন (৩ ডট মেনু)' : 'More Barcode & Printer Options'}
+                  </h3>
+                  <p className="text-[10px] text-stone-400">
+                    {isBn ? 'লুকানো সব সেটিংস ও প্রিন্ট অপশন এখানে পাবেন' : 'All additional design, format & printer settings'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsMoreMenuOpen(false)}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Scrollable Body */}
+            <div className="p-4 overflow-y-auto space-y-4 text-xs">
+              {/* 1. Mode & Tab Switchers (Customize Design, Bill Data, Full Details Mode) */}
+              <div className="space-y-2 p-3 bg-stone-50 rounded-2xl border border-stone-200">
+                <span className="font-black text-stone-800 block text-[11px] uppercase tracking-wider">
+                  {isBn ? '১. ডিজাইন ও মোড পরিবর্তন:' : '1. Switch Mode & Tabs:'}
+                </span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveControlTab('design');
+                      setIsMoreMenuOpen(false);
+                    }}
+                    className={`py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer border ${
+                      activeControlTab === 'design'
+                        ? 'bg-stone-900 text-white border-stone-900'
+                        : 'bg-white hover:bg-stone-100 text-stone-800 border-stone-200'
+                    }`}
+                  >
+                    <Palette className="w-4 h-4 text-amber-500" />
+                    <span>{isBn ? '🎨 Customize Design' : '🎨 Customize Design'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveControlTab('content');
+                      setIsMoreMenuOpen(false);
+                    }}
+                    className={`py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer border ${
+                      activeControlTab === 'content'
+                        ? 'bg-stone-900 text-white border-stone-900'
+                        : 'bg-white hover:bg-stone-100 text-stone-800 border-stone-200'
+                    }`}
+                  >
+                    <ShoppingBag className="w-4 h-4 text-blue-500" />
+                    <span>{isBn ? '🛍️ Bill Data (বিলের তথ্য)' : '🛍️ Bill Data'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleApplyTheme('ultra_simple');
+                      setActiveControlTab('easy');
+                      setIsMoreMenuOpen(false);
+                    }}
+                    className={`py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer border ${
+                      labelConfig.layoutStyle === 'ultra_simple'
+                        ? 'bg-emerald-600 text-white border-emerald-600'
+                        : 'bg-white hover:bg-stone-100 text-stone-800 border-stone-200'
+                    }`}
+                  >
+                    <span>📸</span>
+                    <span>{isBn ? 'Photo 1: Ultra Simple' : 'Photo 1: Ultra Simple'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleApplyTheme('classic');
+                      setIsMoreMenuOpen(false);
+                    }}
+                    className={`py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer border ${
+                      labelConfig.layoutStyle !== 'ultra_simple'
+                        ? 'bg-stone-900 text-white border-stone-900'
+                        : 'bg-white hover:bg-stone-100 text-stone-800 border-stone-200'
+                    }`}
+                  >
+                    <span>👗</span>
+                    <span>{isBn ? 'Full Details Mode' : 'Full Details Mode'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* 2. Code Format: 1D Barcode vs QR Code */}
+              <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-2xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-black text-stone-900 flex items-center gap-1.5">
+                    <BarcodeIcon className="w-4 h-4 text-blue-600" />
+                    <span>{isBn ? 'কোডের ধরন (Code Format)' : 'Code Format'}</span>
+                  </span>
+                  <span className="text-[10px] font-black text-blue-800 bg-blue-100 px-2 py-0.5 rounded-full">
+                    {labelConfig.barcodeType === 'QR' ? 'QR Code' : '1D Barcode'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setLabelConfig((prev) => ({
+                        ...prev,
+                        barcodeType: 'CODE128',
+                        layoutStyle: prev.layoutStyle === 'qr_centric' ? 'classic' : prev.layoutStyle,
+                      }))
+                    }
+                    className={`py-2 px-3 rounded-xl font-bold text-xs cursor-pointer border ${
+                      labelConfig.barcodeType !== 'QR'
+                        ? 'bg-stone-900 text-white border-stone-900'
+                        : 'bg-white text-stone-700 border-stone-200'
+                    }`}
+                  >
+                    ▌▌▌ 1D Barcode
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLabelConfig((prev) => ({ ...prev, barcodeType: 'QR' }))}
+                    className={`py-2 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer border ${
+                      labelConfig.barcodeType === 'QR'
+                        ? 'bg-stone-900 text-white border-stone-900'
+                        : 'bg-white text-stone-700 border-stone-200'
+                    }`}
+                  >
+                    <QrIcon className="w-3.5 h-3.5 text-blue-400" />
+                    <span>QR Code</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* 3. Sticker Width & Clean White Print */}
+              <div className="p-3 bg-stone-50 border border-stone-200 rounded-2xl space-y-3">
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-stone-700 flex items-center gap-1">
+                      <Tag className="w-3.5 h-3.5 text-stone-600" />
+                      <span>{isBn ? 'স্টিকারের সাইজ (Sticker Width):' : 'Sticker Width:'}</span>
+                    </span>
+                    <span className="text-[10px] font-mono font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
+                      {widthMm} × {heightMm} mm
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {[
+                      { id: '2x1' as LabelSizePreset, label: '50×25mm (Photo 1)' },
+                      { id: '2x1.2' as LabelSizePreset, label: '৫০ × ৩০ মিমি' },
+                      { id: '1.5x1' as LabelSizePreset, label: '৩৮ × ২৫ মিমি' },
+                      { id: '1x1' as LabelSizePreset, label: '২৫ × ২৫ মিমি' },
+                    ].map((sz) => {
+                      const isSelected = labelConfig.sizePreset === sz.id;
+                      return (
+                        <button
+                          key={sz.id}
+                          type="button"
+                          onClick={() => {
+                            const match = PRESET_SIZES.find((p) => p.id === sz.id);
+                            setLabelConfig((prev) => ({
+                              ...prev,
+                              sizePreset: sz.id,
+                              customWidthMm: match ? match.widthMm : prev.customWidthMm,
+                              customHeightMm: match ? match.heightMm : prev.customHeightMm,
+                            }));
+                          }}
+                          className={`text-[11px] font-bold py-1.5 px-2 rounded-lg transition-all cursor-pointer text-center ${
+                            isSelected
+                              ? 'bg-stone-900 text-white font-black'
+                              : 'bg-white hover:bg-stone-100 text-stone-700 border border-stone-200'
+                          }`}
+                        >
+                          {sz.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Clean White Print */}
+                <div className="pt-2 border-t border-stone-200 flex items-center justify-between">
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={labelConfig.cleanWhiteMode !== false}
+                      onChange={(e) =>
+                        setLabelConfig((prev) => ({ ...prev, cleanWhiteMode: e.target.checked }))
+                      }
+                      className="w-4 h-4 rounded text-emerald-600 cursor-pointer"
+                    />
+                    <span className="font-bold text-stone-800 text-xs">
+                      Clean White Print (No black blotches)
+                    </span>
+                  </label>
+                </div>
+              </div>
+
+              {/* 4. Permanent Printer Defaults (Paper Roll Size, Protocol, Darkness, Polarity) */}
+              <div className="p-3.5 bg-indigo-50/70 rounded-2xl border border-indigo-200 space-y-2.5">
+                <div className="flex items-center justify-between pb-1 border-b border-indigo-100 text-[11px]">
+                  <span className="font-extrabold text-stone-800">
+                    ⚡ {isBn ? 'স্থায়ী প্রিন্টার ডিফল্ট ও সেটিংস:' : 'Permanent Printer Defaults:'}
+                  </span>
+                  <span className="font-black text-[9px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                    🔒 Saved
+                  </span>
+                </div>
+
+                {/* Paper / Sticker Size */}
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-stone-700 block">
+                    {isBn ? 'পেপার / স্টিকার রোল সাইজ:' : 'Paper / Sticker Size:'}
+                  </span>
+                  <div className="grid grid-cols-3 gap-1 bg-white p-0.5 rounded-lg border border-indigo-100">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        updatePaperRollWidth('50mm_label');
+                        setLabelConfig((prev) => ({
+                          ...prev,
+                          sizePreset: '2x1',
+                          customWidthMm: 50,
+                          customHeightMm: 25,
+                        }));
+                      }}
+                      className={`py-1.5 rounded-md text-[10px] font-bold cursor-pointer flex flex-col items-center leading-tight ${
+                        paperRollWidth === '50mm_label'
+                          ? 'bg-indigo-600 text-white'
+                          : 'text-stone-600 hover:bg-stone-50'
+                      }`}
+                    >
+                      <span className="font-extrabold">50×25 mm</span>
+                      <span className="text-[8px] opacity-90">Sticker Roll</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updatePaperRollWidth('58mm')}
+                      className={`py-1.5 rounded-md text-[10px] font-bold cursor-pointer flex flex-col items-center leading-tight ${
+                        paperRollWidth === '58mm'
+                          ? 'bg-indigo-600 text-white'
+                          : 'text-stone-600 hover:bg-stone-50'
+                      }`}
+                    >
+                      <span className="font-extrabold">58 mm</span>
+                      <span className="text-[8px] opacity-90">2" Paper</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updatePaperRollWidth('80mm')}
+                      className={`py-1.5 rounded-md text-[10px] font-bold cursor-pointer flex flex-col items-center leading-tight ${
+                        paperRollWidth === '80mm'
+                          ? 'bg-indigo-600 text-white'
+                          : 'text-stone-600 hover:bg-stone-50'
+                      }`}
+                    >
+                      <span className="font-extrabold">80 mm</span>
+                      <span className="text-[8px] opacity-90">3" Paper</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Printer Protocol & Darkness */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-bold text-stone-600 block">
+                      Printer Protocol:
+                    </span>
+                    <div className="grid grid-cols-2 gap-1 bg-white p-0.5 rounded-lg border border-indigo-100">
+                      <button
+                        type="button"
+                        onClick={() => updatePrinterProtocol('escpos')}
+                        className={`py-1 rounded-md text-[9px] font-bold cursor-pointer ${
+                          printerProtocol === 'escpos'
+                            ? 'bg-indigo-600 text-white'
+                            : 'text-stone-600'
+                        }`}
+                      >
+                        ESC/POS
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updatePrinterProtocol('tspl')}
+                        className={`py-1 rounded-md text-[9px] font-bold cursor-pointer ${
+                          printerProtocol === 'tspl'
+                            ? 'bg-indigo-600 text-white'
+                            : 'text-stone-600'
+                        }`}
+                      >
+                        TSPL (লেবেল)
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-bold text-stone-600 block">
+                      Darkness (Burn):
+                    </span>
+                    <div className="grid grid-cols-3 gap-0.5 bg-white p-0.5 rounded-lg border border-indigo-100">
+                      <button
+                        type="button"
+                        onClick={() => updateDarknessMode('normal')}
+                        className={`py-1 rounded-md text-[9px] font-bold cursor-pointer ${
+                          darknessMode === 'normal' ? 'bg-indigo-600 text-white' : 'text-stone-600'
+                        }`}
+                      >
+                        Norm
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateDarknessMode('dark')}
+                        className={`py-1 rounded-md text-[9px] font-bold cursor-pointer ${
+                          darknessMode === 'dark' ? 'bg-indigo-600 text-white' : 'text-stone-600'
+                        }`}
+                      >
+                        Dark
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateDarknessMode('extra_dark')}
+                        className={`py-1 rounded-md text-[9px] font-bold cursor-pointer ${
+                          darknessMode === 'extra_dark' ? 'bg-indigo-600 text-white' : 'text-stone-600'
+                        }`}
+                      >
+                        Max
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Print Polarity */}
+                <div className="space-y-1 pt-1 border-t border-indigo-100">
+                  <span className="text-[10px] font-bold text-stone-700 block">
+                    Print Polarity (Color Mode):
+                  </span>
+                  <div className="grid grid-cols-2 gap-1 bg-white p-0.5 rounded-lg border border-indigo-100">
+                    <button
+                      type="button"
+                      onClick={() => updateInvertPolarity(true)}
+                      className={`py-1.5 rounded-md text-[9px] font-bold cursor-pointer ${
+                        invertPolarity ? 'bg-indigo-600 text-white font-black' : 'text-stone-600'
+                      }`}
+                    >
+                      ⚪ Black on White
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateInvertPolarity(false)}
+                      className={`py-1.5 rounded-md text-[9px] font-bold cursor-pointer ${
+                        !invertPolarity ? 'bg-indigo-600 text-white font-black' : 'text-stone-600'
+                      }`}
+                    >
+                      ⚫ Invert (White on Black)
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* 5. Extra Print & Export Buttons (RawBT, System/USB Print, PDF Sheet) */}
+              <div className="space-y-2 p-3 bg-stone-50 rounded-2xl border border-stone-200">
+                <span className="font-black text-stone-800 block text-[11px]">
+                  {isBn ? 'অন্যান্য প্রিন্ট ও পিডিএফ অপশন:' : 'Other Print & Export Options:'}
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMoreMenuOpen(false);
+                      handleRawBTPrint();
+                    }}
+                    className="w-full bg-emerald-700 hover:bg-emerald-600 text-white py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Smartphone className="w-3.5 h-3.5 text-emerald-200" />
+                    <span>RawBT App Print</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMoreMenuOpen(false);
+                      handlePrintLabels();
+                    }}
+                    disabled={isPrinting}
+                    className="w-full bg-stone-700 hover:bg-stone-600 text-white py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Printer className="w-3.5 h-3.5 text-stone-200" />
+                    <span>System / USB Print</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMoreMenuOpen(false);
+                      handleDownloadPdfSheet();
+                    }}
+                    disabled={isGeneratingImg}
+                    className="w-full bg-white hover:bg-stone-100 text-stone-800 border border-stone-300 py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <FileText className="w-3.5 h-3.5 text-blue-600" />
+                    <span>PDF Sheet</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* 6. Live TSPL Command Output Box */}
+              <div className="p-3 bg-stone-900 text-emerald-400 rounded-xl border border-stone-800 space-y-1.5 font-mono text-[10px]">
+                <div className="flex items-center justify-between text-stone-300 font-sans">
+                  <span className="text-[10px] font-bold flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span>Live TSPL Command Output (50×25mm):</span>
+                  </span>
+                  <span className="text-[9px] bg-stone-800 text-stone-300 px-2 py-0.5 rounded">
+                    400 × 200 dots
+                  </span>
+                </div>
+                <pre className="overflow-x-auto whitespace-pre leading-relaxed text-[10px] text-emerald-300 select-all">
+                  {liveTsplCommand.trim()}
+                </pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
