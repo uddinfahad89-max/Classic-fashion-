@@ -73,6 +73,7 @@ export interface BarcodeLabelConfig {
   tsplBarcodeX?: number;
   tsplBarcodeY?: number;
   tsplBarcodeHeight?: number;
+  tsplBarcodeWidthDots?: number;
   tsplBarcodeRatio?: '2:3' | '1:2' | '2:2';
   tsplPriceX?: number;
   tsplPriceY?: number;

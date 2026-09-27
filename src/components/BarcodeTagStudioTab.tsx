@@ -327,6 +327,23 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     canvasWidth: number;
     canvasHeight: number;
   } | null>(null);
+  const resizeSessionRef = useRef<{
+    item: 'shop' | 'barcode' | 'price';
+    mode: 'width-right' | 'width-left' | 'height' | 'corner' | 'font';
+    startClientX: number;
+    startClientY: number;
+    startWidthDots: number;
+    startHeightDots: number;
+    startDotX: number;
+    startFontIndex: number;
+    canvasWidth: number;
+    canvasHeight: number;
+  } | null>(null);
+  const pinchSessionRef = useRef<{
+    startDist: number;
+    startWidthDots: number;
+    startHeightDots: number;
+  } | null>(null);
 
   // Fast and robust capture helper using html2canvas-pro with solid white background and pure black rendering
   const captureLabelCanvas = async (scale = 2.2): Promise<HTMLCanvasElement | null> => {
@@ -1001,13 +1018,26 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
 
     const barcodeCode = (labelConfig.barcodeValue || '1001').trim();
     const barcodeHeight = labelConfig.tsplBarcodeHeight ?? 45;
-    const barcodeRatio: '2:3' | '1:2' | '2:2' = labelConfig.tsplBarcodeRatio || '2:3';
-    const narrow = barcodeRatio === '1:2' ? 1 : 2;
-    const wide = barcodeRatio === '1:2' ? 2 : barcodeRatio === '2:2' ? 2 : 3;
     const isPureNumericEven = /^\d+$/.test(barcodeCode) && barcodeCode.length >= 4;
     const dataSymbols = isPureNumericEven ? Math.ceil(barcodeCode.length / 2) : barcodeCode.length;
     const totalModules = (dataSymbols + 3) * 11 + 2;
-    const estBarcodeW = totalModules * narrow;
+    const defaultRatio: '2:3' | '1:2' | '2:2' = labelConfig.tsplBarcodeRatio || '2:3';
+    const defaultNarrow = defaultRatio === '1:2' ? 1 : 2;
+    const defaultEstW = totalModules * defaultNarrow;
+    const estBarcodeW =
+      labelConfig.tsplBarcodeWidthDots !== undefined
+        ? Math.max(95, Math.min(365, Math.round(labelConfig.tsplBarcodeWidthDots)))
+        : defaultEstW;
+    const barcodeRatio: '2:3' | '1:2' | '2:2' =
+      labelConfig.tsplBarcodeWidthDots !== undefined
+        ? estBarcodeW < totalModules * 1.45
+          ? '1:2'
+          : estBarcodeW < totalModules * 1.85
+          ? '2:2'
+          : '2:3'
+        : defaultRatio;
+    const narrow = barcodeRatio === '1:2' ? 1 : 2;
+    const wide = barcodeRatio === '1:2' ? 2 : barcodeRatio === '2:2' ? 2 : 3;
     const autoBarcodeX =
       align === 'left'
         ? rollLeftOffset + 15
@@ -1020,7 +1050,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
 
     const rawPrefix = (labelConfig.mrpPrefix || 'MRP: Rs. ').trim();
     const pricePrefix = rawPrefix ? `${rawPrefix} ` : 'MRP: ';
-    const activePrice = labelConfig.mrp || labelConfig.salePrice || 0;
+    const activePrice = labelConfig.salePrice || labelConfig.mrp || 0;
     const priceText = `${pricePrefix}${activePrice}`;
     const priceFont: '1' | '2' | '3' | '4' = labelConfig.tsplPriceFont || '3';
     const priceCharW = getCharW(priceFont);
@@ -1193,6 +1223,147 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     } catch {}
     dragSessionRef.current = null;
     setDraggingCanvasItem(null);
+  };
+
+  // Interactive Direct Touch/Mouse Resize Handlers on the Canvas (Width, Height, Corner & Font Scaling)
+  const handleCanvasResizePointerDown = (
+    item: 'shop' | 'barcode' | 'price',
+    mode: 'width-right' | 'width-left' | 'height' | 'corner' | 'font',
+    e: React.PointerEvent<HTMLDivElement>
+  ) => {
+    e.stopPropagation();
+    e.preventDefault();
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {}
+    const canvasEl = interactiveCanvasRef.current;
+    const rect = canvasEl ? canvasEl.getBoundingClientRect() : null;
+    const canvasWidth = rect && rect.width > 0 ? rect.width : 300;
+    const canvasHeight = rect && rect.height > 0 ? rect.height : 150;
+
+    const fontOrder: ('1' | '2' | '3' | '4')[] = ['1', '2', '3', '4'];
+    const currentFont = item === 'shop' ? tsplLayout.shopFont : tsplLayout.priceFont;
+    const startFontIndex = Math.max(0, fontOrder.indexOf(currentFont));
+
+    setSelectedCanvasItem(item);
+    resizeSessionRef.current = {
+      item,
+      mode,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      startWidthDots: tsplLayout.estBarcodeW,
+      startHeightDots: tsplLayout.barcodeHeight,
+      startDotX: tsplLayout.barcodeX,
+      startFontIndex,
+      canvasWidth,
+      canvasHeight,
+    };
+  };
+
+  const handleCanvasResizePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const session = resizeSessionRef.current;
+    if (!session) return;
+    e.stopPropagation();
+    e.preventDefault();
+
+    const totalDotsX = 50 * 8; // 400 dots
+    const totalDotsY = 25 * 8; // 200 dots
+    const dotsPerPxX = totalDotsX / session.canvasWidth;
+    const dotsPerPxY = totalDotsY / session.canvasHeight;
+
+    const deltaDotsX = Math.round((e.clientX - session.startClientX) * dotsPerPxX);
+    const deltaDotsY = Math.round((e.clientY - session.startClientY) * dotsPerPxY);
+
+    if (session.item === 'barcode') {
+      let nextW = session.startWidthDots;
+      let nextH = session.startHeightDots;
+      let nextX = session.startDotX;
+
+      if (session.mode === 'width-right' || session.mode === 'corner') {
+        nextW = Math.max(100, Math.min(365, session.startWidthDots + deltaDotsX));
+      }
+      if (session.mode === 'width-left') {
+        const clampedDelta = Math.max(
+          -(session.startDotX - (tsplLayout.rollLeftOffset + 4)),
+          Math.min(session.startWidthDots - 100, deltaDotsX)
+        );
+        nextX = session.startDotX + clampedDelta;
+        nextW = Math.max(100, Math.min(365, session.startWidthDots - clampedDelta));
+      }
+      if (session.mode === 'height' || session.mode === 'corner') {
+        nextH = Math.max(20, Math.min(115, session.startHeightDots + deltaDotsY));
+      }
+
+      const nextRatio: '1:2' | '2:2' | '2:3' =
+        nextW < 170 ? '1:2' : nextW < 235 ? '2:2' : '2:3';
+
+      setLabelConfig((prev) => ({
+        ...prev,
+        tsplCustomX: true,
+        tsplBarcodeX: session.mode === 'width-left' ? nextX : (prev.tsplBarcodeX ?? tsplLayout.barcodeX),
+        tsplBarcodeWidthDots: nextW,
+        tsplBarcodeHeight: nextH,
+        tsplBarcodeRatio: nextRatio,
+      }));
+    } else {
+      // Font size scaling by dragging corner handle for Shop Name (Line 1) or MRP (Line 3)
+      const combinedDelta = deltaDotsX + deltaDotsY;
+      const stepOffset = Math.round(combinedDelta / 24);
+      const fontOrder: ('1' | '2' | '3' | '4')[] = ['1', '2', '3', '4'];
+      const nextIdx = Math.max(0, Math.min(3, session.startFontIndex + stepOffset));
+      const nextFont = fontOrder[nextIdx];
+      setLabelConfig((prev) => ({
+        ...prev,
+        ...(session.item === 'shop' ? { tsplShopFont: nextFont } : { tsplPriceFont: nextFont }),
+      }));
+    }
+  };
+
+  const handleCanvasResizePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!resizeSessionRef.current) return;
+    e.stopPropagation();
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {}
+    resizeSessionRef.current = null;
+  };
+
+  // Two-finger Pinch-to-Zoom on Mobile Touch for Barcode Line
+  const handleBarcodeTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (e.touches.length === 2) {
+      e.stopPropagation();
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      pinchSessionRef.current = {
+        startDist: Math.hypot(dx, dy) || 1,
+        startWidthDots: tsplLayout.estBarcodeW,
+        startHeightDots: tsplLayout.barcodeHeight,
+      };
+    }
+  };
+
+  const handleBarcodeTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (e.touches.length === 2 && pinchSessionRef.current) {
+      e.stopPropagation();
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.hypot(dx, dy) || 1;
+      const scale = dist / pinchSessionRef.current.startDist;
+      const nextW = Math.max(100, Math.min(365, Math.round(pinchSessionRef.current.startWidthDots * scale)));
+      const nextH = Math.max(20, Math.min(115, Math.round(pinchSessionRef.current.startHeightDots * scale)));
+      const nextRatio: '1:2' | '2:2' | '2:3' =
+        nextW < 170 ? '1:2' : nextW < 235 ? '2:2' : '2:3';
+      setLabelConfig((prev) => ({
+        ...prev,
+        tsplBarcodeWidthDots: nextW,
+        tsplBarcodeHeight: nextH,
+        tsplBarcodeRatio: nextRatio,
+      }));
+    }
+  };
+
+  const handleBarcodeTouchEnd = () => {
+    pinchSessionRef.current = null;
   };
 
   // Quick test print on thermal printer (50x25mm label test or receipt test)
@@ -1736,54 +1907,25 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                   </div>
                 </div>
 
-                {/* Row: MRP and Sale Price (Sale Price Optional!) */}
-                <div className="grid grid-cols-2 gap-3 p-3 bg-stone-50/80 rounded-xl border border-stone-200">
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="text-xs font-black text-stone-800 flex items-center gap-1">
-                        <span className="line-through text-stone-400">MRP</span>
-                        <span>{isBn ? 'আসল দাম (MRP)' : 'Original MRP'}</span>
-                      </label>
-                      <label className="flex items-center gap-1 cursor-pointer text-[10px] text-stone-500">
-                        <input
-                          type="checkbox"
-                          checked={labelConfig.showMrp}
-                          onChange={(e) =>
-                            setLabelConfig((prev) => ({ ...prev, showMrp: e.target.checked }))
-                          }
-                          className="rounded text-blue-600 cursor-pointer"
-                        />
-                        <span>{isBn ? 'দেখান' : 'Show'}</span>
-                      </label>
-                    </div>
-                    <div className="relative">
-                      <span className="absolute left-3 top-2 text-xs font-bold text-stone-400">{sym}</span>
-                      <input
-                        type="number"
-                        min="0"
-                        value={labelConfig.mrp || ''}
-                        onChange={(e) =>
-                          setLabelConfig((prev) => ({ ...prev, mrp: Number(e.target.value) || 0 }))
-                        }
-                        placeholder="5999"
-                        className="w-full bg-white text-stone-900 font-bold border border-stone-200 rounded-lg pl-8 pr-2 py-1.5 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                  </div>
-
+                {/* Row: Sale Price (Original MRP hidden into 3-Dot menu) */}
+                <div className="p-3 bg-stone-50/80 rounded-xl border border-stone-200">
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <label className="text-xs font-bold text-stone-700 flex items-center gap-1">
-                        <Tag className="w-3 h-3 text-blue-600" />
-                        <span>{isBn ? 'বিক্রয় মূল্য' : 'Sale Price'}</span>
+                        <Tag className="w-3.5 h-3.5 text-blue-600" />
+                        <span>{isBn ? 'বিক্রয় মূল্য (Sale Price / MRP)' : 'Sale Price'}</span>
                         <span className="text-[10px] text-stone-400 font-normal">({isBn ? 'ঐচ্ছিক' : 'Opt'})</span>
                       </label>
                       <label className="flex items-center gap-1 cursor-pointer text-[10px] text-stone-500">
                         <input
                           type="checkbox"
-                          checked={labelConfig.showSalePrice}
+                          checked={labelConfig.showSalePrice || labelConfig.showMrp}
                           onChange={(e) =>
-                            setLabelConfig((prev) => ({ ...prev, showSalePrice: e.target.checked }))
+                            setLabelConfig((prev) => ({
+                              ...prev,
+                              showSalePrice: e.target.checked,
+                              showMrp: e.target.checked,
+                            }))
                           }
                           className="rounded text-blue-600 cursor-pointer"
                         />
@@ -1795,11 +1937,16 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                       <input
                         type="number"
                         min="0"
-                        value={labelConfig.salePrice || ''}
-                        onChange={(e) =>
-                          setLabelConfig((prev) => ({ ...prev, salePrice: Number(e.target.value) || 0 }))
-                        }
-                        placeholder={isBn ? 'ফাঁকা রাখতে পারেন' : 'Optional'}
+                        value={labelConfig.salePrice || labelConfig.mrp || ''}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? 0 : Number(e.target.value) || 0;
+                          setLabelConfig((prev) => ({
+                            ...prev,
+                            salePrice: val,
+                            mrp: val,
+                          }));
+                        }}
+                        placeholder={isBn ? 'যেমন: 850 (ফাঁকা রাখতে পারেন)' : 'e.g. 850 (Optional)'}
                         className="w-full bg-white text-stone-950 font-bold border border-stone-300 rounded-lg pl-8 pr-2 py-1.5 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
@@ -2922,17 +3069,17 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                   <span>🖐️</span>
                   <span>
                     {isBn
-                      ? 'লেখা বা বারকোড ট্যাপ করে টেনে (Drag) পজিশন বসান'
-                      : 'Touch & drag any element to move'}
+                      ? 'ট্যাপ করে সরান • কোণার হ্যান্ডেল টেনে ছোট-বড় করুন'
+                      : 'Drag to move • Pull handles to resize'}
                   </span>
                 </span>
                 {selectedCanvasItem && (
                   <span className="font-mono font-black text-[9.5px] bg-indigo-600 text-white px-2 py-0.5 rounded-full shadow-2xs">
                     {selectedCanvasItem === 'shop'
-                      ? `Shop: ${tsplLayout.shopX},${tsplLayout.shopY}`
+                      ? `Shop (Font ${tsplLayout.shopFont})`
                       : selectedCanvasItem === 'barcode'
-                      ? `Code: ${tsplLayout.barcodeX},${tsplLayout.barcodeY}`
-                      : `MRP: ${tsplLayout.priceX},${tsplLayout.priceY}`}
+                      ? `Barcode: ${Math.round(tsplLayout.estBarcodeW * 0.75)}×${tsplLayout.barcodeHeight}px`
+                      : `MRP (Font ${tsplLayout.priceFont})`}
                   </span>
                 )}
               </div>
@@ -2995,7 +3142,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                       backgroundSize: '15px 15px',
                     }}
                   >
-                    {/* Line 1: Shop Name (Top - Directly Draggable) */}
+                    {/* Line 1: Shop Name (Top - Directly Draggable & Resizable) */}
                     {labelConfig.showStoreName && tsplLayout.shopText && (
                       <div
                         onClick={(e) => e.stopPropagation()}
@@ -3023,10 +3170,23 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                         }}
                       >
                         {tsplLayout.shopText}
+                        {selectedCanvasItem === 'shop' && (
+                          <div
+                            data-drag-ui="true"
+                            onPointerDown={(e) => handleCanvasResizePointerDown('shop', 'font', e)}
+                            onPointerMove={handleCanvasResizePointerMove}
+                            onPointerUp={handleCanvasResizePointerUp}
+                            onPointerCancel={handleCanvasResizePointerUp}
+                            title={isBn ? 'টেনে লেখা ছোট-বড় করুন' : 'Drag to resize text'}
+                            className="absolute -right-2.5 -bottom-2.5 w-4 h-4 rounded-full bg-indigo-600 text-white border-2 border-white shadow-sm flex items-center justify-center text-[8px] cursor-nwse-resize touch-none"
+                          >
+                            ↘
+                          </div>
+                        )}
                       </div>
                     )}
 
-                    {/* Line 2: Barcode + Human Readable Digits (Middle - Directly Draggable) */}
+                    {/* Line 2: Barcode + Human Readable Digits (Middle - Directly Draggable & Resizable by Hand) */}
                     {labelConfig.showBarcode && (
                       <div
                         onClick={(e) => e.stopPropagation()}
@@ -3034,10 +3194,13 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                         onPointerMove={handleCanvasItemPointerMove}
                         onPointerUp={handleCanvasItemPointerUp}
                         onPointerCancel={handleCanvasItemPointerUp}
+                        onTouchStart={handleBarcodeTouchStart}
+                        onTouchMove={handleBarcodeTouchMove}
+                        onTouchEnd={handleBarcodeTouchEnd}
                         className={`absolute flex flex-col items-start cursor-grab active:cursor-grabbing touch-none p-0.5 rounded-xs ${
                           selectedCanvasItem === 'barcode'
-                            ? 'ring-1 ring-indigo-500 bg-indigo-50/30 z-20'
-                            : 'hover:ring-1 hover:ring-stone-300 z-10'
+                            ? 'ring-1.5 ring-indigo-600 bg-indigo-50/25 z-20'
+                            : 'ring-1 ring-dashed ring-indigo-300/80 hover:ring-indigo-500 z-10'
                         }`}
                         style={{
                           left: `${Math.round((tsplLayout.barcodeX - tsplLayout.rollLeftOffset) * 0.75)}px`,
@@ -3064,15 +3227,68 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                             draggable={false}
                             style={{
                               height: `${Math.round((tsplLayout.barcodeHeight + 18) * 0.82)}px`,
-                              width: `${Math.max(85, Math.min(270, Math.round(tsplLayout.estBarcodeW * 0.75)))}px`,
+                              width: `${Math.max(75, Math.min(278, Math.round(tsplLayout.estBarcodeW * 0.75)))}px`,
                             }}
                             className="object-fill select-none pointer-events-none"
                           />
                         ) : null}
+
+                        {/* Interactive Touch/Mouse Resize Handles for Barcode Line */}
+                        {/* 1. Left Width Handle (↔) */}
+                        <div
+                          data-drag-ui="true"
+                          onPointerDown={(e) => handleCanvasResizePointerDown('barcode', 'width-left', e)}
+                          onPointerMove={handleCanvasResizePointerMove}
+                          onPointerUp={handleCanvasResizePointerUp}
+                          onPointerCancel={handleCanvasResizePointerUp}
+                          title={isBn ? 'বাম দিক থেকে চওড়া ছোট-বড় করুন' : 'Drag left edge to resize width'}
+                          className="absolute -left-2.5 top-1/2 -translate-y-1/2 w-4 h-6 rounded-md bg-indigo-600/90 hover:bg-indigo-700 text-white border border-white shadow-xs flex items-center justify-center text-[8px] font-bold cursor-ew-resize touch-none"
+                        >
+                          ↔
+                        </div>
+
+                        {/* 2. Right Width Handle (↔) */}
+                        <div
+                          data-drag-ui="true"
+                          onPointerDown={(e) => handleCanvasResizePointerDown('barcode', 'width-right', e)}
+                          onPointerMove={handleCanvasResizePointerMove}
+                          onPointerUp={handleCanvasResizePointerUp}
+                          onPointerCancel={handleCanvasResizePointerUp}
+                          title={isBn ? 'ডান দিকে টেনে বারকোড লম্বা/ছোট করুন' : 'Drag right edge to resize barcode width'}
+                          className="absolute -right-2.5 top-1/2 -translate-y-1/2 w-4 h-6 rounded-md bg-indigo-600/90 hover:bg-indigo-700 text-white border border-white shadow-xs flex items-center justify-center text-[8px] font-bold cursor-ew-resize touch-none"
+                        >
+                          ↔
+                        </div>
+
+                        {/* 3. Bottom Height Handle (↕) */}
+                        <div
+                          data-drag-ui="true"
+                          onPointerDown={(e) => handleCanvasResizePointerDown('barcode', 'height', e)}
+                          onPointerMove={handleCanvasResizePointerMove}
+                          onPointerUp={handleCanvasResizePointerUp}
+                          onPointerCancel={handleCanvasResizePointerUp}
+                          title={isBn ? 'নিচে টেনে বারকোড উঁচু/নিচু করুন' : 'Drag bottom edge to resize barcode height'}
+                          className="absolute left-1/2 -translate-x-1/2 -bottom-2.5 w-6 h-4 rounded-md bg-indigo-600/90 hover:bg-indigo-700 text-white border border-white shadow-xs flex items-center justify-center text-[8px] font-bold cursor-ns-resize touch-none"
+                        >
+                          ↕
+                        </div>
+
+                        {/* 4. Bottom-Right Corner Handle (↘ Simultaneous Width + Height Resize) */}
+                        <div
+                          data-drag-ui="true"
+                          onPointerDown={(e) => handleCanvasResizePointerDown('barcode', 'corner', e)}
+                          onPointerMove={handleCanvasResizePointerMove}
+                          onPointerUp={handleCanvasResizePointerUp}
+                          onPointerCancel={handleCanvasResizePointerUp}
+                          title={isBn ? 'কোণা ধরে টেনে বারকোড ছোট-বড় করুন' : 'Drag corner to resize width & height'}
+                          className="absolute -right-2.5 -bottom-2.5 w-4.5 h-4.5 rounded-full bg-amber-500 hover:bg-amber-600 text-stone-950 border-2 border-white shadow-sm flex items-center justify-center text-[9px] font-black cursor-nwse-resize touch-none"
+                        >
+                          ↘
+                        </div>
                       </div>
                     )}
 
-                    {/* Line 3: MRP / Price (Bottom - Directly Draggable) */}
+                    {/* Line 3: MRP / Price (Bottom - Directly Draggable & Resizable) */}
                     {(labelConfig.showMrp || labelConfig.showSalePrice) && (
                       <div
                         onClick={(e) => e.stopPropagation()}
@@ -3100,6 +3316,19 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                         }}
                       >
                         {tsplLayout.priceText}
+                        {selectedCanvasItem === 'price' && (
+                          <div
+                            data-drag-ui="true"
+                            onPointerDown={(e) => handleCanvasResizePointerDown('price', 'font', e)}
+                            onPointerMove={handleCanvasResizePointerMove}
+                            onPointerUp={handleCanvasResizePointerUp}
+                            onPointerCancel={handleCanvasResizePointerUp}
+                            title={isBn ? 'টেনে লেখা ছোট-বড় করুন' : 'Drag to resize text'}
+                            className="absolute -right-2.5 -bottom-2.5 w-4 h-4 rounded-full bg-indigo-600 text-white border-2 border-white shadow-sm flex items-center justify-center text-[8px] cursor-nwse-resize touch-none"
+                          >
+                            ↘
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -3524,11 +3753,26 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                   type="number"
                   min="1"
                   max="500"
-                  value={labelConfig.quantity}
-                  onChange={(e) =>
-                    setLabelConfig((prev) => ({ ...prev, quantity: Math.max(1, Number(e.target.value) || 1) }))
-                  }
-                  className="w-14 bg-white border border-stone-200 rounded-lg px-2 py-1 text-xs font-mono font-bold text-center"
+                  value={labelConfig.quantity === 0 ? '' : labelConfig.quantity}
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    if (raw === '') {
+                      setLabelConfig((prev) => ({ ...prev, quantity: 0 }));
+                    } else {
+                      const parsed = parseInt(raw, 10);
+                      if (!isNaN(parsed)) {
+                        setLabelConfig((prev) => ({ ...prev, quantity: Math.min(500, Math.max(0, parsed)) }));
+                      }
+                    }
+                  }}
+                  onBlur={() => {
+                    setLabelConfig((prev) => ({
+                      ...prev,
+                      quantity: prev.quantity && prev.quantity >= 1 ? prev.quantity : 1,
+                    }));
+                  }}
+                  placeholder="1"
+                  className="w-14 bg-white border border-stone-200 rounded-lg px-2 py-1 text-xs font-mono font-bold text-center focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
             </div>
@@ -3609,7 +3853,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
             </div>
 
             {/* Custom Barcode Label Editor (50mm x 25mm TSPL Studio) — Moved all the way to the VERY BOTTOM */}
-            <div className="p-3.5 bg-indigo-50/70 rounded-2xl border border-indigo-200 space-y-3 mt-2">
+            <div className="p-3.5 bg-indigo-50/70 rounded-2xl border border-indigo-200 space-y-2.5 mt-2">
               <div className="flex items-center justify-between flex-wrap gap-2 border-b border-indigo-200/80 pb-2">
                 <div className="flex items-center gap-1.5">
                   <SlidersHorizontal className="w-4 h-4 text-indigo-600" />
@@ -3633,6 +3877,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                       tsplBarcodeX: undefined,
                       tsplBarcodeY: 52,
                       tsplBarcodeHeight: 45,
+                      tsplBarcodeWidthDots: undefined,
                       tsplBarcodeRatio: '2:3',
                       tsplPriceX: undefined,
                       tsplPriceY: 135,
@@ -3651,91 +3896,56 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                 </button>
               </div>
 
-              {/* Row A: Alignment Toggles (Left, Center, Right) & Orientation (DIRECTION 0,0 vs 1,0) */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                <div className="bg-white p-2 rounded-xl border border-indigo-100 space-y-1">
-                  <span className="text-[10px] font-extrabold text-stone-600 block">
-                    {isBn ? 'অ্যালাইনমেন্ট (Alignment):' : 'Alignment (Auto X):'}
-                  </span>
-                  <div className="grid grid-cols-3 gap-1">
-                    {(['left', 'center', 'right'] as const).map((al) => {
-                      const active = !labelConfig.tsplCustomX && (labelConfig.tsplAlign || 'center') === al;
-                      return (
-                        <button
-                          key={al}
-                          type="button"
-                          onClick={() =>
-                            setLabelConfig((prev) => ({
-                              ...prev,
-                              tsplAlign: al,
-                              tsplCustomX: false,
-                              tsplShopX: undefined,
-                              tsplBarcodeX: undefined,
-                              tsplPriceX: undefined,
-                            }))
-                          }
-                          className={`py-1 px-2 rounded-lg text-[10px] font-black capitalize transition-all cursor-pointer ${
-                            active
-                              ? 'bg-indigo-600 text-white shadow-2xs'
-                              : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
-                          }`}
-                        >
-                          {al === 'left'
-                            ? isBn
-                              ? '⬅ বামে'
-                              : '⬅ Left'
-                            : al === 'center'
-                            ? isBn
-                              ? '↔ মাঝে'
-                              : '↔ Center'
-                            : isBn
-                            ? '➡ ডানে'
-                            : '➡ Right'}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div className="bg-white p-2 rounded-xl border border-indigo-100 space-y-1">
-                  <span className="text-[10px] font-extrabold text-stone-600 block">
-                    {isBn ? 'প্রিন্ট ওরিয়েন্টেশন (DIRECTION):' : 'Print Orientation (DIRECTION):'}
-                  </span>
-                  <div className="grid grid-cols-2 gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setLabelConfig((prev) => ({ ...prev, tsplDirection: '0,0' }))}
-                      className={`py-1 px-2 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
-                        (labelConfig.tsplDirection || '0,0') === '0,0'
-                          ? 'bg-emerald-600 text-white shadow-2xs'
-                          : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
-                      }`}
-                    >
-                      DIRECTION 0,0 ({isBn ? 'সোজা' : 'Upright'})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setLabelConfig((prev) => ({ ...prev, tsplDirection: '1,0' }))}
-                      className={`py-1 px-2 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
-                        labelConfig.tsplDirection === '1,0'
-                          ? 'bg-indigo-600 text-white shadow-2xs'
-                          : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
-                      }`}
-                    >
-                      DIRECTION 1,0 ({isBn ? 'উল্টো' : 'Flipped'})
-                    </button>
-                  </div>
+              {/* Row A: Alignment Toggles (Left, Center, Right) — Print Orientation (DIRECTION) hidden into 3-Dot menu */}
+              <div className="bg-white p-2 rounded-xl border border-indigo-100 space-y-1">
+                <span className="text-[10px] font-extrabold text-stone-600 block">
+                  {isBn ? 'অ্যালাইনমেন্ট (Alignment):' : 'Alignment (Auto X):'}
+                </span>
+                <div className="grid grid-cols-3 gap-1">
+                  {(['left', 'center', 'right'] as const).map((al) => {
+                    const active = !labelConfig.tsplCustomX && (labelConfig.tsplAlign || 'center') === al;
+                    return (
+                      <button
+                        key={al}
+                        type="button"
+                        onClick={() =>
+                          setLabelConfig((prev) => ({
+                            ...prev,
+                            tsplAlign: al,
+                            tsplCustomX: false,
+                            tsplShopX: undefined,
+                            tsplBarcodeX: undefined,
+                            tsplPriceX: undefined,
+                          }))
+                        }
+                        className={`py-1 px-2 rounded-lg text-[10px] font-black capitalize transition-all cursor-pointer ${
+                          active
+                            ? 'bg-indigo-600 text-white shadow-2xs'
+                            : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
+                        }`}
+                      >
+                        {al === 'left'
+                          ? isBn
+                            ? '⬅ বামে'
+                            : '⬅ Left'
+                          : al === 'center'
+                          ? isBn
+                            ? '↔ মাঝে'
+                            : '↔ Center'
+                          : isBn
+                          ? '➡ ডানে'
+                          : '➡ Right'}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
-              {/* Row B: Line 1 — Shop Name Font Size & Live Drag Coordinates */}
+              {/* Row B: Line 1 — Shop Name Font Size */}
               <div className="bg-white p-2.5 rounded-xl border border-indigo-100 flex items-center justify-between flex-wrap gap-2">
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] font-black text-stone-800">
                     {isBn ? '১. দোকানের নাম (Line 1)' : '1. Shop Name (Line 1)'}
-                  </span>
-                  <span className="text-[9.5px] font-mono font-bold bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-100">
-                    X:{tsplLayout.shopX}, Y:{tsplLayout.shopY}
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -3760,79 +3970,11 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                 </div>
               </div>
 
-              {/* Row C: Line 2 — Barcode Width Ratio, Height Presets & Live Drag Coordinates */}
-              <div className="bg-white p-2.5 rounded-xl border border-indigo-100 space-y-2">
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-black text-stone-800">
-                      {isBn ? '২. বারকোড (Line 2: CODE128)' : '2. Barcode (Line 2: CODE128)'}
-                    </span>
-                    <span className="text-[9.5px] font-mono font-bold bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-100">
-                      X:{tsplLayout.barcodeX}, Y:{tsplLayout.barcodeY}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <span className="text-[10px] font-bold text-stone-500">
-                      {isBn ? 'বার অনুপাত:' : 'Width Ratio:'}
-                    </span>
-                    {(['2:3', '1:2', '2:2'] as const).map((rt) => (
-                      <button
-                        key={rt}
-                        type="button"
-                        onClick={() =>
-                          setLabelConfig((prev) => ({
-                            ...prev,
-                            tsplBarcodeRatio: rt,
-                          }))
-                        }
-                        className={`px-2 py-0.5 rounded text-[10px] font-black cursor-pointer transition-all ${
-                          (labelConfig.tsplBarcodeRatio || '2:3') === rt
-                            ? 'bg-indigo-600 text-white'
-                            : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
-                        }`}
-                      >
-                        {rt}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between gap-2 pt-1 border-t border-stone-100 text-[10px]">
-                  <span className="font-bold text-stone-600">
-                    {isBn ? 'বারকোড উচ্চতা (Height):' : 'Barcode Height:'}
-                  </span>
-                  <div className="flex items-center gap-1">
-                    {[35, 45, 55].map((h) => (
-                      <button
-                        key={h}
-                        type="button"
-                        onClick={() =>
-                          setLabelConfig((prev) => ({
-                            ...prev,
-                            tsplBarcodeHeight: h,
-                          }))
-                        }
-                        className={`px-2.5 py-0.5 rounded text-[10px] font-black cursor-pointer transition-all ${
-                          (labelConfig.tsplBarcodeHeight ?? 45) === h
-                            ? 'bg-indigo-600 text-white'
-                            : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
-                        }`}
-                      >
-                        {h}px
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Row D: Line 3 — MRP / Price Prefix, Font Size & Live Drag Coordinates */}
+              {/* Row C: Line 3 — MRP / Price Prefix & Font Size (Barcode Line 2 box removed as it is resized directly by hand on canvas) */}
               <div className="bg-white p-2.5 rounded-xl border border-indigo-100 flex items-center justify-between flex-wrap gap-2">
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] font-black text-stone-800">
-                    {isBn ? '৩. দাম / MRP (Line 3)' : '3. MRP / Price (Line 3)'}
-                  </span>
-                  <span className="text-[9.5px] font-mono font-bold bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-100">
-                    X:{tsplLayout.priceX}, Y:{tsplLayout.priceY}
+                    {isBn ? '২. দাম / MRP (Line 3)' : '2. MRP / Price (Line 3)'}
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -4059,9 +4201,39 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                   </div>
                 </div>
 
-                {/* Clean White Print */}
-                <div className="pt-2 border-t border-stone-200 flex items-center justify-between">
-                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                {/* Clean White Print & Optional Original MRP */}
+                <div className="pt-2 border-t border-stone-200 space-y-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="text-xs font-black text-stone-800 flex items-center gap-1">
+                      <span className="line-through text-stone-400">MRP</span>
+                      <span>{isBn ? 'আসল দাম (Original MRP):' : 'Original MRP:'}</span>
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min="0"
+                        value={labelConfig.mrp || ''}
+                        onChange={(e) =>
+                          setLabelConfig((prev) => ({ ...prev, mrp: Number(e.target.value) || 0 }))
+                        }
+                        placeholder="5999"
+                        className="w-24 bg-white text-stone-900 font-bold border border-stone-300 rounded-lg px-2.5 py-1 text-xs"
+                      />
+                      <label className="flex items-center gap-1 cursor-pointer text-[10px] text-stone-600">
+                        <input
+                          type="checkbox"
+                          checked={labelConfig.showMrp}
+                          onChange={(e) =>
+                            setLabelConfig((prev) => ({ ...prev, showMrp: e.target.checked }))
+                          }
+                          className="rounded text-blue-600 cursor-pointer"
+                        />
+                        <span>{isBn ? 'দেখান' : 'Show'}</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <label className="flex items-center gap-2 cursor-pointer select-none pt-1 border-t border-stone-100">
                     <input
                       type="checkbox"
                       checked={labelConfig.cleanWhiteMode !== false}
@@ -4232,6 +4404,37 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                       }`}
                     >
                       ⚫ Invert (White on Black)
+                    </button>
+                  </div>
+                </div>
+
+                {/* Print Orientation (DIRECTION) — Moved here from main page */}
+                <div className="space-y-1 pt-1 border-t border-indigo-100">
+                  <span className="text-[10px] font-bold text-stone-700 block">
+                    {isBn ? 'প্রিন্ট ওরিয়েন্টেশন (DIRECTION):' : 'Print Orientation (DIRECTION):'}
+                  </span>
+                  <div className="grid grid-cols-2 gap-1 bg-white p-0.5 rounded-lg border border-indigo-100">
+                    <button
+                      type="button"
+                      onClick={() => setLabelConfig((prev) => ({ ...prev, tsplDirection: '0,0' }))}
+                      className={`py-1.5 rounded-md text-[9px] font-bold cursor-pointer ${
+                        (labelConfig.tsplDirection || '0,0') === '0,0'
+                          ? 'bg-emerald-600 text-white font-black'
+                          : 'text-stone-600'
+                      }`}
+                    >
+                      DIRECTION 0,0 ({isBn ? 'সোজা' : 'Upright'})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLabelConfig((prev) => ({ ...prev, tsplDirection: '1,0' }))}
+                      className={`py-1.5 rounded-md text-[9px] font-bold cursor-pointer ${
+                        labelConfig.tsplDirection === '1,0'
+                          ? 'bg-indigo-600 text-white font-black'
+                          : 'text-stone-600'
+                      }`}
+                    >
+                      DIRECTION 1,0 ({isBn ? 'উল্টো' : 'Flipped'})
                     </button>
                   </div>
                 </div>

@@ -18,6 +18,7 @@ import {
   Package,
   Check,
   Sparkles,
+  MoreVertical,
 } from 'lucide-react';
 import {
   BillItem,
@@ -75,6 +76,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   const [itemQty, setItemQty] = useState('1');
   const [itemStockInput, setItemStockInput] = useState('');
   const [showInlineStockAdd, setShowInlineStockAdd] = useState(false);
+  const [showStockMoreMenu, setShowStockMoreMenu] = useState(false);
 
   // First-letter Autocomplete state
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -531,46 +533,59 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         id="billing-item-entry-section"
         className="bg-white rounded-2xl p-4 sm:p-5 shadow-xs border border-stone-200"
       >
-        <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+        <div className="flex items-center justify-between gap-2 mb-3">
           <h2 className="text-sm font-bold text-stone-900 flex items-center gap-1.5">
             <Receipt className="w-4 h-4 text-blue-600" />
             <span>{t.instantItemEntry}</span>
           </h2>
 
-          {/* PRODUCT STOCK ADD & MANAGE BUTTON */}
-          <div className="flex items-center gap-1.5">
+          {/* Hidden behind 3-dot (⋮) menu as requested */}
+          <div className="relative">
             <button
               type="button"
-              id="btn-inline-stock-toggle"
-              onClick={() => setShowInlineStockAdd((prev) => !prev)}
-              className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition-all flex items-center gap-1 cursor-pointer ${
-                showInlineStockAdd
-                  ? 'bg-emerald-600 text-white border-emerald-600'
-                  : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200'
-              }`}
-              title={
-                isBn
-                  ? 'সরাসরি এখানে নতুন প্রোডাক্ট ও স্টক যোগ করুন'
-                  : 'Quick add product stock inline'
-              }
+              id="btn-billing-stock-dots"
+              onClick={() => setShowStockMoreMenu((prev) => !prev)}
+              className="p-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 border border-stone-200 transition-all flex items-center justify-center cursor-pointer"
+              title={isBn ? 'স্টক অপশন (৩ ডট)' : 'Stock Options'}
             >
-              <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-              <span>{isBn ? 'স্টক যোগ' : 'Add Stock'}</span>
+              <MoreVertical className="w-4 h-4" />
             </button>
 
-            {onOpenProductStock && (
-              <button
-                type="button"
-                id="btn-open-product-stock"
-                onClick={onOpenProductStock}
-                className="px-2.5 py-1.5 rounded-xl text-[11px] font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
-              >
-                <Package className="w-3.5 h-3.5 text-blue-600" />
-                <span>{isBn ? 'প্রোডাক্ট স্টক তালিকা' : 'Product Stock'}</span>
-                <span className="bg-blue-600 text-white text-[10px] font-mono font-black px-1.5 py-0.2 rounded-full">
-                  {allSavedProducts.length}
-                </span>
-              </button>
+            {showStockMoreMenu && (
+              <div className="absolute right-0 top-9 w-48 bg-white rounded-2xl shadow-xl border border-stone-200 p-1.5 z-40 space-y-1 animate-in fade-in zoom-in-95 duration-150">
+                <button
+                  type="button"
+                  id="btn-inline-stock-toggle"
+                  onClick={() => {
+                    setShowInlineStockAdd((prev) => !prev);
+                    setShowStockMoreMenu(false);
+                  }}
+                  className="w-full px-3 py-2 rounded-xl text-xs font-bold text-emerald-800 hover:bg-emerald-50 flex items-center gap-2 cursor-pointer text-left"
+                >
+                  <Plus className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5]" />
+                  <span>{isBn ? 'স্টক যোগ (+ Add Stock)' : '+ Add Stock'}</span>
+                </button>
+
+                {onOpenProductStock && (
+                  <button
+                    type="button"
+                    id="btn-open-product-stock"
+                    onClick={() => {
+                      setShowStockMoreMenu(false);
+                      onOpenProductStock();
+                    }}
+                    className="w-full px-3 py-2 rounded-xl text-xs font-bold text-blue-800 hover:bg-blue-50 flex items-center justify-between gap-2 cursor-pointer text-left"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Package className="w-3.5 h-3.5 text-blue-600" />
+                      <span>{isBn ? 'প্রোডাক্ট স্টক তালিকা' : 'Product Stock'}</span>
+                    </span>
+                    <span className="bg-blue-600 text-white text-[10px] font-mono font-black px-1.5 py-0.2 rounded-full">
+                      {allSavedProducts.length}
+                    </span>
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>
