@@ -19,6 +19,8 @@ import {
   Check,
   Sparkles,
   MoreVertical,
+  Pencil,
+  X,
 } from 'lucide-react';
 import {
   BillItem,
@@ -77,6 +79,13 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   const [itemStockInput, setItemStockInput] = useState('');
   const [showInlineStockAdd, setShowInlineStockAdd] = useState(false);
   const [showStockMoreMenu, setShowStockMoreMenu] = useState(false);
+
+  // Inline Editing State for Current Bill Items
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [editItemName, setEditItemName] = useState('');
+  const [editItemPrice, setEditItemPrice] = useState('');
+  const [editItemQty, setEditItemQty] = useState('');
+  const [editFocusField, setEditFocusField] = useState<'name' | 'qty' | 'price'>('name');
 
   // First-letter Autocomplete state
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -363,6 +372,54 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         item.id === id ? { ...item, qty: newQty, total: item.price * newQty } : item
       )
     );
+  };
+
+  // Start Inline Editing a Bill Item
+  const handleStartEditItem = (
+    item: BillItem,
+    focusField: 'name' | 'qty' | 'price' = 'name'
+  ) => {
+    setEditingItemId(item.id);
+    setEditItemName(item.name);
+    setEditItemPrice(String(item.price));
+    setEditItemQty(String(item.qty));
+    setEditFocusField(focusField);
+  };
+
+  // Save Inline Edited Bill Item
+  const handleSaveEditItem = (id: string) => {
+    const cleanName = editItemName.trim();
+    const parsedPrice = parseFloat(editItemPrice);
+    const parsedQty = parseInt(editItemQty, 10);
+
+    if (!cleanName) {
+      alert(isBn ? 'পণ্যের নাম লিখুন' : 'Please enter item name');
+      return;
+    }
+    if (isNaN(parsedPrice) || parsedPrice < 0) {
+      alert(isBn ? 'সঠিক দাম লিখুন' : 'Please enter a valid price');
+      return;
+    }
+    const finalQty = isNaN(parsedQty) || parsedQty < 1 ? 1 : parsedQty;
+
+    setBillItems((prev) =>
+      prev.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              name: cleanName,
+              price: parsedPrice,
+              qty: finalQty,
+              total: parsedPrice * finalQty,
+            }
+          : item
+      )
+    );
+    setEditingItemId(null);
+  };
+
+  const handleCancelEditItem = () => {
+    setEditingItemId(null);
   };
 
   // Handle Checkout & Print Bill
@@ -871,49 +928,165 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                   <th className="text-center p-2.5 sm:p-3 w-24">{t.qty}</th>
                   <th className="text-right p-2.5 sm:p-3">{t.unitPrice}</th>
                   <th className="text-right p-2.5 sm:p-3">{isBn ? 'মোট' : 'Total'}</th>
-                  <th className="p-2.5 sm:p-3 w-8"></th>
+                  <th className="p-2.5 sm:p-3 w-16 text-right">{isBn ? 'অ্যাকশন' : ''}</th>
                 </tr>
               </thead>
               <tbody id="billTable" className="divide-y divide-stone-100">
-                {billItems.map((item) => (
-                  <tr key={item.id} className="hover:bg-stone-50/80 transition-colors">
-                    <td className="p-2.5 sm:p-3 font-medium text-stone-900">{item.name}</td>
-                    <td className="p-2.5 sm:p-3 text-center">
-                      <div className="inline-flex items-center gap-1 bg-stone-100 px-1.5 py-0.5 rounded-lg border border-stone-200">
-                        <button
-                          onClick={() => handleUpdateQty(item.id, item.qty - 1)}
-                          className="w-4 h-4 text-stone-600 hover:text-stone-900 font-bold flex items-center justify-center leading-none cursor-pointer"
-                        >
-                          -
-                        </button>
-                        <span className="font-mono font-bold text-xs px-1">{item.qty}</span>
-                        <button
-                          onClick={() => handleUpdateQty(item.id, item.qty + 1)}
-                          className="w-4 h-4 text-stone-600 hover:text-stone-900 font-bold flex items-center justify-center leading-none cursor-pointer"
-                        >
-                          +
-                        </button>
-                      </div>
-                    </td>
-                    <td className="p-2.5 sm:p-3 text-right font-mono text-stone-600">
-                      {sym}
-                      {item.price.toFixed(2)}
-                    </td>
-                    <td className="p-2.5 sm:p-3 text-right font-mono font-bold text-stone-900">
-                      {sym}
-                      {item.total.toFixed(2)}
-                    </td>
-                    <td className="p-2.5 sm:p-3 text-center">
-                      <button
-                        onClick={() => handleRemoveItem(item.id)}
-                        className="p-1 rounded text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                        title={isBn ? 'মুছে ফেলুন' : 'Remove'}
+                {billItems.map((item) => {
+                  const isEditing = editingItemId === item.id;
+                  const liveEditPrice = parseFloat(editItemPrice) || 0;
+                  const liveEditQty = Math.max(1, parseInt(editItemQty, 10) || 1);
+                  const liveEditTotal = liveEditPrice * liveEditQty;
+
+                  if (isEditing) {
+                    return (
+                      <tr key={item.id} className="bg-blue-50/70 transition-colors">
+                        <td className="p-2 sm:p-2.5">
+                          <input
+                            type="text"
+                            autoFocus={editFocusField === 'name'}
+                            value={editItemName}
+                            onChange={(e) => setEditItemName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleSaveEditItem(item.id);
+                              if (e.key === 'Escape') handleCancelEditItem();
+                            }}
+                            placeholder={isBn ? 'পণ্যের নাম' : 'Item Name'}
+                            className="w-full min-w-[95px] bg-white border border-blue-400 rounded-lg px-2 py-1.5 text-xs font-bold text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </td>
+                        <td className="p-2 sm:p-2.5 text-center">
+                          <input
+                            type="number"
+                            min="1"
+                            autoFocus={editFocusField === 'qty'}
+                            value={editItemQty}
+                            onChange={(e) => setEditItemQty(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleSaveEditItem(item.id);
+                              if (e.key === 'Escape') handleCancelEditItem();
+                            }}
+                            placeholder="1"
+                            className="w-14 bg-white border border-blue-400 rounded-lg px-1.5 py-1.5 text-xs font-mono font-bold text-center text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </td>
+                        <td className="p-2 sm:p-2.5 text-right">
+                          <input
+                            type="number"
+                            min="0"
+                            step="any"
+                            autoFocus={editFocusField === 'price'}
+                            value={editItemPrice}
+                            onChange={(e) => setEditItemPrice(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleSaveEditItem(item.id);
+                              if (e.key === 'Escape') handleCancelEditItem();
+                            }}
+                            placeholder="0.00"
+                            className="w-20 bg-white border border-blue-400 rounded-lg px-2 py-1.5 text-xs font-mono font-bold text-right text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 ml-auto block"
+                          />
+                        </td>
+                        <td className="p-2 sm:p-2.5 text-right font-mono font-bold text-blue-900 whitespace-nowrap">
+                          {sym}
+                          {liveEditTotal.toFixed(2)}
+                        </td>
+                        <td className="p-2 sm:p-2.5 text-right">
+                          <div className="inline-flex items-center justify-end gap-1">
+                            <button
+                              type="button"
+                              onClick={() => handleSaveEditItem(item.id)}
+                              className="p-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white shadow-2xs transition-colors cursor-pointer"
+                              title={isBn ? 'সেভ করুন' : 'Save changes'}
+                            >
+                              <Check className="w-3.5 h-3.5 stroke-[3]" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleCancelEditItem}
+                              className="p-1.5 rounded-lg bg-stone-200 hover:bg-stone-300 text-stone-700 transition-colors cursor-pointer"
+                              title={isBn ? 'বাতিল করুন' : 'Cancel'}
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  return (
+                    <tr key={item.id} className="hover:bg-stone-50/80 transition-colors">
+                      <td
+                        onClick={() => handleStartEditItem(item, 'name')}
+                        className="p-2.5 sm:p-3 font-medium text-stone-900 cursor-pointer hover:text-blue-600 transition-colors"
+                        title={isBn ? 'নাম পরিবর্তন করতে ট্যাপ করুন' : 'Tap to edit item name'}
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                        <span className="border-b border-dashed border-transparent hover:border-blue-400">
+                          {item.name}
+                        </span>
+                      </td>
+                      <td className="p-2.5 sm:p-3 text-center">
+                        <div className="inline-flex items-center gap-1 bg-stone-100 px-1.5 py-0.5 rounded-lg border border-stone-200">
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateQty(item.id, item.qty - 1)}
+                            className="w-4 h-4 text-stone-600 hover:text-stone-900 font-bold flex items-center justify-center leading-none cursor-pointer"
+                          >
+                            -
+                          </button>
+                          <span
+                            onClick={() => handleStartEditItem(item, 'qty')}
+                            className="font-mono font-bold text-xs px-1 cursor-pointer hover:text-blue-600"
+                            title={isBn ? 'সংখ্যা টাইপ করতে ট্যাপ করুন' : 'Tap to type quantity'}
+                          >
+                            {item.qty}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateQty(item.id, item.qty + 1)}
+                            className="w-4 h-4 text-stone-600 hover:text-stone-900 font-bold flex items-center justify-center leading-none cursor-pointer"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </td>
+                      <td
+                        onClick={() => handleStartEditItem(item, 'price')}
+                        className="p-2.5 sm:p-3 text-right font-mono text-stone-600 cursor-pointer hover:text-blue-600 transition-colors whitespace-nowrap"
+                        title={isBn ? 'দাম পরিবর্তন করতে ট্যাপ করুন' : 'Tap to edit unit price'}
+                      >
+                        <span className="border-b border-dashed border-stone-300 hover:border-blue-500">
+                          {sym}
+                          {item.price.toFixed(2)}
+                        </span>
+                      </td>
+                      <td className="p-2.5 sm:p-3 text-right font-mono font-bold text-stone-900 whitespace-nowrap">
+                        {sym}
+                        {item.total.toFixed(2)}
+                      </td>
+                      <td className="p-2 sm:p-2.5 text-right">
+                        <div className="inline-flex items-center justify-end gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleStartEditItem(item, 'price')}
+                            className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
+                            title={isBn ? 'এডিট করুন (Edit)' : 'Edit Item'}
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveItem(item.id)}
+                            className="p-1.5 rounded-lg text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                            title={isBn ? 'মুছে ফেলুন' : 'Remove'}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
