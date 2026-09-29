@@ -538,12 +538,46 @@ export class ThermalPrinterService {
     lines.push(padCenter(settings.storeName.trim().toUpperCase()));
     if (settings.storeAddress) lines.push(padCenter(settings.storeAddress.trim().toUpperCase()));
     if (settings.storePhone) lines.push(padCenter(`Tel: ${settings.storePhone.trim()}`));
+    if (bill.isTailoring) {
+      lines.push(padCenter('*** TAILORING ORDER SLIP ***'));
+    }
     lines.push(doubleDiv);
 
     // Bill Meta
     lines.push(padBetween(`Bill: #${bill.invoiceNo}`, bill.date));
     if (bill.customerName) {
       lines.push(padBetween('Cust:', bill.customerName));
+    }
+    if (bill.customerPhone) {
+      lines.push(padBetween('Phone:', bill.customerPhone));
+    }
+    if (bill.isTailoring && bill.deliveryDate) {
+      lines.push(padBetween('DELIVERY DATE:', bill.deliveryDate));
+    }
+    if (bill.isTailoring && bill.trialDate) {
+      lines.push(padBetween('TRIAL DATE:', bill.trialDate));
+    }
+    if (bill.isTailoring && bill.measurements) {
+      const m = bill.measurements;
+      const mParts: string[] = [];
+      if (m.length) mParts.push(`L:${m.length}`);
+      if (m.chest) mParts.push(`Ch:${m.chest}`);
+      if (m.waist) mParts.push(`W:${m.waist}`);
+      if (m.shoulder) mParts.push(`Sh:${m.shoulder}`);
+      if (m.sleeve) mParts.push(`Sl:${m.sleeve}`);
+      if (m.neck) mParts.push(`Nk:${m.neck}`);
+      if (m.hip) mParts.push(`Hp:${m.hip}`);
+      if (m.bottom) mParts.push(`Bt:${m.bottom}`);
+      if (mParts.length > 0 || m.designNotes) {
+        lines.push(divider);
+        lines.push('MEASUREMENTS (INCH):');
+        if (mParts.length > 0) {
+          lines.push(mParts.join(' | '));
+        }
+        if (m.designNotes) {
+          lines.push(`Note: ${m.designNotes}`);
+        }
+      }
     }
     lines.push(divider);
 
@@ -584,7 +618,12 @@ export class ThermalPrinterService {
     lines.push(padBetween('GRAND TOTAL:', `${sym}${bill.grandTotal.toFixed(2)}`));
     lines.push(padBetween('PAYMENT:', bill.paymentMethod.toUpperCase()));
 
-    if (bill.paidAmount > 0) {
+    if (bill.isTailoring) {
+      const adv = bill.paidAmount || 0;
+      const bal = bill.balance !== undefined ? bill.balance : Math.max(0, bill.grandTotal - adv);
+      lines.push(padBetween('ADVANCE PAID:', `${sym}${adv.toFixed(2)}`));
+      lines.push(padBetween('BALANCE DUE:', `${sym}${bal.toFixed(2)}`));
+    } else if (bill.paidAmount > 0) {
       lines.push(padBetween('PAID:', `${sym}${bill.paidAmount.toFixed(2)}`));
       lines.push(padBetween('CHANGE:', `${sym}${bill.changeAmount.toFixed(2)}`));
     }

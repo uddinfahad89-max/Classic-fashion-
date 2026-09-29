@@ -21,6 +21,9 @@ import {
   MoreVertical,
   Pencil,
   X,
+  Scissors,
+  Calendar,
+  Ruler,
 } from 'lucide-react';
 import {
   BillItem,
@@ -30,6 +33,8 @@ import {
   BluetoothDeviceInfo,
   Language,
   ProductStockItem,
+  TailoringMeasurements,
+  TailoringOrderStatus,
 } from '../types';
 import { storageService } from '../services/storageService';
 import { translations } from '../utils/i18n';
@@ -95,6 +100,23 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   // Checkout meta
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  // Tailoring Invoice State
+  const [isTailoring, setIsTailoring] = useState(false);
+  const [deliveryDate, setDeliveryDate] = useState('');
+  const [trialDate, setTrialDate] = useState('');
+  const [tailoringStatus, setTailoringStatus] = useState<TailoringOrderStatus>('pending');
+  const [measurements, setMeasurements] = useState<TailoringMeasurements>({
+    garmentType: '',
+    length: '',
+    chest: '',
+    waist: '',
+    shoulder: '',
+    sleeve: '',
+    neck: '',
+    hip: '',
+    bottom: '',
+    designNotes: '',
+  });
   // Automatically generated sequential invoice number
   const [invoiceNo, setInvoiceNo] = useState(() => storageService.getNextInvoiceNumber());
   const [discountType, setDiscountType] = useState<'fixed' | 'percent'>('fixed');
@@ -445,8 +467,19 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       finalInvoiceNo = storageService.getNextInvoiceNumber();
     }
 
-    const actualPaid = paidNum > 0 ? paidNum : paymentMethod === 'due' ? 0 : grandTotal;
-    const balanceAmount = paymentMethod === 'due' ? Math.max(0, grandTotal - actualPaid) : 0;
+    const actualPaid =
+      paidAmount.trim() !== ''
+        ? paidNum
+        : paymentMethod === 'due'
+        ? 0
+        : isTailoring
+        ? 0
+        : grandTotal;
+    const balanceAmount =
+      paymentMethod === 'due' || isTailoring || (paidAmount.trim() !== '' && paidNum < grandTotal)
+        ? Math.max(0, grandTotal - actualPaid)
+        : 0;
+    const hasMeasurements = Object.values(measurements).some((v) => Boolean(v && String(v).trim()));
 
     const bill: BillInvoice = {
       id: 'inv-' + Date.now(),
@@ -462,12 +495,23 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       discountType,
       discountValue: rawDiscount,
       grandTotal,
-      paymentMethod,
+      paymentMethod: balanceAmount > 0 && actualPaid < grandTotal ? 'due' : paymentMethod,
+      paymentStatus:
+        balanceAmount <= 0 ? 'PAID' : actualPaid > 0 ? 'PARTIAL' : 'DUE',
       paidAmount: actualPaid,
       changeAmount: paidNum > grandTotal ? changeAmount : 0,
       balance: balanceAmount,
       previousBalance: 0,
       currentBalance: balanceAmount,
+      ...(isTailoring
+        ? {
+            isTailoring: true,
+            deliveryDate: deliveryDate.trim() || undefined,
+            trialDate: trialDate.trim() || undefined,
+            tailoringStatus,
+            measurements: hasMeasurements ? { ...measurements } : undefined,
+          }
+        : {}),
     };
 
     onPrintBill(bill);
@@ -475,6 +519,20 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     setCustomerPhone('');
     setDiscountValue('');
     setPaidAmount('');
+    setDeliveryDate('');
+    setTrialDate('');
+    setMeasurements({
+      garmentType: '',
+      length: '',
+      chest: '',
+      waist: '',
+      shoulder: '',
+      sleeve: '',
+      neck: '',
+      hip: '',
+      bottom: '',
+      designNotes: '',
+    });
 
     setTimeout(() => {
       const nextInv = storageService.getNextInvoiceNumber();
@@ -517,13 +575,32 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         id="billing-customer-section"
         className="bg-white rounded-2xl p-4 sm:p-5 shadow-xs border border-stone-200"
       >
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
           <h2 className="text-sm font-bold text-stone-900 flex items-center gap-1.5">
             <User className="w-4 h-4 text-blue-600" />
             <span>{isBn ? 'ক্রেতার বিবরণ' : 'Customer Details'}</span>
           </h2>
-          {/* Automatic Sequential Invoice Number Badge */}
-          <div className="flex items-center gap-1.5">
+          {/* Tailoring Mode Toggle + Automatic Sequential Invoice Number Badge */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              type="button"
+              id="btn-toggle-tailoring-invoice"
+              onClick={() => setIsTailoring((prev) => !prev)}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs ${
+                isTailoring
+                  ? 'bg-purple-600 text-white border-purple-600 ring-2 ring-purple-200'
+                  : 'bg-purple-50 hover:bg-purple-100 text-purple-800 border-purple-200'
+              }`}
+              title={
+                isBn
+                  ? 'টেইলারিং অর্ডার ও মাপ সহ ইনভয়েস তৈরি করুন'
+                  : 'Switch to Tailoring Order & Measurement Invoice'
+              }
+            >
+              <Scissors className="w-3.5 h-3.5" />
+              <span>{isBn ? '✂️ টেইলারিং ইনভয়েস' : '✂️ Tailoring Invoice'}</span>
+            </button>
+
             <span
               id="billing-auto-invoice-badge"
               title={
@@ -583,6 +660,197 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             </div>
           </div>
         </div>
+
+        {/* TAILORING ORDER & MEASUREMENTS SECTION (When Tailoring Mode is Active) */}
+        {isTailoring && (
+          <div className="mt-4 pt-3.5 border-t border-purple-200/80 bg-purple-50/50 -mx-4 sm:-mx-5 -mb-4 sm:-mb-5 p-4 sm:p-5 rounded-b-2xl space-y-3.5 animate-in fade-in duration-150">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-1.5 text-purple-950 font-black text-xs sm:text-sm">
+                <Scissors className="w-4 h-4 text-purple-600" />
+                <span>
+                  {isBn
+                    ? 'টেইলারিং অর্ডার ও শরীরের মাপ (Tailoring Order Details)'
+                    : 'Tailoring Order & Measurements'}
+                </span>
+              </div>
+
+              {/* Order Status Pills */}
+              <div className="flex items-center gap-1 bg-white p-0.5 rounded-xl border border-purple-200">
+                {(
+                  [
+                    { id: 'pending', bn: '🧵 সেলাই চলছে', en: '🧵 Stitching' },
+                    { id: 'ready', bn: '✅ তৈরি (Ready)', en: '✅ Ready' },
+                    { id: 'delivered', bn: '📦 ডেলিভারি', en: '📦 Delivered' },
+                  ] as const
+                ).map((st) => (
+                  <button
+                    key={st.id}
+                    type="button"
+                    onClick={() => setTailoringStatus(st.id)}
+                    className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                      tailoringStatus === st.id
+                        ? 'bg-purple-600 text-white shadow-2xs'
+                        : 'text-stone-600 hover:bg-purple-50'
+                    }`}
+                  >
+                    {isBn ? st.bn : st.en}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Row 1: Delivery Date & Trial Date */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div>
+                <label className="block text-[11px] font-bold text-purple-900 mb-1 flex items-center gap-1">
+                  <Calendar className="w-3.5 h-3.5 text-purple-600" />
+                  <span>{isBn ? 'ডেলিভারির তারিখ (Delivery Date)' : 'Delivery Date'}</span>
+                </label>
+                <input
+                  type="date"
+                  value={deliveryDate}
+                  onChange={(e) => setDeliveryDate(e.target.value)}
+                  className="w-full bg-white border border-purple-200 rounded-xl px-3 py-1.5 text-xs font-bold text-stone-900 focus:outline-none focus:border-purple-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-stone-600 mb-1 flex items-center gap-1">
+                  <Calendar className="w-3.5 h-3.5 text-stone-400" />
+                  <span>{isBn ? 'ট্রায়াল তারিখ (ঐচ্ছিক / Trial Date)' : 'Trial Date (Optional)'}</span>
+                </label>
+                <input
+                  type="date"
+                  value={trialDate}
+                  onChange={(e) => setTrialDate(e.target.value)}
+                  className="w-full bg-white border border-stone-200 rounded-xl px-3 py-1.5 text-xs font-medium text-stone-800 focus:outline-none focus:border-purple-500"
+                />
+              </div>
+            </div>
+
+            {/* Row 2: Quick Garment Type Presets (Tap to fill garment type & item name) */}
+            <div className="space-y-1">
+              <span className="text-[11px] font-bold text-purple-900 block">
+                {isBn ? 'পোশাকের ধরন (ট্যাপ করলে আইটেম বক্সে বসবে):' : 'Garment Type (Tap to select & fill item):'}
+              </span>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {[
+                  { labelBn: '👔 শার্ট সেলাই', labelEn: 'Shirt Stitching', type: 'Shirt' },
+                  { labelBn: '👖 প্যান্ট সেলাই', labelEn: 'Pant Stitching', type: 'Pant' },
+                  { labelBn: '🧥 পাঞ্জাবি / কুর্তা', labelEn: 'Panjabi / Kurta', type: 'Panjabi' },
+                  { labelBn: '🤵 স্যুট / ব্লেজার', labelEn: 'Suit / Blazer', type: 'Suit/Blazer' },
+                  { labelBn: '👗 সালোয়ার কামিজ', labelEn: 'Salwar Kameez', type: 'Salwar Kameez' },
+                  { labelBn: '👚 ব্লাউজ সেলাই', labelEn: 'Blouse Stitching', type: 'Blouse' },
+                  { labelBn: '🧕 বোরকা / আবায়া', labelEn: 'Abaya / Burqa', type: 'Burqa' },
+                  { labelBn: '🧵 অল্টার / ফিটিং', labelEn: 'Alteration / Fitting', type: 'Alteration' },
+                ].map((g) => {
+                  const active = measurements.garmentType === g.type;
+                  return (
+                    <button
+                      key={g.type}
+                      type="button"
+                      onClick={() => {
+                        setMeasurements((prev) => ({ ...prev, garmentType: g.type }));
+                        setItemName(isBn ? g.labelBn.replace(/^[^\s]+\s/, '') : g.labelEn);
+                        nameInputRef.current?.focus();
+                      }}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all cursor-pointer ${
+                        active
+                          ? 'bg-purple-600 text-white border-purple-600 shadow-2xs'
+                          : 'bg-white hover:bg-purple-100/70 text-stone-800 border-purple-200'
+                      }`}
+                    >
+                      {isBn ? g.labelBn : g.labelEn}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Row 3: Body Measurements Grid (in Inches) */}
+            <div className="bg-white p-3 rounded-xl border border-purple-200/90 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-extrabold text-purple-950 flex items-center gap-1">
+                  <Ruler className="w-3.5 h-3.5 text-purple-600" />
+                  <span>{isBn ? 'শরীরের মাপ (ইঞ্চিতে - ঐচ্ছিক):' : 'Body Measurements (in inches - Optional):'}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setMeasurements({
+                      garmentType: measurements.garmentType,
+                      length: '',
+                      chest: '',
+                      waist: '',
+                      shoulder: '',
+                      sleeve: '',
+                      neck: '',
+                      hip: '',
+                      bottom: '',
+                      designNotes: '',
+                    })
+                  }
+                  className="text-[10px] font-bold text-stone-400 hover:text-rose-600 cursor-pointer"
+                >
+                  {isBn ? 'মাপ মুছুন' : 'Clear'}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-4 sm:grid-cols-4 gap-2">
+                {[
+                  { key: 'length', labelBn: 'লম্বা (Length)', labelEn: 'Length', ph: '40"' },
+                  { key: 'chest', labelBn: 'বুক (Chest)', labelEn: 'Chest', ph: '38"' },
+                  { key: 'waist', labelBn: 'কোমর (Waist)', labelEn: 'Waist', ph: '34"' },
+                  { key: 'shoulder', labelBn: 'পুট/কাঁধ (Shoulder)', labelEn: 'Shoulder', ph: '17.5"' },
+                  { key: 'sleeve', labelBn: 'হাতা (Sleeve)', labelEn: 'Sleeve', ph: '24"' },
+                  { key: 'neck', labelBn: 'গলা/কলার (Neck)', labelEn: 'Neck/Collar', ph: '15.5"' },
+                  { key: 'hip', labelBn: 'হিপ (Hip)', labelEn: 'Hip/Seat', ph: '40"' },
+                  { key: 'bottom', labelBn: 'মুহুরি/ঘের (Bottom)', labelEn: 'Bottom/Cuff', ph: '14"' },
+                ].map((field) => (
+                  <div key={field.key}>
+                    <label className="block text-[10px] font-bold text-stone-600 truncate mb-0.5">
+                      {isBn ? field.labelBn : field.labelEn}
+                    </label>
+                    <input
+                      type="text"
+                      value={(measurements as any)[field.key] || ''}
+                      onChange={(e) =>
+                        setMeasurements((prev) => ({
+                          ...prev,
+                          [field.key]: e.target.value,
+                        }))
+                      }
+                      placeholder={field.ph}
+                      className="w-full bg-stone-50 focus:bg-white border border-stone-200 focus:border-purple-500 rounded-lg px-2 py-1 text-xs font-mono font-bold text-stone-900 focus:outline-none"
+                    />
+                  </div>
+                ))}
+              </div>
+
+              {/* Design / Stitching Instructions */}
+              <div className="pt-1">
+                <label className="block text-[10px] font-bold text-stone-600 mb-1">
+                  {isBn
+                    ? 'ডিজাইন বা সেলাইয়ের বিশেষ নির্দেশনা (Design / Stitching Note):'
+                    : 'Design / Stitching Instructions:'}
+                </label>
+                <input
+                  type="text"
+                  value={measurements.designNotes || ''}
+                  onChange={(e) =>
+                    setMeasurements((prev) => ({ ...prev, designNotes: e.target.value }))
+                  }
+                  placeholder={
+                    isBn
+                      ? 'যেমন: চাইনিজ কলার, সাইড পকেট, লুজ ফিটিং, আস্তর সহ...'
+                      : 'e.g. Chinese collar, Side pocket, Slim fit, Lining...'
+                  }
+                  className="w-full bg-stone-50 focus:bg-white border border-stone-200 focus:border-purple-500 rounded-lg px-2.5 py-1.5 text-xs font-medium text-stone-900 focus:outline-none"
+                />
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 2. INSTANT ITEM ENTRY & PRODUCT STOCK CARD (SECTION 2 - MIDDLE) */}
@@ -1285,17 +1553,33 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         <div className="pt-1 space-y-2">
           <div className="flex items-center justify-between">
             <label className="text-xs font-bold text-stone-700">
-              {t.paidReceivedLabel} ({sym})
+              {isTailoring
+                ? isBn
+                  ? `অগ্রিম জমা / প্রাপ্ত টাকা (Advance Paid ${sym})`
+                  : `Advance Paid / Received (${sym})`
+                : `${t.paidReceivedLabel} (${sym})`}
             </label>
             {grandTotal > 0 && (
-              <button
-                type="button"
-                onClick={() => setPaidAmount(grandTotal.toFixed(2))}
-                className="text-[11px] text-blue-600 hover:text-blue-700 font-bold underline cursor-pointer"
-              >
-                {t.exactBtn} ({sym}
-                {grandTotal.toFixed(2)})
-              </button>
+              <div className="flex items-center gap-2">
+                {isTailoring && (
+                  <button
+                    type="button"
+                    onClick={() => setPaidAmount(String(Math.round(grandTotal / 2)))}
+                    className="text-[11px] text-purple-600 hover:text-purple-800 font-bold underline cursor-pointer"
+                  >
+                    50% Advance ({sym}
+                    {Math.round(grandTotal / 2)})
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setPaidAmount(grandTotal.toFixed(2))}
+                  className="text-[11px] text-blue-600 hover:text-blue-700 font-bold underline cursor-pointer"
+                >
+                  {t.exactBtn} ({sym}
+                  {grandTotal.toFixed(2)})
+                </button>
+              </div>
             )}
           </div>
 
@@ -1331,6 +1615,26 @@ export const BillingTab: React.FC<BillingTabProps> = ({
               </span>
             </div>
           )}
+
+          {(isTailoring || paymentMethod === 'due' || (paidAmount.trim() !== '' && paidNum < grandTotal)) &&
+            grandTotal > 0 &&
+            Math.max(0, grandTotal - (paidAmount.trim() !== '' ? paidNum : 0)) > 0 && (
+              <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-bold flex items-center justify-between">
+                <span>
+                  {isTailoring
+                    ? isBn
+                      ? 'ডেলিভারির সময় বাকি (Balance Due on Delivery):'
+                      : 'Balance Due on Delivery:'
+                    : isBn
+                    ? 'বাকি টাকা (Balance Due):'
+                    : 'Balance Due:'}
+                </span>
+                <span className="font-mono text-sm font-black text-rose-600">
+                  {sym}
+                  {Math.max(0, grandTotal - (paidAmount.trim() !== '' ? paidNum : 0)).toFixed(2)}
+                </span>
+              </div>
+            )}
         </div>
 
         {/* 4. BOTTOM: Payment Method Selection Buttons */}

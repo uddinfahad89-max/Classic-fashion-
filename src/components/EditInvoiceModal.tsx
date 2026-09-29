@@ -20,6 +20,8 @@ import {
   PaymentMethod,
   ThermalPrinterSettings,
   Language,
+  TailoringMeasurements,
+  TailoringOrderStatus,
 } from '../types';
 import { translations } from '../utils/i18n';
 
@@ -64,6 +66,23 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
   const [newItemPrice, setNewItemPrice] = useState('');
   const [newItemQty, setNewItemQty] = useState('1');
 
+  // Tailoring fields
+  const [isTailoring, setIsTailoring] = useState(false);
+  const [deliveryDate, setDeliveryDate] = useState('');
+  const [tailoringStatus, setTailoringStatus] = useState<TailoringOrderStatus>('pending');
+  const [measurements, setMeasurements] = useState<TailoringMeasurements>({
+    garmentType: 'Shirt',
+    length: '',
+    chest: '',
+    waist: '',
+    shoulder: '',
+    sleeve: '',
+    neck: '',
+    hip: '',
+    bottom: '',
+    designNotes: '',
+  });
+
   // Sync state whenever active bill changes
   useEffect(() => {
     if (bill) {
@@ -81,6 +100,21 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
       );
       setPaymentMethod(bill.paymentMethod || 'cash');
       setPaidAmount(bill.paidAmount !== undefined ? bill.paidAmount.toString() : '');
+      setIsTailoring(Boolean(bill.isTailoring));
+      setDeliveryDate(bill.deliveryDate || '');
+      setTailoringStatus(bill.tailoringStatus || 'pending');
+      setMeasurements({
+        garmentType: bill.measurements?.garmentType || 'Shirt',
+        length: bill.measurements?.length || '',
+        chest: bill.measurements?.chest || '',
+        waist: bill.measurements?.waist || '',
+        shoulder: bill.measurements?.shoulder || '',
+        sleeve: bill.measurements?.sleeve || '',
+        neck: bill.measurements?.neck || '',
+        hip: bill.measurements?.hip || '',
+        bottom: bill.measurements?.bottom || '',
+        designNotes: bill.measurements?.designNotes || '',
+      });
       setNewItemName('');
       setNewItemPrice('');
       setNewItemQty('1');
@@ -215,6 +249,10 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
       changeAmount: paymentMethod === 'due' ? 0 : changeAmount,
       balance: finalBalance,
       currentBalance: finalBalance,
+      isTailoring,
+      deliveryDate: isTailoring && deliveryDate.trim() ? deliveryDate.trim() : undefined,
+      tailoringStatus: isTailoring ? tailoringStatus : undefined,
+      measurements: isTailoring ? measurements : undefined,
     };
 
     onSave(updatedBill);
@@ -360,6 +398,141 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
                 className="w-full border border-stone-200 bg-white px-3 py-2 rounded-xl text-xs font-mono focus:outline-none focus:border-blue-600"
               />
             </div>
+          </div>
+
+          {/* 1B. Tailoring Order Mode & Measurements Editor */}
+          <div className="bg-purple-50/70 p-3.5 rounded-2xl border border-purple-200 space-y-3">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-black text-purple-900">
+                  ✂️ {language === 'bn' ? 'টেইলরিং অর্ডার ইনভয়েস (Tailoring Invoice)' : 'Tailoring Order Invoice'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsTailoring((prev) => !prev)}
+                className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  isTailoring
+                    ? 'bg-purple-600 text-white shadow-xs'
+                    : 'bg-white text-purple-700 border border-purple-300 hover:bg-purple-100'
+                }`}
+              >
+                {isTailoring
+                  ? language === 'bn'
+                    ? '✓ টেইলরিং চালু আছে'
+                    : '✓ Tailoring Active'
+                  : language === 'bn'
+                  ? '+ টেইলরিং অন করুন'
+                  : '+ Enable Tailoring'}
+              </button>
+            </div>
+
+            {isTailoring && (
+              <div className="space-y-3 pt-2 border-t border-purple-200/80 animate-in fade-in duration-150">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div>
+                    <label className="block text-[11px] font-bold text-purple-900 mb-1">
+                      {language === 'bn' ? 'পোশাকের ধরন (Garment)' : 'Garment Type'}
+                    </label>
+                    <input
+                      type="text"
+                      value={measurements.garmentType || ''}
+                      onChange={(e) =>
+                        setMeasurements((prev) => ({ ...prev, garmentType: e.target.value }))
+                      }
+                      placeholder="Shirt / Pant / Panjabi / Suit"
+                      className="w-full border border-purple-200 bg-white px-2.5 py-1.5 rounded-xl text-xs font-semibold text-stone-900 focus:outline-none focus:border-purple-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-purple-900 mb-1">
+                      {language === 'bn' ? 'ডেলিভারির তারিখ (Delivery Date)' : 'Delivery Date'}
+                    </label>
+                    <input
+                      type="date"
+                      value={deliveryDate}
+                      onChange={(e) => setDeliveryDate(e.target.value)}
+                      className="w-full border border-purple-200 bg-white px-2.5 py-1.5 rounded-xl text-xs font-mono font-bold text-stone-900 focus:outline-none focus:border-purple-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-purple-900 mb-1">
+                      {language === 'bn' ? 'অর্ডারের অবস্থা (Order Status)' : 'Order Status'}
+                    </label>
+                    <select
+                      value={tailoringStatus}
+                      onChange={(e) => setTailoringStatus(e.target.value as TailoringOrderStatus)}
+                      className="w-full border border-purple-200 bg-white px-2.5 py-1.5 rounded-xl text-xs font-bold text-stone-900 focus:outline-none focus:border-purple-600"
+                    >
+                      <option value="pending">
+                        {language === 'bn' ? 'সেলাই চলছে (Stitching)' : 'Stitching / Pending'}
+                      </option>
+                      <option value="ready">
+                        {language === 'bn' ? 'ডেলিভারির জন্য প্রস্তুত (Ready)' : 'Ready for Delivery'}
+                      </option>
+                      <option value="delivered">
+                        {language === 'bn' ? 'ডেলিভারি সম্পন্ন (Delivered)' : 'Delivered'}
+                      </option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Body Measurements Grid */}
+                <div>
+                  <label className="block text-[11px] font-bold text-purple-900 mb-1">
+                    {language === 'bn' ? 'মাপসমূহ (Measurements in Inch)' : 'Body Measurements (Inches)'}
+                  </label>
+                  <div className="grid grid-cols-4 sm:grid-cols-8 gap-1.5">
+                    {(
+                      [
+                        { key: 'length', label: 'Length' },
+                        { key: 'chest', label: 'Chest' },
+                        { key: 'waist', label: 'Waist' },
+                        { key: 'shoulder', label: 'Shoulder' },
+                        { key: 'sleeve', label: 'Sleeve' },
+                        { key: 'neck', label: 'Neck' },
+                        { key: 'hip', label: 'Hip' },
+                        { key: 'bottom', label: 'Bottom' },
+                      ] as { key: keyof TailoringMeasurements; label: string }[]
+                    ).map((field) => (
+                      <div key={field.key} className="bg-white border border-purple-200 rounded-lg p-1">
+                        <span className="block text-[9px] font-bold text-stone-500 text-center">
+                          {field.label}
+                        </span>
+                        <input
+                          type="text"
+                          value={measurements[field.key] || ''}
+                          onChange={(e) =>
+                            setMeasurements((prev) => ({
+                              ...prev,
+                              [field.key]: e.target.value,
+                            }))
+                          }
+                          placeholder="--"
+                          className="w-full text-center font-mono text-xs font-bold text-stone-900 bg-transparent focus:outline-none"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <input
+                    type="text"
+                    value={measurements.designNotes || ''}
+                    onChange={(e) =>
+                      setMeasurements((prev) => ({ ...prev, designNotes: e.target.value }))
+                    }
+                    placeholder={
+                      language === 'bn'
+                        ? 'ডিজাইন বা সেলাই নোট (যেমন: কলার, পকেট, লুজ ফিটিং)...'
+                        : 'Stitching / Design notes (e.g., Collar style, side pocket, fitting)...'
+                    }
+                    className="w-full border border-purple-200 bg-white px-2.5 py-1.5 rounded-xl text-xs text-stone-800 focus:outline-none focus:border-purple-600"
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           {/* 2. Purchased Items Editor */}

@@ -14,6 +14,7 @@ import {
   CheckCircle2,
   Tag,
   FileText,
+  MoreVertical,
 } from 'lucide-react';
 import { BillInvoice, ThermalPrinterSettings, BluetoothDeviceInfo, Language } from '../types';
 import { thermalPrinterService } from '../services/thermalPrinterService';
@@ -51,6 +52,7 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
   const [isPrintingBt, setIsPrintingBt] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [isLabelMode, setIsLabelMode] = useState<boolean>(Boolean(settings.isLabelMode));
 
   useEffect(() => {
@@ -212,14 +214,58 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
         .map((it, idx) => `${idx + 1}. ${it.name} (${it.qty}x) = ${currency}${it.total}`)
         .join('\n');
 
-      message = `*${store} - Tax Invoice #${bill.invoiceNo}*\n` +
+      const isTailoring = Boolean(bill.isTailoring);
+      const headerLine = isTailoring
+        ? `*✂️ ${store} - Tailoring Order #${bill.invoiceNo}*\n`
+        : `*${store} - Tax Invoice #${bill.invoiceNo}*\n`;
+
+      let tailoringMeta = '';
+      if (isTailoring) {
+        if (bill.deliveryDate) {
+          tailoringMeta += `Delivery Date: ${bill.deliveryDate}\n`;
+        }
+        if (bill.tailoringStatus) {
+          tailoringMeta += `Status: ${
+            bill.tailoringStatus === 'ready'
+              ? 'Ready for Delivery'
+              : bill.tailoringStatus === 'delivered'
+              ? 'Delivered'
+              : 'Stitching / Pending'
+          }\n`;
+        }
+        if (bill.measurements) {
+          const m = bill.measurements;
+          const mParts: string[] = [];
+          if (m.garmentType) mParts.push(`Garment: ${m.garmentType}`);
+          if (m.length) mParts.push(`L:${m.length}`);
+          if (m.chest) mParts.push(`Ch:${m.chest}`);
+          if (m.waist) mParts.push(`W:${m.waist}`);
+          if (m.shoulder) mParts.push(`Sh:${m.shoulder}`);
+          if (m.sleeve) mParts.push(`Sl:${m.sleeve}`);
+          if (m.neck) mParts.push(`Nk:${m.neck}`);
+          if (m.hip) mParts.push(`Hp:${m.hip}`);
+          if (m.bottom) mParts.push(`Bt:${m.bottom}`);
+          if (mParts.length > 0) {
+            tailoringMeta += `*Measurements:* ${mParts.join(' | ')}\n`;
+          }
+          if (m.designNotes) {
+            tailoringMeta += `*Note:* ${m.designNotes}\n`;
+          }
+        }
+      }
+
+      message =
+        headerLine +
         `Date: ${bill.date}\n` +
-        `Customer: ${bill.customerName || 'Customer'}\n\n` +
+        `Customer: ${bill.customerName || 'Customer'}\n` +
+        (tailoringMeta ? `${tailoringMeta}\n` : '\n') +
         `*Items:*\n${itemsList}\n\n` +
         `*Total Amount:* ${currency}${bill.grandTotal}\n` +
-        `*Paid:* ${currency}${bill.paidAmount || 0}\n` +
-        `*Balance:* ${currency}${bill.balance !== undefined ? bill.balance : (bill.grandTotal - (bill.paidAmount || 0))}\n\n` +
-        `Thank you for shopping with us!`;
+        `*${isTailoring ? 'Advance Paid' : 'Paid'}:* ${currency}${bill.paidAmount || 0}\n` +
+        `*${isTailoring ? 'Balance Due' : 'Balance'}:* ${currency}${
+          bill.balance !== undefined ? bill.balance : bill.grandTotal - (bill.paidAmount || 0)
+        }\n\n` +
+        `Thank you for choosing us!`;
     }
 
     const phone = bill.customerPhone?.replace(/[^0-9]/g, '') || '';
@@ -281,6 +327,141 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
                 <span className="hidden sm:inline">{language === 'bn' ? 'মুছুন' : 'Delete'}</span>
               </button>
             )}
+
+            {/* 3-Dot More Options Menu (Contains hidden Print, PDF, Image, WhatsApp, Label Mode, RawBT, 58mm/80mm) */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowMoreMenu((prev) => !prev)}
+                className={`p-1.5 rounded-xl border text-xs font-bold flex items-center justify-center cursor-pointer transition-colors ${
+                  showMoreMenu
+                    ? 'bg-stone-900 text-white border-stone-900'
+                    : 'bg-stone-50 hover:bg-stone-100 text-stone-600 border-stone-200'
+                }`}
+                title={language === 'bn' ? 'আরও অপশন' : 'More Options'}
+              >
+                <MoreVertical className="w-4 h-4" />
+              </button>
+
+              {showMoreMenu && (
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setShowMoreMenu(false)}
+                  />
+                  <div className="absolute right-0 top-full mt-1.5 z-50 w-56 bg-white rounded-2xl shadow-xl border border-stone-200 p-1.5 space-y-1 animate-in fade-in zoom-in-95 duration-150">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowMoreMenu(false);
+                        handlePrintTaxInvoice();
+                      }}
+                      className="w-full px-3 py-2 rounded-xl text-left text-xs font-bold text-stone-800 hover:bg-stone-100 flex items-center gap-2.5 cursor-pointer transition-colors"
+                    >
+                      <Printer className="w-3.5 h-3.5 text-[#8C8EE8]" />
+                      <span>{language === 'bn' ? 'প্রিন্ট করুন (Print)' : 'Print Document'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowMoreMenu(false);
+                        handleSavePdf();
+                      }}
+                      disabled={isSavingPdf}
+                      className="w-full px-3 py-2 rounded-xl text-left text-xs font-bold text-stone-800 hover:bg-stone-100 flex items-center gap-2.5 cursor-pointer transition-colors"
+                    >
+                      <Download className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>{language === 'bn' ? 'পিডিএফ সেভ (Save PDF)' : 'Save PDF'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowMoreMenu(false);
+                        handleSaveImage();
+                      }}
+                      disabled={isSavingImage}
+                      className="w-full px-3 py-2 rounded-xl text-left text-xs font-bold text-stone-800 hover:bg-stone-100 flex items-center gap-2.5 cursor-pointer transition-colors"
+                    >
+                      <ImageIcon className="w-3.5 h-3.5 text-stone-700" />
+                      <span>{language === 'bn' ? 'ছবি সেভ (Save Image)' : 'Save Image'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowMoreMenu(false);
+                        handleWhatsAppShare();
+                      }}
+                      className="w-full px-3 py-2 rounded-xl text-left text-xs font-bold text-stone-800 hover:bg-stone-100 flex items-center gap-2.5 cursor-pointer transition-colors"
+                    >
+                      <Share2 className="w-3.5 h-3.5 text-[#25D366]" />
+                      <span>WhatsApp Share</span>
+                    </button>
+
+                    <div className="border-t border-stone-100 my-1" />
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowMoreMenu(false);
+                        handleRawBtPrint();
+                      }}
+                      className="w-full px-3 py-2 rounded-xl text-left text-xs font-bold text-stone-700 hover:bg-stone-100 flex items-center gap-2.5 cursor-pointer transition-colors"
+                    >
+                      <Smartphone className="w-3.5 h-3.5 text-stone-600" />
+                      <span>RawBT App Print</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleToggleLabelMode(!isLabelMode);
+                        setShowMoreMenu(false);
+                      }}
+                      className="w-full px-3 py-2 rounded-xl text-left text-xs font-bold text-stone-700 hover:bg-stone-100 flex items-center justify-between cursor-pointer transition-colors"
+                    >
+                      <span className="flex items-center gap-2.5">
+                        <Tag className="w-3.5 h-3.5 text-amber-600" />
+                        <span>{language === 'bn' ? 'লেবেল মোড (Label Mode)' : 'Label Mode'}</span>
+                      </span>
+                      {isLabelMode && <CheckCircle2 className="w-3.5 h-3.5 text-amber-600" />}
+                    </button>
+
+                    {onUpdatePaperWidth && (
+                      <div className="px-3 py-1.5 flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-stone-500">Paper Roll:</span>
+                        <div className="flex items-center bg-stone-100 rounded-lg p-0.5 text-[10px] font-bold">
+                          <button
+                            type="button"
+                            onClick={() => onUpdatePaperWidth('58mm')}
+                            className={`px-2 py-0.5 rounded-md transition-all cursor-pointer ${
+                              settings.paperWidth === '58mm'
+                                ? 'bg-stone-800 text-white'
+                                : 'text-stone-600'
+                            }`}
+                          >
+                            58mm
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onUpdatePaperWidth('80mm')}
+                            className={`px-2 py-0.5 rounded-md transition-all cursor-pointer ${
+                              settings.paperWidth === '80mm'
+                                ? 'bg-stone-800 text-white'
+                                : 'text-stone-600'
+                            }`}
+                          >
+                            80mm
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
 
             <button
               onClick={onClose}
@@ -347,233 +528,33 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
 
           <div className="flex items-center gap-2 flex-wrap">
             {bluetoothStatus?.connected ? (
-              <>
-                <button
-                  type="button"
-                  id="modal-bt-print-btn"
-                  onClick={handleBluetoothPrint}
-                  disabled={isPrintingBt}
-                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white text-xs font-bold flex items-center gap-2 shadow-sm cursor-pointer transition-all"
-                  title="Direct Bluetooth Thermal Print"
-                >
-                  {isPrintingBt ? (
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Printer className="w-4 h-4" />
-                  )}
-                  <span>{language === 'bn' ? 'ব্লুটুথ স্লিপ প্রিন্ট' : 'Bluetooth Print'}</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleTestPrint}
-                  disabled={isPrintingBt}
-                  className="px-3 py-2 rounded-xl bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
-                  title="Print Test Slip"
-                >
-                  <span>{language === 'bn' ? 'টেস্ট' : 'Test'}</span>
-                </button>
-              </>
-            ) : (
-              <>
-                {onConnectBluetooth && (
-                  <button
-                    type="button"
-                    id="modal-bt-connect-btn"
-                    onClick={onConnectBluetooth}
-                    className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] text-white text-xs font-bold flex items-center gap-2 shadow-sm cursor-pointer transition-all"
-                  >
-                    <Bluetooth className="w-4 h-4" />
-                    <span>{language === 'bn' ? 'প্রিন্টার কানেক্ট করুন' : 'Connect Printer'}</span>
-                  </button>
+              <button
+                type="button"
+                id="modal-bt-print-btn"
+                onClick={handleBluetoothPrint}
+                disabled={isPrintingBt}
+                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white text-xs font-bold flex items-center gap-2 shadow-sm cursor-pointer transition-all"
+                title="Direct Bluetooth Thermal Print"
+              >
+                {isPrintingBt ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Printer className="w-4 h-4" />
                 )}
-
+                <span>{language === 'bn' ? 'ব্লুটুথ স্লিপ প্রিন্ট' : 'Bluetooth Print'}</span>
+              </button>
+            ) : (
+              onConnectBluetooth && (
                 <button
                   type="button"
-                  onClick={handleRawBtPrint}
-                  className="px-3 py-2 rounded-xl bg-white hover:bg-stone-100 text-stone-700 border border-stone-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
-                  title="RawBT Print via Android App"
+                  id="modal-bt-connect-btn"
+                  onClick={onConnectBluetooth}
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] text-white text-xs font-bold flex items-center gap-2 shadow-sm cursor-pointer transition-all"
                 >
-                  <Smartphone className="w-3.5 h-3.5 text-stone-600" />
-                  <span>RawBT</span>
+                  <Bluetooth className="w-4 h-4" />
+                  <span>{language === 'bn' ? 'প্রিন্টার কানেক্ট করুন' : 'Connect Printer'}</span>
                 </button>
-              </>
-            )}
-
-            {/* Label Mode Toggle Switch */}
-            <button
-              type="button"
-              id="modal-toggle-label-mode-btn"
-              onClick={() => handleToggleLabelMode(!isLabelMode)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs ${
-                isLabelMode
-                  ? 'bg-amber-500 hover:bg-amber-600 text-white ring-2 ring-amber-400/40'
-                  : 'bg-white hover:bg-stone-100 text-stone-700 border border-stone-200'
-              }`}
-              title={isLabelMode ? 'Switch to Standard Invoice' : 'Switch to Product Label Mode (Name, Barcode, Price)'}
-            >
-              <Tag className="w-3.5 h-3.5" />
-              <span>
-                {isLabelMode
-                  ? (language === 'bn' ? '🏷️ লেবেল মোড' : '🏷️ Label Mode')
-                  : (language === 'bn' ? 'লেবেল মোড' : 'Label Mode')}
-              </span>
-            </button>
-
-            {onUpdatePaperWidth && (
-              <div className="flex items-center bg-white rounded-xl border border-stone-200 p-0.5 text-[11px] font-bold shadow-2xs">
-                <button
-                  type="button"
-                  onClick={() => onUpdatePaperWidth('58mm')}
-                  className={`px-2.5 py-1 rounded-lg transition-all ${
-                    settings.paperWidth === '58mm'
-                      ? 'bg-stone-800 text-white'
-                      : 'text-stone-600 hover:bg-stone-100'
-                  }`}
-                  title="2-inch Roll (58mm)"
-                >
-                  58mm
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onUpdatePaperWidth('80mm')}
-                  className={`px-2.5 py-1 rounded-lg transition-all ${
-                    settings.paperWidth === '80mm'
-                      ? 'bg-stone-800 text-white'
-                      : 'text-stone-600 hover:bg-stone-100'
-                  }`}
-                  title="3-inch Roll (80mm)"
-                >
-                  80mm
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* 2. Clean Action Toolbar (Print, Save PDF, Image, WhatsApp, Edit, Delete) */}
-        <div className="p-2.5 sm:p-3 bg-stone-50 border-b border-stone-200 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <div className="text-xs font-bold text-stone-700 flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full ${isLabelMode ? 'bg-amber-500' : 'bg-[#8C8EE8]'}`}></span>
-              <span>
-                {isLabelMode
-                  ? (language === 'bn' ? 'লেবেল অ্যাকশন' : 'Label Actions')
-                  : (language === 'bn' ? 'ইনভয়েস অ্যাকশন' : 'Invoice Actions')}
-                :
-              </span>
-            </div>
-
-            {/* Quick Format Switcher Pill: Invoice vs Label */}
-            <div className="flex items-center bg-white rounded-xl border border-stone-200 p-0.5 text-[11px] font-bold shadow-2xs">
-              <button
-                type="button"
-                onClick={() => handleToggleLabelMode(false)}
-                className={`px-2 py-0.5 rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
-                  !isLabelMode
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-stone-600 hover:bg-stone-100'
-                }`}
-                title="Standard Tax Invoice"
-              >
-                <FileText className="w-3 h-3" />
-                <span>{language === 'bn' ? 'ইনভয়েস' : 'Invoice'}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleToggleLabelMode(true)}
-                className={`px-2 py-0.5 rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
-                  isLabelMode
-                    ? 'bg-amber-500 text-white shadow-xs'
-                    : 'text-stone-600 hover:bg-stone-100'
-                }`}
-                title="Product Name, Barcode & Price Label"
-              >
-                <Tag className="w-3 h-3" />
-                <span>{language === 'bn' ? 'লেবেল' : 'Label'}</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Quick Action Buttons */}
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {/* 1. PRINT BUTTON */}
-            <button
-              type="button"
-              onClick={handlePrintTaxInvoice}
-              className="px-3.5 py-1.5 rounded-xl bg-[#8C8EE8] hover:bg-[#787AD8] text-white text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-all active:scale-[0.98]"
-              title="Print Document"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              <span>{language === 'bn' ? 'প্রিন্ট করুন' : 'Print'}</span>
-            </button>
-
-            {/* 2. SAVE PDF BUTTON */}
-            <button
-              type="button"
-              onClick={handleSavePdf}
-              disabled={isSavingPdf}
-              className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-all active:scale-[0.98]"
-              title="Download High-Res PDF"
-            >
-              {isSavingPdf ? (
-                <span className="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></span>
-              ) : (
-                <Download className="w-3.5 h-3.5" />
-              )}
-              <span>{language === 'bn' ? 'পিডিএফ সেভ' : 'Save PDF'}</span>
-            </button>
-
-            {/* 3. SAVE IMAGE BUTTON */}
-            <button
-              type="button"
-              onClick={handleSaveImage}
-              disabled={isSavingImage}
-              className="px-3 py-1.5 rounded-xl bg-stone-800 hover:bg-stone-700 disabled:opacity-60 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-all active:scale-[0.98]"
-              title="Download PNG Image for gallery or sharing"
-            >
-              <ImageIcon className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">{language === 'bn' ? 'ছবি সেভ' : 'Image'}</span>
-            </button>
-
-            {/* 4. WHATSAPP SHARE */}
-            <button
-              type="button"
-              onClick={handleWhatsAppShare}
-              className="px-3 py-1.5 rounded-xl bg-[#25D366] hover:bg-[#20ba5a] text-white text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-all active:scale-[0.98]"
-              title="Share Bill via WhatsApp"
-            >
-              <Share2 className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">WhatsApp</span>
-            </button>
-
-            {/* 5. EDIT BUTTON */}
-            {onEditBill && (
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  onEditBill(bill);
-                }}
-                className="px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
-                title={language === 'bn' ? 'ইনভয়েস এডিট করুন' : 'Edit Bill'}
-              >
-                <Edit2 className="w-3.5 h-3.5 text-blue-600" />
-                <span>{language === 'bn' ? 'এডিট' : 'Edit'}</span>
-              </button>
-            )}
-
-            {/* 6. DELETE BUTTON */}
-            {onDeleteBill && (
-              <button
-                type="button"
-                onClick={() => setShowDeleteConfirm(true)}
-                className="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
-                title={language === 'bn' ? 'ইনভয়েস মুছুন' : 'Delete Bill'}
-              >
-                <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-                <span>{language === 'bn' ? 'মুছুন' : 'Delete'}</span>
-              </button>
+              )
             )}
           </div>
         </div>

@@ -73,10 +73,10 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({ bill, settings
 
       <div className="border-t border-stone-300 my-3"></div>
 
-      {/* 2. Tax Invoice Banner */}
+      {/* 2. Tax Invoice / Tailoring Invoice Banner */}
       <div className="text-center my-2">
         <h2 className="text-lg sm:text-xl font-bold text-[#8C8EE8] tracking-normal">
-          Tax Invoice
+          {bill.isTailoring ? '✂️ Tailoring Invoice' : 'Tax Invoice'}
         </h2>
       </div>
 
@@ -84,27 +84,100 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({ bill, settings
       <div className="flex justify-between items-start pt-1 pb-4 text-xs sm:text-sm">
         {/* Left: Customer Info */}
         <div className="space-y-0.5">
-          <div className="font-bold text-stone-900">Bill To</div>
+          <div className="font-bold text-stone-900">
+            {bill.isTailoring ? 'Customer' : 'Bill To'}
+          </div>
           <div className="font-black text-stone-900 text-sm sm:text-base tracking-wide uppercase">
             {bill.customerName || 'Cash Customer'}
           </div>
           {bill.customerPhone && (
             <div className="text-stone-700 font-medium">
-              Contact No.: {bill.customerPhone}
+              Ph: {bill.customerPhone}
+            </div>
+          )}
+          {bill.isTailoring && bill.measurements?.garmentType && (
+            <div className="text-stone-700 font-semibold">
+              Item: <span className="font-bold text-stone-900">{bill.measurements.garmentType}</span>
             </div>
           )}
         </div>
 
-        {/* Right: Invoice Metadata */}
+        {/* Right: Invoice Metadata (Concise) */}
         <div className="text-right space-y-0.5 font-medium text-stone-700">
-          <div className="font-bold text-stone-900">Invoice Details</div>
+          <div className="font-bold text-stone-900">
+            {bill.isTailoring ? 'Order Info' : 'Invoice Details'}
+          </div>
           <div>
-            Invoice No.: <span className="font-bold text-stone-900">{bill.invoiceNo}</span>
+            No: <span className="font-bold text-stone-900">#{bill.invoiceNo}</span>
           </div>
           <div>Date: {formattedDate}</div>
-          {formattedTime && <div>Time: {formattedTime}</div>}
+          {bill.isTailoring && bill.deliveryDate && (
+            <div className="font-bold text-stone-900 bg-stone-100 px-1.5 py-0.5 rounded inline-block mt-0.5">
+              Delivery:{' '}
+              {/^\d{4}-\d{2}-\d{2}$/.test(bill.deliveryDate)
+                ? bill.deliveryDate.split('-').reverse().join('-')
+                : bill.deliveryDate}
+            </div>
+          )}
+          {bill.isTailoring && bill.trialDate && (
+            <div>Trial: {bill.trialDate}</div>
+          )}
+          {bill.isTailoring && bill.tailoringStatus && (
+            <div className="text-xs font-bold text-[#8C8EE8]">
+              Status:{' '}
+              {bill.tailoringStatus === 'ready'
+                ? 'Ready'
+                : bill.tailoringStatus === 'delivered'
+                ? 'Delivered'
+                : 'Stitching'}
+            </div>
+          )}
         </div>
       </div>
+
+      {/* 3B. Tailoring Body Measurements & Stitching Notes Box (When Tailoring Mode is Active) */}
+      {bill.isTailoring &&
+        bill.measurements &&
+        Object.values(bill.measurements).some((v) => Boolean(v && String(v).trim())) && (
+          <div className="mb-3 p-3 rounded-lg border border-stone-300 bg-stone-50/70 text-xs space-y-2">
+            <div className="font-bold text-stone-900 uppercase tracking-wide flex items-center justify-between border-b border-stone-200 pb-1">
+              <span>✂️ Measurements (Inch)</span>
+              {bill.measurements.garmentType && (
+                <span className="font-black text-[#8C8EE8]">{bill.measurements.garmentType}</span>
+              )}
+            </div>
+
+            <div className="grid grid-cols-4 sm:grid-cols-8 gap-2 text-center">
+              {[
+                { label: 'Length', val: bill.measurements.length },
+                { label: 'Chest', val: bill.measurements.chest },
+                { label: 'Waist', val: bill.measurements.waist },
+                { label: 'Shoulder', val: bill.measurements.shoulder },
+                { label: 'Sleeve', val: bill.measurements.sleeve },
+                { label: 'Neck', val: bill.measurements.neck },
+                { label: 'Hip', val: bill.measurements.hip },
+                { label: 'Bottom', val: bill.measurements.bottom },
+              ]
+                .filter((m) => Boolean(m.val && String(m.val).trim()))
+                .map((m) => (
+                  <div
+                    key={m.label}
+                    className="bg-white border border-stone-200 rounded px-1.5 py-1"
+                  >
+                    <div className="text-[10px] text-stone-500 font-semibold">{m.label}</div>
+                    <div className="font-mono font-bold text-stone-900 text-xs">{m.val}</div>
+                  </div>
+                ))}
+            </div>
+
+            {bill.measurements.designNotes && (
+              <div className="pt-1 text-stone-800">
+                <span className="font-bold text-stone-900">Note: </span>
+                <span>{bill.measurements.designNotes}</span>
+              </div>
+            )}
+          </div>
+        )}
 
       {/* 4. Table of Items: Exactly matching photo */}
       <div className="mt-1 mb-2 overflow-x-auto">
@@ -112,10 +185,16 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({ bill, settings
           <thead>
             <tr className="bg-[#8C8EE8] text-white print:bg-[#8C8EE8] print:text-white">
               <th className="py-2.5 px-3 text-left font-bold text-white w-10">#</th>
-              <th className="py-2.5 px-3 text-left font-bold text-white">Item name</th>
-              <th className="py-2.5 px-3 text-right font-bold text-white w-24">Quantity</th>
-              <th className="py-2.5 px-3 text-right font-bold text-white w-28">Price/ unit</th>
-              <th className="py-2.5 px-3 text-right font-bold text-white w-32">Amount</th>
+              <th className="py-2.5 px-3 text-left font-bold text-white">
+                {bill.isTailoring ? 'Item' : 'Item name'}
+              </th>
+              <th className="py-2.5 px-3 text-right font-bold text-white w-20">
+                {bill.isTailoring ? 'Qty' : 'Quantity'}
+              </th>
+              <th className="py-2.5 px-3 text-right font-bold text-white w-24">
+                {bill.isTailoring ? 'Rate' : 'Price/ unit'}
+              </th>
+              <th className="py-2.5 px-3 text-right font-bold text-white w-28">Amount</th>
             </tr>
           </thead>
           <tbody>
@@ -185,15 +264,19 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({ bill, settings
           </div>
 
           <div className="flex justify-between items-center py-0.5">
-            <span className="font-normal text-stone-800">Received</span>
+            <span className="font-normal text-stone-800">
+              {bill.isTailoring ? 'Advance' : 'Received'}
+            </span>
             <span className="font-normal text-stone-900">
               {currencyPrefix}{paidAmount.toFixed(1)}
             </span>
           </div>
 
           <div className="flex justify-between items-center py-0.5">
-            <span className="font-normal text-stone-800">Balance</span>
-            <span className="font-normal text-stone-900">
+            <span className="font-normal text-stone-800">
+              {bill.isTailoring ? 'Balance Due' : 'Balance'}
+            </span>
+            <span className="font-bold text-stone-900">
               {currencyPrefix}{balance.toFixed(1)}
             </span>
           </div>
@@ -205,14 +288,27 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({ bill, settings
       {/* 6. Footer: Terms & Authorized Signatory */}
       <div className="flex justify-between items-end pt-5 border-t border-stone-200">
         {/* Left: Terms and Conditions */}
-        <div className="space-y-1 max-w-[280px]">
+        <div className="space-y-1 max-w-[300px]">
           <div className="font-bold text-stone-900 text-xs sm:text-sm">Terms and Conditions</div>
-          <p className="text-xs text-stone-600 leading-normal">
-            1. Goods once sold will not be taken back without bill.
-          </p>
-          <p className="text-xs text-stone-600 leading-normal">
-            2. Thank you for shopping with us! Please visit again.
-          </p>
+          {bill.isTailoring ? (
+            <>
+              <p className="text-xs text-stone-600 leading-normal">
+                1. Please bring this tailoring slip at the time of trial & delivery.
+              </p>
+              <p className="text-xs text-stone-600 leading-normal">
+                2. Thank you for choosing our tailoring service!
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-xs text-stone-600 leading-normal">
+                1. Goods once sold will not be taken back without bill.
+              </p>
+              <p className="text-xs text-stone-600 leading-normal">
+                2. Thank you for shopping with us! Please visit again.
+              </p>
+            </>
+          )}
         </div>
 
         {/* Right: Authorized Signatory */}

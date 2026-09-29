@@ -117,7 +117,7 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
   const [showSummaryCard, setShowSummaryCard] = useState(false);
   const [datePreset, setDatePreset] = useState<DateFilterPreset>('all');
   const [customDate, setCustomDate] = useState('');
-  const [paymentFilter, setPaymentFilter] = useState<'all' | 'cash' | 'upi' | 'card' | 'due'>('all');
+  const [paymentFilter, setPaymentFilter] = useState<'all' | 'cash' | 'upi' | 'card' | 'due' | 'tailoring'>('all');
   const [localSort, setLocalSort] = useState<SortOption>(sortOption);
   const [editingBill, setEditingBill] = useState<BillInvoice | null>(null);
   const [deleteConfirmBill, setDeleteConfirmBill] = useState<{
@@ -191,7 +191,9 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
         if (!isSameDay(bill.timestamp, target)) return false;
       }
 
-      if (paymentFilter !== 'all') {
+      if (paymentFilter === 'tailoring') {
+        if (!bill.isTailoring) return false;
+      } else if (paymentFilter !== 'all') {
         if (bill.paymentMethod !== paymentFilter) return false;
       }
 
@@ -437,6 +439,7 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
               className="bg-white border border-stone-200 text-stone-700 text-[11px] font-semibold px-2.5 py-1 rounded-full focus:outline-none focus:border-[#0066cc] cursor-pointer"
             >
               <option value="all">All Modes</option>
+              <option value="tailoring">✂️ Tailoring Orders</option>
               <option value="cash">Cash</option>
               <option value="upi">UPI</option>
               <option value="card">Card</option>
@@ -499,11 +502,41 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
               >
                 {/* Left Column: Party Name & Date */}
                 <div className="min-w-0 flex-1">
-                  <div className="text-[15px] sm:text-[16px] font-normal text-stone-900 leading-snug truncate">
-                    {partyName}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[15px] sm:text-[16px] font-normal text-stone-900 leading-snug truncate">
+                      {partyName}
+                    </span>
+                    {bill.isTailoring && (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-purple-100 text-purple-800 text-[10px] font-bold">
+                        <span>✂️ Tailoring</span>
+                        {bill.measurements?.garmentType ? ` • ${bill.measurements.garmentType}` : ''}
+                      </span>
+                    )}
+                    {bill.isTailoring && bill.tailoringStatus && (
+                      <span
+                        className={`inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold ${
+                          bill.tailoringStatus === 'ready'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : bill.tailoringStatus === 'delivered'
+                            ? 'bg-stone-200 text-stone-700'
+                            : 'bg-amber-100 text-amber-800'
+                        }`}
+                      >
+                        {bill.tailoringStatus === 'ready'
+                          ? 'Ready'
+                          : bill.tailoringStatus === 'delivered'
+                          ? 'Delivered'
+                          : 'Stitching'}
+                      </span>
+                    )}
                   </div>
-                  <div className="text-[12px] sm:text-[13px] font-normal text-stone-400 mt-0.5">
-                    {formattedDate}
+                  <div className="text-[12px] sm:text-[13px] font-normal text-stone-400 mt-0.5 flex items-center gap-2 flex-wrap">
+                    <span>{formattedDate}</span>
+                    {bill.isTailoring && bill.deliveryDate && (
+                      <span className="text-purple-700 font-medium">
+                        • Delivery: {bill.deliveryDate}
+                      </span>
+                    )}
                   </div>
                 </div>
 

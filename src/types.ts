@@ -83,6 +83,24 @@ export interface BarcodeLabelConfig {
 
 export type Language = 'bn' | 'en' | 'hi';
 
+export type TailoringOrderStatus = 'pending' | 'ready' | 'delivered';
+
+export interface TailoringMeasurements {
+  garmentType?: string; // e.g., Shirt, Pant, Panjabi, Suit, Salwar Kameez, Blouse
+  length?: string;
+  chest?: string;
+  waist?: string;
+  shoulder?: string;
+  sleeve?: string;
+  neck?: string;
+  hip?: string;
+  bottom?: string;
+  cuff?: string;
+  inseam?: string;
+  customMeasurements?: string;
+  designNotes?: string;
+}
+
 export interface BillItem {
   id: string;
   name: string;
@@ -91,6 +109,7 @@ export interface BillItem {
   total: number;
   barcode?: string;
   productId?: string;
+  tailoringNote?: string;
 }
 
 export interface ProductStockItem {
@@ -126,6 +145,13 @@ export interface BillInvoice {
   balance?: number;
   previousBalance?: number;
   currentBalance?: number;
+  // Tailoring Purpose Fields
+  isTailoring?: boolean;
+  deliveryDate?: string;
+  trialDate?: string;
+  tailoringStatus?: TailoringOrderStatus;
+  masterName?: string;
+  measurements?: TailoringMeasurements;
 }
 
 export type CashEntryType = 'Income' | 'Expense';
