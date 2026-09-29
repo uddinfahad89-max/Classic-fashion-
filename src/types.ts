@@ -106,6 +106,7 @@ export interface BillItem {
   name: string;
   price: number;
   qty: number;
+  unit?: string;
   total: number;
   barcode?: string;
   productId?: string;

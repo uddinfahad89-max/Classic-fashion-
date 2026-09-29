@@ -65,6 +65,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
   const [newItemName, setNewItemName] = useState('');
   const [newItemPrice, setNewItemPrice] = useState('');
   const [newItemQty, setNewItemQty] = useState('1');
+  const [newItemUnit, setNewItemUnit] = useState('');
 
   // Tailoring fields
   const [isTailoring, setIsTailoring] = useState(false);
@@ -118,6 +119,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
       setNewItemName('');
       setNewItemPrice('');
       setNewItemQty('1');
+      setNewItemUnit('');
     }
   }, [bill, isOpen]);
 
@@ -168,11 +170,15 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
   };
 
   const handleSetItemQtyDirect = (id: string, qtyStr: string) => {
-    const qty = parseInt(qtyStr, 10);
+    const qty = parseFloat(qtyStr);
     if (isNaN(qty) || qty <= 0) return;
     setItems((prev) =>
-      prev.map((it) => (it.id === id ? { ...it, qty, total: it.price * qty } : it))
+      prev.map((it) => (it.id === id ? { ...it, qty, total: Math.round(it.price * qty * 100) / 100 } : it))
     );
+  };
+
+  const handleUpdateItemUnit = (id: string, unit: string) => {
+    setItems((prev) => prev.map((it) => (it.id === id ? { ...it, unit: unit || undefined } : it)));
   };
 
   const handleRemoveItem = (id: string) => {
@@ -188,7 +194,8 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
     if (e) e.preventDefault();
     const name = newItemName.trim();
     const price = parseFloat(newItemPrice);
-    const qty = parseInt(newItemQty, 10) || 1;
+    const qty = parseFloat(newItemQty) || 1;
+    const unit = newItemUnit.trim() || undefined;
 
     if (!name || isNaN(price) || price <= 0) {
       setValidationError(language === 'bn' ? 'সঠিক পণ্যের নাম ও দর লিখুন' : 'Please enter valid item name and price');
@@ -201,13 +208,15 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
       name,
       price,
       qty,
-      total: price * qty,
+      unit,
+      total: Math.round(price * qty * 100) / 100,
     };
 
     setItems((prev) => [...prev, newItem]);
     setNewItemName('');
     setNewItemPrice('');
     setNewItemQty('1');
+    setNewItemUnit('');
   };
 
   // Submit & Save
@@ -583,29 +592,39 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
                       />
                     </div>
 
-                    {/* Quantity Stepper */}
-                    <div className="flex items-center border border-stone-200 rounded-lg bg-stone-50 overflow-hidden">
-                      <button
-                        type="button"
-                        onClick={() => handleUpdateItemQty(item.id, -1)}
-                        className="p-1 hover:bg-stone-200 text-stone-600 cursor-pointer"
-                      >
-                        <Minus className="w-3 h-3" />
-                      </button>
+                    {/* Quantity Stepper + Unit Input */}
+                    <div className="flex items-center gap-1.5">
+                      <div className="flex items-center border border-stone-200 rounded-lg bg-stone-50 overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateItemQty(item.id, -1)}
+                          className="p-1 hover:bg-stone-200 text-stone-600 cursor-pointer"
+                        >
+                          <Minus className="w-3 h-3" />
+                        </button>
+                        <input
+                          type="number"
+                          min="0.01"
+                          step="any"
+                          value={item.qty}
+                          onChange={(e) => handleSetItemQtyDirect(item.id, e.target.value)}
+                          className="w-10 text-center text-xs font-mono font-bold bg-white py-1 focus:outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateItemQty(item.id, 1)}
+                          className="p-1 hover:bg-stone-200 text-stone-600 cursor-pointer"
+                        >
+                          <Plus className="w-3 h-3" />
+                        </button>
+                      </div>
                       <input
-                        type="number"
-                        min="1"
-                        value={item.qty}
-                        onChange={(e) => handleSetItemQtyDirect(item.id, e.target.value)}
-                        className="w-10 text-center text-xs font-mono font-bold bg-white py-1 focus:outline-none"
+                        type="text"
+                        value={item.unit || ''}
+                        onChange={(e) => handleUpdateItemUnit(item.id, e.target.value)}
+                        placeholder={language === 'bn' ? 'ইউনিট' : 'Unit'}
+                        className="w-14 border border-stone-200 bg-stone-50/50 hover:bg-white focus:bg-white px-1.5 py-1.5 rounded-lg text-xs font-semibold text-center text-stone-800 focus:outline-none focus:border-blue-600"
                       />
-                      <button
-                        type="button"
-                        onClick={() => handleUpdateItemQty(item.id, 1)}
-                        className="p-1 hover:bg-stone-200 text-stone-600 cursor-pointer"
-                      >
-                        <Plus className="w-3 h-3" />
-                      </button>
                     </div>
 
                     {/* Line Total */}
@@ -658,11 +677,19 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
                   </div>
                   <input
                     type="number"
-                    min="1"
+                    min="0.01"
+                    step="any"
                     value={newItemQty}
                     onChange={(e) => setNewItemQty(e.target.value)}
                     placeholder="Qty"
-                    className="w-16 border border-stone-200 bg-white px-2 py-1.5 rounded-xl text-xs font-mono font-bold text-center focus:outline-none focus:border-blue-500"
+                    className="w-14 border border-stone-200 bg-white px-2 py-1.5 rounded-xl text-xs font-mono font-bold text-center focus:outline-none focus:border-blue-500"
+                  />
+                  <input
+                    type="text"
+                    value={newItemUnit}
+                    onChange={(e) => setNewItemUnit(e.target.value)}
+                    placeholder={language === 'bn' ? 'ইউনিট' : 'Unit'}
+                    className="w-16 border border-stone-200 bg-white px-2 py-1.5 rounded-xl text-xs font-semibold text-center focus:outline-none focus:border-blue-500"
                   />
                   <button
                     type="button"

@@ -24,6 +24,7 @@ import {
   Scissors,
   Calendar,
   Ruler,
+  ChevronDown,
 } from 'lucide-react';
 import {
   BillItem,
@@ -81,6 +82,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   const [itemName, setItemName] = useState('');
   const [itemPrice, setItemPrice] = useState('');
   const [itemQty, setItemQty] = useState('1');
+  const [itemUnit, setItemUnit] = useState('');
+  const [showUnitDropdown, setShowUnitDropdown] = useState(false);
   const [itemStockInput, setItemStockInput] = useState('');
   const [showInlineStockAdd, setShowInlineStockAdd] = useState(false);
   const [showStockMoreMenu, setShowStockMoreMenu] = useState(false);
@@ -90,9 +93,11 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   const [editItemName, setEditItemName] = useState('');
   const [editItemPrice, setEditItemPrice] = useState('');
   const [editItemQty, setEditItemQty] = useState('');
-  const [editFocusField, setEditFocusField] = useState<'name' | 'qty' | 'price'>('name');
+  const [editItemUnit, setEditItemUnit] = useState('');
+  const [editFocusField, setEditFocusField] = useState<'name' | 'qty' | 'unit' | 'price'>('name');
 
-  // First-letter Autocomplete state
+  // First-letter Autocomplete state (Disabled by default so it never disturbs typing; optional toggle in 3-dot menu)
+  const [enableSavedSuggestions, setEnableSavedSuggestions] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0);
   const suggestionContainerRef = useRef<HTMLDivElement>(null);
@@ -203,14 +208,17 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   // Select a product from the first-letter autocomplete dropdown
   const handleSelectSuggestedProduct = (prod: ProductStockItem, addDirectly = false) => {
     if (addDirectly) {
-      const validQty = parseInt(itemQty, 10) > 0 ? parseInt(itemQty, 10) : 1;
+      const parsedQty = parseFloat(itemQty);
+      const validQty = !isNaN(parsedQty) && parsedQty > 0 ? parsedQty : 1;
       const price = prod.price || 0;
+      const resolvedUnit = itemUnit.trim() || prod.unit || undefined;
       const newItem: BillItem = {
         id: 'item-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
         name: prod.name,
         price,
         qty: validQty,
-        total: price * validQty,
+        unit: resolvedUnit,
+        total: Math.round(price * validQty * 100) / 100,
         productId: prod.id,
       };
       setBillItems((prev) => [...prev, newItem]);
@@ -227,6 +235,9 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     setItemName(prod.name);
     if (prod.price > 0) {
       setItemPrice(String(prod.price));
+    }
+    if (prod.unit && !itemUnit.trim()) {
+      setItemUnit(prod.unit);
     }
     setShowSuggestions(false);
     // Focus price if 0, otherwise focus quantity for rapid billing
@@ -285,14 +296,17 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       const name =
         payload.details.trim() || itemName.trim() || (isBn ? 'বিক্রয় আইটেম' : 'Sale Item');
       const finalPrice = payload.amount;
-      const validQty = parseInt(itemQty, 10) > 0 ? parseInt(itemQty, 10) : 1;
+      const parsedQty = parseFloat(itemQty);
+      const validQty = !isNaN(parsedQty) && parsedQty > 0 ? parsedQty : 1;
+      const cleanUnit = itemUnit.trim() || undefined;
 
       const newItem: BillItem = {
         id: 'item-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
         name,
         price: finalPrice,
         qty: validQty,
-        total: finalPrice * validQty,
+        unit: cleanUnit,
+        total: Math.round(finalPrice * validQty * 100) / 100,
       };
 
       setBillItems((prev) => [...prev, newItem]);
@@ -323,22 +337,9 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   const handleAddItem = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
 
-    // If user typed first letter(s) and didn't enter price yet, but a matching product exists with a price, auto-fill it!
-    let finalName = itemName.trim();
-    let price = parseFloat(itemPrice);
-
-    if (
-      finalName &&
-      (isNaN(price) || price <= 0) &&
-      matchingProducts.length > 0 &&
-      matchingProducts[activeSuggestionIndex]?.price > 0
-    ) {
-      const matched = matchingProducts[activeSuggestionIndex];
-      finalName = matched.name;
-      price = matched.price;
-    }
-
-    const qty = parseInt(itemQty, 10);
+    const finalName = itemName.trim();
+    const price = parseFloat(itemPrice);
+    const qty = parseFloat(itemQty);
 
     if (!finalName || isNaN(price) || price <= 0) {
       alert(t.enterValidNamePrice);
@@ -346,23 +347,15 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     }
 
     const validQty = isNaN(qty) || qty <= 0 ? 1 : qty;
-
-    // Also save/update in Product Stock if user entered stock or auto-save so next time typing first letter brings it up
-    const parsedStock = itemStockInput !== '' ? parseInt(itemStockInput, 10) : undefined;
-    if (onQuickSaveProduct) {
-      onQuickSaveProduct({
-        name: finalName,
-        price,
-        stock: parsedStock !== undefined && !isNaN(parsedStock) ? parsedStock : undefined,
-      });
-    }
+    const cleanUnit = itemUnit.trim() || undefined;
 
     const newItem: BillItem = {
       id: 'item-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
       name: finalName,
       price,
       qty: validQty,
-      total: price * validQty,
+      unit: cleanUnit,
+      total: Math.round(price * validQty * 100) / 100,
     };
 
     setBillItems((prev) => [...prev, newItem]);
@@ -373,6 +366,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     setItemQty('1');
     setItemStockInput('');
     setShowSuggestions(false);
+    setShowUnitDropdown(false);
     if (nameInputRef.current) {
       nameInputRef.current.focus();
     }
@@ -391,7 +385,9 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     }
     setBillItems((prev) =>
       prev.map((item) =>
-        item.id === id ? { ...item, qty: newQty, total: item.price * newQty } : item
+        item.id === id
+          ? { ...item, qty: newQty, total: Math.round(item.price * newQty * 100) / 100 }
+          : item
       )
     );
   };
@@ -399,12 +395,13 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   // Start Inline Editing a Bill Item
   const handleStartEditItem = (
     item: BillItem,
-    focusField: 'name' | 'qty' | 'price' = 'name'
+    focusField: 'name' | 'qty' | 'unit' | 'price' = 'name'
   ) => {
     setEditingItemId(item.id);
     setEditItemName(item.name);
     setEditItemPrice(String(item.price));
     setEditItemQty(String(item.qty));
+    setEditItemUnit(item.unit || '');
     setEditFocusField(focusField);
   };
 
@@ -412,7 +409,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   const handleSaveEditItem = (id: string) => {
     const cleanName = editItemName.trim();
     const parsedPrice = parseFloat(editItemPrice);
-    const parsedQty = parseInt(editItemQty, 10);
+    const parsedQty = parseFloat(editItemQty);
+    const cleanUnit = editItemUnit.trim() || undefined;
 
     if (!cleanName) {
       alert(isBn ? 'পণ্যের নাম লিখুন' : 'Please enter item name');
@@ -422,7 +420,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       alert(isBn ? 'সঠিক দাম লিখুন' : 'Please enter a valid price');
       return;
     }
-    const finalQty = isNaN(parsedQty) || parsedQty < 1 ? 1 : parsedQty;
+    const finalQty = isNaN(parsedQty) || parsedQty <= 0 ? 1 : parsedQty;
 
     setBillItems((prev) =>
       prev.map((item) =>
@@ -432,7 +430,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
               name: cleanName,
               price: parsedPrice,
               qty: finalQty,
-              total: parsedPrice * finalQty,
+              unit: cleanUnit,
+              total: Math.round(parsedPrice * finalQty * 100) / 100,
             }
           : item
       )
@@ -910,6 +909,30 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                     </span>
                   </button>
                 )}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEnableSavedSuggestions((prev) => !prev);
+                    setShowSuggestions(false);
+                    setShowStockMoreMenu(false);
+                  }}
+                  className="w-full px-3 py-2 rounded-xl text-xs font-bold text-stone-700 hover:bg-stone-100 flex items-center justify-between gap-2 cursor-pointer text-left"
+                >
+                  <span className="flex items-center gap-2">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                    <span>{isBn ? 'সেভ আইটেম সাজেশন' : 'Saved Item Suggestions'}</span>
+                  </span>
+                  <span
+                    className={`text-[10px] font-black px-1.5 py-0.5 rounded ${
+                      enableSavedSuggestions
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-stone-200 text-stone-600'
+                    }`}
+                  >
+                    {enableSavedSuggestions ? 'ON' : 'OFF'}
+                  </span>
+                </button>
               </div>
             )}
           </div>
@@ -995,7 +1018,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         )}
 
         <form onSubmit={handleAddItem} className="space-y-2.5">
-          {/* ITEM NAME INPUT WITH INSTANT FIRST-LETTER AUTOCOMPLETE */}
+          {/* ITEM NAME INPUT */}
           <div ref={suggestionContainerRef} className="relative">
             <input
               ref={nameInputRef}
@@ -1004,26 +1027,30 @@ export const BillingTab: React.FC<BillingTabProps> = ({
               autoComplete="off"
               value={itemName}
               onFocus={() => {
-                if (itemName.trim().length > 0) {
+                if (enableSavedSuggestions && itemName.trim().length > 0) {
                   setShowSuggestions(true);
                 }
               }}
               onChange={(e) => {
                 const val = e.target.value;
                 setItemName(val);
-                setShowSuggestions(val.trim().length > 0);
+                if (enableSavedSuggestions) {
+                  setShowSuggestions(val.trim().length > 0);
+                } else {
+                  setShowSuggestions(false);
+                }
               }}
               onKeyDown={handleNameKeyDown}
               placeholder={
                 isBn
-                  ? 'প্রোডাক্টের প্রথম অক্ষর বা নাম লিখুন (যেমন: S, শ, প...)'
+                  ? 'পণ্যের নাম লিখুন (যেমন: Shirt, Pant, Panjabi...)'
                   : t.itemNamePlaceholder
               }
               className="w-full border border-stone-200 bg-stone-50/80 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-medium focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
             />
 
-            {/* FIRST-LETTER INSTANT AUTOCOMPLETE DROPDOWN */}
-            {showSuggestions && matchingProducts.length > 0 && (
+            {/* OPTIONAL SAVED PRODUCTS DROPDOWN (Only shown if explicitly enabled from 3-dot menu) */}
+            {enableSavedSuggestions && showSuggestions && matchingProducts.length > 0 && (
               <div
                 id="product-autocomplete-dropdown"
                 className="absolute left-0 right-0 top-full mt-1.5 z-30 bg-white rounded-2xl shadow-xl border border-blue-200 overflow-hidden divide-y divide-stone-100 animate-in fade-in slide-in-from-top-1 duration-100"
@@ -1095,51 +1122,138 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             )}
           </div>
 
-          <div className="flex gap-2">
-            <div className="w-1/2 relative">
-              {sym ? (
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs font-mono">
-                  {sym}
-                </span>
-              ) : null}
-              <input
-                ref={priceInputRef}
-                type="number"
-                id="itemPrice"
-                min="0.01"
-                step="any"
-                value={itemPrice}
-                onChange={(e) => setItemPrice(e.target.value)}
-                placeholder={t.unitPrice}
-                className={`w-full border border-stone-200 bg-stone-50/80 ${
-                  sym ? (sym.length > 2 ? 'pl-11' : 'pl-8') : 'pl-3'
-                } pr-8 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all`}
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  setCalculatorTarget('item');
-                  setIsCalculatorModalOpen(true);
-                }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400 hover:text-blue-600 p-1 rounded-md transition-colors cursor-pointer"
-                title={isBn ? 'ক্যালকুলেটর খুলুন' : 'Open Calculator'}
-              >
-                <Calculator className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            <div className="w-1/2">
+          {/* ROW 2: QUANTITY + UNIT (Matches reference screenshot: Quantity on left, Unit on right) */}
+          <div className="grid grid-cols-2 gap-2">
+            {/* Quantity Input */}
+            <div className="relative">
               <input
                 ref={qtyInputRef}
                 type="number"
                 id="itemQty"
-                min="1"
+                min="0.01"
+                step="any"
                 value={itemQty}
                 onChange={(e) => setItemQty(e.target.value)}
-                placeholder={t.qty}
-                className="w-full border border-stone-200 bg-stone-50/80 px-3 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
+                placeholder={isBn ? 'সংখ্যা (Quantity)' : 'Quantity'}
+                className="w-full border border-stone-200 bg-stone-50/80 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
               />
             </div>
+
+            {/* Unit Input + Dropdown Selector */}
+            <div className="relative">
+              <input
+                type="text"
+                id="itemUnit"
+                value={itemUnit}
+                onFocus={() => setShowUnitDropdown(true)}
+                onChange={(e) => {
+                  setItemUnit(e.target.value);
+                  setShowUnitDropdown(true);
+                }}
+                placeholder={isBn ? 'ইউনিট (Unit: Pcs, Set, গজ...)' : 'Unit (e.g. Pcs, Set, Meter)'}
+                className="w-full border border-stone-200 bg-stone-50/80 pl-3 pr-8 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-stone-900 focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
+              />
+              <button
+                type="button"
+                onClick={() => setShowUnitDropdown((prev) => !prev)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700 p-1 rounded-md cursor-pointer"
+                title={isBn ? 'ইউনিট তালিকা দেখুন' : 'Select Unit'}
+              >
+                <ChevronDown className="w-4 h-4" />
+              </button>
+
+              {showUnitDropdown && (
+                <>
+                  <div
+                    className="fixed inset-0 z-20"
+                    onClick={() => setShowUnitDropdown(false)}
+                  />
+                  <div className="absolute right-0 left-0 top-full mt-1 z-30 bg-white rounded-xl shadow-xl border border-stone-200 p-1.5 max-h-56 overflow-y-auto animate-in fade-in zoom-in-95 duration-100">
+                    <div className="px-2 py-1 text-[10px] font-bold text-stone-400 uppercase flex items-center justify-between">
+                      <span>{isBn ? 'ইউনিট সিলেক্ট করুন বা টাইপ করুন' : 'Select or Type Unit'}</span>
+                      {itemUnit && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setItemUnit('');
+                            setShowUnitDropdown(false);
+                          }}
+                          className="text-rose-600 hover:underline cursor-pointer"
+                        >
+                          {isBn ? 'মুছুন' : 'Clear'}
+                        </button>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-1 pt-0.5">
+                      {[
+                        { val: 'Pcs', label: isBn ? 'Pcs (পিস)' : 'Pcs (Pieces)' },
+                        { val: 'Set', label: isBn ? 'Set (সেট)' : 'Set' },
+                        { val: 'Suit', label: isBn ? 'Suit (সুট)' : 'Suit' },
+                        { val: 'Pair', label: isBn ? 'Pair (জোড়া)' : 'Pair' },
+                        { val: 'Meter', label: isBn ? 'Meter (মিটার)' : 'Meter (m)' },
+                        { val: 'Gaz', label: isBn ? 'Gaz (গজ)' : 'Gaz / Yard' },
+                        { val: 'पिस', label: 'পিস' },
+                        { val: 'সেট', label: 'সেট' },
+                        { val: 'গজ', label: 'গজ' },
+                        { val: 'মিটার', label: 'মিটার' },
+                        { val: 'জোড়া', label: 'জোড়া' },
+                        { val: 'Dozen', label: isBn ? 'Dozen (ডজন)' : 'Dozen (Dz)' },
+                      ].map((u) => (
+                        <button
+                          key={u.val}
+                          type="button"
+                          onClick={() => {
+                            setItemUnit(u.val);
+                            setShowUnitDropdown(false);
+                            priceInputRef.current?.focus();
+                          }}
+                          className={`px-2.5 py-1.5 rounded-lg text-left text-xs font-bold transition-colors cursor-pointer ${
+                            itemUnit === u.val
+                              ? 'bg-blue-600 text-white'
+                              : 'hover:bg-stone-100 text-stone-800'
+                          }`}
+                        >
+                          {u.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* ROW 3: RATE (PRICE / UNIT) */}
+          <div className="relative">
+            {sym ? (
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs font-mono">
+                {sym}
+              </span>
+            ) : null}
+            <input
+              ref={priceInputRef}
+              type="number"
+              id="itemPrice"
+              min="0.01"
+              step="any"
+              value={itemPrice}
+              onChange={(e) => setItemPrice(e.target.value)}
+              placeholder={isBn ? 'দর / রেট (Rate / Price per Unit)' : 'Rate (Price/Unit)'}
+              className={`w-full border border-stone-200 bg-stone-50/80 ${
+                sym ? (sym.length > 2 ? 'pl-11' : 'pl-8') : 'pl-3'
+              } pr-8 py-2.5 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all`}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                setCalculatorTarget('item');
+                setIsCalculatorModalOpen(true);
+              }}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400 hover:text-blue-600 p-1 rounded-md transition-colors cursor-pointer"
+              title={isBn ? 'ক্যালকুলেটর খুলুন' : 'Open Calculator'}
+            >
+              <Calculator className="w-3.5 h-3.5" />
+            </button>
           </div>
 
           <button
@@ -1203,8 +1317,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 {billItems.map((item) => {
                   const isEditing = editingItemId === item.id;
                   const liveEditPrice = parseFloat(editItemPrice) || 0;
-                  const liveEditQty = Math.max(1, parseInt(editItemQty, 10) || 1);
-                  const liveEditTotal = liveEditPrice * liveEditQty;
+                  const liveEditQty = Math.max(0.01, parseFloat(editItemQty) || 1);
+                  const liveEditTotal = Math.round(liveEditPrice * liveEditQty * 100) / 100;
 
                   if (isEditing) {
                     return (
@@ -1224,19 +1338,34 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                           />
                         </td>
                         <td className="p-2 sm:p-2.5 text-center">
-                          <input
-                            type="number"
-                            min="1"
-                            autoFocus={editFocusField === 'qty'}
-                            value={editItemQty}
-                            onChange={(e) => setEditItemQty(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') handleSaveEditItem(item.id);
-                              if (e.key === 'Escape') handleCancelEditItem();
-                            }}
-                            placeholder="1"
-                            className="w-14 bg-white border border-blue-400 rounded-lg px-1.5 py-1.5 text-xs font-mono font-bold text-center text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
+                          <div className="inline-flex items-center gap-1">
+                            <input
+                              type="number"
+                              min="0.01"
+                              step="any"
+                              autoFocus={editFocusField === 'qty'}
+                              value={editItemQty}
+                              onChange={(e) => setEditItemQty(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleSaveEditItem(item.id);
+                                if (e.key === 'Escape') handleCancelEditItem();
+                              }}
+                              placeholder="1"
+                              className="w-12 bg-white border border-blue-400 rounded-lg px-1 py-1.5 text-xs font-mono font-bold text-center text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                            <input
+                              type="text"
+                              autoFocus={editFocusField === 'unit'}
+                              value={editItemUnit}
+                              onChange={(e) => setEditItemUnit(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleSaveEditItem(item.id);
+                                if (e.key === 'Escape') handleCancelEditItem();
+                              }}
+                              placeholder={isBn ? 'ইউনিট' : 'Unit'}
+                              className="w-14 bg-white border border-blue-400 rounded-lg px-1.5 py-1.5 text-xs font-semibold text-center text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                          </div>
                         </td>
                         <td className="p-2 sm:p-2.5 text-right">
                           <input
@@ -1305,9 +1434,10 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                           <span
                             onClick={() => handleStartEditItem(item, 'qty')}
                             className="font-mono font-bold text-xs px-1 cursor-pointer hover:text-blue-600"
-                            title={isBn ? 'সংখ্যা টাইপ করতে ট্যাপ করুন' : 'Tap to type quantity'}
+                            title={isBn ? 'সংখ্যা ও ইউনিট পরিবর্তন করতে ট্যাপ করুন' : 'Tap to edit quantity & unit'}
                           >
                             {item.qty}
+                            {item.unit ? <span className="font-sans font-semibold text-[11px] text-stone-600 ml-0.5">{item.unit}</span> : null}
                           </span>
                           <button
                             type="button"

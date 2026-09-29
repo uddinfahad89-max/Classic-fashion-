@@ -590,13 +590,14 @@ export class ThermalPrinterService {
     lines.push(divider);
 
     bill.items.forEach((item) => {
+      const qtyLabel = item.unit ? `${item.qty} ${item.unit}` : `${item.qty}x`;
       if (width === 48) {
-        const itemLine = `${item.name.slice(0, 22)}`;
-        const rightCol = `${item.qty}x  ${sym}${item.price.toFixed(2)}  ${sym}${item.total.toFixed(2)}`;
+        const itemLine = `${item.name.slice(0, 20)}`;
+        const rightCol = `${qtyLabel}  ${sym}${item.price.toFixed(2)}  ${sym}${item.total.toFixed(2)}`;
         lines.push(padBetween(itemLine, rightCol));
       } else {
-        const itemLine = `${item.name.slice(0, 18)}`;
-        const rightCol = `${item.qty}x ${sym}${item.total.toFixed(2)}`;
+        const itemLine = `${item.name.slice(0, 16)}`;
+        const rightCol = `${qtyLabel} ${sym}${item.total.toFixed(2)}`;
         lines.push(padBetween(itemLine, rightCol));
       }
     });

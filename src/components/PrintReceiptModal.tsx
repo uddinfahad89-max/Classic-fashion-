@@ -211,7 +211,10 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
     } else {
       const store = settings.storeName || 'CLASSIC FASHION';
       const itemsList = bill.items
-        .map((it, idx) => `${idx + 1}. ${it.name} (${it.qty}x) = ${currency}${it.total}`)
+        .map(
+          (it, idx) =>
+            `${idx + 1}. ${it.name} (${it.qty}${it.unit ? ' ' + it.unit : 'x'}) = ${currency}${it.total}`
+        )
         .join('\n');
 
       const isTailoring = Boolean(bill.isTailoring);
