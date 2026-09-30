@@ -27,6 +27,7 @@ import {
   UserPlus,
   LogIn,
   Globe,
+  Info,
 } from 'lucide-react';
 import { UserProfile, Language, SavedAccountItem } from '../types';
 import { otpService } from '../services/otpService';
@@ -43,8 +44,9 @@ interface LoginModalProps {
     role?: 'Owner' | 'Manager' | 'Cashier',
     phone?: string,
     isAppLockEnabled?: boolean,
-    loginMethod?: 'email_pin' | 'otp',
-    otpCode?: string
+    loginMethod?: 'email_pin' | 'otp' | 'email_password' | 'app_pin',
+    otpCode?: string,
+    password?: string
   ) => boolean | void | Promise<boolean | void>;
   onRegister?: (data: {
     name: string;
@@ -52,6 +54,7 @@ interface LoginModalProps {
     email?: string;
     storeName?: string;
     pin?: string;
+    password?: string;
     role?: 'Owner' | 'Manager' | 'Cashier';
   }) => boolean | void | Promise<boolean | void>;
   onLogout: () => void;
@@ -98,26 +101,30 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   // Top-Level Auth Choice: 'login' | 'signup'
   const [authActionTab, setAuthActionTab] = useState<'login' | 'signup'>('login');
 
-  // Login Method Tab: 'otp' | 'email_pin'
-  const [loginMethodTab, setLoginMethodTab] = useState<'otp' | 'email_pin'>('otp');
+  // Login Method Tab: 'otp' | 'app_pin' | 'email_password'
+  const [loginMethodTab, setLoginMethodTab] = useState<'otp' | 'app_pin' | 'email_password'>('otp');
 
   // Sign Up Form States
   const [signupName, setSignupName] = useState('');
   const [signupStoreName, setSignupStoreName] = useState('');
   const [signupPhone, setSignupPhone] = useState('');
   const [signupEmail, setSignupEmail] = useState('');
+  const [signupPassword, setSignupPassword] = useState('');
+  const [signupShowPassword, setSignupShowPassword] = useState(false);
   const [signupPin, setSignupPin] = useState('1234');
   const [signupShowPin, setSignupShowPin] = useState(false);
   const [signupRole, setSignupRole] = useState<'Owner' | 'Manager' | 'Cashier'>('Owner');
   const [signupError, setSignupError] = useState<string | null>(null);
 
-  // Email/PIN Login Form States
+  // Email/Password & 4-Digit App PIN Login Form States
   const [email, setEmail] = useState(userProfile.email || '');
   const [name, setName] = useState(userProfile.name || '');
   const [phone, setPhone] = useState(userProfile.phone || '');
   const [role, setRole] = useState<'Owner' | 'Manager' | 'Cashier'>(userProfile.role || 'Owner');
   const [pin, setPin] = useState(userProfile.pin || '');
   const [showPin, setShowPin] = useState(false);
+  const [accountPassword, setAccountPassword] = useState('');
+  const [showAccountPassword, setShowAccountPassword] = useState(false);
   const [appLockEnabled, setAppLockEnabled] = useState(userProfile.isAppLockEnabled ?? false);
   const [loginError, setLoginError] = useState<string | null>(null);
 
@@ -274,35 +281,86 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     }
   };
 
-  // Handle Email & PIN Login submission
+  // Handle 4-Digit App PIN or Email/Password Login submission
   const handleSubmitEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError(null);
 
-    const cleanEmail = email.trim();
-    if (!cleanEmail) {
+    if (loginMethodTab === 'email_password') {
+      const cleanEmail = email.trim();
+      if (!cleanEmail || !cleanEmail.includes('@')) {
+        setLoginError(
+          t('সঠিক ইমেল ঠিকানা লিখুন', 'Please enter a valid email address', 'कृपया सही ईमेल पता दर्ज करें')
+        );
+        return;
+      }
+      const cleanPass = accountPassword.trim();
+      if (!cleanPass || cleanPass.length < 6) {
+        const isPin = cleanPass.length === 4 && /^\d{4}$/.test(cleanPass);
+        setLoginError(
+          isPin
+            ? t(
+                '⚠️ আপনি ৪-ডিজিটের পিন দিয়েছেন! ইমেল লগইনের জন্য কমপক্ষে ৬ অক্ষরের পাসওয়ার্ড দিন, অথবা উপরের "4-Digit App PIN" ট্যাবে গিয়ে পিন দিয়ে লগইন করুন।',
+                '⚠️ You entered a 4-digit PIN! Account passwords are at least 6 characters. Switch to "4-Digit App PIN" tab to use your PIN.',
+                '⚠️ आपने 4-अंकीय पिन डाला है! कृपया कम से कम 6 अक्षरों का पासवर्ड डालें या "4-Digit App PIN" टैब चुनें।'
+              )
+            : t(
+                'অ্যাকাউন্ট পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে (৪-ডিজিট পিন এখানে দেবেন না)',
+                'Account Password must be at least 6 characters (do not enter your 4-digit PIN here)',
+                'खाता पासवर्ड कम से कम 6 अक्षरों का होना चाहिए'
+              )
+        );
+        return;
+      }
+
+      const result = await onLogin(
+        cleanEmail,
+        name.trim(),
+        pin.trim() || '1234',
+        role,
+        phone.trim(),
+        appLockEnabled,
+        'email_password',
+        undefined,
+        cleanPass
+      );
+
+      if (result !== false) {
+        setMode('view');
+        onClose();
+      }
+      return;
+    }
+
+    // 4-Digit App PIN Login
+    const cleanIdentifier = (phone.trim() || email.trim());
+    if (!cleanIdentifier) {
       setLoginError(
-        t('ইমেল বা মোবাইল নম্বর লিখুন', 'Please enter email or phone number', 'कृपया ईमेल या मोबाइल नंबर दर्ज करें')
+        t('মোবাইল নম্বর অথবা ইমেল লিখুন', 'Please enter mobile number or email', 'कृपया मोबाइल नंबर या ईमेल दर्ज करें')
       );
       return;
     }
 
     const cleanPin = pin.trim();
-    if (cleanPin.length < 4) {
+    if (cleanPin.length !== 4 || !/^\d{4}$/.test(cleanPin)) {
       setLoginError(
-        t('কমপক্ষে ৪ ডিজিটের পিন আবশ্যক', '4-Digit PIN is required', 'कम से कम 4 अंकों का पिन आवश्यक है')
+        t(
+          '৪-ডিজিটের সংখ্যাসূচক অ্যাপ পিন আবশ্যক (যেমন: 1234)। ৬+ অক্ষরের পাসওয়ার্ডের জন্য "Email / Password" ট্যাব ব্যবহার করুন।',
+          '4-Digit numeric App PIN is required (e.g. 1234). For 6+ character password, use the "Email / Password" tab.',
+          '4-अंकीय ऐप पिन आवश्यक है (जैसे: 1234)।'
+        )
       );
       return;
     }
 
     const result = await onLogin(
-      cleanEmail,
+      cleanIdentifier.includes('@') ? cleanIdentifier : email.trim(),
       name.trim(),
       cleanPin,
       role,
-      phone.trim() || (!cleanEmail.includes('@') ? cleanEmail : ''),
+      !cleanIdentifier.includes('@') ? cleanIdentifier : phone.trim(),
       appLockEnabled,
-      'email_pin'
+      'app_pin'
     );
 
     if (result !== false) {
@@ -320,6 +378,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     const cleanStore = signupStoreName.trim();
     const cleanPhone = signupPhone.trim().replace(/[^\d+]/g, '');
     const cleanEmail = signupEmail.trim();
+    const cleanPass = signupPassword.trim();
     const cleanPin = signupPin.trim();
 
     if (!cleanName) {
@@ -344,11 +403,29 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       );
       return;
     }
+    // Enforce minimum 6-character password rule if Email or Password is provided during Sign Up
+    if ((cleanEmail || cleanPass) && cleanPass.length < 6) {
+      const isPinAttempt = cleanPass.length === 4 && /^\d{4}$/.test(cleanPass);
+      setSignupError(
+        isPinAttempt
+          ? t(
+              '⚠️ আপনি ৪-ডিজিটের পিন দিয়েছেন! অ্যাকাউন্ট পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে যাতে ৪-ডিজিট পিনের সাথে বিভ্রান্তি না হয়।',
+              '⚠️ You entered a 4-digit PIN! Account password must be at least 6 characters so you do not confuse it with your 4-digit PIN.',
+              '⚠️ आपने 4-अंकीय पिन डाला है! खाता पासवर्ड कम से कम 6 अक्षरों का होना चाहिए।'
+            )
+          : t(
+              'ইমেল/পাসওয়ার্ড ব্যবহার করলে পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে (৪-ডিজিট পিন আলাদা বক্সে দিন)',
+              'Account password must be at least 6 characters (keep it separate from your 4-digit App PIN)',
+              'खाता पासवर्ड कम से कम 6 अक्षरों का होना चाहिए'
+            )
+      );
+      return;
+    }
     if (cleanPin.length !== 4 || !/^\d{4}$/.test(cleanPin)) {
       setSignupError(
         t(
-          '৪-সংখ্যার সংখ্যাসূচক পিন দিন (যেমন ১২৩৪)',
-          'Please enter a 4-digit numeric PIN (e.g. 1234)',
+          '৪-সংখ্যার সংখ্যাসূচক অ্যাপ পিন দিন (যেমন ১২৩৪)',
+          'Please enter a 4-digit numeric App PIN (e.g. 1234)',
           '4-अंकीय पिन दर्ज करें'
         )
       );
@@ -362,6 +439,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
         phone: cleanPhone,
         email: cleanEmail,
         pin: cleanPin,
+        password: cleanPass || undefined,
         role: signupRole,
       });
       if (ok !== false) {
@@ -991,20 +1069,53 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                       )}
                   </div>
 
-                  {/* Email Address (Optional) */}
-                  <div>
-                    <label className="block text-xs font-bold text-stone-700 mb-1">
-                      {t('ইমেল ঠিকানা (Email Address - ঐচ্ছিক)', 'Email Address (Optional)', 'ईमेल पता (वैकल्पिक)')}
-                    </label>
-                    <div className="relative">
-                      <Mail className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                      <input
-                        type="email"
-                        value={signupEmail}
-                        onChange={(e) => setSignupEmail(e.target.value)}
-                        placeholder="owner@example.com"
-                        className="w-full pl-9 pr-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs sm:text-sm font-medium focus:outline-none focus:border-emerald-600 focus:bg-white transition-all"
-                      />
+                  {/* Email Address & Account Password (Min 6 chars) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-stone-700 mb-1">
+                        {t('ইমেল ঠিকানা (Email)', 'Email Address', 'ईमेल पता')}
+                      </label>
+                      <div className="relative">
+                        <Mail className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="email"
+                          value={signupEmail}
+                          onChange={(e) => setSignupEmail(e.target.value)}
+                          placeholder="owner@example.com"
+                          className="w-full pl-9 pr-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs sm:text-sm font-medium focus:outline-none focus:border-emerald-600 focus:bg-white transition-all"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-xs font-bold text-stone-700 flex items-center gap-1">
+                          <Lock className="w-3.5 h-3.5 text-blue-600" />
+                          <span>{t('পাসওয়ার্ড (৬+ অক্ষর)', 'Password (Min 6)', 'पासवर्ड (6+ अक्षर)')}</span>
+                        </label>
+                      </div>
+                      <div className="relative">
+                        <input
+                          type={signupShowPassword ? 'text' : 'password'}
+                          minLength={6}
+                          value={signupPassword}
+                          onChange={(e) => setSignupPassword(e.target.value)}
+                          placeholder={t('কমপক্ষে ৬ অক্ষর', 'Min 6 characters', 'कम से कम 6 अक्षर')}
+                          className="w-full pl-3 pr-8 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs sm:text-sm font-medium focus:outline-none focus:border-emerald-600 focus:bg-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setSignupShowPassword(!signupShowPassword)}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700 p-0.5 cursor-pointer"
+                        >
+                          {signupShowPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                      {signupPassword.trim().length > 0 && signupPassword.trim().length < 6 && (
+                        <p className="text-[10px] font-bold text-amber-800 mt-0.5">
+                          {t('⚠️ কমপক্ষে ৬ অক্ষর দিন (৪-ডিজিট পিন নিচে দিন)', '⚠️ Min 6 chars (enter 4-digit PIN below)', '⚠️ कम से कम 6 अक्षर आवश्यक')}
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -1124,38 +1235,78 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Login Method Switcher Tabs */}
-                  <div className="p-1 bg-stone-100 rounded-2xl flex items-center gap-1 border border-stone-200/80">
+                  {/* Helpful Guide Explaining Difference between 4-Digit PIN & Account Password */}
+                  <div className="p-3 bg-amber-50/90 border border-amber-200 rounded-2xl text-xs text-amber-950 space-y-1 shadow-2xs">
+                    <div className="font-black flex items-center gap-1.5 text-amber-950">
+                      <Info className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span>
+                        {t(
+                          '💡 ৪-ডিজিট অ্যাপ পিন বনাম অ্যাকাউন্ট পাসওয়ার্ড — পার্থক্য জানুন:',
+                          '💡 4-Digit App PIN vs. Account Password — Helpful Guide:',
+                          '💡 4-अंकीय ऐप पिन बनाम खाता पासवर्ड — अंतर जानें:'
+                        )}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-amber-900/95 leading-snug">
+                      {t(
+                        '• অ্যাকাউন্ট পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হয় (ইমেল লগইনের জন্য)। আর ৪-ডিজিট অ্যাপ পিন শুধুমাত্র ৪ সংখ্যার (যেমন 1234) হয় যা পিন লগইন ও অ্যাপ লকে ব্যবহৃত হয়।',
+                        '• Account Password is at least 6 characters (used for Email/Password login). Your 4-Digit App PIN is strictly 4 digits (e.g. 1234) for quick PIN login & App Lock.',
+                        '• खाता पासवर्ड कम से कम 6 अक्षरों का होता है, जबकि 4-अंकीय ऐप पिन (जैसे 1234) त्वरित पिन लॉगिन और ऐप लॉक के लिए है।'
+                      )}
+                    </p>
+                  </div>
+
+                  {/* 3-Way Login Method Switcher Tabs: Mobile OTP | 4-Digit App PIN | Email/Password */}
+                  <div className="p-1 bg-stone-100 rounded-2xl grid grid-cols-3 gap-1 border border-stone-200/80">
                     <button
                       type="button"
                       onClick={() => {
                         setLoginMethodTab('otp');
                         setOtpError(null);
+                        setLoginError(null);
                       }}
-                      className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      className={`py-2 px-2 rounded-xl text-[11px] sm:text-xs font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
                         loginMethodTab === 'otp'
-                          ? 'bg-white text-blue-700 shadow-xs ring-1 ring-blue-500/20'
+                          ? 'bg-emerald-600 text-white shadow-xs'
                           : 'text-stone-600 hover:text-stone-900'
                       }`}
                     >
-                      <Smartphone className="w-3.5 h-3.5" />
-                      <span>{t('মোবাইল ওটিপি (OTP)', 'Mobile OTP', 'मोबाइल ओटीपी (OTP)')}</span>
+                      <Smartphone className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">{t('মোবাইল OTP', 'Mobile OTP', 'मोबाइल OTP')}</span>
                     </button>
 
                     <button
                       type="button"
                       onClick={() => {
-                        setLoginMethodTab('email_pin');
+                        setLoginMethodTab('app_pin');
                         setLoginError(null);
+                        setOtpError(null);
                       }}
-                      className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                        loginMethodTab === 'email_pin'
-                          ? 'bg-white text-blue-700 shadow-xs ring-1 ring-blue-500/20'
+                      className={`py-2 px-2 rounded-xl text-[11px] sm:text-xs font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                        loginMethodTab === 'app_pin'
+                          ? 'bg-amber-600 text-white shadow-xs'
                           : 'text-stone-600 hover:text-stone-900'
                       }`}
                     >
-                      <KeyRound className="w-3.5 h-3.5" />
-                      <span>{t('ইমেল ও পিন', 'Email & PIN', 'ईमेल व पिन')}</span>
+                      <KeyRound className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">{t('৪-ডিজিট পিন', '4-Digit PIN', '4-अंकीय पिन')}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLoginMethodTab('email_password');
+                        setLoginError(null);
+                        setOtpError(null);
+                      }}
+                      className={`py-2 px-2 rounded-xl text-[11px] sm:text-xs font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                        loginMethodTab === 'email_password'
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : 'text-stone-600 hover:text-stone-900'
+                      }`}
+                    >
+                      <Mail className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">{t('ইমেল/পাসওয়ার্ড', 'Email / Pass', 'ईमेल/पासवर्ड')}</span>
                     </button>
                   </div>
 
@@ -1469,13 +1620,15 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   {/* Email Input */}
                   <div>
                     <label className="block text-xs font-bold text-stone-700 mb-1">
-                      {t('ইমেল ঠিকানা (Email Address) *', 'Email Address *', 'ईमेल पता *')}
+                      {loginMethodTab === 'email_password'
+                        ? t('ইমেল ঠিকানা (Email Address) *', 'Email Address *', 'ईमेल पता *')
+                        : t('ইমেল ঠিকানা (ঐচ্ছিক - যদি মোবাইল নম্বর দেন)', 'Email Address (or enter Mobile Phone below)', 'ईमेल पता (वैकल्पिक)')}
                     </label>
                     <div className="relative">
                       <Mail className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
                       <input
                         type="email"
-                        required
+                        required={loginMethodTab === 'email_password'}
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         placeholder="owner@example.com"
@@ -1546,37 +1699,94 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                     </div>
                   </div>
 
-                  {/* 4-Digit PIN with show/hide toggle */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="text-xs font-bold text-stone-700 flex items-center gap-1.5">
-                        <KeyRound className="w-3.5 h-3.5 text-blue-600" />
-                        <span>{t('৪-ডিজিট সিকিউরিটি পিন (Security PIN) *', '4-Digit Security PIN *', '4-अंकीय सुरक्षा पिन *')}</span>
-                      </label>
-                      <span className="text-[10px] text-stone-400">
-                        {t('ডিফল্ট: 1234', 'Default: 1234', 'डिफ़ॉल्ट: 1234')}
-                      </span>
+                  {/* Conditional Credential Input: 4-Digit App PIN vs 6+ Char Account Password */}
+                  {loginMethodTab === 'email_password' ? (
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-xs font-bold text-stone-700 flex items-center gap-1.5">
+                          <Lock className="w-3.5 h-3.5 text-blue-600" />
+                          <span>
+                            {t(
+                              'অ্যাকাউন্ট পাসওয়ার্ড (কমপক্ষে ৬ অক্ষর) *',
+                              'Account Password (Min 6 Chars) *',
+                              'खाता पासवर्ड (कम से कम 6 अक्षर) *'
+                            )}
+                          </span>
+                        </label>
+                      </div>
+                      <div className="relative">
+                        <input
+                          type={showAccountPassword ? 'text' : 'password'}
+                          required
+                          minLength={6}
+                          value={accountPassword}
+                          onChange={(e) => setAccountPassword(e.target.value)}
+                          placeholder={t('আপনার ৬+ অক্ষরের পাসওয়ার্ড দিন', 'Enter 6+ character password', '6+ अक्षरों का पासवर्ड')}
+                          className="w-full pl-3 pr-10 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm font-medium focus:outline-none focus:border-blue-600 focus:bg-white transition-all"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowAccountPassword(!showAccountPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700 cursor-pointer p-1"
+                        >
+                          {showAccountPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                      {accountPassword.trim().length === 4 && /^\d{4}$/.test(accountPassword.trim()) && (
+                        <div className="mt-1.5 p-2 rounded-xl bg-amber-50 border border-amber-300 text-[11px] text-amber-950 flex items-center justify-between gap-2">
+                          <span>
+                            {t(
+                              '⚠️ এটি ৪-ডিজিটের পিন মনে হচ্ছে! পিন দিয়ে ঢুকতে চান?',
+                              '⚠️ Looks like a 4-digit PIN! Use PIN login instead?',
+                              '⚠️ यह 4-अंकीय पिन लगता है!'
+                            )}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPin(accountPassword.trim());
+                              setLoginMethodTab('app_pin');
+                              setLoginError(null);
+                            }}
+                            className="px-2 py-1 rounded-lg bg-amber-600 text-white font-bold text-[10px] shrink-0 cursor-pointer"
+                          >
+                            {t('৪-ডিজিট পিন ট্যাব ➜', 'Use 4-Digit PIN ➜', 'पिन टैब ➜')}
+                          </button>
+                        </div>
+                      )}
                     </div>
-                    <div className="relative">
-                      <input
-                        type={showPin ? 'text' : 'password'}
-                        maxLength={4}
-                        inputMode="numeric"
-                        required
-                        value={pin}
-                        onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
-                        placeholder="1234"
-                        className="w-full pl-3 pr-10 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm font-mono font-bold tracking-widest focus:outline-none focus:border-blue-600 focus:bg-white transition-all"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPin(!showPin)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700 cursor-pointer p-1"
-                      >
-                        {showPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
+                  ) : (
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-xs font-bold text-stone-700 flex items-center gap-1.5">
+                          <KeyRound className="w-3.5 h-3.5 text-amber-600" />
+                          <span>{t('৪-ডিজিট অ্যাপ পিন (4-Digit App PIN) *', '4-Digit App PIN *', '4-अंकीय ऐप पिन *')}</span>
+                        </label>
+                        <span className="text-[10px] text-stone-400">
+                          {t('ডিফল্ট: 1234', 'Default: 1234', 'डिफ़ॉल्ट: 1234')}
+                        </span>
+                      </div>
+                      <div className="relative">
+                        <input
+                          type={showPin ? 'text' : 'password'}
+                          maxLength={4}
+                          inputMode="numeric"
+                          required
+                          value={pin}
+                          onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
+                          placeholder="1234"
+                          className="w-full pl-3 pr-10 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm font-mono font-bold tracking-widest focus:outline-none focus:border-amber-600 focus:bg-white transition-all"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPin(!showPin)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700 cursor-pointer p-1"
+                        >
+                          {showPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
                     </div>
-                  </div>
+                  )}
 
                   {/* App PIN Lock Checkbox */}
                   <label className="flex items-center gap-2.5 p-3 rounded-2xl bg-stone-50 border border-stone-200/80 cursor-pointer hover:bg-stone-100/70 transition-colors">

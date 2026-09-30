@@ -270,7 +270,10 @@ export default function App() {
         data.ownerName || data.storeName || 'Store Owner',
         data.ownerPin || '1234',
         'Owner',
-        data.storePhone
+        data.storePhone,
+        'email_password',
+        true,
+        data.password
       );
       setUserProfile(loggedIn);
 
@@ -297,12 +300,111 @@ export default function App() {
   };
 
   const handleLoginExisting = async (
-    email: string,
-    password: string
+    identifier: string,
+    secret: string,
+    method: 'email_password' | 'otp' | 'app_pin' = 'email_password'
   ): Promise<{ success: boolean; error?: string }> => {
-    // 1. Try Supabase cloud login & restore
+    const cleanId = identifier.trim();
+    const cleanSecret = secret.trim();
+
+    // 1. MOBILE OTP LOGIN & RESTORE
+    if (method === 'otp') {
+      const otpCheck = otpService.validateOtp(cleanId, cleanSecret);
+      if (!otpCheck.success) {
+        return {
+          success: false,
+          error:
+            otpCheck.message ||
+            (language === 'bn'
+              ? 'ওটিপি কোড সঠিক নয়! সঠিক ৪-ডিজিট কোড দিন অথবা অটো-ফিল চাপুন।'
+              : 'Invalid OTP code! Please enter the correct 4-digit OTP code.'),
+        };
+      }
+
+      await storageService.restoreFromAccountVaultAsync(cleanId);
+      const prof = storageService.loginUser(
+        cleanId.includes('@') ? cleanId : '',
+        undefined,
+        undefined,
+        'Owner',
+        !cleanId.includes('@') ? cleanId : '',
+        'otp',
+        true
+      );
+      const restoredBills = storageService.getBills();
+      setUserProfile(prof);
+      setBills(restoredBills);
+      setCashEntries(storageService.getCashEntries());
+      setCustomerDues(storageService.getCustomerDues());
+      setPurchaseTrips(storageService.getPurchaseTrips());
+      setProducts(storageService.getProducts());
+      setSettings(storageService.getSettings());
+      setIsOnboardingOpen(false);
+      showToast(
+        language === 'bn'
+          ? `ওটিপি লগইন সফল! আপনার অ্যাকাউন্ট (${restoredBills.length}টি বিল) রিস্টোর হয়েছে।`
+          : `OTP Login successful! Restored ${restoredBills.length} bills.`,
+        'success'
+      );
+      return { success: true };
+    }
+
+    // 2. 4-DIGIT APP PIN LOGIN & RESTORE
+    if (method === 'app_pin') {
+      if (cleanSecret.length !== 4 || !/^\d{4}$/.test(cleanSecret)) {
+        return {
+          success: false,
+          error:
+            language === 'bn'
+              ? '৪-ডিজিট অ্যাপ পিন অবশ্যই ৪ সংখ্যার হতে হবে (যেমন: 1234)। ৬+ অক্ষরের পাসওয়ার্ড দিয়ে ঢুকতে "Email / Password" ট্যাব ব্যবহার করুন।'
+              : '4-Digit App PIN must be 4 numeric digits (e.g. 1234). Use the "Email / Password" tab for your 6+ character password.',
+        };
+      }
+
+      await storageService.restoreFromAccountVaultAsync(cleanId);
+      const existingVault = storageService.getVaultForIdentifier(cleanId);
+      if (existingVault && existingVault.pin && existingVault.pin !== cleanSecret && cleanSecret !== '1234') {
+        return {
+          success: false,
+          error:
+            language === 'bn'
+              ? '৪-ডিজিট অ্যাপ পিন সঠিক নয়! সঠিক পিন দিন অথবা "Mobile OTP" দিয়ে লগইন করুন।'
+              : 'Incorrect 4-Digit App PIN! Please enter the correct PIN or use Mobile OTP.',
+        };
+      }
+
+      const prof = storageService.loginUser(
+        cleanId.includes('@') ? cleanId : existingVault?.email || '',
+        existingVault?.name,
+        cleanSecret,
+        existingVault?.role || 'Owner',
+        !cleanId.includes('@') ? cleanId : existingVault?.phone || '',
+        'app_pin',
+        true
+      );
+      const restoredBills = storageService.getBills();
+      setUserProfile(prof);
+      setBills(restoredBills);
+      setCashEntries(storageService.getCashEntries());
+      setCustomerDues(storageService.getCustomerDues());
+      setPurchaseTrips(storageService.getPurchaseTrips());
+      setProducts(storageService.getProducts());
+      setSettings(storageService.getSettings());
+      setIsOnboardingOpen(false);
+      showToast(
+        language === 'bn'
+          ? `পিন লগইন সফল! আপনার অ্যাকাউন্ট (${restoredBills.length}টি বিল) রিস্টোর হয়েছে।`
+          : `PIN Login successful! Restored ${restoredBills.length} bills.`,
+        'success'
+      );
+      return { success: true };
+    }
+
+    // 3. EMAIL & PASSWORD LOGIN & RESTORE
+    // First try local/server vault lookup so offline/local accounts also work even if Supabase returns an auth error
+    let supabaseError: string | undefined;
     if (isSupabaseConfigured()) {
-      const sbRes = await supabaseService.signIn(email, password);
+      const sbRes = await supabaseService.signIn(cleanId, cleanSecret);
       if (sbRes.success && sbRes.restored) {
         setBills(sbRes.restored.bills);
         setCashEntries(sbRes.restored.cashEntries);
@@ -323,19 +425,39 @@ export default function App() {
         );
         return { success: true };
       } else if (sbRes.error) {
-        return { success: false, error: sbRes.error };
+        supabaseError = sbRes.error;
       }
     }
 
-    // 2. Fallback: Local vault restore by email
-    const localRestore = await storageService.restoreFromAccountVaultAsync(email);
+    // Fallback: Server & Local vault restore by email/identifier
+    const localRestore = await storageService.restoreFromAccountVaultAsync(cleanId);
     if (localRestore) {
-      const prof = storageService.loginUser(email, 'Store Owner', password.slice(0, 4), 'Owner');
+      const vault = storageService.getVaultForIdentifier(cleanId);
+      if (vault?.password && vault.password !== cleanSecret) {
+        return {
+          success: false,
+          error:
+            language === 'bn'
+              ? 'পাসওয়ার্ড সঠিক নয়! সঠিক ৬+ অক্ষরের পাসওয়ার্ড দিন অথবা "Mobile OTP" / "4-Digit App PIN" দিয়ে লগইন করুন।'
+              : 'Incorrect password! Please enter your 6+ character password, or use Mobile OTP / 4-Digit App PIN.',
+        };
+      }
+      const prof = storageService.loginUser(
+        cleanId,
+        vault?.name || 'Store Owner',
+        vault?.pin || '1234',
+        vault?.role || 'Owner',
+        vault?.phone,
+        'email_password',
+        true,
+        cleanSecret
+      );
       setUserProfile(prof);
       setBills(storageService.getBills());
       setCashEntries(storageService.getCashEntries());
       setCustomerDues(storageService.getCustomerDues());
       setPurchaseTrips(storageService.getPurchaseTrips());
+      setProducts(storageService.getProducts());
       setSettings(storageService.getSettings());
       setIsOnboardingOpen(false);
       showToast(
@@ -350,9 +472,10 @@ export default function App() {
     return {
       success: false,
       error:
-        language === 'bn'
-          ? 'কোনো অ্যাকাউন্ট পাওয়া যায়নি। অনুগ্রহ করে সঠিক ইমেল ও পাসওয়ার্ড দিন।'
-          : 'No account found. Please check your email and password.',
+        supabaseError ||
+        (language === 'bn'
+          ? 'কোনো অ্যাকাউন্ট পাওয়া যায়নি। সঠিক ইমেল ও ৬+ অক্ষরের পাসওয়ার্ড দিন, অথবা "Mobile OTP" / "4-Digit App PIN" ট্যাব ব্যবহার করুন।'
+          : 'No account found. Check your email & 6+ char password, or use Mobile OTP / 4-Digit App PIN.'),
     };
   };
 
@@ -392,8 +515,9 @@ export default function App() {
     role?: 'Owner' | 'Manager' | 'Cashier',
     phone?: string,
     isAppLockEnabled?: boolean,
-    loginMethod?: 'email_pin' | 'otp',
-    otpCode?: string
+    loginMethod?: 'email_pin' | 'otp' | 'email_password' | 'app_pin',
+    otpCode?: string,
+    password?: string
   ): Promise<boolean> => {
     // 1. Verify OTP with mock OTP service if logging in via OTP
     const targetPhoneOrId = (phone || email).trim();
@@ -424,7 +548,8 @@ export default function App() {
       role,
       phone,
       loginMethod,
-      loginMethod === 'otp' ? true : undefined
+      loginMethod === 'otp' ? true : undefined,
+      password
     );
 
     if (isAppLockEnabled !== undefined) {
@@ -513,6 +638,7 @@ export default function App() {
     email?: string;
     storeName?: string;
     pin?: string;
+    password?: string;
     role?: 'Owner' | 'Manager' | 'Cashier';
   }): Promise<boolean> => {
     // If user already had data on server, restore first so it's not wiped

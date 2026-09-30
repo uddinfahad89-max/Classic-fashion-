@@ -39,6 +39,7 @@ export interface AccountVaultData {
   name: string;
   role: 'Owner' | 'Manager' | 'Cashier';
   pin: string;
+  password?: string;
   isAppLockEnabled?: boolean;
   settings: ThermalPrinterSettings;
   bills: BillInvoice[];
@@ -583,6 +584,7 @@ class StorageService {
         name: profile.name || 'Store Owner',
         role: profile.role || 'Owner',
         pin: profile.pin || '1234',
+        password: profile.password,
         isAppLockEnabled: profile.isAppLockEnabled,
         settings,
         bills,
@@ -653,6 +655,7 @@ class StorageService {
                 phone: serverVault.phone || '',
                 role: serverVault.role || 'Owner',
                 pin: serverVault.pin || '1234',
+                password: serverVault.password,
                 isLoggedIn: true,
                 isAppLockEnabled: serverVault.isAppLockEnabled,
                 loginTime: Date.now(),
@@ -674,14 +677,11 @@ class StorageService {
     }
   }
 
-  restoreFromAccountVault(identifier: string): boolean {
+  getVaultForIdentifier(identifier: string): AccountVaultData | null {
     try {
-      if (!identifier) return false;
+      if (!identifier) return null;
       const norm = this.normalizeIdentifier(identifier);
-
       let vaultRaw = localStorage.getItem(`${VAULT_KEYS.ACCOUNT_PREFIX}${norm}`);
-
-      // Try matching phone digits or email
       if (!vaultRaw) {
         const list = this.getSavedAccounts();
         const match = list.find(
@@ -698,10 +698,17 @@ class StorageService {
             localStorage.getItem(`${VAULT_KEYS.ACCOUNT_PREFIX}${this.normalizeIdentifier(match.identifier)}`);
         }
       }
+      if (!vaultRaw) return null;
+      return JSON.parse(vaultRaw) as AccountVaultData;
+    } catch {
+      return null;
+    }
+  }
 
-      if (!vaultRaw) return false;
-
-      const vault: AccountVaultData = JSON.parse(vaultRaw);
+  restoreFromAccountVault(identifier: string): boolean {
+    try {
+      const vault = this.getVaultForIdentifier(identifier);
+      if (!vault) return false;
 
       // Restore active data into localStorage
       if (vault.settings) {
@@ -729,6 +736,7 @@ class StorageService {
         phone: vault.phone || '',
         role: vault.role || 'Owner',
         pin: vault.pin || '1234',
+        password: vault.password,
         isLoggedIn: true,
         isAppLockEnabled: vault.isAppLockEnabled,
         loginTime: Date.now(),
@@ -768,8 +776,9 @@ class StorageService {
     pin?: string,
     role?: 'Owner' | 'Manager' | 'Cashier',
     phone?: string,
-    loginMethod?: 'email_pin' | 'otp',
-    otpVerified?: boolean
+    loginMethod?: 'email_pin' | 'otp' | 'email_password' | 'app_pin',
+    otpVerified?: boolean,
+    password?: string
   ): UserProfile {
     const raw = (emailOrIdentifier || phone || '').trim();
     const cleanPhone = phone?.trim() || (!raw.includes('@') ? raw : '');
@@ -799,6 +808,22 @@ class StorageService {
       (finalEmail ? finalEmail.split('@')[0] : '') ||
       (finalPhone ? `User ${finalPhone.slice(-4)}` : 'Store Owner');
 
+    // Ensure settings has a non-empty storeName so app does not stay on onboarding screen
+    const currentSettings = this.getSettings();
+    if (!currentSettings.storeName || !currentSettings.storeName.trim()) {
+      const savedAccounts = this.getSavedAccounts();
+      const matchedAcc = savedAccounts.find(
+        (a) =>
+          (finalPhone && this.normalizeIdentifier(a.phone) === this.normalizeIdentifier(finalPhone)) ||
+          (finalEmail && this.normalizeIdentifier(a.email) === this.normalizeIdentifier(finalEmail))
+      );
+      currentSettings.storeName = matchedAcc?.storeName || `${inferredName}'s Store`;
+      if (finalPhone && !currentSettings.storePhone) {
+        currentSettings.storePhone = finalPhone;
+      }
+      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(currentSettings));
+    }
+
     const updated: UserProfile = {
       ...current,
       email: finalEmail,
@@ -806,6 +831,7 @@ class StorageService {
       phone: finalPhone,
       role: role || current.role || 'Owner',
       pin: pin?.trim() || current.pin || '1234',
+      password: password || current.password,
       isLoggedIn: true,
       loginTime: Date.now(),
       loginMethod: loginMethod || current.loginMethod || (finalPhone ? 'otp' : 'email_pin'),
@@ -824,6 +850,7 @@ class StorageService {
     email?: string;
     storeName?: string;
     pin?: string;
+    password?: string;
     role?: 'Owner' | 'Manager' | 'Cashier';
   }): UserProfile {
     const cleanPhone = data.phone.trim();
@@ -831,6 +858,7 @@ class StorageService {
     const cleanName = data.name.trim() || 'Store Owner';
     const cleanStore = (data.storeName || '').trim() || `${cleanName}'s Store`;
     const cleanPin = (data.pin || '1234').trim();
+    const cleanPassword = data.password?.trim();
     const role = data.role || 'Owner';
 
     // First save active session of any existing user before switching
@@ -870,6 +898,7 @@ class StorageService {
       name: cleanName,
       role: role,
       pin: cleanPin,
+      password: cleanPassword || existingVault?.password,
       isAppLockEnabled: false,
       settings: newSettings,
       bills: existingBills,
@@ -895,9 +924,10 @@ class StorageService {
       phone: cleanPhone,
       role: role,
       pin: cleanPin,
+      password: cleanPassword || existingVault?.password,
       isLoggedIn: true,
       loginTime: Date.now(),
-      loginMethod: 'otp',
+      loginMethod: cleanEmail && cleanPassword ? 'email_password' : 'otp',
       otpVerified: true,
       isAppLockEnabled: false,
     };

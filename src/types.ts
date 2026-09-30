@@ -196,11 +196,12 @@ export interface UserProfile {
   phone?: string;
   role?: 'Owner' | 'Manager' | 'Cashier';
   pin?: string;
+  password?: string;
   isAppLockEnabled?: boolean;
   securityQuestion?: string;
   securityAnswer?: string;
   otpVerified?: boolean;
-  loginMethod?: 'email_pin' | 'otp';
+  loginMethod?: 'email_pin' | 'otp' | 'email_password' | 'app_pin';
 }
 
 export interface SavedAccountItem {
