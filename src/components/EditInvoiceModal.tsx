@@ -100,7 +100,19 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
           : ''
       );
       setPaymentMethod(bill.paymentMethod || 'cash');
-      setPaidAmount(bill.paidAmount !== undefined ? bill.paidAmount.toString() : '');
+      if (bill.paymentMethod === 'due') {
+        if (bill.paidAmount && bill.paidAmount > 0 && bill.paidAmount < bill.grandTotal) {
+          setPaidAmount(bill.paidAmount.toString());
+        } else {
+          setPaidAmount('0');
+        }
+      } else {
+        if (bill.paidAmount !== undefined && bill.paidAmount < bill.grandTotal) {
+          setPaidAmount(bill.paidAmount.toString());
+        } else {
+          setPaidAmount('');
+        }
+      }
       setIsTailoring(Boolean(bill.isTailoring));
       setDeliveryDate(bill.deliveryDate || '');
       setTailoringStatus(bill.tailoringStatus || 'pending');
@@ -138,9 +150,36 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
   }
 
   const grandTotal = Math.max(0, subtotal - discountAmount);
-  const paidNum = parseFloat(paidAmount) || 0;
-  const changeAmount = Math.max(0, paidNum - grandTotal);
-  const dueAmount = Math.max(0, grandTotal - paidNum);
+  const rawPaidNum = parseFloat(paidAmount);
+  const hasExplicitPaid = paidAmount.trim() !== '' && !isNaN(rawPaidNum);
+  const effectivePaidNum =
+    paymentMethod === 'due'
+      ? hasExplicitPaid && rawPaidNum < grandTotal
+        ? Math.max(0, rawPaidNum)
+        : 0
+      : hasExplicitPaid
+      ? Math.max(0, rawPaidNum)
+      : grandTotal;
+  const paidNum = effectivePaidNum;
+  const changeAmount = paymentMethod === 'due' ? 0 : Math.max(0, paidNum - grandTotal);
+  const dueAmount =
+    paymentMethod === 'due'
+      ? Math.max(0, grandTotal - paidNum)
+      : hasExplicitPaid && paidNum < grandTotal
+      ? Math.max(0, grandTotal - paidNum)
+      : 0;
+
+  const handleSelectPaymentMethod = (nextMethod: PaymentMethod) => {
+    setPaymentMethod(nextMethod);
+    if (nextMethod === 'due') {
+      const currentPaid = parseFloat(paidAmount) || 0;
+      if (currentPaid >= grandTotal || paymentMethod !== 'due') {
+        setPaidAmount('0');
+      }
+    } else {
+      setPaidAmount('');
+    }
+  };
 
   // Item Handlers
   const handleUpdateItemName = (id: string, name: string) => {
@@ -230,16 +269,23 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
 
     setValidationError(null);
 
-    // Determine status
+    // Determine final paid & due balance
+    const finalPaid =
+      paymentMethod === 'due'
+        ? Math.min(grandTotal, Math.max(0, paidNum))
+        : hasExplicitPaid && paidNum < grandTotal
+        ? Math.max(0, paidNum)
+        : grandTotal;
+    const finalBalance = Math.max(0, Math.round((grandTotal - finalPaid) * 100) / 100);
+    const finalPaymentMethod: PaymentMethod =
+      paymentMethod === 'due' || finalBalance > 0 ? 'due' : paymentMethod;
+
     let paymentStatus: 'PAID' | 'DUE' | 'PARTIAL' = 'PAID';
-    if (paymentMethod === 'due' || dueAmount > 0) {
-      paymentStatus = paidNum > 0 ? 'PARTIAL' : 'DUE';
+    if (finalPaymentMethod === 'due' || finalBalance > 0) {
+      paymentStatus = finalPaid > 0 && finalBalance > 0 ? 'PARTIAL' : 'DUE';
     } else {
       paymentStatus = 'PAID';
     }
-
-    const finalPaid = paymentMethod === 'due' && paidNum === 0 ? 0 : paidNum > 0 ? paidNum : grandTotal;
-    const finalBalance = Math.max(0, grandTotal - finalPaid);
 
     const updatedBill: BillInvoice = {
       ...bill,
@@ -252,10 +298,10 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
       discountType,
       discountValue: rawDiscount,
       grandTotal,
-      paymentMethod,
+      paymentMethod: finalPaymentMethod,
       paymentStatus,
       paidAmount: finalPaid,
-      changeAmount: paymentMethod === 'due' ? 0 : changeAmount,
+      changeAmount: finalPaymentMethod === 'due' ? 0 : changeAmount,
       balance: finalBalance,
       currentBalance: finalBalance,
       isTailoring,
@@ -761,7 +807,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
             </div>
 
             {/* Payment Method & Paid Amount */}
-            <div className="bg-stone-50/70 p-3.5 rounded-2xl border border-stone-200 space-y-2">
+            <div className="bg-stone-50/70 p-3.5 rounded-2xl border border-stone-200 space-y-2.5">
               <label className="text-xs font-bold text-stone-800 block">
                 {t.paymentMethodLabel}
               </label>
@@ -778,11 +824,11 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
                     <button
                       key={pm.id}
                       type="button"
-                      onClick={() => setPaymentMethod(pm.id as PaymentMethod)}
+                      onClick={() => handleSelectPaymentMethod(pm.id as PaymentMethod)}
                       className={`py-1.5 px-1 rounded-xl text-xs font-bold flex flex-col items-center justify-center gap-0.5 border transition-all cursor-pointer ${
                         isSelected
                           ? pm.id === 'due'
-                            ? 'bg-rose-50 border-rose-400 text-rose-700'
+                            ? 'bg-rose-600 border-rose-600 text-white shadow-xs'
                             : 'bg-blue-50 border-blue-500 text-blue-700'
                           : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-100'
                       }`}
@@ -794,10 +840,36 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
                 })}
               </div>
 
+              {paymentMethod === 'due' && (
+                <div className="bg-rose-50 border border-rose-200 rounded-xl px-3 py-2 flex items-center justify-between text-xs">
+                  <span className="font-bold text-rose-800">
+                    {language === 'bn' ? 'বাকি থাকবে (Due):' : 'Balance Due:'}
+                  </span>
+                  <span className="font-mono font-black text-rose-700 text-sm">
+                    {sym}{dueAmount.toFixed(2)}
+                  </span>
+                </div>
+              )}
+
               <div>
-                <label className="text-[11px] font-bold text-stone-600 block mb-1">
-                  {t.paidAmountLabel}
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[11px] font-bold text-stone-600">
+                    {paymentMethod === 'due'
+                      ? language === 'bn'
+                        ? 'অগ্রিম / আংশিক জমা (না থাকলে 0 রাখুন)'
+                        : 'Advance / Partial Paid (0 for Full Due)'
+                      : t.paidAmountLabel}
+                  </label>
+                  {paymentMethod === 'due' && paidNum > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setPaidAmount('0')}
+                      className="text-[10px] font-bold text-rose-600 bg-rose-100 hover:bg-rose-200 px-2 py-0.5 rounded-md cursor-pointer transition-colors"
+                    >
+                      {language === 'bn' ? 'পুরো বাকি (0 জমা)' : 'Full Due (0)'}
+                    </button>
+                  )}
+                </div>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs font-mono font-bold">
                     {sym}
@@ -807,8 +879,15 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
                     min="0"
                     step="any"
                     value={paidAmount}
-                    onChange={(e) => setPaidAmount(e.target.value)}
-                    placeholder={grandTotal.toString()}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setPaidAmount(val);
+                      const num = parseFloat(val);
+                      if (!isNaN(num) && num < grandTotal && paymentMethod !== 'due') {
+                        setPaymentMethod('due');
+                      }
+                    }}
+                    placeholder={paymentMethod === 'due' ? '0' : grandTotal.toString()}
                     className="w-full border border-stone-200 bg-white pl-8 pr-3 py-1.5 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-600"
                   />
                 </div>
@@ -841,7 +920,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
             <div className="flex justify-between text-stone-600 pt-1 border-t border-stone-200">
               <span>{t.paidAmountLabel}:</span>
               <span className="font-mono font-semibold">
-                {sym}{(paidNum > 0 ? paidNum : paymentMethod === 'due' ? 0 : grandTotal).toFixed(2)}
+                {sym}{paidNum.toFixed(2)}
               </span>
             </div>
             {changeAmount > 0 && paymentMethod !== 'due' && (
@@ -854,7 +933,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
               <div className="flex justify-between text-rose-700 font-bold">
                 <span>{t.dueAmountLabel}:</span>
                 <span className="font-mono">
-                  {sym}{(paymentMethod === 'due' && paidNum === 0 ? grandTotal : dueAmount).toFixed(2)}
+                  {sym}{dueAmount.toFixed(2)}
                 </span>
               </div>
             )}

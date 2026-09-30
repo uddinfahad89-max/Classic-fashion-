@@ -29,8 +29,23 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({ bill, settings
       ? Math.round((discountAmount / bill.subtotal) * 100 * 10) / 10
       : 0;
 
-  const paidAmount = bill.paidAmount !== undefined ? bill.paidAmount : (bill.paymentStatus === 'PAID' ? bill.grandTotal : 0);
-  const balance = bill.balance !== undefined ? bill.balance : Math.max(0, bill.grandTotal - paidAmount);
+  const isFullDue =
+    bill.paymentMethod === 'due' &&
+    (bill.paymentStatus === 'DUE' ||
+      (bill.paidAmount === bill.grandTotal && (!bill.balance || bill.balance === 0)));
+
+  const paidAmount = isFullDue
+    ? 0
+    : bill.paidAmount !== undefined
+    ? bill.paidAmount
+    : bill.paymentStatus === 'PAID'
+    ? bill.grandTotal
+    : 0;
+  const balance = isFullDue
+    ? bill.grandTotal
+    : bill.balance !== undefined && bill.balance > 0
+    ? bill.balance
+    : Math.max(0, bill.grandTotal - paidAmount);
 
   // Amount in words
   const amountInWords = numberToWords(bill.grandTotal, currencyName);
@@ -111,6 +126,13 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({ bill, settings
             No: <span className="font-extrabold text-stone-900">#{bill.invoiceNo}</span>
           </div>
           <div>Date: {formattedDate}</div>
+          {balance > 0 && (
+            <div className="pt-0.5">
+              <span className="inline-block px-2 py-0.5 rounded text-xs sm:text-sm font-black bg-rose-100 text-rose-700 border border-rose-300">
+                {paidAmount > 0 ? `PARTIAL DUE: ${currencyPrefix}${balance.toFixed(1)}` : `DUE (বাকি): ${currencyPrefix}${balance.toFixed(1)}`}
+              </span>
+            </div>
+          )}
           {bill.isTailoring && bill.deliveryDate && (
             <div className="font-bold text-stone-900 bg-stone-100 px-2 py-0.5 rounded inline-block mt-0.5 text-sm sm:text-base">
               Delivery:{' '}

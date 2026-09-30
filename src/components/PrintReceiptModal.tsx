@@ -33,6 +33,8 @@ interface PrintReceiptModalProps {
   onEditBill?: (bill: BillInvoice) => void;
   onDeleteBill?: (id: string) => void;
   language?: Language;
+  autoPrint?: boolean;
+  onAutoPrintComplete?: () => void;
 }
 
 export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
@@ -46,6 +48,8 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
   onEditBill,
   onDeleteBill,
   language = 'bn',
+  autoPrint = false,
+  onAutoPrintComplete,
 }) => {
   const [isSavingPdf, setIsSavingPdf] = useState(false);
   const [isSavingImage, setIsSavingImage] = useState(false);
@@ -72,6 +76,20 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
   };
 
   const sheetRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (autoPrint && bill) {
+      const timer = setTimeout(() => {
+        if (sheetRef.current) {
+          thermalPrinterService.printTaxInvoiceElement(sheetRef.current, bill);
+        }
+        if (onAutoPrintComplete) {
+          onAutoPrintComplete();
+        }
+      }, 120);
+      return () => clearTimeout(timer);
+    }
+  }, [autoPrint, bill]);
 
   if (!bill) return null;
 
@@ -304,6 +322,16 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handlePrintTaxInvoice}
+              className="px-3 py-1.5 rounded-xl bg-[#6E68D8] hover:bg-[#5E58C8] text-white text-xs font-bold flex items-center gap-1.5 shadow-2xs cursor-pointer transition-colors"
+              title={language === 'bn' ? 'সরাসরি প্রিন্ট করুন' : 'Print Invoice'}
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span>{language === 'bn' ? 'প্রিন্ট' : 'Print'}</span>
+            </button>
+
             {onEditBill && (
               <button
                 type="button"

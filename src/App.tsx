@@ -67,6 +67,7 @@ export default function App() {
   const [isDataSaverOpen, setIsDataSaverOpen] = useState(false);
   const [isBluetoothHelpOpen, setIsBluetoothHelpOpen] = useState(false);
   const [receiptBill, setReceiptBill] = useState<BillInvoice | null>(null);
+  const [autoPrintReceipt, setAutoPrintReceipt] = useState(false);
   const [editingBill, setEditingBill] = useState<BillInvoice | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isPrintingBill, setIsPrintingBill] = useState(false);
@@ -668,7 +669,7 @@ export default function App() {
   };
 
   // 1. BILLING HANDLERS
-  const handlePrintBill = async (bill: BillInvoice) => {
+  const handlePrintBill = async (bill: BillInvoice, mode: 'save' | 'print' = 'print') => {
     // 1. Save bill in history & deduct/sync product stock
     storageService.saveBill(bill);
     storageService.deductStockForBill(bill.items);
@@ -691,21 +692,48 @@ export default function App() {
         `POS ${bill.paymentMethod.toUpperCase()} Sale #${bill.invoiceNo}`
       );
       setCashEntries(storageService.getCashEntries());
-    } else if (bill.paymentMethod === 'due' && bill.customerName) {
-      // If payment is Due, automatically add to Customer Due Ledger
-      storageService.addOrUpdateCustomerDue(
-        bill.customerName,
-        bill.grandTotal,
-        bill.customerPhone || '',
-        `Credit bill #${bill.invoiceNo}`
-      );
-      setCustomerDues(storageService.getCustomerDues());
+    } else if (bill.paymentMethod === 'due') {
+      const dueAmt =
+        bill.balance !== undefined
+          ? bill.balance
+          : Math.max(0, bill.grandTotal - (bill.paidAmount || 0));
+      const partyName = (bill.customerName || '').trim() || `Invoice #${bill.invoiceNo}`;
+      if (dueAmt > 0) {
+        storageService.addOrUpdateCustomerDue(
+          partyName,
+          dueAmt,
+          bill.customerPhone || '',
+          `Credit bill #${bill.invoiceNo}`
+        );
+        setCustomerDues(storageService.getCustomerDues());
+      }
+      if (bill.paidAmount && bill.paidAmount > 0) {
+        storageService.addCashEntry(
+          'Income',
+          bill.paidAmount,
+          `Advance on Sale #${bill.invoiceNo}`
+        );
+        setCashEntries(storageService.getCashEntries());
+      }
     }
 
     // 3. Clear current bill
     setBillItems([]);
 
-    // 4. Silent Print via active Bluetooth GATT streaming if connected
+    // 4A. If mode is 'save', only save the bill and show confirmation toast
+    if (mode === 'save') {
+      setAutoPrintReceipt(false);
+      showToast(
+        language === 'bn'
+          ? `✓ বিল #${bill.invoiceNo} সফলভাবে সেভ হয়েছে!`
+          : `✓ Bill #${bill.invoiceNo} saved successfully!`,
+        'success',
+        bill
+      );
+      return;
+    }
+
+    // 4B. If mode is 'print', go straight to print!
     if (thermalPrinterService.getIsConnected()) {
       setIsPrintingBill(true);
       const printResult = await thermalPrinterService.printViaBluetooth(bill, settings);
@@ -719,11 +747,12 @@ export default function App() {
         );
       } else {
         showToast(`Bluetooth print failed: ${printResult.message}`, 'error', bill);
-        // Fallback to preview modal
+        setAutoPrintReceipt(true);
         setReceiptBill(bill);
       }
     } else {
-      // If Bluetooth is not connected, open preview modal for browser print or connecting
+      // Open receipt & immediately trigger direct print dialog
+      setAutoPrintReceipt(true);
       setReceiptBill(bill);
     }
   };
@@ -755,9 +784,55 @@ export default function App() {
   };
 
   const handleUpdateBill = (updatedBill: BillInvoice) => {
+    const prevBill =
+      bills.find((b) => b.id === updatedBill.id) || storageService.getBillById(updatedBill.id);
+
+    const prevDue = prevBill
+      ? prevBill.balance !== undefined
+        ? prevBill.balance
+        : prevBill.paymentMethod === 'due'
+        ? Math.max(0, prevBill.grandTotal - (prevBill.paidAmount || 0))
+        : 0
+      : 0;
+
+    const newDue =
+      updatedBill.balance !== undefined
+        ? updatedBill.balance
+        : updatedBill.paymentMethod === 'due'
+        ? Math.max(0, updatedBill.grandTotal - (updatedBill.paidAmount || 0))
+        : 0;
+
     storageService.saveBill(updatedBill);
     const freshBills = storageService.getBills();
     setBills(freshBills);
+
+    // Sync due changes to Customer Due Ledger (বাকি খাতা)
+    const partyName =
+      (updatedBill.customerName || prevBill?.customerName || '').trim() ||
+      `Invoice #${updatedBill.invoiceNo}`;
+    if (newDue > prevDue) {
+      const addedDue = Math.round((newDue - prevDue) * 100) / 100;
+      storageService.addOrUpdateCustomerDue(
+        partyName,
+        addedDue,
+        updatedBill.customerPhone || prevBill?.customerPhone || '',
+        `Edited Bill #${updatedBill.invoiceNo} (Due)`
+      );
+      setCustomerDues(storageService.getCustomerDues());
+    } else if (newDue < prevDue) {
+      const reducedDue = Math.round((prevDue - newDue) * 100) / 100;
+      const existingCustomer = storageService
+        .getCustomerDues()
+        .find((d) => d.name.trim().toLowerCase() === partyName.toLowerCase());
+      if (existingCustomer) {
+        storageService.recordCustomerPayment(
+          existingCustomer.id,
+          reducedDue,
+          `Edited Bill #${updatedBill.invoiceNo} (Paid)`
+        );
+        setCustomerDues(storageService.getCustomerDues());
+      }
+    }
 
     // Sync update to Supabase cloud
     supabaseService.getActiveUserId().then((userId) => {
@@ -765,11 +840,18 @@ export default function App() {
         supabaseService.syncInvoice(updatedBill, userId);
       }
     });
-    if (receiptBill && (receiptBill.id === updatedBill.id || receiptBill.invoiceNo === updatedBill.invoiceNo)) {
-      setReceiptBill(updatedBill);
-    }
+
+    // Show the updated receipt immediately so user sees the updated Due / Paid status
+    setReceiptBill(updatedBill);
+
     showToast(
-      language === 'bn' ? 'বিল সফলভাবে আপডেট হয়েছে' : 'Bill updated successfully',
+      updatedBill.paymentMethod === 'due' && newDue > 0
+        ? language === 'bn'
+          ? `বিল #${updatedBill.invoiceNo} বাকি (Due: ${settings.currencySymbol}${newDue.toFixed(2)}) হিসেবে সেভ হয়েছে`
+          : `Bill #${updatedBill.invoiceNo} updated as Due (${settings.currencySymbol}${newDue.toFixed(2)})`
+        : language === 'bn'
+        ? 'বিল সফলভাবে আপডেট হয়েছে'
+        : 'Bill updated successfully',
       'success'
     );
   };
@@ -1124,8 +1206,8 @@ export default function App() {
         onOpenBluetoothHelp={() => setIsBluetoothHelpOpen(true)}
       />
 
-      {/* Main Workspace with proper bottom padding to prevent overlap with bottom bar */}
-      <main className="flex-1 pb-20 sm:pb-24">
+      {/* Main Workspace */}
+      <main className="flex-1 pb-16 sm:pb-20">
         {activeTab === 'billing' && (
           <BillingTab
             billItems={billItems}
@@ -1223,28 +1305,6 @@ export default function App() {
         )}
       </main>
 
-      {/* App Footer with Explicit Creator Attribution (fahad uddin) */}
-      <footer id="app-footer" className="w-full border-t border-stone-200/90 bg-white/85 backdrop-blur-xs py-4 px-4 pb-20 sm:pb-24 mt-auto">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2.5 text-xs text-stone-600">
-          <div className="flex items-center gap-2 flex-wrap justify-center sm:justify-start">
-            <span className="text-stone-500 font-medium">
-              {language === 'bn' ? 'অ্যাপটি তৈরি করেছেন:' : 'Created & Built by:'}
-            </span>
-            <span className="font-extrabold text-stone-900 bg-stone-100 px-2.5 py-1 rounded-lg border border-stone-300 tracking-wide text-xs">
-              fahad uddin
-            </span>
-            {userProfile.isLoggedIn && (
-              <span className="text-stone-500 font-mono text-[11px] bg-stone-50 px-2 py-0.5 rounded border border-stone-200">
-                {userProfile.email}
-              </span>
-            )}
-          </div>
-          <div className="text-[11px] text-stone-400 text-center sm:text-right">
-            Designed & Created by <strong className="text-stone-700 font-bold">fahad uddin</strong> • All Rights Reserved
-          </div>
-        </div>
-      </footer>
-
       {/* Fixed Bottom Navigation Bar (Vyapar style - Tabs only) */}
       <BottomNav
         activeTab={activeTab}
@@ -1283,21 +1343,28 @@ export default function App() {
       {/* Thermal Receipt Print & Preview Dialog */}
       <PrintReceiptModal
         bill={receiptBill}
-        onClose={() => setReceiptBill(null)}
+        onClose={() => {
+          setAutoPrintReceipt(false);
+          setReceiptBill(null);
+        }}
         settings={settings}
         bluetoothStatus={bluetoothStatus}
         onConnectBluetooth={handleConnectBluetooth}
         onUpdatePaperWidth={handleUpdatePaperWidth}
         onToggleLabelMode={handleToggleLabelMode}
         onEditBill={(bill) => {
+          setAutoPrintReceipt(false);
           setReceiptBill(null);
           setEditingBill(bill);
         }}
         onDeleteBill={(id) => {
+          setAutoPrintReceipt(false);
           handleDeleteBill(id);
           setReceiptBill(null);
         }}
         language={language}
+        autoPrint={autoPrintReceipt}
+        onAutoPrintComplete={() => setAutoPrintReceipt(false)}
       />
 
       {/* Global Edit Invoice Modal */}

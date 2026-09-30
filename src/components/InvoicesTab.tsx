@@ -221,12 +221,20 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
   const stats = useMemo(() => {
     const totalCount = filteredBills.length;
     const totalRevenue = filteredBills.reduce((sum, b) => sum + b.grandTotal, 0);
-    const paidRevenue = filteredBills
-      .filter((b) => b.paymentMethod !== 'due')
-      .reduce((sum, b) => sum + b.grandTotal, 0);
-    const dueRevenue = filteredBills
-      .filter((b) => b.paymentMethod === 'due')
-      .reduce((sum, b) => sum + b.grandTotal, 0);
+    const dueRevenue = filteredBills.reduce((sum, b) => {
+      const isDue =
+        b.paymentMethod === 'due' ||
+        b.paymentStatus === 'DUE' ||
+        b.paymentStatus === 'PARTIAL' ||
+        (b.balance !== undefined && b.balance > 0);
+      if (!isDue) return sum;
+      const dueAmt =
+        b.balance !== undefined && b.balance > 0
+          ? b.balance
+          : Math.max(0, b.grandTotal - (b.paidAmount || 0));
+      return sum + (dueAmt > 0 ? dueAmt : b.grandTotal);
+    }, 0);
+    const paidRevenue = Math.max(0, totalRevenue - dueRevenue);
 
     return { totalCount, totalRevenue, paidRevenue, dueRevenue };
   }, [filteredBills]);
@@ -493,6 +501,16 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
           {filteredBills.map((bill) => {
             const partyName = getPartyDisplayName(bill.customerName);
             const formattedDate = formatPartyDate(bill.timestamp, bill.date);
+            const isDue =
+              bill.paymentMethod === 'due' ||
+              bill.paymentStatus === 'DUE' ||
+              bill.paymentStatus === 'PARTIAL' ||
+              (bill.balance !== undefined && bill.balance > 0);
+            const dueAmt = isDue
+              ? bill.balance !== undefined && bill.balance > 0
+                ? bill.balance
+                : Math.max(0, bill.grandTotal - (bill.paidAmount || 0)) || bill.grandTotal
+              : 0;
 
             return (
               <div
@@ -506,6 +524,24 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
                     <span className="text-[15px] sm:text-[16px] font-normal text-stone-900 leading-snug truncate">
                       {partyName}
                     </span>
+                    <span className="text-[11px] font-mono font-bold text-stone-500 bg-stone-100 px-1.5 py-0.5 rounded">
+                      #{bill.invoiceNo}
+                    </span>
+                    {isDue ? (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-700 text-[10px] font-bold border border-rose-200">
+                        {bill.paymentStatus === 'PARTIAL'
+                          ? isBn
+                            ? 'আংশিক বাকি (Partial Due)'
+                            : 'Partial Due'
+                          : isBn
+                          ? 'বাকি (Due)'
+                          : 'DUE'}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 text-[10px] font-bold">
+                        {isBn ? 'পরিশোধিত (Paid)' : 'PAID'}
+                      </span>
+                    )}
                     {bill.isTailoring && (
                       <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-purple-100 text-purple-800 text-[10px] font-bold">
                         <span>✂️ Tailoring</span>
@@ -540,14 +576,35 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
                   </div>
                 </div>
 
-                {/* Right Column: Amount & You'll Get */}
-                <div className="text-right shrink-0">
-                  <div className="text-[15px] sm:text-[16px] font-normal text-[#129958] leading-snug">
-                    {sym} {formatAmount(bill.grandTotal)}
+                {/* Right Column: Amount & Status + Quick Edit */}
+                <div className="flex items-center gap-2.5 shrink-0">
+                  <div className="text-right">
+                    <div
+                      className={`text-[15px] sm:text-[16px] font-semibold leading-snug ${
+                        isDue ? 'text-rose-600' : 'text-[#129958]'
+                      }`}
+                    >
+                      {sym} {formatAmount(isDue ? dueAmt : bill.grandTotal)}
+                    </div>
+                    <div
+                      className={`text-[12px] font-medium mt-0.5 ${
+                        isDue ? 'text-rose-600' : 'text-[#129958]'
+                      }`}
+                    >
+                      {isDue ? (isBn ? 'বাকি (Due)' : "You'll Get (Due)") : isBn ? 'নগদ (Paid)' : 'Paid'}
+                    </div>
                   </div>
-                  <div className="text-[12px] font-normal text-[#129958] mt-0.5">
-                    You&apos;ll Get
-                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingBill(bill);
+                    }}
+                    className="p-2 rounded-xl text-stone-400 hover:text-blue-600 hover:bg-blue-50 border border-transparent hover:border-blue-200 transition-colors cursor-pointer"
+                    title={isBn ? 'ইনভয়েস এডিট করুন' : 'Edit Invoice'}
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
             );

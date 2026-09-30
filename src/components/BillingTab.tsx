@@ -48,7 +48,7 @@ interface BillingTabProps {
   settings: ThermalPrinterSettings;
   bluetoothStatus: BluetoothDeviceInfo;
   isPrinting?: boolean;
-  onPrintBill: (bill: BillInvoice) => void;
+  onPrintBill: (bill: BillInvoice, mode?: 'save' | 'print') => void;
   onClearBill: () => void;
   language?: Language;
   onOpenCalculator?: () => void;
@@ -443,8 +443,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     setEditingItemId(null);
   };
 
-  // Handle Checkout & Print Bill
-  const handleCheckoutAndPrint = () => {
+  // Handle Checkout: Save Only or Direct Print
+  const handleCheckoutAndPrint = (mode: 'save' | 'print' = 'print') => {
     if (billItems.length === 0) {
       alert(t.addAtLeastOneItem);
       return;
@@ -467,10 +467,12 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     }
 
     const actualPaid =
-      paidAmount.trim() !== ''
+      paymentMethod === 'due'
+        ? paidAmount.trim() !== '' && paidNum < grandTotal
+          ? paidNum
+          : 0
+        : paidAmount.trim() !== ''
         ? paidNum
-        : paymentMethod === 'due'
-        ? 0
         : isTailoring
         ? 0
         : grandTotal;
@@ -513,7 +515,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         : {}),
     };
 
-    onPrintBill(bill);
+    onPrintBill(bill, mode);
     setCustomerName('');
     setCustomerPhone('');
     setDiscountValue('');
@@ -568,13 +570,13 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   };
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-4 sm:py-6 space-y-4">
+    <div className="max-w-2xl mx-auto px-3 py-2 sm:py-3 space-y-2">
       {/* 1. CUSTOMER DETAILS CARD (SECTION 1 - TOP) */}
       <div
         id="billing-customer-section"
-        className="bg-white rounded-2xl p-4 sm:p-5 shadow-xs border border-stone-200"
+        className="bg-white rounded-2xl p-3 sm:p-4 shadow-xs border border-stone-200"
       >
-        <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+        <div className="flex items-center justify-between gap-2 mb-2.5 flex-wrap">
           <h2 className="text-sm font-bold text-stone-900 flex items-center gap-1.5">
             <User className="w-4 h-4 text-blue-600" />
             <span>{isBn ? 'ক্রেতার বিবরণ' : 'Customer Details'}</span>
@@ -852,7 +854,232 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         )}
       </div>
 
-      {/* 2. INSTANT ITEM ENTRY & PRODUCT STOCK CARD (SECTION 2 - MIDDLE) */}
+      {/* 2. CURRENT BILL ITEMS LIST (SHOWN ABOVE ITEM ENTRY FOR INSTANT CHECKING WHILE BILLING) */}
+      {billItems.length > 0 && (
+        <div
+          id="billing-items-list-section"
+          className="bg-white rounded-2xl shadow-xs border border-blue-200 overflow-hidden animate-in fade-in duration-150"
+        >
+          <div className="px-3 py-2.5 border-b border-stone-200 bg-blue-50/60 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-bold text-stone-800">{t.currentBillItems}</span>
+              <span className="bg-blue-600 text-white text-[11px] font-bold px-2 py-0.5 rounded-full">
+                {billItems.length}
+              </span>
+              <span className="text-xs font-mono font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-lg">
+                {isBn ? 'মোট:' : 'Total:'} {sym}
+                {subtotal.toFixed(2)}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (confirm(t.clearBillConfirm)) {
+                  onClearBill();
+                  setCustomerName('');
+                  setCustomerPhone('');
+                  setDiscountValue('');
+                  setPaidAmount('');
+                }
+              }}
+              className="text-[11px] text-stone-500 hover:text-red-600 flex items-center gap-1 transition-colors cursor-pointer shrink-0"
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span>{t.clearBill}</span>
+            </button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-xs sm:text-sm">
+              <thead>
+                <tr className="bg-stone-100/70 text-stone-600 text-[11px] uppercase tracking-wider font-semibold border-b border-stone-200">
+                  <th className="text-left p-2.5 sm:p-3">{isBn ? 'পণ্য' : 'Item'}</th>
+                  <th className="text-center p-2.5 sm:p-3 w-24">{t.qty}</th>
+                  <th className="text-right p-2.5 sm:p-3">{t.unitPrice}</th>
+                  <th className="text-right p-2.5 sm:p-3">{isBn ? 'মোট' : 'Total'}</th>
+                  <th className="p-2.5 sm:p-3 w-16 text-right">{isBn ? 'অ্যাকশন' : ''}</th>
+                </tr>
+              </thead>
+              <tbody id="billTable" className="divide-y divide-stone-100">
+                {billItems.map((item) => {
+                  const isEditing = editingItemId === item.id;
+                  const liveEditPrice = parseFloat(editItemPrice) || 0;
+                  const liveEditQty = Math.max(0.01, parseFloat(editItemQty) || 1);
+                  const liveEditTotal = Math.round(liveEditPrice * liveEditQty * 100) / 100;
+
+                  if (isEditing) {
+                    return (
+                      <tr key={item.id} className="bg-blue-50/70 transition-colors">
+                        <td className="p-2 sm:p-2.5">
+                          <input
+                            type="text"
+                            autoFocus={editFocusField === 'name'}
+                            value={editItemName}
+                            onChange={(e) => setEditItemName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleSaveEditItem(item.id);
+                              if (e.key === 'Escape') handleCancelEditItem();
+                            }}
+                            placeholder={isBn ? 'পণ্যের নাম' : 'Item Name'}
+                            className="w-full min-w-[95px] bg-white border border-blue-400 rounded-lg px-2 py-1.5 text-xs font-bold text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </td>
+                        <td className="p-2 sm:p-2.5 text-center">
+                          <div className="inline-flex items-center gap-1">
+                            <input
+                              type="number"
+                              min="0.01"
+                              step="any"
+                              autoFocus={editFocusField === 'qty'}
+                              value={editItemQty}
+                              onChange={(e) => setEditItemQty(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleSaveEditItem(item.id);
+                                if (e.key === 'Escape') handleCancelEditItem();
+                              }}
+                              placeholder="1"
+                              className="w-12 bg-white border border-blue-400 rounded-lg px-1 py-1.5 text-xs font-mono font-bold text-center text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                            <input
+                              type="text"
+                              autoFocus={editFocusField === 'unit'}
+                              value={editItemUnit}
+                              onChange={(e) => setEditItemUnit(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleSaveEditItem(item.id);
+                                if (e.key === 'Escape') handleCancelEditItem();
+                              }}
+                              placeholder={isBn ? 'ইউনিট' : 'Unit'}
+                              className="w-14 bg-white border border-blue-400 rounded-lg px-1.5 py-1.5 text-xs font-semibold text-center text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                          </div>
+                        </td>
+                        <td className="p-2 sm:p-2.5 text-right">
+                          <input
+                            type="number"
+                            min="0"
+                            step="any"
+                            autoFocus={editFocusField === 'price'}
+                            value={editItemPrice}
+                            onChange={(e) => setEditItemPrice(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleSaveEditItem(item.id);
+                              if (e.key === 'Escape') handleCancelEditItem();
+                            }}
+                            placeholder="0.00"
+                            className="w-20 bg-white border border-blue-400 rounded-lg px-2 py-1.5 text-xs font-mono font-bold text-right text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 ml-auto block"
+                          />
+                        </td>
+                        <td className="p-2 sm:p-2.5 text-right font-mono font-bold text-blue-900 whitespace-nowrap">
+                          {sym}
+                          {liveEditTotal.toFixed(2)}
+                        </td>
+                        <td className="p-2 sm:p-2.5 text-right">
+                          <div className="inline-flex items-center justify-end gap-1">
+                            <button
+                              type="button"
+                              onClick={() => handleSaveEditItem(item.id)}
+                              className="p-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white shadow-2xs transition-colors cursor-pointer"
+                              title={isBn ? 'সেভ করুন' : 'Save changes'}
+                            >
+                              <Check className="w-3.5 h-3.5 stroke-[3]" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleCancelEditItem}
+                              className="p-1.5 rounded-lg bg-stone-200 hover:bg-stone-300 text-stone-700 transition-colors cursor-pointer"
+                              title={isBn ? 'বাতিল করুন' : 'Cancel'}
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  return (
+                    <tr key={item.id} className="hover:bg-stone-50/80 transition-colors">
+                      <td
+                        onClick={() => handleStartEditItem(item, 'name')}
+                        className="p-2.5 sm:p-3 font-medium text-stone-900 cursor-pointer hover:text-blue-600 transition-colors"
+                        title={isBn ? 'নাম পরিবর্তন করতে ট্যাপ করুন' : 'Tap to edit item name'}
+                      >
+                        <span className="border-b border-dashed border-transparent hover:border-blue-400">
+                          {item.name}
+                        </span>
+                      </td>
+                      <td className="p-2.5 sm:p-3 text-center">
+                        <div className="inline-flex items-center gap-1 bg-stone-100 px-1.5 py-0.5 rounded-lg border border-stone-200">
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateQty(item.id, item.qty - 1)}
+                            className="w-4 h-4 text-stone-600 hover:text-stone-900 font-bold flex items-center justify-center leading-none cursor-pointer"
+                          >
+                            -
+                          </button>
+                          <span
+                            onClick={() => handleStartEditItem(item, 'qty')}
+                            className="font-mono font-bold text-xs px-1 cursor-pointer hover:text-blue-600"
+                            title={isBn ? 'সংখ্যা ও ইউনিট পরিবর্তন করতে ট্যাপ করুন' : 'Tap to edit quantity & unit'}
+                          >
+                            {item.qty}
+                            {item.unit ? <span className="font-sans font-semibold text-[11px] text-stone-600 ml-0.5">{item.unit}</span> : null}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateQty(item.id, item.qty + 1)}
+                            className="w-4 h-4 text-stone-600 hover:text-stone-900 font-bold flex items-center justify-center leading-none cursor-pointer"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </td>
+                      <td
+                        onClick={() => handleStartEditItem(item, 'price')}
+                        className="p-2.5 sm:p-3 text-right font-mono text-stone-600 cursor-pointer hover:text-blue-600 transition-colors whitespace-nowrap"
+                        title={isBn ? 'দাম পরিবর্তন করতে ট্যাপ করুন' : 'Tap to edit unit price'}
+                      >
+                        <span className="border-b border-dashed border-stone-300 hover:border-blue-500">
+                          {sym}
+                          {item.price.toFixed(2)}
+                        </span>
+                      </td>
+                      <td className="p-2.5 sm:p-3 text-right font-mono font-bold text-stone-900 whitespace-nowrap">
+                        {sym}
+                        {item.total.toFixed(2)}
+                      </td>
+                      <td className="p-2 sm:p-2.5 text-right">
+                        <div className="inline-flex items-center justify-end gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleStartEditItem(item, 'price')}
+                            className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
+                            title={isBn ? 'এডিট করুন (Edit)' : 'Edit Item'}
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveItem(item.id)}
+                            className="p-1.5 rounded-lg text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                            title={isBn ? 'মুছে ফেলুন' : 'Remove'}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* 3. INSTANT ITEM ENTRY & PRODUCT STOCK CARD (SECTION 3 - MIDDLE) */}
       <div
         id="billing-item-entry-section"
         className="bg-white rounded-2xl p-4 sm:p-5 shadow-xs border border-stone-200"
@@ -1267,377 +1494,13 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         </form>
       </div>
 
-      {/* 3. CURRENT BILL ITEMS LIST (SECTION 3) */}
-      <div
-        id="billing-items-list-section"
-        className="bg-white rounded-2xl shadow-xs border border-stone-200 overflow-hidden"
-      >
-        <div className="p-3.5 border-b border-stone-200 bg-stone-50/70 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-stone-800">{t.currentBillItems}</span>
-            <span className="bg-blue-100 text-blue-800 text-[11px] font-bold px-2 py-0.5 rounded-full">
-              {billItems.length}
-            </span>
-          </div>
-
-          {billItems.length > 0 && (
-            <button
-              onClick={() => {
-                if (confirm(t.clearBillConfirm)) {
-                  onClearBill();
-                  setCustomerName('');
-                  setCustomerPhone('');
-                  setDiscountValue('');
-                  setPaidAmount('');
-                }
-              }}
-              className="text-[11px] text-stone-500 hover:text-red-600 flex items-center gap-1 transition-colors cursor-pointer"
-            >
-              <RotateCcw className="w-3 h-3" />
-              <span>{t.clearBill}</span>
-            </button>
-          )}
-        </div>
-
-        {billItems.length === 0 ? (
-          <div className="p-8 text-center text-stone-400 text-xs">{t.noItemsInBill}</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-xs sm:text-sm">
-              <thead>
-                <tr className="bg-stone-100/70 text-stone-600 text-[11px] uppercase tracking-wider font-semibold border-b border-stone-200">
-                  <th className="text-left p-2.5 sm:p-3">{isBn ? 'পণ্য' : 'Item'}</th>
-                  <th className="text-center p-2.5 sm:p-3 w-24">{t.qty}</th>
-                  <th className="text-right p-2.5 sm:p-3">{t.unitPrice}</th>
-                  <th className="text-right p-2.5 sm:p-3">{isBn ? 'মোট' : 'Total'}</th>
-                  <th className="p-2.5 sm:p-3 w-16 text-right">{isBn ? 'অ্যাকশন' : ''}</th>
-                </tr>
-              </thead>
-              <tbody id="billTable" className="divide-y divide-stone-100">
-                {billItems.map((item) => {
-                  const isEditing = editingItemId === item.id;
-                  const liveEditPrice = parseFloat(editItemPrice) || 0;
-                  const liveEditQty = Math.max(0.01, parseFloat(editItemQty) || 1);
-                  const liveEditTotal = Math.round(liveEditPrice * liveEditQty * 100) / 100;
-
-                  if (isEditing) {
-                    return (
-                      <tr key={item.id} className="bg-blue-50/70 transition-colors">
-                        <td className="p-2 sm:p-2.5">
-                          <input
-                            type="text"
-                            autoFocus={editFocusField === 'name'}
-                            value={editItemName}
-                            onChange={(e) => setEditItemName(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') handleSaveEditItem(item.id);
-                              if (e.key === 'Escape') handleCancelEditItem();
-                            }}
-                            placeholder={isBn ? 'পণ্যের নাম' : 'Item Name'}
-                            className="w-full min-w-[95px] bg-white border border-blue-400 rounded-lg px-2 py-1.5 text-xs font-bold text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                        </td>
-                        <td className="p-2 sm:p-2.5 text-center">
-                          <div className="inline-flex items-center gap-1">
-                            <input
-                              type="number"
-                              min="0.01"
-                              step="any"
-                              autoFocus={editFocusField === 'qty'}
-                              value={editItemQty}
-                              onChange={(e) => setEditItemQty(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') handleSaveEditItem(item.id);
-                                if (e.key === 'Escape') handleCancelEditItem();
-                              }}
-                              placeholder="1"
-                              className="w-12 bg-white border border-blue-400 rounded-lg px-1 py-1.5 text-xs font-mono font-bold text-center text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            />
-                            <input
-                              type="text"
-                              autoFocus={editFocusField === 'unit'}
-                              value={editItemUnit}
-                              onChange={(e) => setEditItemUnit(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') handleSaveEditItem(item.id);
-                                if (e.key === 'Escape') handleCancelEditItem();
-                              }}
-                              placeholder={isBn ? 'ইউনিট' : 'Unit'}
-                              className="w-14 bg-white border border-blue-400 rounded-lg px-1.5 py-1.5 text-xs font-semibold text-center text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            />
-                          </div>
-                        </td>
-                        <td className="p-2 sm:p-2.5 text-right">
-                          <input
-                            type="number"
-                            min="0"
-                            step="any"
-                            autoFocus={editFocusField === 'price'}
-                            value={editItemPrice}
-                            onChange={(e) => setEditItemPrice(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') handleSaveEditItem(item.id);
-                              if (e.key === 'Escape') handleCancelEditItem();
-                            }}
-                            placeholder="0.00"
-                            className="w-20 bg-white border border-blue-400 rounded-lg px-2 py-1.5 text-xs font-mono font-bold text-right text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 ml-auto block"
-                          />
-                        </td>
-                        <td className="p-2 sm:p-2.5 text-right font-mono font-bold text-blue-900 whitespace-nowrap">
-                          {sym}
-                          {liveEditTotal.toFixed(2)}
-                        </td>
-                        <td className="p-2 sm:p-2.5 text-right">
-                          <div className="inline-flex items-center justify-end gap-1">
-                            <button
-                              type="button"
-                              onClick={() => handleSaveEditItem(item.id)}
-                              className="p-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white shadow-2xs transition-colors cursor-pointer"
-                              title={isBn ? 'সেভ করুন' : 'Save changes'}
-                            >
-                              <Check className="w-3.5 h-3.5 stroke-[3]" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={handleCancelEditItem}
-                              className="p-1.5 rounded-lg bg-stone-200 hover:bg-stone-300 text-stone-700 transition-colors cursor-pointer"
-                              title={isBn ? 'বাতিল করুন' : 'Cancel'}
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  }
-
-                  return (
-                    <tr key={item.id} className="hover:bg-stone-50/80 transition-colors">
-                      <td
-                        onClick={() => handleStartEditItem(item, 'name')}
-                        className="p-2.5 sm:p-3 font-medium text-stone-900 cursor-pointer hover:text-blue-600 transition-colors"
-                        title={isBn ? 'নাম পরিবর্তন করতে ট্যাপ করুন' : 'Tap to edit item name'}
-                      >
-                        <span className="border-b border-dashed border-transparent hover:border-blue-400">
-                          {item.name}
-                        </span>
-                      </td>
-                      <td className="p-2.5 sm:p-3 text-center">
-                        <div className="inline-flex items-center gap-1 bg-stone-100 px-1.5 py-0.5 rounded-lg border border-stone-200">
-                          <button
-                            type="button"
-                            onClick={() => handleUpdateQty(item.id, item.qty - 1)}
-                            className="w-4 h-4 text-stone-600 hover:text-stone-900 font-bold flex items-center justify-center leading-none cursor-pointer"
-                          >
-                            -
-                          </button>
-                          <span
-                            onClick={() => handleStartEditItem(item, 'qty')}
-                            className="font-mono font-bold text-xs px-1 cursor-pointer hover:text-blue-600"
-                            title={isBn ? 'সংখ্যা ও ইউনিট পরিবর্তন করতে ট্যাপ করুন' : 'Tap to edit quantity & unit'}
-                          >
-                            {item.qty}
-                            {item.unit ? <span className="font-sans font-semibold text-[11px] text-stone-600 ml-0.5">{item.unit}</span> : null}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => handleUpdateQty(item.id, item.qty + 1)}
-                            className="w-4 h-4 text-stone-600 hover:text-stone-900 font-bold flex items-center justify-center leading-none cursor-pointer"
-                          >
-                            +
-                          </button>
-                        </div>
-                      </td>
-                      <td
-                        onClick={() => handleStartEditItem(item, 'price')}
-                        className="p-2.5 sm:p-3 text-right font-mono text-stone-600 cursor-pointer hover:text-blue-600 transition-colors whitespace-nowrap"
-                        title={isBn ? 'দাম পরিবর্তন করতে ট্যাপ করুন' : 'Tap to edit unit price'}
-                      >
-                        <span className="border-b border-dashed border-stone-300 hover:border-blue-500">
-                          {sym}
-                          {item.price.toFixed(2)}
-                        </span>
-                      </td>
-                      <td className="p-2.5 sm:p-3 text-right font-mono font-bold text-stone-900 whitespace-nowrap">
-                        {sym}
-                        {item.total.toFixed(2)}
-                      </td>
-                      <td className="p-2 sm:p-2.5 text-right">
-                        <div className="inline-flex items-center justify-end gap-1">
-                          <button
-                            type="button"
-                            onClick={() => handleStartEditItem(item, 'price')}
-                            className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
-                            title={isBn ? 'এডিট করুন (Edit)' : 'Edit Item'}
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveItem(item.id)}
-                            className="p-1.5 rounded-lg text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                            title={isBn ? 'মুছে ফেলুন' : 'Remove'}
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
       {/* 4. PAYMENT & CHECKOUT SUMMARY (SECTION 4 - BOTTOM) */}
       <div
         id="billing-checkout-summary-section"
-        className="bg-white rounded-2xl p-4 sm:p-5 shadow-xs border border-stone-200 space-y-4"
+        className="bg-white rounded-2xl p-3 sm:p-4 shadow-xs border border-stone-200 space-y-3"
       >
-        {/* 1. TOP: Discount Section */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <label className="text-xs font-bold text-stone-700 flex items-center gap-1.5">
-              <Tag className="w-3.5 h-3.5 text-blue-600" />
-              <span>{t.discountSection}</span>
-            </label>
-
-            {/* Mode Switcher: Fixed vs Percent % */}
-            <div className="flex items-center bg-stone-100 p-0.5 rounded-lg border border-stone-200">
-              <button
-                type="button"
-                onClick={() => setDiscountType('fixed')}
-                className={`px-2.5 py-1 text-xs font-bold rounded-md transition-all cursor-pointer ${
-                  discountType === 'fixed'
-                    ? 'bg-white text-stone-900 shadow-2xs'
-                    : 'text-stone-500 hover:text-stone-800'
-                }`}
-              >
-                {sym ? `${t.discountFixedLabel} (${sym})` : t.discountFixedLabel}
-              </button>
-              <button
-                type="button"
-                onClick={() => setDiscountType('percent')}
-                className={`px-2.5 py-1 text-xs font-bold rounded-md transition-all cursor-pointer flex items-center gap-1 ${
-                  discountType === 'percent'
-                    ? 'bg-white text-stone-900 shadow-2xs'
-                    : 'text-stone-500 hover:text-stone-800'
-                }`}
-              >
-                <Percent className="w-3 h-3" />
-                <span>{t.discountPercentLabel}</span>
-              </button>
-            </div>
-          </div>
-
-          <div className="flex gap-2">
-            <div className="relative flex-1">
-              {discountType === 'percent' || sym ? (
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 font-bold text-xs text-stone-400">
-                  {discountType === 'fixed' ? sym : '%'}
-                </span>
-              ) : null}
-              <input
-                type="number"
-                min="0"
-                max={discountType === 'percent' ? '100' : undefined}
-                step="any"
-                value={discountValue}
-                onChange={(e) => setDiscountValue(e.target.value)}
-                placeholder={discountType === 'fixed' ? '0.00' : '0'}
-                className={`w-full border border-stone-200 bg-stone-50/80 ${
-                  discountType === 'percent' || sym
-                    ? discountType === 'fixed' && sym && sym.length > 2
-                      ? 'pl-11'
-                      : 'pl-8'
-                    : 'pl-3'
-                } pr-8 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all`}
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  setCalculatorTarget('discount');
-                  setIsCalculatorModalOpen(true);
-                }}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-blue-600 p-0.5 rounded cursor-pointer"
-                title={isBn ? 'ক্যালকুলেটর দিয়ে ছাড় হিসাব করুন' : 'Calculate Discount'}
-              >
-                <Calculator className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            {discountValue && (
-              <button
-                type="button"
-                onClick={() => setDiscountValue('')}
-                className="px-3 py-2 border border-stone-200 bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-xl text-xs font-semibold cursor-pointer"
-              >
-                {t.clearBill}
-              </button>
-            )}
-          </div>
-
-          {/* Quick preset chips */}
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-[11px] text-stone-400 font-medium">
-              {isBn ? 'দ্রুত:' : 'Quick:'}
-            </span>
-            {discountType === 'percent'
-              ? [5, 10, 15, 20, 25].map((pct) => (
-                  <button
-                    key={pct}
-                    type="button"
-                    onClick={() => setDiscountValue(String(pct))}
-                    className={`px-2 py-0.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
-                      discountValue === String(pct)
-                        ? 'bg-blue-600 text-white border-blue-600'
-                        : 'bg-stone-50 hover:bg-stone-100 text-stone-700 border-stone-200'
-                    }`}
-                  >
-                    {pct}%
-                  </button>
-                ))
-              : [50, 100, 200, 500].map((amt) => (
-                  <button
-                    key={amt}
-                    type="button"
-                    onClick={() => setDiscountValue(String(amt))}
-                    className={`px-2 py-0.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
-                      discountValue === String(amt)
-                        ? 'bg-blue-600 text-white border-blue-600'
-                        : 'bg-stone-50 hover:bg-stone-100 text-stone-700 border-stone-200'
-                    }`}
-                  >
-                    {sym}
-                    {amt}
-                  </button>
-                ))}
-          </div>
-
-          {/* Live discount savings highlight */}
-          {discountAmount > 0 && (
-            <div className="p-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center justify-between">
-              <span>
-                {discountType === 'percent'
-                  ? isBn
-                    ? `${rawDiscount}% ছাড় প্রযোজ্য হয়েছে`
-                    : `Applied ${rawDiscount}% discount`
-                  : isBn
-                  ? 'নির্দিষ্ট ছাড় প্রযোজ্য হয়েছে'
-                  : 'Flat discount applied'}
-              </span>
-              <span className="font-bold">
-                {isBn ? 'সাশ্রয়' : 'Saves'} -{sym}
-                {discountAmount.toFixed(2)}
-              </span>
-            </div>
-          )}
-        </div>
-
-        {/* 2. MIDDLE 1: Real-time Order Summary Breakdown */}
-        <div className="bg-stone-50/90 border border-stone-200 p-3.5 rounded-2xl space-y-2">
+        {/* 1. TOP: Real-time Order Summary Breakdown (Discount input hidden from top as requested) */}
+        <div className="bg-stone-50/90 border border-stone-200 p-3 sm:p-3.5 rounded-2xl space-y-1.5">
           <div className="flex items-center justify-between text-xs text-stone-600">
             <span>{t.subtotalText}</span>
             <span className="font-mono font-bold text-stone-900">
@@ -1679,61 +1542,134 @@ export const BillingTab: React.FC<BillingTabProps> = ({
           </div>
         </div>
 
-        {/* 3. MIDDLE 2: Tendered Amount & Change Due */}
-        <div className="pt-1 space-y-2">
-          <div className="flex items-center justify-between">
-            <label className="text-xs font-bold text-stone-700">
-              {isTailoring
-                ? isBn
-                  ? `অগ্রিম জমা / প্রাপ্ত টাকা (Advance Paid ${sym})`
-                  : `Advance Paid / Received (${sym})`
-                : `${t.paidReceivedLabel} (${sym})`}
-            </label>
-            {grandTotal > 0 && (
-              <div className="flex items-center gap-2">
-                {isTailoring && (
+        {/* 2. MIDDLE: Side-by-Side Paid/Received (Left) & Discount (Right) */}
+        <div className="pt-0.5 space-y-2">
+          <div className="grid grid-cols-2 gap-2.5">
+            {/* LEFT COLUMN: Paid / Received */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between gap-1 min-h-[24px]">
+                <label className="text-[11px] sm:text-xs font-bold text-stone-700 truncate">
+                  {isTailoring
+                    ? isBn
+                      ? `অগ্রিম জমা ${sym ? `(${sym})` : ''}`
+                      : `Advance ${sym ? `(${sym})` : ''}`
+                    : `${t.paidReceivedLabel} ${sym ? `(${sym})` : ''}`}
+                </label>
+                {grandTotal > 0 && (
                   <button
                     type="button"
-                    onClick={() => setPaidAmount(String(Math.round(grandTotal / 2)))}
-                    className="text-[11px] text-purple-600 hover:text-purple-800 font-bold underline cursor-pointer"
+                    onClick={() => setPaidAmount(grandTotal.toFixed(2))}
+                    className="text-[10px] text-blue-600 hover:text-blue-700 font-bold underline cursor-pointer shrink-0"
                   >
-                    50% Advance ({sym}
-                    {Math.round(grandTotal / 2)})
+                    {t.exactBtn}
+                  </button>
+                )}
+              </div>
+
+              <div className="relative">
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={paidAmount}
+                  onChange={(e) => setPaidAmount(e.target.value)}
+                  placeholder={grandTotal > 0 ? grandTotal.toFixed(2) : '0.00'}
+                  className="w-full border border-stone-200 bg-stone-50/80 pl-3 pr-8 py-2.5 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCalculatorTarget('paid');
+                    setIsCalculatorModalOpen(true);
+                  }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400 hover:text-blue-600 p-1 rounded-md cursor-pointer transition-colors"
+                  title={isBn ? 'ক্যালকুলেটর দিয়ে ক্যাশ হিসাব করুন' : 'Calculate Cash'}
+                >
+                  <Calculator className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            {/* RIGHT COLUMN: Discount (Moved from top to right side as requested) */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between gap-1 min-h-[24px]">
+                <label className="text-[11px] sm:text-xs font-bold text-stone-700 flex items-center gap-1 truncate">
+                  <Tag className="w-3 h-3 text-blue-600 shrink-0" />
+                  <span className="truncate">{isBn ? 'ডিসকাউন্ট' : 'Discount'}</span>
+                </label>
+
+                {/* Compact Fixed vs Percent % Toggle */}
+                <div className="flex items-center bg-stone-100 p-0.5 rounded-lg border border-stone-200 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setDiscountType('fixed')}
+                    className={`px-1.5 py-0.5 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
+                      discountType === 'fixed'
+                        ? 'bg-white text-stone-900 shadow-2xs'
+                        : 'text-stone-500 hover:text-stone-800'
+                    }`}
+                  >
+                    {sym || (isBn ? '৳' : 'Rs.')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDiscountType('percent')}
+                    className={`px-1.5 py-0.5 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
+                      discountType === 'percent'
+                        ? 'bg-white text-stone-900 shadow-2xs'
+                        : 'text-stone-500 hover:text-stone-800'
+                    }`}
+                  >
+                    %
+                  </button>
+                </div>
+              </div>
+
+              <div className="relative">
+                {discountType === 'percent' || sym ? (
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 font-bold text-[11px] text-stone-400 pointer-events-none">
+                    {discountType === 'fixed' ? sym : '%'}
+                  </span>
+                ) : null}
+                <input
+                  type="number"
+                  min="0"
+                  max={discountType === 'percent' ? '100' : undefined}
+                  step="any"
+                  value={discountValue}
+                  onChange={(e) => setDiscountValue(e.target.value)}
+                  placeholder={discountType === 'fixed' ? '0.00' : '0%'}
+                  className={`w-full border border-stone-200 bg-stone-50/80 ${
+                    discountType === 'percent' || sym
+                      ? discountType === 'fixed' && sym && sym.length > 2
+                        ? 'pl-9'
+                        : 'pl-7'
+                      : 'pl-3'
+                  } ${discountValue ? 'pr-12' : 'pr-8'} py-2.5 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all`}
+                />
+                {discountValue && (
+                  <button
+                    type="button"
+                    onClick={() => setDiscountValue('')}
+                    className="absolute right-7 top-1/2 -translate-y-1/2 text-stone-400 hover:text-rose-600 p-0.5 rounded cursor-pointer text-xs font-bold"
+                    title={isBn ? 'ডিসকাউন্ট মুছুন' : 'Clear Discount'}
+                  >
+                    ✕
                   </button>
                 )}
                 <button
                   type="button"
-                  onClick={() => setPaidAmount(grandTotal.toFixed(2))}
-                  className="text-[11px] text-blue-600 hover:text-blue-700 font-bold underline cursor-pointer"
+                  onClick={() => {
+                    setCalculatorTarget('discount');
+                    setIsCalculatorModalOpen(true);
+                  }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400 hover:text-blue-600 p-1 rounded-md cursor-pointer transition-colors"
+                  title={isBn ? 'ক্যালকুলেটর দিয়ে ছাড় হিসাব করুন' : 'Calculate Discount'}
                 >
-                  {t.exactBtn} ({sym}
-                  {grandTotal.toFixed(2)})
+                  <Calculator className="w-3.5 h-3.5" />
                 </button>
               </div>
-            )}
-          </div>
-
-          <div className="relative">
-            <input
-              type="number"
-              min="0"
-              step="any"
-              value={paidAmount}
-              onChange={(e) => setPaidAmount(e.target.value)}
-              placeholder={grandTotal > 0 ? grandTotal.toFixed(2) : '0.00'}
-              className="w-full border border-stone-200 bg-stone-50/80 pl-3.5 pr-9 py-2.5 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
-            />
-            <button
-              type="button"
-              onClick={() => {
-                setCalculatorTarget('paid');
-                setIsCalculatorModalOpen(true);
-              }}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-blue-600 p-1 rounded-md cursor-pointer transition-colors"
-              title={isBn ? 'ক্যালকুলেটর দিয়ে ক্যাশ হিসাব করুন' : 'Calculate Cash'}
-            >
-              <Calculator className="w-4 h-4" />
-            </button>
+            </div>
           </div>
 
           {paidNum > grandTotal && (
@@ -1767,16 +1703,15 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             )}
         </div>
 
-        {/* 4. BOTTOM: Payment Method Selection Buttons */}
-        <div className="pt-2 border-t border-stone-100">
-          <label className="block text-[11px] font-bold uppercase tracking-wider text-stone-500 mb-2">
+        {/* 4. BOTTOM: Payment Method Selection Buttons (Compact 1-Row without Card) */}
+        <div className="pt-1.5 border-t border-stone-100">
+          <label className="block text-[11px] font-bold uppercase tracking-wider text-stone-500 mb-1.5">
             {t.paymentModeLabel}
           </label>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             {[
               { id: 'cash', label: t.modeCash, icon: Banknote },
               { id: 'upi', label: t.modeUpi, icon: QrCode },
-              { id: 'card', label: t.modeCard, icon: CreditCard },
               { id: 'due', label: t.modeDue, icon: Clock },
             ].map((method) => {
               const Icon = method.icon;
@@ -1785,7 +1720,13 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 <button
                   key={method.id}
                   type="button"
-                  onClick={() => setPaymentMethod(method.id as PaymentMethod)}
+                  onClick={() => {
+                    const nextMode = method.id as PaymentMethod;
+                    setPaymentMethod(nextMode);
+                    if (nextMode === 'due' && paidNum >= grandTotal) {
+                      setPaidAmount('');
+                    }
+                  }}
                   className={`py-2.5 px-3 rounded-xl text-xs font-bold text-center border transition-all cursor-pointer flex items-center justify-center gap-2 shadow-2xs ${
                     isSelected
                       ? 'bg-blue-600 text-white border-blue-600 shadow-xs ring-2 ring-blue-600/20 scale-[1.02]'
@@ -1804,36 +1745,59 @@ export const BillingTab: React.FC<BillingTabProps> = ({
           </div>
         </div>
 
-        {/* 5. VERY BOTTOM: Primary Action Button */}
-        <button
-          id="billing-print-btn"
-          onClick={handleCheckoutAndPrint}
-          disabled={billItems.length === 0 || isPrinting}
-          className={`w-full py-3.5 rounded-2xl font-bold text-sm sm:text-base shadow-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
-            billItems.length > 0 && !isPrinting
-              ? 'bg-[#6E68D8] hover:bg-[#5E58C8] active:bg-[#534DA8] text-white shadow-md active:scale-[0.99]'
-              : 'bg-stone-200 text-stone-400 cursor-not-allowed'
-          }`}
-        >
-          {isPrinting ? (
-            <>
-              <RefreshCw className="w-5 h-5 animate-spin" />
-              <span>{t.generatingInvoice}</span>
-            </>
-          ) : (
-            <>
-              <Printer className="w-5 h-5" />
-              <span>{t.printTaxInvoiceBtn}</span>
-              <span className="opacity-90 font-mono text-xs bg-white/20 px-2 py-0.5 rounded-md font-semibold">
-                {invoiceNo || storageService.getNextInvoiceNumber()}
-              </span>
-            </>
-          )}
-        </button>
+        {/* 5. VERY BOTTOM: Two Side-by-Side Action Buttons (Save Bill & Direct Print) */}
+        <div className="grid grid-cols-2 gap-3 pt-1">
+          {/* Button 1: Save Bill Only */}
+          <button
+            type="button"
+            id="billing-save-btn"
+            onClick={() => handleCheckoutAndPrint('save')}
+            disabled={billItems.length === 0 || isPrinting}
+            className={`w-full py-3.5 px-3 rounded-2xl font-bold text-xs sm:text-sm shadow-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              billItems.length > 0 && !isPrinting
+                ? 'bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white shadow-md active:scale-[0.99]'
+                : 'bg-stone-200 text-stone-400 cursor-not-allowed'
+            }`}
+          >
+            <Check className="w-4 h-4 sm:w-5 sm:h-5 shrink-0 stroke-[2.5]" />
+            <span className="truncate">
+              {isBn ? 'বিল সেভ করুন' : language === 'hi' ? 'बिल सेव करें' : 'Save Bill'}
+            </span>
+            <span className="opacity-90 font-mono text-[11px] bg-white/20 px-1.5 py-0.5 rounded-md font-semibold shrink-0">
+              #{invoiceNo || storageService.getNextInvoiceNumber()}
+            </span>
+          </button>
 
-        <p className="text-center text-[11px] text-stone-500 pt-0.5">
-          {t.printTaxInvoiceSub}
-        </p>
+          {/* Button 2: Direct Print Bill */}
+          <button
+            type="button"
+            id="billing-print-btn"
+            onClick={() => handleCheckoutAndPrint('print')}
+            disabled={billItems.length === 0 || isPrinting}
+            className={`w-full py-3.5 px-3 rounded-2xl font-bold text-xs sm:text-sm shadow-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              billItems.length > 0 && !isPrinting
+                ? 'bg-[#6E68D8] hover:bg-[#5E58C8] active:bg-[#534DA8] text-white shadow-md active:scale-[0.99]'
+                : 'bg-stone-200 text-stone-400 cursor-not-allowed'
+            }`}
+          >
+            {isPrinting ? (
+              <>
+                <RefreshCw className="w-4 h-4 sm:w-5 sm:h-5 animate-spin shrink-0" />
+                <span className="truncate">{t.generatingInvoice}</span>
+              </>
+            ) : (
+              <>
+                <Printer className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
+                <span className="truncate">
+                  {isBn ? 'প্রিন্ট করুন' : language === 'hi' ? 'प्रिंट करें' : 'Print Bill'}
+                </span>
+                <span className="opacity-90 font-mono text-[11px] bg-white/20 px-1.5 py-0.5 rounded-md font-semibold shrink-0">
+                  #{invoiceNo || storageService.getNextInvoiceNumber()}
+                </span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* KHATABOOK / VYAPAR ENTRY MODAL FOR BILLING WITH FULL 5-ROW CALCULATOR */}

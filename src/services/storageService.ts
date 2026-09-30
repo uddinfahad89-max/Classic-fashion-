@@ -171,7 +171,31 @@ class StorageService {
       if (data !== null) {
         const parsed: BillInvoice[] = JSON.parse(data);
         if (Array.isArray(parsed)) {
-          return parsed;
+          let needsResave = false;
+          const healed = parsed.map((b) => {
+            // Heal bills that were edited to 'due' while paidAmount remained stuck at grandTotal
+            if (
+              b.paymentMethod === 'due' &&
+              b.grandTotal > 0 &&
+              b.paidAmount === b.grandTotal &&
+              (!b.balance || b.balance === 0)
+            ) {
+              needsResave = true;
+              return {
+                ...b,
+                paidAmount: 0,
+                balance: b.grandTotal,
+                currentBalance: b.grandTotal,
+                changeAmount: 0,
+                paymentStatus: 'DUE' as const,
+              };
+            }
+            return b;
+          });
+          if (needsResave) {
+            localStorage.setItem(STORAGE_KEYS.BILLS, JSON.stringify(healed));
+          }
+          return healed;
         }
       }
       return [];
