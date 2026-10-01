@@ -13,6 +13,7 @@ import {
   ExternalLink,
   Tag,
   Percent,
+  FileText,
 } from 'lucide-react';
 import {
   BillInvoice,
@@ -271,14 +272,25 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
 
     // Determine final paid & due balance
     const finalPaid =
-      paymentMethod === 'due'
+      paymentMethod === 'estimate'
+        ? hasExplicitPaid
+          ? Math.max(0, paidNum)
+          : 0
+        : paymentMethod === 'due'
         ? Math.min(grandTotal, Math.max(0, paidNum))
         : hasExplicitPaid && paidNum < grandTotal
         ? Math.max(0, paidNum)
         : grandTotal;
-    const finalBalance = Math.max(0, Math.round((grandTotal - finalPaid) * 100) / 100);
+    const finalBalance =
+      paymentMethod === 'estimate'
+        ? 0
+        : Math.max(0, Math.round((grandTotal - finalPaid) * 100) / 100);
     const finalPaymentMethod: PaymentMethod =
-      paymentMethod === 'due' || finalBalance > 0 ? 'due' : paymentMethod;
+      paymentMethod === 'estimate'
+        ? 'estimate'
+        : paymentMethod === 'due' || finalBalance > 0
+        ? 'due'
+        : paymentMethod;
 
     let paymentStatus: 'PAID' | 'DUE' | 'PARTIAL' = 'PAID';
     if (finalPaymentMethod === 'due' || finalBalance > 0) {
@@ -811,8 +823,9 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
               <label className="text-xs font-bold text-stone-800 block">
                 {t.paymentMethodLabel}
               </label>
-              <div className="grid grid-cols-4 gap-1">
+              <div className="grid grid-cols-5 gap-1">
                 {[
+                  { id: 'estimate', label: 'Estimate', icon: FileText },
                   { id: 'cash', label: 'Cash', icon: Banknote },
                   { id: 'upi', label: 'UPI', icon: SmartphoneNfc },
                   { id: 'card', label: 'Card', icon: CreditCard },

@@ -2,7 +2,7 @@ export type PaperWidth = '58mm' | '80mm' | '50mm_label';
 
 export type ThermalProtocol = 'escpos' | 'tspl';
 
-export type PaymentMethod = 'cash' | 'upi' | 'card' | 'due';
+export type PaymentMethod = 'estimate' | 'cash' | 'upi' | 'card' | 'due';
 
 export type PaymentStatus = 'PAID' | 'DUE' | 'PARTIAL';
 

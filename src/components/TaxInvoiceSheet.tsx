@@ -88,10 +88,14 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({ bill, settings
 
       <div className="border-t border-stone-300 my-3"></div>
 
-      {/* 2. Tax Invoice / Tailoring Invoice Banner */}
+      {/* 2. Tax Invoice / Estimate / Tailoring Invoice Banner */}
       <div className="text-center my-2.5">
         <h2 className="text-xl sm:text-2xl font-extrabold text-[#8C8EE8] tracking-normal">
-          {bill.isTailoring ? '✂️ Tailoring Invoice' : 'Tax Invoice'}
+          {bill.isTailoring
+            ? '✂️ Tailoring Invoice'
+            : bill.paymentMethod === 'estimate'
+            ? 'Estimate'
+            : 'Tax Invoice'}
         </h2>
       </div>
 

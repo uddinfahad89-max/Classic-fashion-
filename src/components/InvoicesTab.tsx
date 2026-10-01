@@ -117,7 +117,7 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
   const [showSummaryCard, setShowSummaryCard] = useState(false);
   const [datePreset, setDatePreset] = useState<DateFilterPreset>('all');
   const [customDate, setCustomDate] = useState('');
-  const [paymentFilter, setPaymentFilter] = useState<'all' | 'cash' | 'upi' | 'card' | 'due' | 'tailoring'>('all');
+  const [paymentFilter, setPaymentFilter] = useState<'all' | 'estimate' | 'cash' | 'upi' | 'card' | 'due' | 'tailoring'>('all');
   const [localSort, setLocalSort] = useState<SortOption>(sortOption);
   const [editingBill, setEditingBill] = useState<BillInvoice | null>(null);
   const [deleteConfirmBill, setDeleteConfirmBill] = useState<{
@@ -448,6 +448,7 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
             >
               <option value="all">All Modes</option>
               <option value="tailoring">✂️ Tailoring Orders</option>
+              <option value="estimate">Estimate</option>
               <option value="cash">Cash</option>
               <option value="upi">UPI</option>
               <option value="card">Card</option>
@@ -527,7 +528,11 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
                     <span className="text-[11px] font-mono font-bold text-stone-500 bg-stone-100 px-1.5 py-0.5 rounded">
                       #{bill.invoiceNo}
                     </span>
-                    {isDue ? (
+                    {bill.paymentMethod === 'estimate' ? (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-700 text-[10px] font-bold border border-blue-200">
+                        {isBn ? 'এস্টিমেট (Estimate)' : 'ESTIMATE'}
+                      </span>
+                    ) : isDue ? (
                       <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-700 text-[10px] font-bold border border-rose-200">
                         {bill.paymentStatus === 'PARTIAL'
                           ? isBn

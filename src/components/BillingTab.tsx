@@ -25,6 +25,7 @@ import {
   Calendar,
   Ruler,
   ChevronDown,
+  FileText,
 } from 'lucide-react';
 import {
   BillItem,
@@ -172,7 +173,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   );
   const [discountValue, setDiscountValue] = useState(() => initialDraft?.discountValue || '');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(
-    () => initialDraft?.paymentMethod || 'cash'
+    () => initialDraft?.paymentMethod || 'estimate'
   );
   const [paidAmount, setPaidAmount] = useState(() => initialDraft?.paidAmount || '');
 
@@ -653,7 +654,12 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       discountType,
       discountValue: rawDiscount,
       grandTotal: finalGrandTotal,
-      paymentMethod: balanceAmount > 0 && actualPaid < finalGrandTotal ? 'due' : paymentMethod,
+      paymentMethod:
+        paymentMethod === 'estimate'
+          ? 'estimate'
+          : balanceAmount > 0 && actualPaid < finalGrandTotal
+          ? 'due'
+          : paymentMethod,
       paymentStatus:
         balanceAmount <= 0 ? 'PAID' : actualPaid > 0 ? 'PARTIAL' : 'DUE',
       paidAmount: actualPaid,
@@ -684,6 +690,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     setCustomerPhone('');
     setDiscountValue('');
     setPaidAmount('');
+    setPaymentMethod('estimate');
     setDeliveryDate('');
     setTrialDate('');
     setMeasurements({
@@ -741,12 +748,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         className="bg-white rounded-2xl p-3 sm:p-4 shadow-xs border border-stone-200"
       >
         <div className="flex items-center justify-between gap-2 mb-2.5 flex-wrap">
-          <h2 className="text-sm font-bold text-stone-900 flex items-center gap-1.5">
-            <User className="w-4 h-4 text-blue-600" />
-            <span>{isBn ? 'ক্রেতার বিবরণ' : 'Customer Details'}</span>
-          </h2>
           {/* Tailoring Mode Toggle + Automatic Sequential Invoice Number Badge */}
-          <div className="flex items-center gap-1.5 flex-wrap">
+          <div className="flex items-center justify-between w-full gap-1.5 flex-wrap">
             <button
               type="button"
               id="btn-toggle-tailoring-invoice"
@@ -784,12 +787,9 @@ export const BillingTab: React.FC<BillingTabProps> = ({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           {/* Customer Name */}
           <div>
-            <label className="block text-[11px] font-semibold text-stone-600 mb-1">
-              {isBn ? 'ক্রেতার নাম (ঐচ্ছিক)' : 'Customer Name'}
-            </label>
             <div className="relative">
               <div className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none">
                 <User className="w-4 h-4" />
@@ -807,9 +807,6 @@ export const BillingTab: React.FC<BillingTabProps> = ({
 
           {/* Customer Phone / Mobile */}
           <div>
-            <label className="block text-[11px] font-semibold text-stone-600 mb-1">
-              {isBn ? 'মোবাইল নম্বর (ঐচ্ছিক)' : 'Mobile Phone'}
-            </label>
             <div className="relative">
               <div className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none">
                 <Phone className="w-4 h-4" />
@@ -1048,6 +1045,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                   setCustomerPhone('');
                   setDiscountValue('');
                   setPaidAmount('');
+                  setPaymentMethod('estimate');
                 }
               }}
               className="text-[11px] text-stone-500 hover:text-red-600 flex items-center gap-1 transition-colors cursor-pointer shrink-0"
@@ -1249,89 +1247,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       {/* 3. INSTANT ITEM ENTRY & PRODUCT STOCK CARD (SECTION 3 - MIDDLE) */}
       <div
         id="billing-item-entry-section"
-        className="bg-white rounded-2xl p-4 sm:p-5 shadow-xs border border-stone-200"
+        className="bg-white rounded-2xl p-3.5 sm:p-4 shadow-xs border border-stone-200"
       >
-        <div className="flex items-center justify-between gap-2 mb-3">
-          <h2 className="text-sm font-bold text-stone-900 flex items-center gap-1.5">
-            <Receipt className="w-4 h-4 text-blue-600" />
-            <span>{t.instantItemEntry}</span>
-          </h2>
-
-          {/* Hidden behind 3-dot (⋮) menu as requested */}
-          <div className="relative">
-            <button
-              type="button"
-              id="btn-billing-stock-dots"
-              onClick={() => setShowStockMoreMenu((prev) => !prev)}
-              className="p-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 border border-stone-200 transition-all flex items-center justify-center cursor-pointer"
-              title={isBn ? 'স্টক অপশন (৩ ডট)' : 'Stock Options'}
-            >
-              <MoreVertical className="w-4 h-4" />
-            </button>
-
-            {showStockMoreMenu && (
-              <div className="absolute right-0 top-9 w-48 bg-white rounded-2xl shadow-xl border border-stone-200 p-1.5 z-40 space-y-1 animate-in fade-in zoom-in-95 duration-150">
-                <button
-                  type="button"
-                  id="btn-inline-stock-toggle"
-                  onClick={() => {
-                    setShowInlineStockAdd((prev) => !prev);
-                    setShowStockMoreMenu(false);
-                  }}
-                  className="w-full px-3 py-2 rounded-xl text-xs font-bold text-emerald-800 hover:bg-emerald-50 flex items-center gap-2 cursor-pointer text-left"
-                >
-                  <Plus className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5]" />
-                  <span>{isBn ? 'স্টক যোগ (+ Add Stock)' : '+ Add Stock'}</span>
-                </button>
-
-                {onOpenProductStock && (
-                  <button
-                    type="button"
-                    id="btn-open-product-stock"
-                    onClick={() => {
-                      setShowStockMoreMenu(false);
-                      onOpenProductStock();
-                    }}
-                    className="w-full px-3 py-2 rounded-xl text-xs font-bold text-blue-800 hover:bg-blue-50 flex items-center justify-between gap-2 cursor-pointer text-left"
-                  >
-                    <span className="flex items-center gap-2">
-                      <Package className="w-3.5 h-3.5 text-blue-600" />
-                      <span>{isBn ? 'প্রোডাক্ট স্টক তালিকা' : 'Product Stock'}</span>
-                    </span>
-                    <span className="bg-blue-600 text-white text-[10px] font-mono font-black px-1.5 py-0.2 rounded-full">
-                      {allSavedProducts.length}
-                    </span>
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEnableSavedSuggestions((prev) => !prev);
-                    setShowSuggestions(false);
-                    setShowStockMoreMenu(false);
-                  }}
-                  className="w-full px-3 py-2 rounded-xl text-xs font-bold text-stone-700 hover:bg-stone-100 flex items-center justify-between gap-2 cursor-pointer text-left"
-                >
-                  <span className="flex items-center gap-2">
-                    <Sparkles className="w-3.5 h-3.5 text-amber-600" />
-                    <span>{isBn ? 'সেভ আইটেম সাজেশন' : 'Saved Item Suggestions'}</span>
-                  </span>
-                  <span
-                    className={`text-[10px] font-black px-1.5 py-0.5 rounded ${
-                      enableSavedSuggestions
-                        ? 'bg-emerald-100 text-emerald-800'
-                        : 'bg-stone-200 text-stone-600'
-                    }`}
-                  >
-                    {enableSavedSuggestions ? 'ON' : 'OFF'}
-                  </span>
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
         {/* Optional Quick Inline "Add Product to Stock Only" Box */}
         {showInlineStockAdd && (
           <div className="mb-3.5 p-3 rounded-2xl bg-emerald-50/70 border border-emerald-200 space-y-2.5 animate-in fade-in duration-150">
@@ -1412,108 +1329,184 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         )}
 
         <form onSubmit={handleAddItem} className="space-y-2.5">
-          {/* ITEM NAME INPUT */}
-          <div ref={suggestionContainerRef} className="relative">
-            <input
-              ref={nameInputRef}
-              type="text"
-              id="itemName"
-              autoComplete="off"
-              value={itemName}
-              onFocus={() => {
-                if (enableSavedSuggestions && itemName.trim().length > 0) {
-                  setShowSuggestions(true);
+          {/* ITEM NAME INPUT + 3-DOT STOCK MENU */}
+          <div className="flex items-center gap-2">
+            <div ref={suggestionContainerRef} className="relative flex-1">
+              <input
+                ref={nameInputRef}
+                type="text"
+                id="itemName"
+                autoComplete="off"
+                value={itemName}
+                onFocus={() => {
+                  if (enableSavedSuggestions && itemName.trim().length > 0) {
+                    setShowSuggestions(true);
+                  }
+                }}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setItemName(val);
+                  if (enableSavedSuggestions) {
+                    setShowSuggestions(val.trim().length > 0);
+                  } else {
+                    setShowSuggestions(false);
+                  }
+                }}
+                onKeyDown={handleNameKeyDown}
+                placeholder={
+                  isBn
+                    ? 'পণ্যের নাম লিখুন (যেমন: Shirt, Pant, Panjabi...)'
+                    : t.itemNamePlaceholder
                 }
-              }}
-              onChange={(e) => {
-                const val = e.target.value;
-                setItemName(val);
-                if (enableSavedSuggestions) {
-                  setShowSuggestions(val.trim().length > 0);
-                } else {
-                  setShowSuggestions(false);
-                }
-              }}
-              onKeyDown={handleNameKeyDown}
-              placeholder={
-                isBn
-                  ? 'পণ্যের নাম লিখুন (যেমন: Shirt, Pant, Panjabi...)'
-                  : t.itemNamePlaceholder
-              }
-              className="w-full border border-stone-200 bg-stone-50/80 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-medium focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
-            />
+                className="w-full border border-stone-200 bg-stone-50/80 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-medium focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
+              />
 
-            {/* OPTIONAL SAVED PRODUCTS DROPDOWN (Only shown if explicitly enabled from 3-dot menu) */}
-            {enableSavedSuggestions && showSuggestions && matchingProducts.length > 0 && (
-              <div
-                id="product-autocomplete-dropdown"
-                className="absolute left-0 right-0 top-full mt-1.5 z-30 bg-white rounded-2xl shadow-xl border border-blue-200 overflow-hidden divide-y divide-stone-100 animate-in fade-in slide-in-from-top-1 duration-100"
-              >
-                <div className="px-3 py-1.5 bg-blue-50/80 flex items-center justify-between text-[10px] font-bold text-blue-700">
-                  <span className="flex items-center gap-1">
-                    <Sparkles className="w-3 h-3 text-blue-600" />
-                    <span>
-                      {isBn
-                        ? 'সেভ করা প্রোডাক্ট (ট্যাপ করলে নাম ও দাম বসবে)'
-                        : 'Saved Products (Tap to fill name & price)'}
+              {/* OPTIONAL SAVED PRODUCTS DROPDOWN (Only shown if explicitly enabled from 3-dot menu) */}
+              {enableSavedSuggestions && showSuggestions && matchingProducts.length > 0 && (
+                <div
+                  id="product-autocomplete-dropdown"
+                  className="absolute left-0 right-0 top-full mt-1.5 z-30 bg-white rounded-2xl shadow-xl border border-blue-200 overflow-hidden divide-y divide-stone-100 animate-in fade-in slide-in-from-top-1 duration-100"
+                >
+                  <div className="px-3 py-1.5 bg-blue-50/80 flex items-center justify-between text-[10px] font-bold text-blue-700">
+                    <span className="flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 text-blue-600" />
+                      <span>
+                        {isBn
+                          ? 'সেভ করা প্রোডাক্ট (ট্যাপ করলে নাম ও দাম বসবে)'
+                          : 'Saved Products (Tap to fill name & price)'}
+                      </span>
                     </span>
-                  </span>
-                  <span>{matchingProducts.length}টি পাওয়া গেছে</span>
-                </div>
+                    <span>{matchingProducts.length}টি পাওয়া গেছে</span>
+                  </div>
 
-                <div className="max-h-60 overflow-y-auto divide-y divide-stone-100">
-                  {matchingProducts.map((prod, idx) => {
-                    const isHighlighted = idx === activeSuggestionIndex;
-                    const hasStock = (prod.stock || 0) > 0;
-                    return (
-                      <div
-                        key={prod.id}
-                        onClick={() => handleSelectSuggestedProduct(prod, false)}
-                        className={`px-3 py-2.5 flex items-center justify-between gap-2 cursor-pointer transition-colors ${
-                          isHighlighted ? 'bg-blue-50/90' : 'hover:bg-stone-50'
-                        }`}
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="text-xs sm:text-sm font-bold text-stone-900 truncate">
-                            {renderHighlightedName(prod.name, itemName)}
+                  <div className="max-h-60 overflow-y-auto divide-y divide-stone-100">
+                    {matchingProducts.map((prod, idx) => {
+                      const isHighlighted = idx === activeSuggestionIndex;
+                      const hasStock = (prod.stock || 0) > 0;
+                      return (
+                        <div
+                          key={prod.id}
+                          onClick={() => handleSelectSuggestedProduct(prod, false)}
+                          className={`px-3 py-2.5 flex items-center justify-between gap-2 cursor-pointer transition-colors ${
+                            isHighlighted ? 'bg-blue-50/90' : 'hover:bg-stone-50'
+                          }`}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs sm:text-sm font-bold text-stone-900 truncate">
+                              {renderHighlightedName(prod.name, itemName)}
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5 text-[11px]">
+                              <span className="font-mono font-extrabold text-blue-700">
+                                {sym || 'Rs '}
+                                {prod.price.toFixed(0)}
+                              </span>
+                              <span
+                                className={`font-mono px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                                  hasStock
+                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                    : 'bg-stone-100 text-stone-500'
+                                }`}
+                              >
+                                {isBn ? 'স্টক:' : 'Stock:'} {prod.stock || 0} {prod.unit || 'Pcs'}
+                              </span>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2 mt-0.5 text-[11px]">
-                            <span className="font-mono font-extrabold text-blue-700">
-                              {sym || 'Rs '}
-                              {prod.price.toFixed(0)}
-                            </span>
-                            <span
-                              className={`font-mono px-1.5 py-0.2 rounded text-[10px] font-bold ${
-                                hasStock
-                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                  : 'bg-stone-100 text-stone-500'
-                              }`}
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSelectSuggestedProduct(prod, true);
+                              }}
+                              className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-[11px] font-bold flex items-center gap-1 shadow-2xs cursor-pointer"
+                              title={isBn ? 'সরাসরি বিলে যোগ করুন' : 'Directly add to bill'}
                             >
-                              {isBn ? 'স্টক:' : 'Stock:'} {prod.stock || 0} {prod.unit || 'Pcs'}
-                            </span>
+                              <Plus className="w-3 h-3 stroke-[3]" />
+                              <span>{isBn ? 'বিলে যোগ' : 'Add'}</span>
+                            </button>
                           </div>
                         </div>
-
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleSelectSuggestedProduct(prod, true);
-                            }}
-                            className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-[11px] font-bold flex items-center gap-1 shadow-2xs cursor-pointer"
-                            title={isBn ? 'সরাসরি বিলে যোগ করুন' : 'Directly add to bill'}
-                          >
-                            <Plus className="w-3 h-3 stroke-[3]" />
-                            <span>{isBn ? 'বিলে যোগ' : 'Add'}</span>
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
+
+            {/* 3-dot (⋮) menu aligned inline with Item Name input */}
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                id="btn-billing-stock-dots"
+                onClick={() => setShowStockMoreMenu((prev) => !prev)}
+                className="p-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 border border-stone-200 transition-all flex items-center justify-center cursor-pointer"
+                title={isBn ? 'স্টক অপশন (৩ ডট)' : 'Stock Options'}
+              >
+                <MoreVertical className="w-4 h-4" />
+              </button>
+
+              {showStockMoreMenu && (
+                <div className="absolute right-0 top-11 w-48 bg-white rounded-2xl shadow-xl border border-stone-200 p-1.5 z-40 space-y-1 animate-in fade-in zoom-in-95 duration-150">
+                  <button
+                    type="button"
+                    id="btn-inline-stock-toggle"
+                    onClick={() => {
+                      setShowInlineStockAdd((prev) => !prev);
+                      setShowStockMoreMenu(false);
+                    }}
+                    className="w-full px-3 py-2 rounded-xl text-xs font-bold text-emerald-800 hover:bg-emerald-50 flex items-center gap-2 cursor-pointer text-left"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-emerald-600 stroke-[2.5]" />
+                    <span>{isBn ? 'স্টক যোগ (+ Add Stock)' : '+ Add Stock'}</span>
+                  </button>
+
+                  {onOpenProductStock && (
+                    <button
+                      type="button"
+                      id="btn-open-product-stock"
+                      onClick={() => {
+                        setShowStockMoreMenu(false);
+                        onOpenProductStock();
+                      }}
+                      className="w-full px-3 py-2 rounded-xl text-xs font-bold text-blue-800 hover:bg-blue-50 flex items-center justify-between gap-2 cursor-pointer text-left"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Package className="w-3.5 h-3.5 text-blue-600" />
+                        <span>{isBn ? 'প্রোডাক্ট স্টক তালিকা' : 'Product Stock'}</span>
+                      </span>
+                      <span className="bg-blue-600 text-white text-[10px] font-mono font-black px-1.5 py-0.2 rounded-full">
+                        {allSavedProducts.length}
+                      </span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEnableSavedSuggestions((prev) => !prev);
+                      setShowSuggestions(false);
+                      setShowStockMoreMenu(false);
+                    }}
+                    className="w-full px-3 py-2 rounded-xl text-xs font-bold text-stone-700 hover:bg-stone-100 flex items-center justify-between gap-2 cursor-pointer text-left"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                      <span>{isBn ? 'সেভ আইটেম সাজেশন' : 'Saved Item Suggestions'}</span>
+                    </span>
+                    <span
+                      className={`text-[10px] font-black px-1.5 py-0.5 rounded ${
+                        enableSavedSuggestions
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-stone-200 text-stone-600'
+                      }`}
+                    >
+                      {enableSavedSuggestions ? 'ON' : 'OFF'}
+                    </span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* ROW 2: QUANTITY + UNIT (Matches reference screenshot: Quantity on left, Unit on right) */}
@@ -1870,13 +1863,14 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             )}
         </div>
 
-        {/* 4. BOTTOM: Payment Method Selection Buttons (Compact 1-Row without Card) */}
+        {/* 4. BOTTOM: Payment Method Selection Buttons (Estimate | Cash | UPI | Due) */}
         <div className="pt-1.5 border-t border-stone-100">
           <label className="block text-[11px] font-bold uppercase tracking-wider text-stone-500 mb-1.5">
             {t.paymentModeLabel}
           </label>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-4 gap-1.5 sm:gap-2">
             {[
+              { id: 'estimate', label: 'Estimate', icon: FileText },
               { id: 'cash', label: t.modeCash, icon: Banknote },
               { id: 'upi', label: t.modeUpi, icon: QrCode },
               { id: 'due', label: t.modeDue, icon: Clock },
@@ -1894,14 +1888,14 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                       setPaidAmount('');
                     }
                   }}
-                  className={`py-2.5 px-3 rounded-xl text-xs font-bold text-center border transition-all cursor-pointer flex items-center justify-center gap-2 shadow-2xs ${
+                  className={`py-2.5 px-1.5 sm:px-2 rounded-xl text-[11px] sm:text-xs font-bold text-center border transition-all cursor-pointer flex items-center justify-center gap-1 shadow-2xs ${
                     isSelected
                       ? 'bg-blue-600 text-white border-blue-600 shadow-xs ring-2 ring-blue-600/20 scale-[1.02]'
                       : 'bg-stone-50 text-stone-700 border-stone-200 hover:bg-stone-100 hover:border-stone-300'
                   }`}
                 >
                   <Icon
-                    className={`w-4 h-4 shrink-0 ${
+                    className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${
                       isSelected ? 'text-white' : 'text-stone-500'
                     }`}
                   />
