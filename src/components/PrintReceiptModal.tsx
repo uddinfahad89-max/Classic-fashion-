@@ -97,28 +97,42 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
   const pdfFilename = `Sale_${bill.invoiceNo}_${formattedDateForFile}.pdf`;
   const imageFilename = `Sale_${bill.invoiceNo}_${formattedDateForFile}.png`;
 
-  // 1. Bluetooth Direct Thermal Print
+  // 1. Bluetooth Direct Thermal Print (Auto-connects if disconnected, then immediately prints)
   const handleBluetoothPrint = async () => {
-    if (!bluetoothStatus?.connected || !thermalPrinterService.getIsConnected()) {
-      if (onConnectBluetooth) {
-        onConnectBluetooth();
-      }
-      return;
-    }
-
     setIsPrintingBt(true);
-    setFeedbackMessage(
-      language === 'bn'
-        ? 'ব্লুটুথ প্রিন্টারে ডাটা পাঠানো হচ্ছে...'
-        : 'Streaming data to Bluetooth printer...'
-    );
 
     try {
+      if (!bluetoothStatus?.connected || !thermalPrinterService.getIsConnected()) {
+        setFeedbackMessage(
+          language === 'bn'
+            ? 'ব্লুটুথ থার্মাল প্রিন্টার খোঁজা হচ্ছে...'
+            : 'Searching for Bluetooth Thermal Printer...'
+        );
+        const connectRes = await thermalPrinterService.connectBluetooth();
+        if (!connectRes.success) {
+          if (connectRes.isUnsupported && onConnectBluetooth) {
+            onConnectBluetooth();
+          } else if (connectRes.message && !connectRes.message.includes('cancelled')) {
+            setFeedbackMessage(connectRes.message);
+          } else {
+            setFeedbackMessage(null);
+          }
+          setIsPrintingBt(false);
+          return;
+        }
+      }
+
+      setFeedbackMessage(
+        language === 'bn'
+          ? 'ব্লুটুথ থার্মাল প্রিন্টারে ডাটা পাঠানো হচ্ছে...'
+          : 'Streaming data to Bluetooth Thermal Printer...'
+      );
+
       const res = await thermalPrinterService.printViaBluetooth(bill, effectiveSettings);
       if (res.success) {
         setFeedbackMessage(
           language === 'bn'
-            ? `✓ বিল #${bill.invoiceNo} ${isLabelMode ? '(লেবেল মোড)' : ''} ব্লুটুথ প্রিন্টারে প্রিন্ট হয়েছে!`
+            ? `✓ বিল #${bill.invoiceNo} ${isLabelMode ? '(লেবেল মোড)' : ''} ব্লুটুথ থার্মাল প্রিন্টারে প্রিন্ট হয়েছে!`
             : `✓ Invoice #${bill.invoiceNo} ${isLabelMode ? '(Label Mode)' : ''} printed directly via Bluetooth!`
         );
       } else {
@@ -503,90 +517,146 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
           </div>
         </div>
 
-        {/* Bluetooth Thermal POS Banner & Quick Print */}
+        {/* Bluetooth & Thermal POS Printer Action Bar */}
         <div
-          className={`p-2.5 sm:p-3 border-b flex flex-wrap items-center justify-between gap-2.5 transition-colors ${
+          className={`p-3 border-b space-y-2.5 transition-colors ${
             bluetoothStatus?.connected
-              ? 'bg-emerald-50/90 border-emerald-200'
-              : 'bg-indigo-50/70 border-indigo-100'
+              ? 'bg-emerald-50/95 border-emerald-200'
+              : 'bg-indigo-50/80 border-indigo-200'
           }`}
         >
-          <div className="flex items-center gap-2.5">
-            <div
-              className={`w-8 h-8 rounded-xl flex items-center justify-center ${
-                bluetoothStatus?.connected
-                  ? 'bg-emerald-500 text-white shadow-xs'
-                  : 'bg-indigo-600 text-white shadow-xs'
-              }`}
-            >
-              <Bluetooth className="w-4 h-4" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-stone-900">
-                  {bluetoothStatus?.connected
-                    ? (language === 'bn' ? 'ব্লুটুথ থার্মাল প্রিন্টার' : 'Bluetooth Thermal Printer')
-                    : (language === 'bn' ? 'ব্লুটুথ প্রিন্টার কানেক্ট নেই' : 'Bluetooth Printer Disconnected')}
-                </span>
-                <span
-                  className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                    bluetoothStatus?.connected
-                      ? 'bg-emerald-100 text-emerald-800'
-                      : 'bg-stone-200 text-stone-700'
-                  }`}
-                >
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full ${
-                      bluetoothStatus?.connected ? 'bg-emerald-500 animate-pulse' : 'bg-stone-400'
-                    }`}
-                  />
-                  {bluetoothStatus?.connected
-                    ? (bluetoothStatus.deviceName || 'Connected')
-                    : (language === 'bn' ? 'অফলাইন' : 'Offline')}
-                </span>
-              </div>
-              <p className="text-[11px] text-stone-500">
-                {bluetoothStatus?.connected
-                  ? (language === 'bn'
-                      ? 'এক ক্লিকে সরাসরি ছোট স্লিপ প্রিন্ট হবে'
-                      : 'Ready for direct silent thermal slip printing')
-                  : (language === 'bn'
-                      ? 'ক্যাশ মেমো প্রিন্ট করতে প্রিন্টার পেয়ার করুন'
-                      : 'Pair your 58mm/80mm thermal POS printer')}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 flex-wrap">
-            {bluetoothStatus?.connected ? (
-              <button
-                type="button"
-                id="modal-bt-print-btn"
-                onClick={handleBluetoothPrint}
-                disabled={isPrintingBt}
-                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white text-xs font-bold flex items-center gap-2 shadow-sm cursor-pointer transition-all"
-                title="Direct Bluetooth Thermal Print"
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2.5">
+              <div
+                className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                  bluetoothStatus?.connected
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'bg-indigo-600 text-white shadow-xs'
+                }`}
               >
-                {isPrintingBt ? (
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Printer className="w-4 h-4" />
-                )}
-                <span>{language === 'bn' ? 'ব্লুটুথ স্লিপ প্রিন্ট' : 'Bluetooth Print'}</span>
-              </button>
-            ) : (
-              onConnectBluetooth && (
+                <Bluetooth className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs sm:text-sm font-extrabold text-stone-900">
+                    {language === 'bn' ? 'থার্মাল প্রিন্টার (Thermal POS)' : 'Thermal POS Printer'}
+                  </span>
+                  <span
+                    className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                      bluetoothStatus?.connected
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                        : 'bg-white text-stone-700 border border-stone-200'
+                    }`}
+                  >
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${
+                        bluetoothStatus?.connected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
+                      }`}
+                    />
+                    {bluetoothStatus?.connected
+                      ? bluetoothStatus.deviceName || 'Connected'
+                      : language === 'bn'
+                      ? 'প্রিন্টার সিলেক্ট করুন'
+                      : 'Ready to Connect'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-stone-600">
+                  {language === 'bn'
+                    ? 'ব্লুটুথ প্রিন্টার, RawBT অ্যাপ অথবা ৫৮/৮০ মিমি থার্মাল স্লিপ প্রিন্ট করুন'
+                    : 'Print directly via Bluetooth POS, RawBT App, or 58mm/80mm Thermal Roll'}
+                </p>
+              </div>
+            </div>
+
+            {/* Paper Roll Size Selector (58mm / 80mm) */}
+            {onUpdatePaperWidth && (
+              <div className="flex items-center gap-1 bg-white/90 px-2 py-1 rounded-xl border border-stone-200 shadow-2xs">
+                <span className="text-[10px] font-bold text-stone-500">
+                  {language === 'bn' ? 'পেপার:' : 'Roll:'}
+                </span>
                 <button
                   type="button"
-                  id="modal-bt-connect-btn"
-                  onClick={onConnectBluetooth}
-                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] text-white text-xs font-bold flex items-center gap-2 shadow-sm cursor-pointer transition-all"
+                  onClick={() => onUpdatePaperWidth('58mm')}
+                  className={`px-2 py-0.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                    settings.paperWidth === '58mm'
+                      ? 'bg-indigo-600 text-white shadow-2xs'
+                      : 'text-stone-600 hover:bg-stone-100'
+                  }`}
                 >
-                  <Bluetooth className="w-4 h-4" />
-                  <span>{language === 'bn' ? 'প্রিন্টার কানেক্ট করুন' : 'Connect Printer'}</span>
+                  58mm
                 </button>
-              )
+                <button
+                  type="button"
+                  onClick={() => onUpdatePaperWidth('80mm')}
+                  className={`px-2 py-0.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                    settings.paperWidth === '80mm'
+                      ? 'bg-indigo-600 text-white shadow-2xs'
+                      : 'text-stone-600 hover:bg-stone-100'
+                  }`}
+                >
+                  80mm
+                </button>
+              </div>
             )}
+          </div>
+
+          {/* Direct Thermal Printer Buttons Row */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {/* 1. Bluetooth Direct Thermal Print (Connects & Prints) */}
+            <button
+              type="button"
+              id="modal-bt-print-btn"
+              onClick={handleBluetoothPrint}
+              disabled={isPrintingBt}
+              className={`py-2.5 px-3 rounded-xl text-white text-xs font-bold flex items-center justify-center gap-2 shadow-sm cursor-pointer transition-all active:scale-[0.98] ${
+                bluetoothStatus?.connected
+                  ? 'bg-emerald-600 hover:bg-emerald-500'
+                  : 'bg-indigo-600 hover:bg-indigo-500'
+              }`}
+            >
+              {isPrintingBt ? (
+                <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
+              ) : (
+                <Bluetooth className="w-4 h-4 shrink-0" />
+              )}
+              <span className="truncate">
+                {bluetoothStatus?.connected
+                  ? language === 'bn'
+                    ? 'ব্লুটুথ থার্মাল প্রিন্ট'
+                    : 'Bluetooth Thermal Print'
+                  : language === 'bn'
+                  ? 'ব্লুটুথ প্রিন্টার কানেক্ট ও প্রিন্ট'
+                  : 'Connect & Print (Bluetooth)'}
+              </span>
+            </button>
+
+            {/* 2. Android RawBT Thermal Print */}
+            <button
+              type="button"
+              id="modal-rawbt-print-btn"
+              onClick={handleRawBtPrint}
+              className="py-2.5 px-3 rounded-xl bg-amber-600 hover:bg-amber-500 active:scale-[0.98] text-white text-xs font-bold flex items-center justify-center gap-2 shadow-sm cursor-pointer transition-all"
+            >
+              <Smartphone className="w-4 h-4 shrink-0" />
+              <span className="truncate">
+                {language === 'bn' ? 'RawBT থার্মাল প্রিন্ট' : 'RawBT Thermal Print'}
+              </span>
+            </button>
+
+            {/* 3. 58mm/80mm Thermal Slip Browser Print */}
+            <button
+              type="button"
+              id="modal-thermal-slip-btn"
+              onClick={() => thermalPrinterService.printViaBrowser(bill, effectiveSettings)}
+              className="py-2.5 px-3 rounded-xl bg-stone-800 hover:bg-stone-700 active:scale-[0.98] text-white text-xs font-bold flex items-center justify-center gap-2 shadow-sm cursor-pointer transition-all"
+            >
+              <Printer className="w-4 h-4 shrink-0" />
+              <span className="truncate">
+                {language === 'bn'
+                  ? `থার্মাল স্লিপ (${settings.paperWidth || '58mm'})`
+                  : `Thermal Slip (${settings.paperWidth || '58mm'})`}
+              </span>
+            </button>
           </div>
         </div>
 

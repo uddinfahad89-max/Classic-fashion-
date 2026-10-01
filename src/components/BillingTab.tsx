@@ -275,7 +275,17 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   };
 
   // Calculations
-  const subtotal = billItems.reduce((sum, item) => sum + item.total, 0);
+  const pendingPrice = parseFloat(itemPrice);
+  const pendingQty = parseFloat(itemQty);
+  const hasPendingItem = itemName.trim().length > 0 && !isNaN(pendingPrice) && pendingPrice > 0;
+  const pendingItemTotal = hasPendingItem
+    ? Math.round(pendingPrice * (!isNaN(pendingQty) && pendingQty > 0 ? pendingQty : 1) * 100) / 100
+    : 0;
+  const canCheckout = billItems.length > 0 || hasPendingItem;
+
+  const subtotal =
+    billItems.reduce((sum, item) => sum + item.total, 0) +
+    (billItems.length === 0 ? pendingItemTotal : 0);
   const rawDiscount = Math.max(0, parseFloat(discountValue) || 0);
 
   let discountAmount = 0;
@@ -445,10 +455,35 @@ export const BillingTab: React.FC<BillingTabProps> = ({
 
   // Handle Checkout: Save Only or Direct Print
   const handleCheckoutAndPrint = (mode: 'save' | 'print' = 'print') => {
-    if (billItems.length === 0) {
+    let finalItems = [...billItems];
+    if (hasPendingItem) {
+      const validQty = !isNaN(pendingQty) && pendingQty > 0 ? pendingQty : 1;
+      const cleanUnit = itemUnit.trim() || undefined;
+      finalItems.push({
+        id: 'item-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+        name: itemName.trim(),
+        price: pendingPrice,
+        qty: validQty,
+        unit: cleanUnit,
+        total: Math.round(pendingPrice * validQty * 100) / 100,
+      });
+    }
+
+    if (finalItems.length === 0) {
       alert(t.addAtLeastOneItem);
       return;
     }
+
+    const finalSubtotal = finalItems.reduce((sum, item) => sum + item.total, 0);
+    let finalDiscountAmount = 0;
+    if (discountType === 'percent') {
+      const clampedPercent = Math.min(100, rawDiscount);
+      finalDiscountAmount = Math.round(((finalSubtotal * clampedPercent) / 100) * 100) / 100;
+    } else {
+      finalDiscountAmount = Math.min(finalSubtotal, rawDiscount);
+    }
+    const finalGrandTotal = Math.max(0, finalSubtotal - finalDiscountAmount);
+    const finalChangeAmount = Math.max(0, paidNum - finalGrandTotal);
 
     const now = new Date();
     const day = String(now.getDate()).padStart(2, '0');
@@ -468,17 +503,17 @@ export const BillingTab: React.FC<BillingTabProps> = ({
 
     const actualPaid =
       paymentMethod === 'due'
-        ? paidAmount.trim() !== '' && paidNum < grandTotal
+        ? paidAmount.trim() !== '' && paidNum < finalGrandTotal
           ? paidNum
           : 0
         : paidAmount.trim() !== ''
         ? paidNum
         : isTailoring
         ? 0
-        : grandTotal;
+        : finalGrandTotal;
     const balanceAmount =
-      paymentMethod === 'due' || isTailoring || (paidAmount.trim() !== '' && paidNum < grandTotal)
-        ? Math.max(0, grandTotal - actualPaid)
+      paymentMethod === 'due' || isTailoring || (paidAmount.trim() !== '' && paidNum < finalGrandTotal)
+        ? Math.max(0, finalGrandTotal - actualPaid)
         : 0;
     const hasMeasurements = Object.values(measurements).some((v) => Boolean(v && String(v).trim()));
 
@@ -490,17 +525,17 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       timestamp: Date.now(),
       customerName: customerName.trim() || undefined,
       customerPhone: customerPhone.trim() || undefined,
-      items: [...billItems],
-      subtotal,
-      discount: discountAmount,
+      items: finalItems,
+      subtotal: finalSubtotal,
+      discount: finalDiscountAmount,
       discountType,
       discountValue: rawDiscount,
-      grandTotal,
-      paymentMethod: balanceAmount > 0 && actualPaid < grandTotal ? 'due' : paymentMethod,
+      grandTotal: finalGrandTotal,
+      paymentMethod: balanceAmount > 0 && actualPaid < finalGrandTotal ? 'due' : paymentMethod,
       paymentStatus:
         balanceAmount <= 0 ? 'PAID' : actualPaid > 0 ? 'PARTIAL' : 'DUE',
       paidAmount: actualPaid,
-      changeAmount: paidNum > grandTotal ? changeAmount : 0,
+      changeAmount: paidNum > finalGrandTotal ? finalChangeAmount : 0,
       balance: balanceAmount,
       previousBalance: 0,
       currentBalance: balanceAmount,
@@ -516,6 +551,9 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     };
 
     onPrintBill(bill, mode);
+    setItemName('');
+    setItemPrice('');
+    setItemQty('1');
     setCustomerName('');
     setCustomerPhone('');
     setDiscountValue('');
@@ -1752,9 +1790,9 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             type="button"
             id="billing-save-btn"
             onClick={() => handleCheckoutAndPrint('save')}
-            disabled={billItems.length === 0 || isPrinting}
+            disabled={!canCheckout || isPrinting}
             className={`w-full py-3.5 px-3 rounded-2xl font-bold text-xs sm:text-sm shadow-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
-              billItems.length > 0 && !isPrinting
+              canCheckout && !isPrinting
                 ? 'bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white shadow-md active:scale-[0.99]'
                 : 'bg-stone-200 text-stone-400 cursor-not-allowed'
             }`}
@@ -1773,9 +1811,9 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             type="button"
             id="billing-print-btn"
             onClick={() => handleCheckoutAndPrint('print')}
-            disabled={billItems.length === 0 || isPrinting}
+            disabled={!canCheckout || isPrinting}
             className={`w-full py-3.5 px-3 rounded-2xl font-bold text-xs sm:text-sm shadow-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
-              billItems.length > 0 && !isPrinting
+              canCheckout && !isPrinting
                 ? 'bg-[#6E68D8] hover:bg-[#5E58C8] active:bg-[#534DA8] text-white shadow-md active:scale-[0.99]'
                 : 'bg-stone-200 text-stone-400 cursor-not-allowed'
             }`}

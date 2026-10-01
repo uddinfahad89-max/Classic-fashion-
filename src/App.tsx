@@ -733,7 +733,10 @@ export default function App() {
       return;
     }
 
-    // 4B. If mode is 'print', go straight to print!
+    // 4B. If mode is 'print', open receipt modal with Thermal Printer options & trigger Bluetooth Thermal Printer
+    setAutoPrintReceipt(false);
+    setReceiptBill(bill);
+
     if (thermalPrinterService.getIsConnected()) {
       setIsPrintingBill(true);
       const printResult = await thermalPrinterService.printViaBluetooth(bill, settings);
@@ -741,19 +744,35 @@ export default function App() {
 
       if (printResult.success) {
         showToast(
-          `Bill #${bill.invoiceNo} printed directly via ${bluetoothStatus.deviceName || 'Bluetooth'}!`,
+          language === 'bn'
+            ? `✓ বিল #${bill.invoiceNo} থার্মাল প্রিন্টারে প্রিন্ট হয়েছে!`
+            : `✓ Bill #${bill.invoiceNo} printed via ${bluetoothStatus.deviceName || 'Thermal Printer'}!`,
           'success',
           bill
         );
       } else {
         showToast(`Bluetooth print failed: ${printResult.message}`, 'error', bill);
-        setAutoPrintReceipt(true);
-        setReceiptBill(bill);
       }
-    } else {
-      // Open receipt & immediately trigger direct print dialog
-      setAutoPrintReceipt(true);
-      setReceiptBill(bill);
+    } else if (thermalPrinterService.isBluetoothSupported()) {
+      setIsPrintingBill(true);
+      const connectRes = await thermalPrinterService.connectBluetooth();
+      if (connectRes.success && thermalPrinterService.getIsConnected()) {
+        const printResult = await thermalPrinterService.printViaBluetooth(bill, settings);
+        setIsPrintingBill(false);
+        if (printResult.success) {
+          showToast(
+            language === 'bn'
+              ? `✓ বিল #${bill.invoiceNo} থার্মাল প্রিন্টারে প্রিন্ট হয়েছে!`
+              : `✓ Bill #${bill.invoiceNo} printed via ${connectRes.deviceName || 'Thermal Printer'}!`,
+            'success',
+            bill
+          );
+        } else {
+          showToast(`Bluetooth print failed: ${printResult.message}`, 'error', bill);
+        }
+      } else {
+        setIsPrintingBill(false);
+      }
     }
   };
 

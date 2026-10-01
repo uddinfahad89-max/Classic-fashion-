@@ -919,8 +919,11 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
 
             {/* Drawer Bottom Info */}
-            <div className="p-3 bg-stone-50 border-t border-stone-200 text-center text-[11px] text-stone-400">
-              <span>Google Sheets Style POS • v2.5</span>
+            <div className="p-3 bg-stone-50 border-t border-stone-200 text-center text-xs text-stone-500 flex items-center justify-center gap-1.5 flex-wrap">
+              <span className="font-medium">Created & Built by:</span>
+              <span className="font-extrabold text-stone-900 bg-white px-2.5 py-0.5 rounded-lg border border-stone-300 shadow-2xs">
+                fahad uddin
+              </span>
             </div>
           </div>
         </div>
