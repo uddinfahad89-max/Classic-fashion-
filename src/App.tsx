@@ -51,7 +51,20 @@ export default function App() {
   const [sortOption, setSortOption] = useState<SortOption>('date-desc');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [bills, setBills] = useState<BillInvoice[]>([]);
-  const [billItems, setBillItems] = useState<BillItem[]>([]);
+  const [billItems, setBillItems] = useState<BillItem[]>(() => {
+    try {
+      const savedDraft = localStorage.getItem('simple_pos_billing_cart_draft_v1');
+      if (savedDraft) {
+        const parsed = JSON.parse(savedDraft);
+        if (Array.isArray(parsed?.billItems)) {
+          return parsed.billItems;
+        }
+      }
+    } catch {
+      // ignore parse errors
+    }
+    return [];
+  });
   const [cashEntries, setCashEntries] = useState<CashEntry[]>([]);
   const [customerDues, setCustomerDues] = useState<CustomerDue[]>([]);
   const [settings, setSettings] = useState<ThermalPrinterSettings>(storageService.getSettings());
@@ -104,7 +117,7 @@ export default function App() {
     setLanguage(storageService.getLanguage());
 
     // Clean blank state on new device / unauthenticated session
-    if (!prof.isLoggedIn || !currentSettings.storeName || currentSettings.storeName.trim() === '') {
+    if (!prof.isLoggedIn) {
       setBills([]);
       setCashEntries([]);
       setCustomerDues([]);
@@ -113,12 +126,13 @@ export default function App() {
       setUserProfile(prof);
       setIsOnboardingOpen(true);
     } else {
-      setBills(storageService.getBills());
+      const loadedBills = storageService.getBills();
+      setBills(loadedBills);
       setCashEntries(storageService.getCashEntries());
       setCustomerDues(storageService.getCustomerDues());
       setPurchaseTrips(storageService.getPurchaseTrips());
       setProducts(storageService.getProducts());
-      setSettings(currentSettings);
+      setSettings(storageService.getSettings());
       setUserProfile(prof);
     }
 
@@ -401,11 +415,14 @@ export default function App() {
       return { success: true };
     }
 
-    // 3. EMAIL & PASSWORD LOGIN & RESTORE
+    // 3. MOBILE OR EMAIL & PASSWORD LOGIN & RESTORE
     // First try local/server vault lookup so offline/local accounts also work even if Supabase returns an auth error
     let supabaseError: string | undefined;
     if (isSupabaseConfigured()) {
-      const sbRes = await supabaseService.signIn(cleanId, cleanSecret);
+      const sbEmail = cleanId.includes('@')
+        ? cleanId
+        : `${cleanId.replace(/[^\d]/g, '')}@posstore.com`;
+      const sbRes = await supabaseService.signIn(sbEmail, cleanSecret);
       if (sbRes.success && sbRes.restored) {
         setBills(sbRes.restored.bills);
         setCashEntries(sbRes.restored.cashEntries);
@@ -717,8 +734,11 @@ export default function App() {
       }
     }
 
-    // 3. Clear current bill
+    // 3. Clear current bill & auto-saved cart draft
     setBillItems([]);
+    try {
+      localStorage.removeItem('simple_pos_billing_cart_draft_v1');
+    } catch {}
 
     // 4A. If mode is 'save', only save the bill and show confirmation toast
     if (mode === 'save') {
@@ -780,6 +800,7 @@ export default function App() {
     storageService.deleteBill(id);
     const updatedBills = storageService.getBills();
     setBills(updatedBills);
+    setSettings(storageService.getSettings());
 
     // Sync deletion to Supabase cloud
     supabaseService.getActiveUserId().then((userId) => {
@@ -877,6 +898,9 @@ export default function App() {
 
   const handleClearBill = () => {
     setBillItems([]);
+    try {
+      localStorage.removeItem('simple_pos_billing_cart_draft_v1');
+    } catch {}
   };
 
   // 2. CASHBOOK HANDLERS
@@ -1240,6 +1264,7 @@ export default function App() {
             onOpenCalculator={() => setIsCalculatorOpen(true)}
             products={products}
             onOpenProductStock={() => setIsProductStockOpen(true)}
+            totalInvoicesCount={bills.length}
             onQuickSaveProduct={(data) => {
               storageService.addOrUpdateProduct(data);
               setProducts(storageService.getProducts());
@@ -1340,6 +1365,8 @@ export default function App() {
         isOpen={isLoginModalOpen}
         onClose={() => setIsLoginModalOpen(false)}
         userProfile={userProfile}
+        settings={settings}
+        onSaveSettings={handleSaveSettings}
         onLogin={handleLoginUser}
         onRegister={handleRegisterUser}
         onLogout={handleLogoutUser}

@@ -593,9 +593,32 @@ export const Header: React.FC<HeaderProps> = ({
                   </button>
                 </div>
                 <div>
-                  <h2 className="text-base font-bold truncate">
-                    {settings.storeName || (isBn ? 'আমার দোকান' : 'My Store')}
-                  </h2>
+                  <div className="flex items-center justify-between gap-2">
+                    <h2 className="text-base font-bold truncate">
+                      {settings.storeName || (isBn ? 'আমার দোকান' : 'My Store')}
+                    </h2>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsDrawerOpen(false);
+                        onOpenSettings();
+                      }}
+                      className="text-[10px] font-bold bg-white/15 hover:bg-white/25 text-white px-2 py-0.5 rounded-lg border border-white/20 shrink-0 cursor-pointer transition-colors"
+                    >
+                      {!settings.storeName || !settings.storeAddress
+                        ? isBn
+                          ? '+ নাম ও ঠিকানা যুক্ত করুন'
+                          : '+ Add Name & Address'
+                        : isBn
+                        ? '✎ পরিবর্তন'
+                        : '✎ Edit'}
+                    </button>
+                  </div>
+                  {settings.storeAddress && (
+                    <p className="text-[11px] text-emerald-100 truncate mt-0.5">
+                      📍 {settings.storeAddress}
+                    </p>
+                  )}
                   {userProfile.email && (
                     <p className="text-xs text-emerald-100 font-mono truncate">
                       {userProfile.email}

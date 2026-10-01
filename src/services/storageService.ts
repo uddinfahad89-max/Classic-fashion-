@@ -164,6 +164,49 @@ class StorageService {
     this.syncActiveAccountVault();
   }
 
+  // Helper to keep invoice numbers strictly sequential (1..N from oldest to newest)
+  private resequenceBillsInternal(
+    bills: BillInvoice[],
+    prefix: string = ''
+  ): { bills: BillInvoice[]; changed: boolean } {
+    if (!Array.isArray(bills) || bills.length === 0) {
+      return { bills: [], changed: false };
+    }
+
+    // Create indexed list and sort oldest-first so oldest = 1, newest = bills.length
+    const indexed = bills.map((bill, idx) => ({
+      bill,
+      idx,
+      time: typeof bill.timestamp === 'number' && bill.timestamp > 0 ? bill.timestamp : 0,
+    }));
+
+    indexed.sort((a, b) => {
+      if (a.time !== b.time) {
+        return a.time - b.time;
+      }
+      // In newest-first array, higher index is older
+      return b.idx - a.idx;
+    });
+
+    const newInvoiceNoById = new Map<string, string>();
+    indexed.forEach((entry, seqIdx) => {
+      const seqNum = seqIdx + 1;
+      newInvoiceNoById.set(entry.bill.id, `${prefix}${seqNum}`);
+    });
+
+    let changed = false;
+    const updatedBills = bills.map((b) => {
+      const expectedNo = newInvoiceNoById.get(b.id);
+      if (expectedNo && b.invoiceNo !== expectedNo) {
+        changed = true;
+        return { ...b, invoiceNo: expectedNo };
+      }
+      return b;
+    });
+
+    return { bills: updatedBills, changed };
+  }
+
   // --- BILLS & INVOICES ---
   getBills(): BillInvoice[] {
     try {
@@ -192,10 +235,26 @@ class StorageService {
             }
             return b;
           });
-          if (needsResave) {
-            localStorage.setItem(STORAGE_KEYS.BILLS, JSON.stringify(healed));
+
+          const settings = this.getSettings();
+          const prefix = settings.invoicePrefix !== undefined ? settings.invoicePrefix : '';
+          const reseq = this.resequenceBillsInternal(healed, prefix);
+          const finalBills = reseq.bills;
+          if (reseq.changed) {
+            needsResave = true;
           }
-          return healed;
+
+          // Keep settings.nextInvoiceNumber synced with actual bill count + 1
+          const expectedNext = finalBills.length + 1;
+          if (settings.nextInvoiceNumber !== expectedNext) {
+            settings.nextInvoiceNumber = expectedNext;
+            localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
+          }
+
+          if (needsResave) {
+            localStorage.setItem(STORAGE_KEYS.BILLS, JSON.stringify(finalBills));
+          }
+          return finalBills;
         }
       }
       return [];
@@ -206,44 +265,27 @@ class StorageService {
 
   saveBillsList(bills: BillInvoice[]): void {
     try {
-      localStorage.setItem(STORAGE_KEYS.BILLS, JSON.stringify(bills));
+      const settings = this.getSettings();
+      const prefix = settings.invoicePrefix !== undefined ? settings.invoicePrefix : '';
+      const { bills: resequenced } = this.resequenceBillsInternal(bills, prefix);
+      const expectedNext = resequenced.length + 1;
+      if (settings.nextInvoiceNumber !== expectedNext) {
+        settings.nextInvoiceNumber = expectedNext;
+        localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
+      }
+      localStorage.setItem(STORAGE_KEYS.BILLS, JSON.stringify(resequenced));
       this.syncActiveAccountVault();
     } catch (e) {
       console.error('Failed to save bills list:', e);
     }
   }
 
-  // Get next sequential invoice number ensuring no duplicate
+  // Get next sequential invoice number based on current active bills count (e.g. 13 bills -> #14)
   getNextInvoiceNumber(): string {
     const settings = this.getSettings();
     const prefix = settings.invoicePrefix !== undefined ? settings.invoicePrefix : '';
     const bills = this.getBills();
-
-    // Default starting sequence is 1 (or whatever user configured in settings)
-    const baseStart =
-      typeof settings.nextInvoiceNumber === 'number' && settings.nextInvoiceNumber > 0
-        ? settings.nextInvoiceNumber
-        : 1;
-
-    let maxNum = baseStart - 1;
-
-    for (const b of bills) {
-      if (!b.invoiceNo) continue;
-      // Skip initial preloaded demo bills (inv-demo-*) so they do not force starting sequence to 1049
-      if (b.id && b.id.startsWith('inv-demo-')) {
-        continue;
-      }
-      // Extract trailing digits
-      const match = b.invoiceNo.match(/(\d+)$/);
-      if (match) {
-        const n = parseInt(match[1], 10);
-        if (!isNaN(n) && n > maxNum) {
-          maxNum = n;
-        }
-      }
-    }
-
-    const nextNum = maxNum + 1;
+    const nextNum = bills.length + 1;
     return `${prefix}${nextNum}`;
   }
 
@@ -257,42 +299,14 @@ class StorageService {
     // Match strictly by unique bill.id.
     const existingIndex = bills.findIndex((b) => b.id === bill.id);
     if (existingIndex >= 0) {
-      // Ensure bill has an invoice number
       if (!bill.invoiceNo || !bill.invoiceNo.trim()) {
         bill.invoiceNo = bills[existingIndex].invoiceNo || this.getNextInvoiceNumber();
       }
       bills[existingIndex] = { ...bills[existingIndex], ...bill };
     } else {
-      // Auto-assign invoice number if empty or whitespace
-      if (!bill.invoiceNo || !bill.invoiceNo.trim()) {
-        bill.invoiceNo = this.getNextInvoiceNumber();
-      } else {
-        // If an invoice with the exact same invoiceNo exists, generate the next unique sequence
-        const duplicateInvoice = bills.find((b) => b.invoiceNo === bill.invoiceNo);
-        if (duplicateInvoice) {
-          bill.invoiceNo = this.getNextInvoiceNumber();
-        }
-      }
-
+      // Assign sequential invoice number based on current bill count + 1
+      bill.invoiceNo = this.getNextInvoiceNumber();
       bills.unshift(bill);
-
-      // Increment nextInvoiceNumber in settings if this invoice used the sequence
-      try {
-        const settings = this.getSettings();
-        const match = bill.invoiceNo.match(/(\d+)$/);
-        if (match) {
-          const num = parseInt(match[1], 10);
-          if (!isNaN(num)) {
-            const currentNext = settings.nextInvoiceNumber || 1;
-            if (num >= currentNext) {
-              settings.nextInvoiceNumber = num + 1;
-              this.saveSettings(settings);
-            }
-          }
-        }
-      } catch (err) {
-        console.warn('Failed to advance invoice counter in settings:', err);
-      }
     }
 
     // Keep up to 500 invoices for durable history
@@ -318,7 +332,7 @@ class StorageService {
   }
 
   deleteBill(id: string): void {
-    const bills = this.getBills().filter((b) => b.id !== id);
+    const bills = this.getBills().filter((b) => b.id !== id && b.invoiceNo !== id);
     this.saveBillsList(bills);
   }
 
@@ -639,26 +653,25 @@ class StorageService {
             if (json.success && json.vault) {
               const serverVault: AccountVaultData = json.vault;
 
-              // Merge server bills with any existing local bills
+              // Prefer current local bills if already present so deleted bills are not resurrected
+              const hasLocalBillsKey = localStorage.getItem(STORAGE_KEYS.BILLS) !== null;
               const localBills = this.getBills();
               const serverBills = Array.isArray(serverVault.bills) ? serverVault.bills : [];
-              const billMap = new Map<string, BillInvoice>();
-              for (const b of serverBills) {
-                if (b && b.id) billMap.set(b.id, b);
-              }
-              for (const b of localBills) {
-                if (b && b.id) billMap.set(b.id, b);
-              }
-              const mergedBills = Array.from(billMap.values()).sort(
-                (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
-              );
+              const sourceBills =
+                hasLocalBillsKey && localBills.length > 0 ? localBills : serverBills;
 
-              serverVault.bills = mergedBills;
-              this.saveToAccountVault(serverVault);
+              const prefix =
+                serverVault.settings?.invoicePrefix !== undefined
+                  ? serverVault.settings.invoicePrefix
+                  : '';
+              const { bills: mergedBills } = this.resequenceBillsInternal(sourceBills, prefix);
 
               if (serverVault.settings) {
+                serverVault.settings.nextInvoiceNumber = mergedBills.length + 1;
                 localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(serverVault.settings));
               }
+              serverVault.bills = mergedBills;
+              this.saveToAccountVault(serverVault);
               localStorage.setItem(STORAGE_KEYS.BILLS, JSON.stringify(mergedBills));
               if (Array.isArray(serverVault.cashEntries)) {
                 localStorage.setItem(STORAGE_KEYS.CASHBOOK, JSON.stringify(serverVault.cashEntries));
@@ -832,21 +845,21 @@ class StorageService {
       (finalEmail ? finalEmail.split('@')[0] : '') ||
       (finalPhone ? `User ${finalPhone.slice(-4)}` : 'Store Owner');
 
-    // Ensure settings has a non-empty storeName so app does not stay on onboarding screen
+    // Sync storePhone if provided, while keeping storeName optional so it can be added later
     const currentSettings = this.getSettings();
-    if (!currentSettings.storeName || !currentSettings.storeName.trim()) {
-      const savedAccounts = this.getSavedAccounts();
-      const matchedAcc = savedAccounts.find(
-        (a) =>
-          (finalPhone && this.normalizeIdentifier(a.phone) === this.normalizeIdentifier(finalPhone)) ||
-          (finalEmail && this.normalizeIdentifier(a.email) === this.normalizeIdentifier(finalEmail))
-      );
-      currentSettings.storeName = matchedAcc?.storeName || `${inferredName}'s Store`;
-      if (finalPhone && !currentSettings.storePhone) {
-        currentSettings.storePhone = finalPhone;
-      }
-      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(currentSettings));
+    const savedAccounts = this.getSavedAccounts();
+    const matchedAcc = savedAccounts.find(
+      (a) =>
+        (finalPhone && this.normalizeIdentifier(a.phone) === this.normalizeIdentifier(finalPhone)) ||
+        (finalEmail && this.normalizeIdentifier(a.email) === this.normalizeIdentifier(finalEmail))
+    );
+    if (!currentSettings.storeName && matchedAcc?.storeName && matchedAcc.storeName !== 'My Store') {
+      currentSettings.storeName = matchedAcc.storeName;
     }
+    if (finalPhone && !currentSettings.storePhone) {
+      currentSettings.storePhone = finalPhone;
+    }
+    localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(currentSettings));
 
     const updated: UserProfile = {
       ...current,
@@ -880,7 +893,7 @@ class StorageService {
     const cleanPhone = data.phone.trim();
     const cleanEmail = (data.email || '').trim();
     const cleanName = data.name.trim() || 'Store Owner';
-    const cleanStore = (data.storeName || '').trim() || `${cleanName}'s Store`;
+    const cleanStore = (data.storeName || '').trim();
     const cleanPin = (data.pin || '1234').trim();
     const cleanPassword = data.password?.trim();
     const role = data.role || 'Owner';
@@ -909,7 +922,7 @@ class StorageService {
     const baseSettings = this.getSettings();
     const newSettings: ThermalPrinterSettings = {
       ...baseSettings,
-      storeName: cleanStore,
+      storeName: cleanStore || existingVault?.settings?.storeName || '',
       storePhone: cleanPhone,
       storeAddress: existingVault?.settings?.storeAddress || '',
       footerNote: 'Thank you for shopping with us! Visit again.',

@@ -22,6 +22,7 @@ import {
   BadgeCheck,
   Key,
   Database,
+  MapPin,
   Store,
   History,
   UserPlus,
@@ -29,7 +30,7 @@ import {
   Globe,
   Info,
 } from 'lucide-react';
-import { UserProfile, Language, SavedAccountItem } from '../types';
+import { UserProfile, Language, SavedAccountItem, ThermalPrinterSettings } from '../types';
 import { otpService } from '../services/otpService';
 import { storageService } from '../services/storageService';
 
@@ -37,6 +38,8 @@ interface LoginModalProps {
   isOpen: boolean;
   onClose: () => void;
   userProfile: UserProfile;
+  settings?: ThermalPrinterSettings;
+  onSaveSettings?: (settings: ThermalPrinterSettings) => void;
   onLogin: (
     email: string,
     name?: string,
@@ -68,6 +71,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   isOpen,
   onClose,
   userProfile,
+  settings,
+  onSaveSettings,
   onLogin,
   onRegister,
   onLogout,
@@ -147,6 +152,19 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const [confirmPinInput, setConfirmPinInput] = useState('');
   const [pinChangeError, setPinChangeError] = useState<string | null>(null);
   const [pinChangeSuccess, setPinChangeSuccess] = useState(false);
+
+  // Shop Name & Address quick edit states (can be added/edited anytime after Sign Up)
+  const [editStoreName, setEditStoreName] = useState(settings?.storeName || '');
+  const [editStoreAddress, setEditStoreAddress] = useState(settings?.storeAddress || '');
+  const [storeInfoSaved, setStoreInfoSaved] = useState(false);
+
+  useEffect(() => {
+    if (isOpen && settings) {
+      setEditStoreName(settings.storeName || '');
+      setEditStoreAddress(settings.storeAddress || '');
+      setStoreInfoSaved(false);
+    }
+  }, [isOpen, settings]);
 
   // Load saved accounts when modal opens
   useEffect(() => {
@@ -287,38 +305,28 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     setLoginError(null);
 
     if (loginMethodTab === 'email_password') {
-      const cleanEmail = email.trim();
-      if (!cleanEmail || !cleanEmail.includes('@')) {
+      const cleanIdentifier = (phone.trim() || email.trim());
+      if (!cleanIdentifier) {
         setLoginError(
-          t('সঠিক ইমেল ঠিকানা লিখুন', 'Please enter a valid email address', 'कृपया सही ईमेल पता दर्ज करें')
+          t('মোবাইল নম্বর অথবা ইমেল লিখুন', 'Please enter mobile number or email', 'कृपया मोबाइल नंबर या ईमेल दर्ज करें')
         );
         return;
       }
       const cleanPass = accountPassword.trim();
-      if (!cleanPass || cleanPass.length < 6) {
-        const isPin = cleanPass.length === 4 && /^\d{4}$/.test(cleanPass);
+      if (!cleanPass) {
         setLoginError(
-          isPin
-            ? t(
-                '⚠️ আপনি ৪-ডিজিটের পিন দিয়েছেন! ইমেল লগইনের জন্য কমপক্ষে ৬ অক্ষরের পাসওয়ার্ড দিন, অথবা উপরের "4-Digit App PIN" ট্যাবে গিয়ে পিন দিয়ে লগইন করুন।',
-                '⚠️ You entered a 4-digit PIN! Account passwords are at least 6 characters. Switch to "4-Digit App PIN" tab to use your PIN.',
-                '⚠️ आपने 4-अंकीय पिन डाला है! कृपया कम से कम 6 अक्षरों का पासवर्ड डालें या "4-Digit App PIN" टैब चुनें।'
-              )
-            : t(
-                'অ্যাকাউন্ট পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে (৪-ডিজিট পিন এখানে দেবেন না)',
-                'Account Password must be at least 6 characters (do not enter your 4-digit PIN here)',
-                'खाता पासवर्ड कम से कम 6 अक्षरों का होना चाहिए'
-              )
+          t('পাসওয়ার্ড লিখুন', 'Please enter your password', 'कृपया पासवर्ड दर्ज करें')
         );
         return;
       }
 
+      const isEmail = cleanIdentifier.includes('@');
       const result = await onLogin(
-        cleanEmail,
+        isEmail ? cleanIdentifier : `${cleanIdentifier.replace(/[^\d]/g, '')}@posstore.com`,
         name.trim(),
         pin.trim() || '1234',
         role,
-        phone.trim(),
+        !isEmail ? cleanIdentifier : phone.trim(),
         appLockEnabled,
         'email_password',
         undefined,
@@ -369,77 +377,50 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     }
   };
 
-  // Handle Sign Up (New User / Store Owner Registration)
+  // Handle Sign Up (Mobile Number & Password only)
   const handleSignUpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSignupError(null);
 
-    const cleanName = signupName.trim();
-    const cleanStore = signupStoreName.trim();
     const cleanPhone = signupPhone.trim().replace(/[^\d+]/g, '');
-    const cleanEmail = signupEmail.trim();
     const cleanPass = signupPassword.trim();
-    const cleanPin = signupPin.trim();
 
-    if (!cleanName) {
-      setSignupError(
-        t('দয়া করে আপনার নাম লিখুন', 'Please enter your name', 'कृपया अपना नाम दर्ज करें')
-      );
-      return;
-    }
-    if (!cleanStore) {
-      setSignupError(
-        t('দয়া করে দোকানের নাম লিখুন', 'Please enter shop/store name', 'कृपया दुकान का नाम दर्ज करें')
-      );
-      return;
-    }
     if (cleanPhone.length < 8) {
       setSignupError(
         t(
-          'অনুগ্রহ করে সঠিক মোবাইল নম্বর লিখুন (কমপক্ষে ৮-১০ ডিজিট)',
-          'Please enter a valid mobile number (min 8-10 digits)',
+          'অনুগ্রহ করে সঠিক মোবাইল নম্বর লিখুন',
+          'Please enter a valid mobile number',
           'कृपया सही मोबाइल नंबर दर्ज करें'
         )
       );
       return;
     }
-    // Enforce minimum 6-character password rule if Email or Password is provided during Sign Up
-    if ((cleanEmail || cleanPass) && cleanPass.length < 6) {
-      const isPinAttempt = cleanPass.length === 4 && /^\d{4}$/.test(cleanPass);
-      setSignupError(
-        isPinAttempt
-          ? t(
-              '⚠️ আপনি ৪-ডিজিটের পিন দিয়েছেন! অ্যাকাউন্ট পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে যাতে ৪-ডিজিট পিনের সাথে বিভ্রান্তি না হয়।',
-              '⚠️ You entered a 4-digit PIN! Account password must be at least 6 characters so you do not confuse it with your 4-digit PIN.',
-              '⚠️ आपने 4-अंकीय पिन डाला है! खाता पासवर्ड कम से कम 6 अक्षरों का होना चाहिए।'
-            )
-          : t(
-              'ইমেল/পাসওয়ার্ড ব্যবহার করলে পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে (৪-ডিজিট পিন আলাদা বক্সে দিন)',
-              'Account password must be at least 6 characters (keep it separate from your 4-digit App PIN)',
-              'खाता पासवर्ड कम से कम 6 अक्षरों का होना चाहिए'
-            )
-      );
-      return;
-    }
-    if (cleanPin.length !== 4 || !/^\d{4}$/.test(cleanPin)) {
+    if (!cleanPass) {
       setSignupError(
         t(
-          '৪-সংখ্যার সংখ্যাসূচক অ্যাপ পিন দিন (যেমন ১২৩৪)',
-          'Please enter a 4-digit numeric App PIN (e.g. 1234)',
-          '4-अंकीय पिन दर्ज करें'
+          'অনুগ্রহ করে পাসওয়ার্ড লিখুন',
+          'Please enter a password',
+          'कृपया पासवर्ड दर्ज करें'
         )
       );
       return;
     }
 
+    const existingSettings = storageService.getSettings();
+    const resolvedStore = signupStoreName.trim() || existingSettings.storeName || '';
+    const resolvedName = signupName.trim() || `User ${cleanPhone.slice(-4)}`;
+    const resolvedEmail =
+      signupEmail.trim() || `${cleanPhone.replace(/[^\d]/g, '')}@posstore.com`;
+    const resolvedPin = (signupPin || '1234').trim();
+
     if (onRegister) {
       const ok = await onRegister({
-        name: cleanName,
-        storeName: cleanStore,
+        name: resolvedName,
+        storeName: resolvedStore,
         phone: cleanPhone,
-        email: cleanEmail,
-        pin: cleanPin,
-        password: cleanPass || undefined,
+        email: resolvedEmail,
+        pin: resolvedPin,
+        password: cleanPass,
         role: signupRole,
       });
       if (ok !== false) {
@@ -702,6 +683,108 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 )}
               </div>
 
+              {/* Shop Name & Address Quick Add / Edit Section */}
+              <div className="p-4 rounded-2xl bg-emerald-50/60 border border-emerald-200/90 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold">
+                      <Store className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-stone-900">
+                        {t(
+                          'দোকানের নাম ও ঠিকানা (Shop Name & Address)',
+                          'Shop Name & Address',
+                          'दुकान का नाम और पता'
+                        )}
+                      </h4>
+                      <p className="text-[11px] text-stone-500">
+                        {t(
+                          'রসিদ ও বিলের জন্য যেকোনো সময় অ্যাড বা পরিবর্তন করুন',
+                          'Add or update anytime for receipts & invoices',
+                          'रसीद और बिल के लिए कभी भी जोड़ें या बदलें'
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                  {storeInfoSaved && (
+                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" />
+                      <span>{t('সেভ হয়েছে!', 'Saved!', 'सेव हो गया!')}</span>
+                    </span>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <div>
+                    <label className="block text-[11px] font-bold text-stone-700 mb-1">
+                      {t('দোকানের নাম (Shop Name)', 'Shop Name', 'दुकान का नाम')}
+                    </label>
+                    <div className="relative">
+                      <Store className="w-3.5 h-3.5 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={editStoreName}
+                        onChange={(e) => {
+                          setEditStoreName(e.target.value);
+                          setStoreInfoSaved(false);
+                        }}
+                        placeholder={t('দোকানের নাম লিখুন', 'Enter shop name', 'दुकान का नाम लिखें')}
+                        className="w-full pl-8 pr-3 py-2 bg-white border border-stone-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-emerald-600"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-stone-700 mb-1">
+                      {t('দোকানের ঠিকানা (Shop Address)', 'Shop Address', 'दुकान का पता')}
+                    </label>
+                    <div className="relative">
+                      <MapPin className="w-3.5 h-3.5 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={editStoreAddress}
+                        onChange={(e) => {
+                          setEditStoreAddress(e.target.value);
+                          setStoreInfoSaved(false);
+                        }}
+                        placeholder={t('দোকানের ঠিকানা লিখুন', 'Enter shop address', 'दुकान का पता लिखें')}
+                        className="w-full pl-8 pr-3 py-2 bg-white border border-stone-200 rounded-xl text-xs font-medium focus:outline-none focus:border-emerald-600"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const current = settings || storageService.getSettings();
+                      const updated: ThermalPrinterSettings = {
+                        ...current,
+                        storeName: editStoreName.trim(),
+                        storeAddress: editStoreAddress.trim(),
+                      };
+                      if (onSaveSettings) {
+                        onSaveSettings(updated);
+                      } else {
+                        storageService.saveSettings(updated);
+                      }
+                      setStoreInfoSaved(true);
+                      setTimeout(() => setStoreInfoSaved(false), 2500);
+                    }}
+                    className="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-all shadow-2xs"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>
+                      {t(
+                        'দোকানের নাম ও ঠিকানা সেভ করুন',
+                        'Save Shop Name & Address',
+                        'दुकान का नाम और पता सेव करें'
+                      )}
+                    </span>
+                  </button>
+                </div>
+              </div>
+
               {/* Security Shield & PIN Protection Section */}
               <div className="p-4 rounded-2xl bg-stone-50 border border-stone-200/90 space-y-3">
                 <div className="flex items-center justify-between">
@@ -960,24 +1043,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({
               </div>
 
               {authActionTab === 'signup' ? (
-                /* ------------------- SIGN UP (NEW STORE OWNER) ------------------- */
-                <form onSubmit={handleSignUpSubmit} className="space-y-3.5">
-                  <div className="p-3 bg-gradient-to-r from-emerald-50 via-teal-50 to-green-50 border border-emerald-200/90 rounded-2xl text-xs text-emerald-950 flex items-start gap-2.5 shadow-2xs">
-                    <Sparkles className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                    <div>
-                      <h4 className="font-black text-emerald-950 text-xs sm:text-sm">
-                        {t('নতুন দোকান ও ব্যবহারকারী সাইন আপ (New Account)', 'Register New Store & Owner', 'नई दुकान और उपयोगकर्ता साइन अप')}
-                      </h4>
-                      <p className="text-[11px] text-emerald-800/90 mt-0.5 leading-snug">
-                        {t(
-                          'আপনি ছাড়া অন্য যে কেউ নিজের মোবাইল নম্বর ও দোকানের নাম দিয়ে নতুন অ্যাকাউন্ট খুলতে পারবেন। প্রত্যেকের ইনভয়েস, ডে-বুক ও হিসেব সম্পূর্ণ আলাদা ও ব্যক্তিগত থাকবে।',
-                          'Anyone can register their own store and mobile. Invoices, daybook, and data are strictly isolated for each store.',
-                          'कोई भी अपने मोबाइल नंबर और दुकान के नाम से नया खाता खोल सकता है। सभी का हिसाब अलग और सुरक्षित रहेगा।'
-                        )}
-                      </p>
-                    </div>
-                  </div>
-
+                /* ------------------- SIGN UP (MOBILE NUMBER & PASSWORD ONLY) ------------------- */
+                <form onSubmit={handleSignUpSubmit} className="space-y-4">
                   {signupError && (
                     <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-center gap-2">
                       <AlertCircle className="w-4 h-4 shrink-0" />
@@ -985,196 +1052,66 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                     </div>
                   )}
 
-                  {/* Full Name */}
-                  <div>
-                    <label className="block text-xs font-bold text-stone-700 mb-1">
-                      {t('আপনার নাম (Full Name) *', 'Your Name *', 'आपका नाम *')}
-                    </label>
-                    <div className="relative">
-                      <User className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                      <input
-                        type="text"
-                        required
-                        value={signupName}
-                        onChange={(e) => setSignupName(e.target.value)}
-                        placeholder={isBn ? 'উদা: মোঃ ফাহাদ উদ্দিন' : 'e.g. Fahad Uddin'}
-                        className="w-full pl-9 pr-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs sm:text-sm font-semibold focus:outline-none focus:border-emerald-600 focus:bg-white transition-all"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Store Name */}
-                  <div>
-                    <label className="block text-xs font-bold text-stone-700 mb-1">
-                      {t('দোকানের নাম (Shop / Business Name) *', 'Shop / Store Name *', 'दुकान का नाम *')}
-                    </label>
-                    <div className="relative">
-                      <Store className="w-4 h-4 text-emerald-600 absolute left-3 top-1/2 -translate-y-1/2" />
-                      <input
-                        type="text"
-                        required
-                        value={signupStoreName}
-                        onChange={(e) => setSignupStoreName(e.target.value)}
-                        placeholder={isBn ? 'উদা: সততা ডিপার্টমেন্টাল স্টোর' : 'e.g. Modern Mart'}
-                        className="w-full pl-9 pr-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs sm:text-sm font-semibold focus:outline-none focus:border-emerald-600 focus:bg-white transition-all"
-                      />
-                    </div>
-                  </div>
-
                   {/* Mobile Phone */}
                   <div>
                     <label className="block text-xs font-bold text-stone-700 mb-1">
-                      {t('মোবাইল নম্বর (Mobile Number) *', 'Mobile Number (10 Digits) *', 'मोबाइल नंबर *')}
+                      {t('মোবাইল নম্বর (Mobile Number) *', 'Mobile Number *', 'मोबाइल नंबर *')}
                     </label>
                     <div className="relative">
                       <Smartphone className="w-4 h-4 text-blue-600 absolute left-3 top-1/2 -translate-y-1/2" />
                       <input
                         type="tel"
                         required
+                        autoFocus
                         value={signupPhone}
                         onChange={(e) => setSignupPhone(e.target.value)}
-                        placeholder={isBn ? '০১XXXXXXXXX / ৯৮XXXXXXXX' : 'e.g. 01700000000'}
+                        placeholder={isBn ? 'মোবাইল নম্বর লিখুন' : 'Enter mobile number'}
                         className="w-full pl-9 pr-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs sm:text-sm font-mono font-semibold focus:outline-none focus:border-emerald-600 focus:bg-white transition-all"
                       />
                     </div>
-                    {/* Inline alert if this phone already belongs to a registered account */}
-                    {signupPhone.trim().length >= 8 &&
-                      savedAccounts.some(
-                        (a) =>
-                          storageService.normalizeIdentifier(a.phone) ===
-                            storageService.normalizeIdentifier(signupPhone) ||
-                          storageService.normalizeIdentifier(a.identifier) ===
-                            storageService.normalizeIdentifier(signupPhone)
-                      ) && (
-                        <div className="mt-1.5 p-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-[11px] flex items-center justify-between">
-                          <span>
-                            {t(
-                              'এই নম্বরে ইতিমধ্যে অ্যাকাউন্ট খোলা আছে!',
-                              'An account already exists with this phone!',
-                              'इस नंबर से पहले से खाता मौजूद है!'
-                            )}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setOtpPhone(signupPhone);
-                              setAuthActionTab('login');
-                              setLoginMethodTab('otp');
-                            }}
-                            className="text-xs font-bold text-blue-700 hover:text-blue-900 underline cursor-pointer"
-                          >
-                            {t('লগইন করুন', 'Login instead', 'लॉगिन करें')}
-                          </button>
-                        </div>
-                      )}
                   </div>
 
-                  {/* Email Address & Account Password (Min 6 chars) */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-bold text-stone-700 mb-1">
-                        {t('ইমেল ঠিকানা (Email)', 'Email Address', 'ईमेल पता')}
+                  {/* Password */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-bold text-stone-700 flex items-center gap-1">
+                        <Lock className="w-3.5 h-3.5 text-blue-600" />
+                        <span>{t('পাসওয়ার্ড (Password) *', 'Password *', 'पासवर्ड *')}</span>
                       </label>
-                      <div className="relative">
-                        <Mail className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                        <input
-                          type="email"
-                          value={signupEmail}
-                          onChange={(e) => setSignupEmail(e.target.value)}
-                          placeholder="owner@example.com"
-                          className="w-full pl-9 pr-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs sm:text-sm font-medium focus:outline-none focus:border-emerald-600 focus:bg-white transition-all"
-                        />
-                      </div>
                     </div>
-
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="text-xs font-bold text-stone-700 flex items-center gap-1">
-                          <Lock className="w-3.5 h-3.5 text-blue-600" />
-                          <span>{t('পাসওয়ার্ড (৬+ অক্ষর)', 'Password (Min 6)', 'पासवर्ड (6+ अक्षर)')}</span>
-                        </label>
-                      </div>
-                      <div className="relative">
-                        <input
-                          type={signupShowPassword ? 'text' : 'password'}
-                          minLength={6}
-                          value={signupPassword}
-                          onChange={(e) => setSignupPassword(e.target.value)}
-                          placeholder={t('কমপক্ষে ৬ অক্ষর', 'Min 6 characters', 'कम से कम 6 अक्षर')}
-                          className="w-full pl-3 pr-8 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs sm:text-sm font-medium focus:outline-none focus:border-emerald-600 focus:bg-white"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setSignupShowPassword(!signupShowPassword)}
-                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700 p-0.5 cursor-pointer"
-                        >
-                          {signupShowPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                        </button>
-                      </div>
-                      {signupPassword.trim().length > 0 && signupPassword.trim().length < 6 && (
-                        <p className="text-[10px] font-bold text-amber-800 mt-0.5">
-                          {t('⚠️ কমপক্ষে ৬ অক্ষর দিন (৪-ডিজিট পিন নিচে দিন)', '⚠️ Min 6 chars (enter 4-digit PIN below)', '⚠️ कम से कम 6 अक्षर आवश्यक')}
-                        </p>
-                      )}
+                    <div className="relative">
+                      <input
+                        type={signupShowPassword ? 'text' : 'password'}
+                        required
+                        value={signupPassword}
+                        onChange={(e) => setSignupPassword(e.target.value)}
+                        placeholder={t('পাসওয়ার্ড লিখুন', 'Enter password', 'पासवर्ड दर्ज करें')}
+                        className="w-full pl-3 pr-9 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs sm:text-sm font-medium focus:outline-none focus:border-emerald-600 focus:bg-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setSignupShowPassword(!signupShowPassword)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700 p-0.5 cursor-pointer"
+                      >
+                        {signupShowPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
                     </div>
                   </div>
 
-                  {/* 4-Digit Security PIN & Role */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <div className="flex items-center justify-between mb-1">
-                        <label className="text-xs font-bold text-stone-700 flex items-center gap-1">
-                          <KeyRound className="w-3.5 h-3.5 text-amber-600" />
-                          <span>{t('৪-সংখ্যার পিন *', '4-Digit PIN *', '4-अंकीय पिन *')}</span>
-                        </label>
-                        <span className="text-[10px] text-stone-400">ডিফল্ট: 1234</span>
-                      </div>
-                      <div className="relative">
-                        <input
-                          type={signupShowPin ? 'text' : 'password'}
-                          maxLength={4}
-                          inputMode="numeric"
-                          required
-                          value={signupPin}
-                          onChange={(e) => setSignupPin(e.target.value.replace(/\D/g, ''))}
-                          placeholder="1234"
-                          className="w-full pl-3 pr-8 py-2 bg-stone-50 border border-stone-200 rounded-xl text-sm font-mono font-bold tracking-widest focus:outline-none focus:border-emerald-600 focus:bg-white"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setSignupShowPin(!signupShowPin)}
-                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700 p-0.5"
-                        >
-                          {signupShowPin ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                        </button>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-stone-700 mb-1">
-                        {t('আপনার পদবী (Role)', 'Role', 'पद (Role)')}
-                      </label>
-                      <div className="grid grid-cols-3 gap-1">
-                        {(['Owner', 'Manager', 'Cashier'] as const).map((r) => (
-                          <button
-                            key={r}
-                            type="button"
-                            onClick={() => setSignupRole(r)}
-                            className={`py-2 px-1 text-[11px] font-bold rounded-lg border transition-all cursor-pointer ${
-                              signupRole === r
-                                ? 'bg-emerald-600 text-white border-emerald-700 shadow-2xs'
-                                : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'
-                            }`}
-                          >
-                            {r === 'Owner' ? t('মালিক', 'Owner', 'मालिक') : r === 'Manager' ? t('ম্যানেজার', 'Manager', 'प्रबंधक') : t('ক্যাশিয়ার', 'Cashier', 'कैशियर')}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
+                  {/* Info Note: Shop Name & Address can be added later */}
+                  <div className="p-2.5 rounded-xl bg-blue-50/80 border border-blue-200/80 text-[11px] text-blue-900 flex items-center gap-2">
+                    <Store className="w-4 h-4 text-blue-600 shrink-0" />
+                    <span>
+                      {t(
+                        'দোকানের নাম ও ঠিকানা (Shop Name & Address) পরে যেকোনো সময় প্রোফাইল বা সেটিংস থেকে অ্যাড করা যাবে।',
+                        'Shop Name & Address can be added later anytime from Profile or Settings.',
+                        'दुकान का नाम और पता बाद में कभी भी प्रोफ़ाइल या सेटिंग्स से जोड़ा जा सकता है।'
+                      )}
+                    </span>
                   </div>
 
                   {/* Submit Sign Up Button */}
-                  <div className="flex gap-2 pt-2">
+                  <div className="flex gap-2 pt-1">
                     {userProfile.isLoggedIn && (
                       <button
                         type="button"
@@ -1189,7 +1126,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                       className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white rounded-xl font-bold text-xs sm:text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
                     >
                       <CheckCircle2 className="w-4 h-4 stroke-[2.5]" />
-                      <span>{t('নতুন অ্যাকাউন্ট তৈরি ও সরাসরি প্রবেশ করুন', 'Create Account & Sign In Now', 'नया खाता बनाएं और सीधे प्रवेश करें')}</span>
+                      <span>{t('সাইন আপ করুন (Sign Up)', 'Sign Up', 'साइन अप करें')}</span>
                     </button>
                   </div>
 

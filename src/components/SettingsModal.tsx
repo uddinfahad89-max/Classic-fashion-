@@ -210,16 +210,33 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
             </div>
           </div>
-          <div>
-            <label className="block text-stone-700 font-semibold mb-1">{t.storeNameLabel}</label>
-            <input
-              type="text"
-              required
-              value={form.storeName}
-              onChange={(e) => setForm({ ...form, storeName: e.target.value })}
-              placeholder={t.storeNamePlaceholder}
-              className="w-full border border-stone-200 bg-stone-50/80 p-2 rounded-xl text-xs sm:text-sm font-semibold focus:outline-none focus:border-blue-500"
-            />
+          <div className="p-3 bg-blue-50/50 border border-blue-200/80 rounded-2xl space-y-2.5">
+            <div className="text-xs font-bold text-blue-950 flex items-center justify-between">
+              <span>{isBn ? '🏪 দোকানের নাম ও ঠিকানা (Shop Name & Address)' : '🏪 Shop Name & Address'}</span>
+              <span className="text-[10px] font-semibold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
+                {isBn ? 'যেকোনো সময় পরিবর্তনযোগ্য' : 'Editable anytime'}
+              </span>
+            </div>
+            <div>
+              <label className="block text-stone-700 font-semibold mb-1">{t.storeNameLabel}</label>
+              <input
+                type="text"
+                value={form.storeName}
+                onChange={(e) => setForm({ ...form, storeName: e.target.value })}
+                placeholder={t.storeNamePlaceholder}
+                className="w-full border border-stone-200 bg-white p-2 rounded-xl text-xs sm:text-sm font-semibold focus:outline-none focus:border-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-stone-700 font-semibold mb-1">{t.storeAddressLabel}</label>
+              <input
+                type="text"
+                value={form.storeAddress}
+                onChange={(e) => setForm({ ...form, storeAddress: e.target.value })}
+                placeholder={t.storeAddressPlaceholder}
+                className="w-full border border-stone-200 bg-white p-2 rounded-xl text-xs focus:outline-none focus:border-blue-500"
+              />
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-2.5">
@@ -315,17 +332,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 className="w-full border border-stone-200 bg-stone-50/80 p-2 rounded-xl text-xs font-mono focus:outline-none focus:border-blue-500"
               />
             </div>
-          </div>
-
-          <div>
-            <label className="block text-stone-700 font-semibold mb-1">{t.storeAddressLabel}</label>
-            <input
-              type="text"
-              value={form.storeAddress}
-              onChange={(e) => setForm({ ...form, storeAddress: e.target.value })}
-              placeholder={t.storeAddressPlaceholder}
-              className="w-full border border-stone-200 bg-stone-50/80 p-2 rounded-xl text-xs focus:outline-none focus:border-blue-500"
-            />
           </div>
 
           {/* Invoice Number Formatting & Sequence */}

@@ -54,12 +54,47 @@ interface BillingTabProps {
   onOpenCalculator?: () => void;
   products?: ProductStockItem[];
   onOpenProductStock?: () => void;
+  totalInvoicesCount?: number;
   onQuickSaveProduct?: (data: {
     name: string;
     price: number;
     stock?: number;
   }) => void;
 }
+
+const BILLING_CART_DRAFT_KEY = 'simple_pos_billing_cart_draft_v1';
+
+interface BillingCartDraft {
+  billItems?: BillItem[];
+  customerName?: string;
+  customerPhone?: string;
+  discountType?: 'fixed' | 'percent';
+  discountValue?: string;
+  paymentMethod?: PaymentMethod;
+  paidAmount?: string;
+  itemName?: string;
+  itemPrice?: string;
+  itemQty?: string;
+  itemUnit?: string;
+  isTailoring?: boolean;
+  deliveryDate?: string;
+  trialDate?: string;
+  tailoringStatus?: TailoringOrderStatus;
+  measurements?: TailoringMeasurements;
+  updatedAt?: number;
+}
+
+const loadSavedBillingDraft = (): BillingCartDraft | null => {
+  try {
+    if (typeof window === 'undefined') return null;
+    const raw = localStorage.getItem(BILLING_CART_DRAFT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? (parsed as BillingCartDraft) : null;
+  } catch {
+    return null;
+  }
+};
 
 export const BillingTab: React.FC<BillingTabProps> = ({
   billItems,
@@ -73,16 +108,19 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   onOpenCalculator,
   products = [],
   onOpenProductStock,
+  totalInvoicesCount = 0,
   onQuickSaveProduct,
 }) => {
   const t = translations[language];
   const isBn = language === 'bn';
 
-  // Direct item input form state
-  const [itemName, setItemName] = useState('');
-  const [itemPrice, setItemPrice] = useState('');
-  const [itemQty, setItemQty] = useState('1');
-  const [itemUnit, setItemUnit] = useState('');
+  const initialDraft = useMemo(() => loadSavedBillingDraft(), []);
+
+  // Direct item input form state (hydrated from auto-saved draft if present)
+  const [itemName, setItemName] = useState(() => initialDraft?.itemName || '');
+  const [itemPrice, setItemPrice] = useState(() => initialDraft?.itemPrice || '');
+  const [itemQty, setItemQty] = useState(() => initialDraft?.itemQty || '1');
+  const [itemUnit, setItemUnit] = useState(() => initialDraft?.itemUnit || '');
   const [showUnitDropdown, setShowUnitDropdown] = useState(false);
   const [itemStockInput, setItemStockInput] = useState('');
   const [showInlineStockAdd, setShowInlineStockAdd] = useState(false);
@@ -102,37 +140,121 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0);
   const suggestionContainerRef = useRef<HTMLDivElement>(null);
 
-  // Checkout meta
-  const [customerName, setCustomerName] = useState('');
-  const [customerPhone, setCustomerPhone] = useState('');
+  // Checkout meta (hydrated from auto-saved draft if present)
+  const [customerName, setCustomerName] = useState(() => initialDraft?.customerName || '');
+  const [customerPhone, setCustomerPhone] = useState(() => initialDraft?.customerPhone || '');
   // Tailoring Invoice State
-  const [isTailoring, setIsTailoring] = useState(false);
-  const [deliveryDate, setDeliveryDate] = useState('');
-  const [trialDate, setTrialDate] = useState('');
-  const [tailoringStatus, setTailoringStatus] = useState<TailoringOrderStatus>('pending');
-  const [measurements, setMeasurements] = useState<TailoringMeasurements>({
-    garmentType: '',
-    length: '',
-    chest: '',
-    waist: '',
-    shoulder: '',
-    sleeve: '',
-    neck: '',
-    hip: '',
-    bottom: '',
-    designNotes: '',
-  });
+  const [isTailoring, setIsTailoring] = useState(() => Boolean(initialDraft?.isTailoring));
+  const [deliveryDate, setDeliveryDate] = useState(() => initialDraft?.deliveryDate || '');
+  const [trialDate, setTrialDate] = useState(() => initialDraft?.trialDate || '');
+  const [tailoringStatus, setTailoringStatus] = useState<TailoringOrderStatus>(
+    () => initialDraft?.tailoringStatus || 'pending'
+  );
+  const [measurements, setMeasurements] = useState<TailoringMeasurements>(
+    () =>
+      initialDraft?.measurements || {
+        garmentType: '',
+        length: '',
+        chest: '',
+        waist: '',
+        shoulder: '',
+        sleeve: '',
+        neck: '',
+        hip: '',
+        bottom: '',
+        designNotes: '',
+      }
+  );
   // Automatically generated sequential invoice number
   const [invoiceNo, setInvoiceNo] = useState(() => storageService.getNextInvoiceNumber());
-  const [discountType, setDiscountType] = useState<'fixed' | 'percent'>('fixed');
-  const [discountValue, setDiscountValue] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
-  const [paidAmount, setPaidAmount] = useState('');
+  const [discountType, setDiscountType] = useState<'fixed' | 'percent'>(
+    () => initialDraft?.discountType || 'fixed'
+  );
+  const [discountValue, setDiscountValue] = useState(() => initialDraft?.discountValue || '');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(
+    () => initialDraft?.paymentMethod || 'cash'
+  );
+  const [paidAmount, setPaidAmount] = useState(() => initialDraft?.paidAmount || '');
 
-  // Synchronize when settings prefix or sequence updates
+  // Restore saved cart items on mount if parent state was empty, then auto-save cart changes to localStorage
+  const hasHydratedDraftRef = useRef(false);
+  useEffect(() => {
+    if (!hasHydratedDraftRef.current) {
+      hasHydratedDraftRef.current = true;
+      if (
+        billItems.length === 0 &&
+        initialDraft?.billItems &&
+        Array.isArray(initialDraft.billItems) &&
+        initialDraft.billItems.length > 0
+      ) {
+        setBillItems(initialDraft.billItems);
+        return;
+      }
+    }
+
+    try {
+      const hasAnyDraftData =
+        billItems.length > 0 ||
+        customerName.trim() !== '' ||
+        customerPhone.trim() !== '' ||
+        discountValue.trim() !== '' ||
+        paidAmount.trim() !== '' ||
+        itemName.trim() !== '' ||
+        itemPrice.trim() !== '' ||
+        isTailoring;
+
+      if (!hasAnyDraftData) {
+        localStorage.removeItem(BILLING_CART_DRAFT_KEY);
+      } else {
+        const draftPayload: BillingCartDraft = {
+          billItems,
+          customerName,
+          customerPhone,
+          discountType,
+          discountValue,
+          paymentMethod,
+          paidAmount,
+          itemName,
+          itemPrice,
+          itemQty,
+          itemUnit,
+          isTailoring,
+          deliveryDate,
+          trialDate,
+          tailoringStatus,
+          measurements,
+          updatedAt: Date.now(),
+        };
+        localStorage.setItem(BILLING_CART_DRAFT_KEY, JSON.stringify(draftPayload));
+      }
+    } catch (err) {
+      console.warn('Failed to auto-save billing cart draft:', err);
+    }
+  }, [
+    billItems,
+    customerName,
+    customerPhone,
+    discountType,
+    discountValue,
+    paymentMethod,
+    paidAmount,
+    itemName,
+    itemPrice,
+    itemQty,
+    itemUnit,
+    isTailoring,
+    deliveryDate,
+    trialDate,
+    tailoringStatus,
+    measurements,
+    initialDraft,
+    setBillItems,
+  ]);
+
+  // Synchronize when settings prefix, sequence, or total invoices count updates
   useEffect(() => {
     setInvoiceNo(storageService.getNextInvoiceNumber());
-  }, [settings.invoicePrefix, settings.nextInvoiceNumber]);
+  }, [totalInvoicesCount, settings.invoicePrefix, settings.nextInvoiceNumber]);
 
   // Close suggestions dropdown on outside click
   useEffect(() => {
@@ -550,6 +672,10 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         : {}),
     };
 
+    try {
+      localStorage.removeItem(BILLING_CART_DRAFT_KEY);
+    } catch {}
+
     onPrintBill(bill, mode);
     setItemName('');
     setItemPrice('');
@@ -914,6 +1040,9 @@ export const BillingTab: React.FC<BillingTabProps> = ({
               type="button"
               onClick={() => {
                 if (confirm(t.clearBillConfirm)) {
+                  try {
+                    localStorage.removeItem(BILLING_CART_DRAFT_KEY);
+                  } catch {}
                   onClearBill();
                   setCustomerName('');
                   setCustomerPhone('');
