@@ -1363,13 +1363,24 @@ class StorageService {
     const now = Date.now();
 
     const cleanBarcode = (data.barcode || '').trim();
-    const autoGenBarcode = () => {
-      const prefix =
-        cleanName
-          .toUpperCase()
-          .replace(/[^A-Z0-9]/g, '')
-          .slice(0, 2) || 'PR';
-      return `${prefix}${Math.floor(100000 + Math.random() * 900000)}`;
+    const autoGenBarcode = (costVal?: number) => {
+      const upper = cleanName.toUpperCase();
+      const firstWord = upper.split(/\s+/)[0].replace(/[^A-Z]/g, '');
+      let prefix = 'LN';
+      if (firstWord.length >= 2) {
+        const consonants = firstWord.slice(1).replace(/[AEIOU]/g, '');
+        prefix = consonants.length >= 1 ? `${firstWord[0]}${consonants[0]}` : firstWord.slice(0, 2);
+      } else {
+        const allAlpha = upper.replace(/[^A-Z]/g, '');
+        if (allAlpha.length >= 1) prefix = allAlpha.slice(0, 2);
+      }
+      const middle6 = String(Math.floor(100000 + Math.random() * 900000));
+      const parsedCost = costVal !== undefined ? Math.round(Number(costVal)) : 0;
+      if (!isNaN(parsedCost) && parsedCost > 0) {
+        const costStr = String(parsedCost);
+        return `${prefix}${costStr.slice(0, 1)}${middle6}${costStr.slice(1)}`;
+      }
+      return `${prefix}${middle6}`;
     };
 
     const existingIdx = products.findIndex(
@@ -1397,7 +1408,12 @@ class StorageService {
         stock: updatedStock,
         unit: data.unit || existing.unit || 'Pcs',
         category: data.category !== undefined ? data.category : existing.category,
-        barcode: cleanBarcode || existing.barcode || autoGenBarcode(),
+        barcode:
+          cleanBarcode ||
+          existing.barcode ||
+          autoGenBarcode(
+            data.purchasePrice !== undefined ? data.purchasePrice : existing.purchasePrice
+          ),
         updatedAt: now,
       };
       products[existingIdx] = updated;
@@ -1419,7 +1435,7 @@ class StorageService {
         stock: initialStock,
         unit: data.unit || 'Pcs',
         category: data.category || '',
-        barcode: cleanBarcode || autoGenBarcode(),
+        barcode: cleanBarcode || autoGenBarcode(data.purchasePrice),
         updatedAt: now,
       };
       products.unshift(newProd);

@@ -70,15 +70,58 @@ const AutoBarcodeCanvas: React.FC<{
   );
 };
 
-// Helper to generate a deterministic or clean SKU code from product name
-const generateAutoSkuFromName = (prodName: string, seedSuffix?: string): string => {
-  const clean = (prodName || '')
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, '');
-  const prefix = clean.length >= 2 ? clean.slice(0, 2) : 'PR';
-  const suffix = seedSuffix || String(Math.floor(100000 + Math.random() * 900000));
-  return `${prefix}${suffix}`;
+// Extract 1 or 2 smart uppercase letters (preserves custom 1-2 letter prefix if provided, otherwise derives from product name e.g. "Zufar" -> "ZF", "Linen" -> "LN")
+const extractSkuPrefix = (prodName: string, existingCode?: string): string => {
+  const existingAlpha = (existingCode || '').trim().toUpperCase().match(/^[A-Z]{1,2}/);
+  if (existingAlpha) {
+    return existingAlpha[0];
+  }
+  const cleanName = (prodName || '').trim().toUpperCase();
+  const alphaOnly = cleanName.replace(/[^A-Z]/g, '');
+  if (alphaOnly.length >= 2) {
+    const firstWord = cleanName.split(/\s+/)[0].replace(/[^A-Z]/g, '');
+    if (firstWord.length >= 2) {
+      const firstLetter = firstWord[0];
+      const consonants = firstWord.slice(1).replace(/[AEIOU]/g, '');
+      if (consonants.length >= 1) {
+        return `${firstLetter}${consonants[0]}`;
+      }
+      return firstWord.slice(0, 2);
+    }
+    return alphaOnly.slice(0, 2);
+  }
+  if (alphaOnly.length === 1) {
+    return alphaOnly;
+  }
+  return 'LN';
+};
+
+// Generate automatic SKU encoding purchasePrice (Cost):
+// [1-2 Alphabets] + [1st digit of Cost] + [6 Middle Digits] + [Remaining digits of Cost]
+// Example: Cost = 500, Prefix = LN, Middle = 897568 => LN589756800
+// Example: Cost = 155, Prefix = ZF, Middle = 897568 => ZF189756855
+const generateAutoSkuFromName = (
+  prodName: string,
+  seedSuffix?: string,
+  costPrice?: string | number,
+  existingCode?: string
+): string => {
+  const prefix = extractSkuPrefix(prodName, existingCode);
+  const middle6 =
+    seedSuffix && /^\d{6,7}$/.test(seedSuffix)
+      ? seedSuffix
+      : String(Math.floor(100000 + Math.random() * 900000));
+
+  const parsedCost =
+    costPrice !== undefined && costPrice !== '' ? Math.round(Number(costPrice)) : 0;
+  if (!isNaN(parsedCost) && parsedCost > 0) {
+    const costStr = String(parsedCost);
+    const firstDigit = costStr.slice(0, 1);
+    const lastDigits = costStr.slice(1);
+    return `${prefix}${firstDigit}${middle6}${lastDigits}`;
+  }
+
+  return `${prefix}${middle6}`;
 };
 
 interface ProductStockModalProps {
@@ -146,9 +189,11 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
   const effectiveFormBarcode = useMemo(() => {
     const trimmed = barcode.trim();
     if (trimmed) return trimmed;
-    if (name.trim()) return generateAutoSkuFromName(name, autoSkuSeed);
+    if (name.trim() || purchasePrice.trim()) {
+      return generateAutoSkuFromName(name, autoSkuSeed, purchasePrice, barcode);
+    }
     return '';
-  }, [barcode, name, autoSkuSeed]);
+  }, [barcode, name, purchasePrice, autoSkuSeed]);
 
   // Find if typed barcode/SKU matches or extends an existing saved product (e.g. ZF1678455 -> ZF1678 "Zufar royal king" Rs 300)
   const matchedProductBySku = useMemo(() => {
@@ -266,7 +311,9 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
     }
 
     // Use the exact same barcode shown in the live preview
-    const finalBarcode = effectiveFormBarcode || generateAutoSkuFromName(cleanName, autoSkuSeed);
+    const finalBarcode =
+      effectiveFormBarcode ||
+      generateAutoSkuFromName(cleanName, autoSkuSeed, parsedCost, barcode);
 
     // Sync this product & barcode to the Barcode Label Studio so it's ready to print
     const existingDesign = storageService.getBarcodeCustomDesign() || {};
@@ -296,9 +343,29 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
     setEditingId(prod.id);
     setName(prod.name);
     setPrice(String(prod.price || 0));
-    setPurchasePrice(prod.purchasePrice !== undefined ? String(prod.purchasePrice) : '');
+    const costStr = prod.purchasePrice !== undefined ? String(prod.purchasePrice) : '';
+    setPurchasePrice(costStr);
     setStock(String(prod.stock || 0));
-    setBarcode(prod.barcode || '');
+    // Extract existing 6-digit middle seed if present, otherwise generate a fresh 6-digit seed
+    const newSeed = String(Math.floor(100000 + Math.random() * 900000));
+    setAutoSkuSeed(newSeed);
+    if (prod.purchasePrice && prod.purchasePrice > 0) {
+      // Auto-format SKU with the cost price encoding when opening edit if existing SKU was old format
+      const cStr = String(Math.round(prod.purchasePrice));
+      const fDigit = cStr.slice(0, 1);
+      const lDigits = cStr.slice(1);
+      const existingCode = (prod.barcode || '').trim();
+      const expectedRegex = new RegExp(`^[A-Za-z]{1,2}${fDigit}\\d{6,7}${lDigits}$`);
+      if (existingCode && expectedRegex.test(existingCode)) {
+        setBarcode(existingCode);
+      } else {
+        setBarcode(
+          generateAutoSkuFromName(prod.name, newSeed, prod.purchasePrice, existingCode)
+        );
+      }
+    } else {
+      setBarcode(prod.barcode || '');
+    }
     setUnit(prod.unit || 'Pcs');
   };
 
@@ -423,7 +490,15 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
                   type="text"
                   required={!matchedProductBySku && !barcode.trim()}
                   value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  onChange={(e) => {
+                    const nextName = e.target.value;
+                    setName(nextName);
+                    if (purchasePrice.trim() || barcode.trim()) {
+                      setBarcode(
+                        generateAutoSkuFromName(nextName, autoSkuSeed, purchasePrice)
+                      );
+                    }
+                  }}
                   placeholder={
                     matchedProductBySku
                       ? matchedProductBySku.name
@@ -472,7 +547,7 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
                 />
               </div>
 
-              {/* Cost Price (Optional) */}
+              {/* Cost Price (Optional - Auto encodes into SKU) */}
               <div className="sm:col-span-2">
                 <label className="block text-[11px] font-bold text-stone-500 mb-1">
                   {isBn ? 'কেনা দাম (ঐচ্ছিক)' : 'Cost (Opt)'}
@@ -482,7 +557,14 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
                   min="0"
                   step="any"
                   value={purchasePrice}
-                  onChange={(e) => setPurchasePrice(e.target.value)}
+                  onChange={(e) => {
+                    const nextCost = e.target.value;
+                    setPurchasePrice(nextCost);
+                    // Automatically update SKU with [1-2 letters] + [1st digit of cost] + [6 middle digits] + [last digits of cost]
+                    setBarcode(
+                      generateAutoSkuFromName(name, autoSkuSeed, nextCost, barcode)
+                    );
+                  }}
                   placeholder="0"
                   className="w-full border border-stone-200 bg-white px-2.5 py-2 rounded-xl text-xs sm:text-sm font-mono text-stone-700 focus:outline-none focus:border-blue-600"
                 />
@@ -495,8 +577,8 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
                     <BarcodeIcon className="w-3.5 h-3.5 text-blue-600" />
                     <span>
                       {isBn
-                        ? 'বারকোড / SKU নম্বর (লিখলেই অটোমেটিক বারকোড তৈরি হবে)'
-                        : 'Barcode / SKU Number (Auto-generates barcode as you type)'}
+                        ? 'বারকোড / SKU নম্বর (কেনা দাম দিলেই অটো কোড তৈরি হবে)'
+                        : 'Barcode / SKU Number (Auto-encodes Cost Price into SKU)'}
                     </span>
                   </label>
                   <button
@@ -504,7 +586,9 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
                     onClick={() => {
                       const newSeed = String(Math.floor(100000 + Math.random() * 900000));
                       setAutoSkuSeed(newSeed);
-                      setBarcode(generateAutoSkuFromName(name, newSeed));
+                      setBarcode(
+                        generateAutoSkuFromName(name, newSeed, purchasePrice, barcode)
+                      );
                     }}
                     className="text-[10px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-0.5 rounded-md cursor-pointer flex items-center gap-1"
                   >
@@ -518,8 +602,8 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
                   onChange={(e) => setBarcode(e.target.value)}
                   placeholder={
                     isBn
-                      ? 'যেমন: ZF1678455 বা 10001234 (ফাঁকা রাখলেও সেভের সময় অটো বারকোড তৈরি হবে)'
-                      : 'e.g. ZF1678455 or 10001234 (Auto-generates if left blank)'
+                      ? 'যেমন: LN589756800 বা ZF189756855 (কেনা দাম দিলে অটো জেনারেট হবে)'
+                      : 'e.g. LN589756800 or ZF189756855 (Auto-generates with Cost)'
                   }
                   className="w-full border border-stone-300 bg-white px-3 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold text-stone-900 focus:outline-none focus:border-blue-600"
                 />
