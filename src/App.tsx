@@ -958,6 +958,35 @@ export default function App() {
     }
   };
 
+  const handleBatchImportDues = (
+    rows: Array<{
+      name: string;
+      amount: number;
+      phone?: string;
+      note?: string;
+      type?: DueType;
+    }>
+  ) => {
+    const updatedDues = storageService.batchAddOrUpdateCustomerDues(rows);
+    setCustomerDues(updatedDues);
+
+    // Sync to Supabase
+    supabaseService.getActiveUserId().then((userId) => {
+      if (userId) {
+        for (const due of updatedDues) {
+          supabaseService.syncCustomerDue(due, userId);
+        }
+      }
+    });
+
+    showToast(
+      language === 'bn'
+        ? `সফলভাবে ${rows.length} জন কাস্টমারের বকেয়া তথ্য সেভ হয়েছে!`
+        : `Successfully imported ${rows.length} customer dues!`,
+      'info'
+    );
+  };
+
   const handleRecordCustomerPayment = (id: string, amount: number, note?: string) => {
     const target = customerDues.find((d) => d.id === id);
     const isPayable = target?.type === 'payable';
@@ -1324,6 +1353,7 @@ export default function App() {
             onRecordPayment={handleRecordCustomerPayment}
             onDeleteDue={handleDeleteCustomerDue}
             onPrintDueSlip={(bill) => setReceiptBill(bill)}
+            onBatchImportDues={handleBatchImportDues}
           />
         )}
 

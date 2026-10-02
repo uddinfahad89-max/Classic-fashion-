@@ -22,11 +22,16 @@ import {
   Calendar,
   AlertTriangle,
   Calculator,
+  FileSpreadsheet,
+  CheckCircle2,
+  FastForward,
 } from 'lucide-react';
 import { CustomerDue, DueType, ThermalPrinterSettings, BillInvoice, Language } from '../types';
 import { translations } from '../utils/i18n';
 import { KhatabookEntryModal, KhatabookEntryPayload } from './KhatabookEntryModal';
 import { useBackHandler } from '../utils/useBackHandler';
+import { ExcelDueImportModal, ParsedDueRow } from './ExcelDueImportModal';
+import { WhatsAppDueAssistantModal, formatIndianWhatsAppPhone } from './WhatsAppDueAssistantModal';
 
 interface CustomerDueTabProps {
   dues: CustomerDue[];
@@ -42,6 +47,7 @@ interface CustomerDueTabProps {
   onRecordPayment: (id: string, amount: number, note?: string) => void;
   onDeleteDue: (id: string) => void;
   onPrintDueSlip: (bill: BillInvoice) => void;
+  onBatchImportDues?: (rows: ParsedDueRow[]) => void;
 }
 
 export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
@@ -52,6 +58,7 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
   onRecordPayment,
   onDeleteDue,
   onPrintDueSlip,
+  onBatchImportDues,
 }) => {
   const t = translations[language];
   const isBn = language === 'bn';
@@ -88,6 +95,49 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
 
   // Report Modal / Print
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+
+  // Excel / CSV Import Modal State
+  const [isExcelImportModalOpen, setIsExcelImportModalOpen] = useState(false);
+  // WhatsApp Due Assistant Modal State
+  const [isWhatsAppAssistantModalOpen, setIsWhatsAppAssistantModalOpen] = useState(false);
+  const [whatsAppModalMode, setWhatsAppModalMode] = useState<'single' | 'bulk'>('single');
+  const [whatsAppCustomerTarget, setWhatsAppCustomerTarget] = useState<CustomerDue | null>(null);
+  const [importSuccessBanner, setImportSuccessBanner] = useState<string | null>(null);
+
+  // Native-like Android Back button handlers for CustomerDueTab
+  useBackHandler('dueExcelImportModal', isExcelImportModalOpen, () => {
+    setIsExcelImportModalOpen(false);
+    return true;
+  }, 35);
+
+  useBackHandler('dueWhatsAppAssistantModal', isWhatsAppAssistantModalOpen, () => {
+    setIsWhatsAppAssistantModalOpen(false);
+    return true;
+  }, 35);
+
+  const handleBatchExcelImport = (rows: ParsedDueRow[]) => {
+    if (onBatchImportDues) {
+      onBatchImportDues(rows);
+    } else {
+      for (const r of rows) {
+        onAddOrUpdateDue(
+          r.name,
+          r.amount,
+          r.phone,
+          r.note || (isBn ? 'এক্সেল থেকে ইমপোর্টকৃত' : 'Imported from Excel'),
+          r.type
+        );
+      }
+    }
+    setImportSuccessBanner(
+      isBn
+        ? `সফলভাবে ${rows.length} জন কাস্টমারের বকেয়া তথ্য ইমপোর্ট হয়েছে!`
+        : `Successfully imported ${rows.length} customer dues!`
+    );
+    setTimeout(() => {
+      setImportSuccessBanner(null);
+    }, 4000);
+  };
 
   // Native-like Android Back button handlers for CustomerDueTab
   useBackHandler('dueKhatabookModal', Boolean(khatabookModal?.isOpen), () => {
@@ -345,7 +395,7 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
   // Generate WhatsApp Reminder Link
   const handleWhatsAppReminder = (customer: CustomerDue) => {
     const isPayable = customer.type === 'payable';
-    const cleanPhone = customer.phone ? customer.phone.replace(/[^0-9]/g, '') : '';
+    const cleanPhone = formatIndianWhatsAppPhone(customer.phone || '');
     const store = settings.storeName || 'Our Store';
 
     let message = '';
@@ -469,6 +519,64 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
         </button>
       </div>
 
+      {/* SUCCESS IMPORT BANNER */}
+      {importSuccessBanner && (
+        <div className="p-3 bg-emerald-50 border border-emerald-300 text-emerald-900 rounded-2xl text-xs font-bold flex items-center justify-between gap-2 shadow-xs animate-in fade-in duration-150">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{importSuccessBanner}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setImportSuccessBanner(null)}
+            className="text-emerald-700 hover:text-emerald-950 text-xs font-bold cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* QUICK ACTIONS BAR: EXCEL IMPORT + WHATSAPP DUE ASSISTANT + BULK REMINDER */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        <button
+          type="button"
+          onClick={() => setIsExcelImportModalOpen(true)}
+          className="p-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-[0.98] text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer"
+          title={isBn ? 'এক্সেল ফাইল বা কপি-পেস্ট থেকে সব কাস্টমার বকেয়া ইমপোর্ট করুন' : 'Import Dues from Excel'}
+        >
+          <FileSpreadsheet className="w-4 h-4" />
+          <span>{isBn ? '📊 এক্সেল ইমপোর্ট' : 'Import Excel / CSV'}</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setWhatsAppCustomerTarget(null);
+            setWhatsAppModalMode('single');
+            setIsWhatsAppAssistantModalOpen(true);
+          }}
+          className="p-3 rounded-2xl bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 active:scale-[0.98] text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer"
+          title={isBn ? 'বিনীত ও বন্ধুত্বপূর্ণ হোয়াটসঅ্যাপ তাগাদা মেসেজ সহকারী' : 'WhatsApp Due Assistant'}
+        >
+          <MessageCircle className="w-4 h-4" />
+          <span>{isBn ? '💬 তাগাদা সহকারী' : 'WhatsApp Assistant'}</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setWhatsAppCustomerTarget(null);
+            setWhatsAppModalMode('bulk');
+            setIsWhatsAppAssistantModalOpen(true);
+          }}
+          className="col-span-2 sm:col-span-1 p-3 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 active:scale-[0.98] text-stone-950 font-black text-xs flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer"
+          title={isBn ? 'এক ক্লিকে সব কাস্টমারকে ক্রমান্বয়ে তাগাদা পাঠান' : 'Bulk WhatsApp Reminders'}
+        >
+          <FastForward className="w-4 h-4 text-stone-950" />
+          <span>{isBn ? '🚀 বাল্ক তাগাদা কাতার' : 'Bulk Reminder'}</span>
+        </button>
+      </div>
+
       {/* 2. SEARCH BAR & FILTER CHIPS */}
       <div className="space-y-2">
         <div className="relative">
@@ -565,7 +673,7 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
             )}
           </div>
         ) : (
-          filteredDues.map((customer) => {
+          filteredDues.map((customer, custIdx) => {
             const isPayable = customer.type === 'payable';
             const updatedDate = new Date(customer.lastUpdated);
             const dateString = updatedDate.toLocaleDateString([], {
@@ -575,7 +683,7 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
 
             return (
               <div
-                key={customer.id}
+                key={`${customer.id || 'due'}-${custIdx}`}
                 className="bg-white rounded-2xl border border-stone-200/90 hover:border-stone-300 p-3 sm:p-3.5 shadow-2xs transition-all space-y-2.5"
               >
                 <div className="flex items-center justify-between gap-2.5">
@@ -640,9 +748,13 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
                   {/* WhatsApp REMIND Button */}
                   <button
                     type="button"
-                    onClick={() => handleWhatsAppReminder(customer)}
+                    onClick={() => {
+                      setWhatsAppCustomerTarget(customer);
+                      setWhatsAppModalMode('single');
+                      setIsWhatsAppAssistantModalOpen(true);
+                    }}
                     className="px-2.5 py-1 rounded-xl bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 text-emerald-700 border border-emerald-200/80 text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
-                    title={isBn ? 'হোয়াটসঅ্যাপে তাগাদা বা ব্যালেন্স পাঠান' : 'Send WhatsApp Reminder'}
+                    title={isBn ? 'বিনীত হোয়াটসঅ্যাপ তাগাদা মেসেজ দেখুন ও পাঠান' : 'Send WhatsApp Polite Reminder'}
                   >
                     <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
                     <span>{isBn ? 'তাগাদা >' : 'REMIND >'}</span>
@@ -1049,9 +1161,9 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
               </span>
 
               {selectedCustomer.transactions && selectedCustomer.transactions.length > 0 ? (
-                selectedCustomer.transactions.map((tx) => (
+                selectedCustomer.transactions.map((tx, txIdx) => (
                   <div
-                    key={tx.id}
+                    key={`${tx.id || 'tx'}-${txIdx}`}
                     className="p-3 rounded-2xl bg-stone-50 border border-stone-100 flex items-center justify-between"
                   >
                     <div>
@@ -1231,8 +1343,8 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-stone-100 font-mono">
-                  {dues.map((c) => (
-                    <tr key={c.id}>
+                  {dues.map((c, cIdx) => (
+                    <tr key={`${c.id || 'due'}-${cIdx}`}>
                       <td className="py-2 font-sans font-bold text-stone-800">{c.name}</td>
                       <td className="py-2 text-stone-500 text-[11px]">{c.phone || '-'}</td>
                       <td className="py-2 text-[10px]">
@@ -1289,6 +1401,28 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
           partyInputLabel={isBn ? 'কাস্টমারের নাম *' : 'Customer Name *'}
         />
       )}
+
+      {/* 10. EXCEL / CSV DUE IMPORT MODAL */}
+      <ExcelDueImportModal
+        isOpen={isExcelImportModalOpen}
+        onClose={() => setIsExcelImportModalOpen(false)}
+        onImportSuccess={handleBatchExcelImport}
+        language={language}
+      />
+
+      {/* 11. WHATSAPP DUE ASSISTANT MODAL */}
+      <WhatsAppDueAssistantModal
+        isOpen={isWhatsAppAssistantModalOpen}
+        onClose={() => {
+          setIsWhatsAppAssistantModalOpen(false);
+          setWhatsAppCustomerTarget(null);
+        }}
+        dues={dues}
+        settings={settings}
+        language={language}
+        initialCustomer={whatsAppCustomerTarget}
+        initialMode={whatsAppModalMode}
+      />
     </div>
   );
 };

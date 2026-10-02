@@ -365,7 +365,7 @@ class StorageService {
   addCashEntry(type: 'Income' | 'Expense', amount: number, note: string): CashEntry {
     const entries = this.getCashEntries();
     const newEntry: CashEntry = {
-      id: 'cash-' + Date.now(),
+      id: `cash-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
       type,
       amount,
       note: note.trim() || (type === 'Income' ? 'Daily Garment Sale' : 'Store Cost'),
@@ -391,10 +391,49 @@ class StorageService {
       }
       const parsed: CustomerDue[] = JSON.parse(data);
       if (Array.isArray(parsed)) {
-        return parsed.map((d) => ({
-          ...d,
-          type: d.type || 'receivable',
-        }));
+        let hasDuplicateOrMissing = false;
+        const seenIds = new Set<string>();
+
+        const sanitized = parsed.map((d, index) => {
+          let id = d.id;
+          // Deduplicate if missing, blank, or collided with an earlier record
+          if (!id || seenIds.has(id)) {
+            hasDuplicateOrMissing = true;
+            id = `due-${Date.now()}-${index}-${Math.random().toString(36).substring(2, 8)}`;
+          }
+          seenIds.add(id);
+
+          // Deduplicate transaction IDs
+          const seenTxIds = new Set<string>();
+          const transactions = (d.transactions || []).map((tx, txIdx) => {
+            let txId = tx.id;
+            if (!txId || seenTxIds.has(txId)) {
+              hasDuplicateOrMissing = true;
+              txId = `tx-${Date.now()}-${txIdx}-${Math.random().toString(36).substring(2, 8)}`;
+            }
+            seenTxIds.add(txId);
+            return {
+              ...tx,
+              id: txId,
+            };
+          });
+
+          return {
+            ...d,
+            id,
+            type: d.type || 'receivable',
+            transactions,
+          };
+        });
+
+        // If duplicate IDs were detected and cleaned, persist back to localStorage immediately
+        if (hasDuplicateOrMissing) {
+          try {
+            localStorage.setItem(STORAGE_KEYS.DUES, JSON.stringify(sanitized));
+          } catch {}
+        }
+
+        return sanitized;
       }
       return [];
     } catch {
@@ -420,6 +459,7 @@ class StorageService {
     );
 
     const now = Date.now();
+    const uniqueSuffix = `${Math.random().toString(36).substring(2, 8)}-${Math.floor(Math.random() * 1000)}`;
     const txNote =
       note.trim() ||
       (type === 'payable'
@@ -427,7 +467,7 @@ class StorageService {
         : 'বাকি যোগ (Due added)');
 
     const newTx = {
-      id: 'tx-' + now,
+      id: `tx-${now}-${uniqueSuffix}`,
       type: 'added' as const,
       dueType: type,
       amount,
@@ -465,7 +505,7 @@ class StorageService {
       return existing;
     } else {
       const newDue: CustomerDue = {
-        id: 'due-' + now,
+        id: `due-${now}-${uniqueSuffix}`,
         name: name.trim(),
         phone: phone.trim(),
         type,
@@ -479,6 +519,84 @@ class StorageService {
     }
   }
 
+  batchAddOrUpdateCustomerDues(
+    items: Array<{
+      name: string;
+      amount: number;
+      phone?: string;
+      note?: string;
+      type?: DueType;
+    }>
+  ): CustomerDue[] {
+    const dues = this.getCustomerDues();
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const cleanName = item.name.trim();
+      if (!cleanName || isNaN(item.amount) || item.amount <= 0) continue;
+
+      const phone = (item.phone || '').trim();
+      const type = item.type || 'receivable';
+      const existingIndex = dues.findIndex(
+        (d) => d.name.trim().toLowerCase() === cleanName.toLowerCase()
+      );
+
+      const now = Date.now();
+      const uniqueSuffix = `${i}-${Math.random().toString(36).substring(2, 8)}-${Math.floor(Math.random() * 1000)}`;
+      const txNote =
+        (item.note || '').trim() ||
+        (type === 'payable'
+          ? 'কাস্টমার পাওনাদার / অগ্রিম জমা (Payable / Advance)'
+          : 'বাকি যোগ (Due added)');
+
+      const newTx = {
+        id: `tx-${now}-${uniqueSuffix}`,
+        type: 'added' as const,
+        dueType: type,
+        amount: item.amount,
+        note: txNote,
+        timestamp: now,
+        dateFormatted:
+          new Date(now).toLocaleDateString() +
+          ' ' +
+          new Date(now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+
+      if (existingIndex >= 0) {
+        const existing = dues[existingIndex];
+        existing.type = existing.type || 'receivable';
+        if (existing.type === type) {
+          existing.dueAmount += item.amount;
+        } else {
+          if (item.amount > existing.dueAmount) {
+            existing.dueAmount = item.amount - existing.dueAmount;
+            existing.type = type;
+          } else {
+            existing.dueAmount -= item.amount;
+          }
+        }
+        if (phone) existing.phone = phone;
+        existing.lastUpdated = now;
+        existing.transactions = existing.transactions || [];
+        existing.transactions.unshift(newTx);
+        dues[existingIndex] = existing;
+      } else {
+        const newDue: CustomerDue = {
+          id: `due-${now}-${uniqueSuffix}`,
+          name: cleanName,
+          phone,
+          type,
+          dueAmount: Math.max(0, item.amount),
+          lastUpdated: now,
+          transactions: [newTx],
+        };
+        dues.unshift(newDue);
+      }
+    }
+
+    this.saveCustomerDues(dues);
+    return dues;
+  }
+
   recordCustomerPayment(id: string, paidAmount: number, note: string = ''): CustomerDue | null {
     const dues = this.getCustomerDues();
     const target = dues.find((d) => d.id === id);
@@ -486,7 +604,8 @@ class StorageService {
 
     target.type = target.type || 'receivable';
     target.dueAmount = Math.max(0, target.dueAmount - paidAmount);
-    target.lastUpdated = Date.now();
+    const now = Date.now();
+    target.lastUpdated = now;
     target.transactions = target.transactions || [];
 
     const defaultNote =
@@ -494,17 +613,19 @@ class StorageService {
         ? 'পাওনাদারকে পরিশোধ / সমন্বয় (Paid to Creditor / Settle)'
         : 'বাকি আদায় / পেমেন্ট জমা (Payment received)';
 
+    const uniqueSuffix = `${Math.random().toString(36).substring(2, 8)}-${Math.floor(Math.random() * 1000)}`;
+
     target.transactions.unshift({
-      id: 'tx-' + Date.now(),
+      id: `tx-${now}-${uniqueSuffix}`,
       type: 'paid',
       dueType: target.type,
       amount: paidAmount,
       note: note.trim() || defaultNote,
-      timestamp: Date.now(),
+      timestamp: now,
       dateFormatted:
-        new Date().toLocaleDateString() +
+        new Date(now).toLocaleDateString() +
         ' ' +
-        new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        new Date(now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     });
 
     this.saveCustomerDues(dues);
