@@ -1183,6 +1183,7 @@ export default function App() {
     addStockDelta?: number;
     unit?: string;
     category?: string;
+    barcode?: string;
   }) => {
     const saved = storageService.addOrUpdateProduct(data);
     setProducts(storageService.getProducts());
@@ -1234,7 +1235,12 @@ export default function App() {
         onOpenCalculator={() => setIsCalculatorOpen(true)}
         onLockApp={handleLockApp}
         activeTab={activeTab}
-        onSelectTab={(tab) => setActiveTab(tab)}
+        onSelectTab={(tab) => {
+          if (tab === 'billing') {
+            setProducts(storageService.getProducts());
+          }
+          setActiveTab(tab);
+        }}
         searchTerm={searchTerm}
         onSearchChange={setSearchTerm}
         sortOption={sortOption}
@@ -1480,6 +1486,7 @@ export default function App() {
             price: prod.price,
             qty,
             total: prod.price * qty,
+            barcode: prod.barcode,
             productId: prod.id,
           };
           setBillItems((prev) => [...prev, newItem]);
@@ -1489,6 +1496,15 @@ export default function App() {
               ? `"${prod.name}" বিলে যোগ করা হয়েছে`
               : `"${prod.name}" added to bill`,
             'success'
+          );
+        }}
+        onOpenBarcodeStudio={(prod) => {
+          setActiveTab('barcode');
+          showToast(
+            language === 'bn'
+              ? `"${prod.name}" (${prod.barcode}) বারকোড প্রিন্টের জন্য প্রস্তুত!`
+              : `"${prod.name}" (${prod.barcode}) loaded in Barcode Studio!`,
+            'info'
           );
         }}
         settings={settings}

@@ -26,6 +26,8 @@ import {
   Ruler,
   ChevronDown,
   FileText,
+  Camera,
+  Barcode,
 } from 'lucide-react';
 import {
   BillItem,
@@ -42,6 +44,7 @@ import { storageService } from '../services/storageService';
 import { translations } from '../utils/i18n';
 import { useBackHandler } from '../utils/useBackHandler';
 import { KhatabookEntryModal, KhatabookEntryPayload } from './KhatabookEntryModal';
+import { BarcodeScannerModal, playBarcodeBeep } from './BarcodeScannerModal';
 
 interface BillingTabProps {
   billItems: BillItem[];
@@ -60,6 +63,7 @@ interface BillingTabProps {
     name: string;
     price: number;
     stock?: number;
+    barcode?: string;
   }) => void;
 }
 
@@ -275,6 +279,13 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   const [isCalculatorModalOpen, setIsCalculatorModalOpen] = useState(false);
   const [calculatorTarget, setCalculatorTarget] = useState<'item' | 'paid' | 'discount'>('item');
 
+  // Mobile Camera Barcode Scanner Modal State
+  const [isBarcodeScannerOpen, setIsBarcodeScannerOpen] = useState(false);
+  const [scanStatusBanner, setScanStatusBanner] = useState<{
+    message: string;
+    type: 'success' | 'warning';
+  } | null>(null);
+
   useBackHandler(
     'billingCalculatorModal',
     isCalculatorModalOpen,
@@ -300,7 +311,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     return Array.from(map.values());
   }, [products]);
 
-  // Instant First-Letter Matching Products
+  // Instant First-Letter or Barcode Matching Products
   const matchingProducts = useMemo(() => {
     const q = itemName.trim().toLowerCase();
     if (!q) return [];
@@ -311,17 +322,190 @@ export const BillingTab: React.FC<BillingTabProps> = ({
 
     for (const prod of allSavedProducts) {
       const pName = prod.name.trim().toLowerCase();
-      if (pName.startsWith(q)) {
+      const pBarcode = (prod.barcode || '').trim().toLowerCase();
+      if (pName.startsWith(q) || (pBarcode && pBarcode === q)) {
         exactStartsWith.push(prod);
-      } else if (pName.split(/\s+/).some((w) => w.startsWith(q))) {
+      } else if (pName.split(/\s+/).some((w) => w.startsWith(q)) || (pBarcode && pBarcode.startsWith(q))) {
         wordStartsWith.push(prod);
-      } else if (pName.includes(q)) {
+      } else if (pName.includes(q) || (pBarcode && pBarcode.includes(q))) {
         containsMatch.push(prod);
       }
     }
 
     return [...exactStartsWith, ...wordStartsWith, ...containsMatch].slice(0, 8);
   }, [allSavedProducts, itemName]);
+
+  // Barcode Auto-Lookup in Inventory + Add 1 Item to Billing Cart + Refresh Input
+  const handleBarcodeScanned = (rawScannedCode: string) => {
+    const rawTrimmed = rawScannedCode.trim();
+    if (!rawTrimmed) return { matched: false };
+
+    // Extract SKU if QR format "STORE | ITEM | Rs. 850 | SKU: 10001234" was scanned
+    let cleanCode = rawTrimmed;
+    let qrParsedName = '';
+    let qrParsedPrice = 0;
+    if (rawTrimmed.includes('|') && /SKU:/i.test(rawTrimmed)) {
+      const parts = rawTrimmed.split('|').map((s) => s.trim());
+      const skuPart = parts.find((p) => /^SKU:/i.test(p));
+      if (skuPart) {
+        cleanCode = skuPart.replace(/^SKU:\s*/i, '').trim() || rawTrimmed;
+      }
+      if (parts[1]) qrParsedName = parts[1];
+      if (parts[2]) {
+        const numMatch = parts[2].match(/(\d+(\.\d+)?)/);
+        if (numMatch) qrParsedPrice = parseFloat(numMatch[1]) || 0;
+      }
+    }
+
+    const lowerCode = cleanCode.toLowerCase();
+
+    // 1. Auto-lookup barcode in Product Stock inventory
+    const freshProducts =
+      allSavedProducts.length > 0 ? allSavedProducts : storageService.getProducts();
+    let matchedProd = freshProducts.find(
+      (p) =>
+        (p.barcode && p.barcode.trim().toLowerCase() === lowerCode) ||
+        p.id.toLowerCase() === lowerCode ||
+        p.name.trim().toLowerCase() === lowerCode
+    );
+
+    // 2. Fallback lookup in saved Barcode Label Studio config (if user printed/configured a sticker with this barcode)
+    if (!matchedProd) {
+      const savedDesign = storageService.getBarcodeCustomDesign();
+      if (
+        savedDesign &&
+        savedDesign.barcodeValue &&
+        savedDesign.barcodeValue.trim().toLowerCase() === lowerCode
+      ) {
+        const dPrice = Number(savedDesign.salePrice || savedDesign.mrp || 0);
+        const dName =
+          (savedDesign.itemName || '').trim() ||
+          (savedDesign.storeName || '').trim() ||
+          `Item #${cleanCode}`;
+        matchedProd = {
+          id: `barcode-${cleanCode}`,
+          name: dName,
+          price: dPrice,
+          stock: 1,
+          unit: 'Pcs',
+          barcode: cleanCode,
+          updatedAt: Date.now(),
+        };
+      }
+    }
+
+    // 3. Fallback lookup in previous bills if any billed item had this barcode
+    if (!matchedProd) {
+      const pastBills = storageService.getBills();
+      for (const b of pastBills) {
+        const foundItem = b.items?.find(
+          (it) =>
+            (it.barcode && it.barcode.trim().toLowerCase() === lowerCode) ||
+            it.name.trim().toLowerCase() === lowerCode
+        );
+        if (foundItem) {
+          matchedProd = {
+            id: foundItem.productId || `barcode-${cleanCode}`,
+            name: foundItem.name,
+            price: foundItem.price,
+            stock: 1,
+            unit: foundItem.unit || 'Pcs',
+            barcode: cleanCode,
+            updatedAt: Date.now(),
+          };
+          break;
+        }
+      }
+    }
+
+    // 4. If QR code contained embedded name & price
+    if (!matchedProd && (qrParsedName || qrParsedPrice > 0)) {
+      matchedProd = {
+        id: `barcode-${cleanCode}`,
+        name: qrParsedName || `Item #${cleanCode}`,
+        price: qrParsedPrice,
+        stock: 1,
+        unit: 'Pcs',
+        barcode: cleanCode,
+        updatedAt: Date.now(),
+      };
+    }
+
+    const resolvedName = matchedProd ? matchedProd.name : `Item (${cleanCode})`;
+    const resolvedPrice = matchedProd
+      ? matchedProd.price
+      : parseFloat(itemPrice) > 0
+      ? parseFloat(itemPrice)
+      : 0;
+    const resolvedUnit = matchedProd?.unit || itemUnit.trim() || 'Pcs';
+
+    // Add 1 item to the billing cart (or increment qty by +1 if already in cart)
+    setBillItems((prev) => {
+      const existingIndex = prev.findIndex(
+        (it) =>
+          (it.barcode && it.barcode.trim().toLowerCase() === lowerCode) ||
+          (matchedProd && it.productId && it.productId === matchedProd.id) ||
+          (it.name.trim().toLowerCase() === resolvedName.toLowerCase() &&
+            it.price === resolvedPrice)
+      );
+
+      if (existingIndex >= 0) {
+        return prev.map((it, idx) => {
+          if (idx !== existingIndex) return it;
+          const nextQty = it.qty + 1;
+          return {
+            ...it,
+            qty: nextQty,
+            barcode: it.barcode || cleanCode,
+            total: Math.round(it.price * nextQty * 100) / 100,
+          };
+        });
+      }
+
+      const newCartItem: BillItem = {
+        id: 'item-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+        name: resolvedName,
+        price: resolvedPrice,
+        qty: 1,
+        unit: resolvedUnit,
+        total: Math.round(resolvedPrice * 100) / 100,
+        barcode: cleanCode,
+        productId: matchedProd?.id,
+      };
+      return [...prev, newCartItem];
+    });
+
+    // Refresh the input fields
+    setItemName('');
+    setItemPrice('');
+    setItemQty('1');
+    setShowSuggestions(false);
+    setShowUnitDropdown(false);
+    setTimeout(() => {
+      nameInputRef.current?.focus();
+    }, 30);
+
+    // Show quick status banner on Billing page
+    setScanStatusBanner({
+      message: matchedProd
+        ? isBn
+          ? `✅ স্ক্যান সফল: "${resolvedName}" (+1) বিলে যোগ হয়েছে (${sym}${resolvedPrice})`
+          : `✅ Scanned: "${resolvedName}" (+1) added to cart (${sym}${resolvedPrice})`
+        : isBn
+        ? `⚡ বারকোড "${cleanCode}" (+1) কার্টে যোগ হয়েছে`
+        : `⚡ Barcode "${cleanCode}" (+1) added to cart`,
+      type: matchedProd ? 'success' : 'warning',
+    });
+    setTimeout(() => {
+      setScanStatusBanner(null);
+    }, 3200);
+
+    return {
+      matched: Boolean(matchedProd),
+      itemName: resolvedName,
+      price: resolvedPrice,
+    };
+  };
 
   // Reset active suggestion index when query changes
   useEffect(() => {
@@ -374,8 +558,25 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     }, 20);
   };
 
-  // Keyboard navigation for first-letter autocomplete
+  // Keyboard navigation for first-letter autocomplete & hardware barcode scanner Enter lookup
   const handleNameKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && itemName.trim() && !itemPrice.trim()) {
+      const qLower = itemName.trim().toLowerCase();
+      const exactBarcodeMatch = allSavedProducts.find(
+        (p) => p.barcode && p.barcode.trim().toLowerCase() === qLower
+      );
+      const savedDesign = storageService.getBarcodeCustomDesign();
+      const isSavedTagBarcode =
+        savedDesign?.barcodeValue &&
+        savedDesign.barcodeValue.trim().toLowerCase() === qLower;
+      if (exactBarcodeMatch || isSavedTagBarcode) {
+        e.preventDefault();
+        playBarcodeBeep(true);
+        handleBarcodeScanned(itemName.trim());
+        return;
+      }
+    }
+
     if (!showSuggestions || matchingProducts.length === 0) return;
 
     if (e.key === 'ArrowDown') {
@@ -1329,8 +1530,27 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         )}
 
         <form onSubmit={handleAddItem} className="space-y-2.5">
-          {/* ITEM NAME INPUT + 3-DOT STOCK MENU */}
-          <div className="flex items-center gap-2">
+          {scanStatusBanner && (
+            <div
+              className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center justify-between gap-2 animate-in fade-in duration-150 ${
+                scanStatusBanner.type === 'success'
+                  ? 'bg-emerald-50 text-emerald-900 border border-emerald-200'
+                  : 'bg-amber-50 text-amber-900 border border-amber-200'
+              }`}
+            >
+              <span className="truncate">{scanStatusBanner.message}</span>
+              <button
+                type="button"
+                onClick={() => setScanStatusBanner(null)}
+                className="text-stone-400 hover:text-stone-700 text-xs font-bold cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          {/* ITEM NAME INPUT + CAMERA BARCODE SCANNER BUTTON + 3-DOT STOCK MENU */}
+          <div className="flex items-center gap-1.5 sm:gap-2">
             <div ref={suggestionContainerRef} className="relative flex-1">
               <input
                 ref={nameInputRef}
@@ -1433,6 +1653,24 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 </div>
               )}
             </div>
+
+            {/* Mobile Camera Barcode Scanner Button */}
+            <button
+              type="button"
+              id="btn-billing-barcode-scanner"
+              onClick={() => setIsBarcodeScannerOpen(true)}
+              className="px-3 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs shadow-2xs transition-all flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+              title={
+                isBn
+                  ? 'মোবাইল ক্যামেরা দিয়ে বারকোড স্ক্যান করুন (Scan Barcode)'
+                  : 'Scan Barcode with Mobile Camera'
+              }
+            >
+              <Camera className="w-4 h-4" />
+              <span className="hidden xs:inline sm:inline">
+                {isBn ? 'স্ক্যান' : 'Scan'}
+              </span>
+            </button>
 
             {/* 3-dot (⋮) menu aligned inline with Item Name input */}
             <div className="relative shrink-0">
@@ -1989,6 +2227,14 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             : 'APPLY DISCOUNT'
         }
         settings={settings}
+        language={language}
+      />
+
+      {/* MOBILE CAMERA BARCODE SCANNER MODAL (html5-qrcode + BarcodeDetector + Beep) */}
+      <BarcodeScannerModal
+        isOpen={isBarcodeScannerOpen}
+        onClose={() => setIsBarcodeScannerOpen(false)}
+        onScanSuccess={handleBarcodeScanned}
         language={language}
       />
     </div>

@@ -1362,10 +1362,21 @@ class StorageService {
     const cleanName = data.name.trim();
     const now = Date.now();
 
+    const cleanBarcode = (data.barcode || '').trim();
+    const autoGenBarcode = () => {
+      const prefix =
+        cleanName
+          .toUpperCase()
+          .replace(/[^A-Z0-9]/g, '')
+          .slice(0, 2) || 'PR';
+      return `${prefix}${Math.floor(100000 + Math.random() * 900000)}`;
+    };
+
     const existingIdx = products.findIndex(
       (p) =>
         (data.id && p.id === data.id) ||
-        p.name.trim().toLowerCase() === cleanName.toLowerCase()
+        (cleanBarcode && p.barcode && p.barcode.trim().toLowerCase() === cleanBarcode.toLowerCase()) ||
+        (cleanName && p.name.trim().toLowerCase() === cleanName.toLowerCase())
     );
 
     if (existingIdx >= 0) {
@@ -1386,7 +1397,7 @@ class StorageService {
         stock: updatedStock,
         unit: data.unit || existing.unit || 'Pcs',
         category: data.category !== undefined ? data.category : existing.category,
-        barcode: data.barcode !== undefined ? data.barcode : existing.barcode,
+        barcode: cleanBarcode || existing.barcode || autoGenBarcode(),
         updatedAt: now,
       };
       products[existingIdx] = updated;
@@ -1408,7 +1419,7 @@ class StorageService {
         stock: initialStock,
         unit: data.unit || 'Pcs',
         category: data.category || '',
-        barcode: data.barcode || '',
+        barcode: cleanBarcode || autoGenBarcode(),
         updatedAt: now,
       };
       products.unshift(newProd);

@@ -213,12 +213,12 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
       // Custom TSPL Barcode Label Editor defaults (50mm x 25mm = 400 x 200 dots)
       tsplDirection: '0,0',
       tsplAlign: 'center',
-      tsplShopY: 22,
+      tsplShopY: 20,
       tsplShopFont: '3',
       tsplBarcodeY: 52,
-      tsplBarcodeHeight: 45,
+      tsplBarcodeHeight: 40,
       tsplBarcodeRatio: '2:3',
-      tsplPriceY: 135,
+      tsplPriceY: 142,
       tsplPriceFont: '3',
       tsplCustomX: false,
     };
@@ -226,10 +226,6 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
       const cleanCustomOffer = (saved.customOfferText || '').replace(/save.*29.*%?/gi, '').trim();
       const cleanedFooter = (saved.footerNote || '').replace(/100%\s*(pure\s*)?cotton/gi, '').trim();
       const cleanedItem = (saved.itemName || '').replace(/^cotton saree$/i, '').trim();
-      // Reset old uncalibrated low X coordinates (< 95 dots) so sticker auto-centers properly
-      const hasOldLowX =
-        (saved.tsplBarcodeX !== undefined && saved.tsplBarcodeX < 95) ||
-        (saved.tsplShopX !== undefined && saved.tsplShopX < 95);
       return {
         ...defaults,
         ...saved,
@@ -239,23 +235,74 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
         showDiscountBadge: false,
         customOfferText: cleanCustomOffer,
         cleanWhiteMode: saved.cleanWhiteMode !== false,
-        tsplDirection: '0,0',
+        tsplDirection: saved.tsplDirection || '0,0',
         tsplAlign: saved.tsplAlign || 'center',
-        tsplCustomX: hasOldLowX ? false : Boolean(saved.tsplCustomX),
-        tsplShopX: hasOldLowX ? undefined : saved.tsplShopX,
-        tsplBarcodeX: hasOldLowX ? undefined : saved.tsplBarcodeX,
-        tsplPriceX: hasOldLowX ? undefined : saved.tsplPriceX,
-        tsplShopY: saved.tsplShopY ?? 22,
+        tsplCustomX: Boolean(saved.tsplCustomX),
+        tsplShopX: saved.tsplShopX,
+        tsplBarcodeX: saved.tsplBarcodeX,
+        tsplPriceX: saved.tsplPriceX,
+        tsplShopY: saved.tsplShopY ?? 20,
         tsplShopFont: saved.tsplShopFont || '3',
         tsplBarcodeY: saved.tsplBarcodeY ?? 52,
-        tsplBarcodeHeight: saved.tsplBarcodeHeight ?? 45,
+        tsplBarcodeHeight: saved.tsplBarcodeHeight ?? 40,
         tsplBarcodeRatio: saved.tsplBarcodeRatio || '2:3',
-        tsplPriceY: saved.tsplPriceY ?? 135,
+        tsplPriceY: saved.tsplPriceY ?? 142,
         tsplPriceFont: saved.tsplPriceFont || '3',
       };
     }
     return defaults;
   });
+
+  // Dynamically persist X and Y coordinates and label config whenever elements are dragged or modified
+  useEffect(() => {
+    storageService.saveBarcodeCustomDesign({
+      storeName: labelConfig.storeName,
+      itemName: labelConfig.itemName,
+      barcodeValue: labelConfig.barcodeValue,
+      barcodeType: labelConfig.barcodeType,
+      mrp: labelConfig.mrp,
+      salePrice: labelConfig.salePrice,
+      layoutStyle: labelConfig.layoutStyle,
+      borderStyle: labelConfig.borderStyle,
+      headerStyle: labelConfig.headerStyle,
+      priceStyle: labelConfig.priceStyle,
+      barcodeHeight: labelConfig.barcodeHeight,
+      barcodeThickness: labelConfig.barcodeThickness,
+      showBarcodeText: labelConfig.showBarcodeText,
+      barcodeNumberFont: labelConfig.barcodeNumberFont,
+      barcodeNumberSize: labelConfig.barcodeNumberSize,
+      cornerRadius: labelConfig.cornerRadius,
+      titleFontSize: labelConfig.titleFontSize,
+      textAlign: labelConfig.textAlign,
+      showStorePhone: labelConfig.showStorePhone,
+      showDiscountBadge: labelConfig.showDiscountBadge,
+      customOfferText: labelConfig.customOfferText,
+      showBorder: labelConfig.showBorder,
+      showStoreName: labelConfig.showStoreName,
+      showMrp: labelConfig.showMrp,
+      showSalePrice: labelConfig.showSalePrice,
+      showBarcode: labelConfig.showBarcode,
+      showSize: labelConfig.showSize,
+      showBatch: labelConfig.showBatch,
+      showFooterNote: labelConfig.showFooterNote,
+      mrpPrefix: labelConfig.mrpPrefix,
+      mrpOffset: labelConfig.mrpOffset,
+      tsplDirection: labelConfig.tsplDirection,
+      tsplAlign: labelConfig.tsplAlign,
+      tsplCustomX: labelConfig.tsplCustomX,
+      tsplShopX: labelConfig.tsplShopX,
+      tsplShopY: labelConfig.tsplShopY,
+      tsplShopFont: labelConfig.tsplShopFont,
+      tsplBarcodeX: labelConfig.tsplBarcodeX,
+      tsplBarcodeY: labelConfig.tsplBarcodeY,
+      tsplBarcodeHeight: labelConfig.tsplBarcodeHeight,
+      tsplBarcodeWidthDots: labelConfig.tsplBarcodeWidthDots,
+      tsplBarcodeRatio: labelConfig.tsplBarcodeRatio,
+      tsplPriceX: labelConfig.tsplPriceX,
+      tsplPriceY: labelConfig.tsplPriceY,
+      tsplPriceFont: labelConfig.tsplPriceFont,
+    });
+  }, [labelConfig]);
 
   const [showPunchHole, setShowPunchHole] = useState(Boolean(labelConfig.showPunchHole));
   const [barcodeDataUrl, setBarcodeDataUrl] = useState<string>('');
@@ -995,10 +1042,8 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
 
   // Computed TSPL 50x25mm (400x200 dots) layout coordinates & live TSPL command string
   const tsplLayout = useMemo(() => {
-    const labelW = 400; // 50mm * 8 dots/mm
-    // On 4Barcode printers with a 50mm sticker roll, the physical sticker starts at ~50 dots from printhead X=0,
-    // so the true center of the 50mm (400-dot) sticker is at X = 250 dots (50 + 200).
-    const rollLeftOffset = 50;
+    const labelW = 400; // 50mm * 8 dots/mm = 400 dots
+    const rollLeftOffset = 0; // Direct 0..400 dots mapping on 50mm x 25mm canvas
     const getCharW = (f?: string) => (f === '1' ? 8 : f === '2' ? 10 : f === '4' ? 18 : 12);
     const align: 'left' | 'center' | 'right' = labelConfig.tsplAlign || 'center';
     const direction: '0,0' | '1,0' = labelConfig.tsplDirection || '0,0';
@@ -1009,15 +1054,15 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     const shopTextW = shopText.length * shopCharW;
     const autoShopX =
       align === 'left'
-        ? rollLeftOffset + 15
+        ? 16
         : align === 'right'
-        ? Math.max(rollLeftOffset + 10, rollLeftOffset + labelW - 15 - shopTextW)
-        : Math.max(rollLeftOffset + 10, Math.round(rollLeftOffset + (labelW - shopTextW) / 2));
+        ? Math.max(10, labelW - 16 - shopTextW)
+        : Math.max(10, Math.round((labelW - shopTextW) / 2));
     const shopX = labelConfig.tsplCustomX && labelConfig.tsplShopX !== undefined ? labelConfig.tsplShopX : autoShopX;
-    const shopY = labelConfig.tsplShopY ?? 22;
+    const shopY = labelConfig.tsplShopY ?? 20;
 
     const barcodeCode = (labelConfig.barcodeValue || '1001').trim();
-    const barcodeHeight = labelConfig.tsplBarcodeHeight ?? 45;
+    const barcodeHeight = labelConfig.tsplBarcodeHeight ?? 40;
     const isPureNumericEven = /^\d+$/.test(barcodeCode) && barcodeCode.length >= 4;
     const dataSymbols = isPureNumericEven ? Math.ceil(barcodeCode.length / 2) : barcodeCode.length;
     const totalModules = (dataSymbols + 3) * 11 + 2;
@@ -1040,16 +1085,16 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     const wide = barcodeRatio === '1:2' ? 2 : barcodeRatio === '2:2' ? 2 : 3;
     const autoBarcodeX =
       align === 'left'
-        ? rollLeftOffset + 15
+        ? 16
         : align === 'right'
-        ? Math.max(rollLeftOffset + 10, rollLeftOffset + labelW - 15 - estBarcodeW)
-        : Math.max(rollLeftOffset + 10, Math.round(rollLeftOffset + (labelW - estBarcodeW) / 2));
+        ? Math.max(10, labelW - 16 - estBarcodeW)
+        : Math.max(10, Math.round((labelW - estBarcodeW) / 2));
     const barcodeX =
       labelConfig.tsplCustomX && labelConfig.tsplBarcodeX !== undefined ? labelConfig.tsplBarcodeX : autoBarcodeX;
     const barcodeY = labelConfig.tsplBarcodeY ?? 52;
 
     const rawPrefix = (labelConfig.mrpPrefix || 'MRP: Rs. ').trim();
-    const pricePrefix = rawPrefix ? `${rawPrefix} ` : 'MRP: ';
+    const pricePrefix = rawPrefix ? `${rawPrefix} ` : 'MRP: Rs. ';
     const activePrice = labelConfig.salePrice || labelConfig.mrp || 0;
     const priceText = `${pricePrefix}${activePrice}`;
     const priceFont: '1' | '2' | '3' | '4' = labelConfig.tsplPriceFont || '3';
@@ -1057,13 +1102,13 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     const priceTextW = priceText.length * priceCharW;
     const autoPriceX =
       align === 'left'
-        ? rollLeftOffset + 15
+        ? 16
         : align === 'right'
-        ? Math.max(rollLeftOffset + 10, rollLeftOffset + labelW - 15 - priceTextW)
-        : Math.max(rollLeftOffset + 10, Math.round(rollLeftOffset + (labelW - priceTextW) / 2));
+        ? Math.max(10, labelW - 16 - priceTextW)
+        : Math.max(10, Math.round((labelW - priceTextW) / 2));
     const priceX =
       labelConfig.tsplCustomX && labelConfig.tsplPriceX !== undefined ? labelConfig.tsplPriceX : autoPriceX;
-    const priceY = labelConfig.tsplPriceY ?? 135;
+    const priceY = labelConfig.tsplPriceY ?? 142;
 
     return {
       rollLeftOffset,
@@ -1496,8 +1541,26 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     }
   };
 
+  // Sync current barcode label item into Product Stock inventory so scanning it in Billing works immediately
+  const syncLabelToInventory = () => {
+    const cleanCode = (labelConfig.barcodeValue || '').trim();
+    const activePrice = Number(labelConfig.salePrice || labelConfig.mrp || 0);
+    const activeName =
+      (labelConfig.itemName || '').trim() ||
+      (labelConfig.storeName || '').trim() ||
+      `Item #${cleanCode}`;
+    if (cleanCode && activePrice > 0) {
+      storageService.addOrUpdateProduct({
+        name: activeName,
+        price: activePrice,
+        barcode: cleanCode,
+      });
+    }
+  };
+
   // Direct Bluetooth BLE Stream to Thermal Printer (50x25mm Label Sticker / ESC/POS / TSPL)
   const handleBtThermalPrint = async () => {
+    syncLabelToInventory();
     setIsBtPrinting(true);
 
     try {
@@ -3896,6 +3959,64 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                 </button>
               </div>
 
+              {/* Interactive Drag-and-Drop Coordinate Bar (Live X, Y Dots/Pixels) */}
+              <div className="bg-white p-2.5 rounded-xl border border-indigo-200/80 space-y-2">
+                <div className="flex items-center justify-between text-[10px] font-extrabold text-indigo-950">
+                  <span>
+                    {isBn
+                      ? '📍 লাইভ ড্র্যাগ-অ্যান্ড-ড্রপ পজিশন (X, Y Dots):'
+                      : '📍 Live Drag-and-Drop Coordinates (X, Y Dots):'}
+                  </span>
+                  <span className="text-[9.5px] font-mono text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">
+                    50×25mm (400×200)
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-1.5 text-[10px] font-mono">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCanvasItem('shop')}
+                    className={`p-1.5 rounded-lg border text-left transition-all cursor-pointer ${
+                      selectedCanvasItem === 'shop'
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-stone-50 hover:bg-indigo-50 text-stone-800 border-stone-200'
+                    }`}
+                  >
+                    <div className="font-sans font-bold text-[9px] opacity-80">1. Shop Name</div>
+                    <div className="font-black">
+                      X:{tsplLayout.shopX} Y:{tsplLayout.shopY}
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCanvasItem('barcode')}
+                    className={`p-1.5 rounded-lg border text-left transition-all cursor-pointer ${
+                      selectedCanvasItem === 'barcode'
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-stone-50 hover:bg-indigo-50 text-stone-800 border-stone-200'
+                    }`}
+                  >
+                    <div className="font-sans font-bold text-[9px] opacity-80">2. Barcode (128)</div>
+                    <div className="font-black">
+                      X:{tsplLayout.barcodeX} Y:{tsplLayout.barcodeY}
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCanvasItem('price')}
+                    className={`p-1.5 rounded-lg border text-left transition-all cursor-pointer ${
+                      selectedCanvasItem === 'price'
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-stone-50 hover:bg-indigo-50 text-stone-800 border-stone-200'
+                    }`}
+                  >
+                    <div className="font-sans font-bold text-[9px] opacity-80">3. MRP</div>
+                    <div className="font-black">
+                      X:{tsplLayout.priceX} Y:{tsplLayout.priceY}
+                    </div>
+                  </button>
+                </div>
+              </div>
+
               {/* Row A: Alignment Toggles (Left, Center, Right) — Print Orientation (DIRECTION) hidden into 3-Dot menu */}
               <div className="bg-white p-2 rounded-xl border border-indigo-100 space-y-1">
                 <span className="text-[10px] font-extrabold text-stone-600 block">
@@ -4004,6 +4125,33 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                     <option value="4">Font "4" (Large 24×32)</option>
                   </select>
                 </div>
+              </div>
+
+              {/* Row D: Live TSPL Command Generator Preview & Copy */}
+              <div className="p-2.5 bg-stone-900 text-emerald-400 rounded-xl border border-stone-800 space-y-1.5 font-mono text-[10px]">
+                <div className="flex items-center justify-between text-stone-300 font-sans">
+                  <span className="text-[10px] font-bold flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span>{isBn ? 'লাইভ TSPL কমান্ড (50×25mm):' : 'Live TSPL Command (50×25mm):'}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard?.writeText(liveTsplCommand.trim());
+                      onShowToast(
+                        isBn ? 'TSPL কমান্ড কপি হয়েছে!' : 'TSPL command copied!',
+                        'success'
+                      );
+                    }}
+                    className="px-2 py-0.5 bg-stone-800 hover:bg-stone-700 text-emerald-300 rounded text-[9.5px] font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    <Copy className="w-2.5 h-2.5" />
+                    <span>{isBn ? 'কপি' : 'Copy'}</span>
+                  </button>
+                </div>
+                <pre className="overflow-x-auto whitespace-pre leading-relaxed text-[9.5px] text-emerald-300 select-all">
+                  {liveTsplCommand.trim()}
+                </pre>
               </div>
             </div>
           </div>

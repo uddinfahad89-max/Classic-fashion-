@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   X,
   Package,
@@ -12,9 +12,74 @@ import {
   TrendingUp,
   AlertTriangle,
   ArrowUpCircle,
+  Printer,
+  Barcode as BarcodeIcon,
+  Sparkles,
 } from 'lucide-react';
+import JsBarcode from 'jsbarcode';
 import { ProductStockItem, ThermalPrinterSettings, Language } from '../types';
 import { useBackHandler } from '../utils/useBackHandler';
+import { thermalPrinterService } from '../services/thermalPrinterService';
+import { storageService } from '../services/storageService';
+
+// Reusable crisp CODE128 Barcode Canvas/Image renderer for any SKU
+const AutoBarcodeCanvas: React.FC<{
+  value: string;
+  height?: number;
+  width?: number;
+  fontSize?: number;
+  className?: string;
+}> = ({ value, height = 34, width = 1.6, fontSize = 12, className = '' }) => {
+  const [dataUrl, setDataUrl] = useState<string>('');
+
+  useEffect(() => {
+    const clean = (value || '').trim();
+    if (!clean) {
+      setDataUrl('');
+      return;
+    }
+    try {
+      const canvas = document.createElement('canvas');
+      const dpr = 2;
+      JsBarcode(canvas, clean, {
+        format: 'CODE128',
+        width: width * dpr,
+        height: height * dpr,
+        displayValue: true,
+        fontSize: Math.round(fontSize * dpr),
+        font: 'monospace',
+        fontOptions: 'bold',
+        textMargin: Math.round(3 * dpr),
+        margin: Math.round(4 * dpr),
+        background: '#ffffff',
+        lineColor: '#000000',
+      });
+      setDataUrl(canvas.toDataURL('image/png'));
+    } catch {
+      setDataUrl('');
+    }
+  }, [value, height, width, fontSize]);
+
+  if (!dataUrl) return null;
+  return (
+    <img
+      src={dataUrl}
+      alt={`Barcode ${value}`}
+      className={`object-contain select-none bg-white rounded ${className}`}
+    />
+  );
+};
+
+// Helper to generate a clean SKU code from product name
+const generateAutoSkuFromName = (prodName: string): string => {
+  const clean = (prodName || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '');
+  const prefix = clean.length >= 2 ? clean.slice(0, 2) : 'PR';
+  const rand = Math.floor(100000 + Math.random() * 900000);
+  return `${prefix}${rand}`;
+};
 
 interface ProductStockModalProps {
   isOpen: boolean;
@@ -29,10 +94,12 @@ interface ProductStockModalProps {
     addStockDelta?: number;
     unit?: string;
     category?: string;
+    barcode?: string;
   }) => void;
   onAdjustStock: (productId: string, delta: number) => void;
   onDeleteProduct: (productId: string) => void;
   onSelectForBill?: (product: ProductStockItem, qty?: number) => void;
+  onOpenBarcodeStudio?: (product: ProductStockItem) => void;
   settings: ThermalPrinterSettings;
   language?: Language;
 }
@@ -45,6 +112,7 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
   onAdjustStock,
   onDeleteProduct,
   onSelectForBill,
+  onOpenBarcodeStudio,
   settings,
   language = 'bn',
 }) => {
@@ -65,6 +133,7 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
   const [price, setPrice] = useState('');
   const [purchasePrice, setPurchasePrice] = useState('');
   const [stock, setStock] = useState('');
+  const [barcode, setBarcode] = useState('');
   const [unit, setUnit] = useState('Pcs');
   const [searchQuery, setSearchQuery] = useState('');
   const [quickAddStockId, setQuickAddStockId] = useState<string | null>(null);
@@ -86,9 +155,14 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
 
     for (const p of products) {
       const pName = p.name.toLowerCase();
-      if (pName.startsWith(q)) {
+      const pCode = (p.barcode || '').toLowerCase();
+      if (pName.startsWith(q) || (pCode && pCode === q)) {
         startsWith.push(p);
-      } else if (pName.includes(q) || (p.category && p.category.toLowerCase().includes(q))) {
+      } else if (
+        pName.includes(q) ||
+        (pCode && pCode.includes(q)) ||
+        (p.category && p.category.toLowerCase().includes(q))
+      ) {
         contains.push(p);
       }
     }
@@ -113,6 +187,7 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
     setPrice('');
     setPurchasePrice('');
     setStock('');
+    setBarcode('');
     setUnit('Pcs');
   };
 
@@ -127,6 +202,20 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
       return;
     }
 
+    // Automatically generate a barcode if SKU was left blank
+    const finalBarcode = barcode.trim() || generateAutoSkuFromName(cleanName);
+
+    // Sync this product & barcode to the Barcode Label Studio so it's ready to print
+    const existingDesign = storageService.getBarcodeCustomDesign() || {};
+    storageService.saveBarcodeCustomDesign({
+      ...existingDesign,
+      storeName: settings.storeName || existingDesign.storeName || 'MY SHOP',
+      itemName: cleanName,
+      barcodeValue: finalBarcode,
+      mrp: parsedPrice,
+      salePrice: parsedPrice,
+    });
+
     onSaveProduct({
       id: editingId || undefined,
       name: cleanName,
@@ -134,6 +223,7 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
       purchasePrice: parsedCost && !isNaN(parsedCost) ? parsedCost : undefined,
       stock: isNaN(parsedStock) ? 0 : Math.max(0, parsedStock),
       unit: unit || 'Pcs',
+      barcode: finalBarcode,
     });
 
     resetForm();
@@ -145,6 +235,7 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
     setPrice(String(prod.price || 0));
     setPurchasePrice(prod.purchasePrice !== undefined ? String(prod.purchasePrice) : '');
     setStock(String(prod.stock || 0));
+    setBarcode(prod.barcode || '');
     setUnit(prod.unit || 'Pcs');
   };
 
@@ -323,6 +414,71 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
                   className="w-full border border-stone-200 bg-white px-2.5 py-2 rounded-xl text-xs sm:text-sm font-mono text-stone-700 focus:outline-none focus:border-blue-600"
                 />
               </div>
+
+              {/* Barcode / SKU + Automatic Live Barcode Generator Preview */}
+              <div className="sm:col-span-12 space-y-2">
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[11px] font-bold text-stone-700 flex items-center gap-1.5">
+                    <BarcodeIcon className="w-3.5 h-3.5 text-blue-600" />
+                    <span>
+                      {isBn
+                        ? 'বারকোড / SKU নম্বর (লিখলেই অটোমেটিক বারকোড তৈরি হবে)'
+                        : 'Barcode / SKU Number (Auto-generates barcode as you type)'}
+                    </span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setBarcode(generateAutoSkuFromName(name))}
+                    className="text-[10px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-0.5 rounded-md cursor-pointer flex items-center gap-1"
+                  >
+                    <Sparkles className="w-3 h-3 text-amber-500" />
+                    <span>{isBn ? 'অটো SKU নিন' : 'Auto SKU'}</span>
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={barcode}
+                  onChange={(e) => setBarcode(e.target.value)}
+                  placeholder={
+                    isBn
+                      ? 'যেমন: ZF1678455 বা 10001234 (ফাঁকা রাখলেও সেভের সময় অটো বারকোড তৈরি হবে)'
+                      : 'e.g. ZF1678455 or 10001234 (Auto-generates if left blank)'
+                  }
+                  className="w-full border border-stone-300 bg-white px-3 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold text-stone-900 focus:outline-none focus:border-blue-600"
+                />
+
+                {/* Automatic Generated Barcode Live Sticker Preview as soon as SKU or Name is typed */}
+                {(barcode.trim() || name.trim()) && (
+                  <div className="p-3 bg-white rounded-2xl border-2 border-dashed border-blue-300 flex flex-col sm:flex-row items-center justify-between gap-3 animate-in fade-in duration-150">
+                    <div className="flex flex-col items-center justify-center bg-white px-3 py-2 rounded-xl border border-stone-200 shadow-2xs min-w-[200px]">
+                      <div className="text-[10px] font-mono font-black text-stone-900 uppercase tracking-wider leading-tight">
+                        {settings.storeName || name.trim() || 'MY SHOP'}
+                      </div>
+                      <AutoBarcodeCanvas
+                        value={barcode.trim() || generateAutoSkuFromName(name)}
+                        height={34}
+                        width={1.55}
+                        fontSize={12}
+                        className="my-0.5 max-h-14"
+                      />
+                      <div className="text-[11px] font-mono font-black text-stone-900 leading-none">
+                        MRP: Rs. {price || '0'}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col items-center sm:items-end gap-1.5 text-center sm:text-right">
+                      <span className="text-[11px] font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full">
+                        {isBn ? '✅ বারকোড অটো জেনারেট হয়েছে!' : '✅ Barcode Auto-Generated!'}
+                      </span>
+                      <span className="text-[10px] text-stone-500">
+                        {isBn
+                          ? 'প্রোডাক্ট সেভ করলে এই বারকোডটি স্টকে যুক্ত হয়ে যাবে'
+                          : 'Saving product links this barcode for camera scanning & printing'}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             <button
@@ -424,7 +580,7 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
                             </span>
                           </span>
                         </div>
-                        <div className="flex items-center gap-3 mt-1 text-xs">
+                        <div className="flex items-center gap-3 mt-1 text-xs flex-wrap">
                           <span className="font-mono font-extrabold text-blue-700">
                             {isBn ? 'বিক্রয় দর:' : 'Price:'} {sym}
                             {prod.price.toFixed(0)}
@@ -434,6 +590,50 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
                               {isBn ? 'কেনা:' : 'Cost:'} {sym}
                               {prod.purchasePrice.toFixed(0)}
                             </span>
+                          )}
+                          {prod.barcode && (
+                            <div className="w-full pt-1.5 flex items-center gap-2 flex-wrap">
+                              <div className="inline-flex flex-col items-center bg-white px-2.5 py-1 rounded-xl border border-stone-200 shadow-2xs">
+                                <AutoBarcodeCanvas
+                                  value={prod.barcode}
+                                  height={26}
+                                  width={1.35}
+                                  fontSize={10}
+                                  className="max-h-11"
+                                />
+                              </div>
+                              {onOpenBarcodeStudio && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const existingDesign =
+                                      storageService.getBarcodeCustomDesign() || {};
+                                    storageService.saveBarcodeCustomDesign({
+                                      ...existingDesign,
+                                      storeName:
+                                        settings.storeName ||
+                                        existingDesign.storeName ||
+                                        'MY SHOP',
+                                      itemName: prod.name,
+                                      barcodeValue: prod.barcode,
+                                      mrp: prod.price,
+                                      salePrice: prod.price,
+                                    });
+                                    onOpenBarcodeStudio(prod);
+                                    onClose();
+                                  }}
+                                  className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                                  title={
+                                    isBn
+                                      ? 'এই বারকোডটি প্রিন্ট বা কাস্টমাইজ করুন'
+                                      : 'Print or customize this barcode label'
+                                  }
+                                >
+                                  <Printer className="w-3.5 h-3.5" />
+                                  <span>{isBn ? 'বারকোড প্রিন্ট' : 'Print Barcode'}</span>
+                                </button>
+                              )}
+                            </div>
                           )}
                         </div>
                       </div>

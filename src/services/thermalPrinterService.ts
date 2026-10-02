@@ -1079,6 +1079,8 @@ export class ThermalPrinterService {
     barcodeY?: number;
     barcodeHeight?: number;
     barcodeRatio?: '2:3' | '1:2' | '2:2';
+    mrpX?: number;
+    mrpY?: number;
     priceX?: number;
     priceY?: number;
     priceFont?: '1' | '2' | '3' | '4';
@@ -1101,22 +1103,21 @@ export class ThermalPrinterService {
       direction = '0,0',
       alignment = 'center',
       shopX,
-      shopY = 22,
+      shopY = 20,
       shopFont = '3',
       barcodeX,
       barcodeY = 52,
-      barcodeHeight = 45,
+      barcodeHeight = 40,
       barcodeRatio = '2:3',
+      mrpX,
+      mrpY,
       priceX,
-      priceY = 135,
+      priceY = 142,
       priceFont = '3',
     } = options;
 
     // 203 DPI = 8 dots/mm (50mm = 400 dots, 25mm = 200 dots)
-    // On 4Barcode printers with a 50mm sticker roll, the physical sticker starts at ~50 dots from printhead X=0,
-    // so the true center of the 50mm (400-dot) sticker is at X = 250 dots (50 + 200).
     const labelWidthDots = Math.round(widthMm * 8);
-    const rollLeftOffsetDots = 50;
 
     const getFontCharWidth = (f: string) => {
       if (f === '1') return 8;
@@ -1127,28 +1128,28 @@ export class ThermalPrinterService {
 
     const calcAlignedX = (textLen: number, charW: number, align: 'left' | 'center' | 'right') => {
       const textWidth = textLen * charW;
-      if (align === 'left') return rollLeftOffsetDots + 15;
-      if (align === 'right') return Math.max(rollLeftOffsetDots + 10, rollLeftOffsetDots + labelWidthDots - 15 - textWidth);
-      return Math.max(rollLeftOffsetDots + 10, Math.round(rollLeftOffsetDots + (labelWidthDots - textWidth) / 2));
+      if (align === 'left') return 16;
+      if (align === 'right') return Math.max(10, labelWidthDots - 16 - textWidth);
+      return Math.max(10, Math.round((labelWidthDots - textWidth) / 2));
     };
 
     let elements = '';
 
     // ==========================================
-    // 1. LINE 1 (TOP, Y=22): SHOP NAME
+    // 1. LINE 1 (TOP): SHOP NAME
     // ==========================================
-    const cleanStore = (storeName || itemName || 'MY STORE').trim().replace(/["\r\n]/g, '');
+    const cleanStore = (storeName || itemName || 'MY SHOP').trim().replace(/["\r\n]/g, '');
     if ((showStoreName && cleanStore) || (!showStoreName && showItemName && itemName)) {
       const line1Text = (showStoreName && cleanStore ? cleanStore : (itemName || '')).trim().replace(/["\r\n]/g, '');
       const charW1 = getFontCharWidth(shopFont);
       const x1 = shopX !== undefined ? Math.max(0, Math.round(shopX)) : calcAlignedX(line1Text.length, charW1, alignment);
       const y1 = Math.max(0, Math.round(shopY));
 
-      elements += `TEXT ${x1},${y1},"${shopFont}",0,1,1,"${line1Text}"\r\n`;
+      elements += `TEXT ${x1}, ${y1}, "${shopFont}", 0, 1, 1, "${line1Text}"\r\n`;
     }
 
     // ==========================================
-    // 2. LINE 2 (MIDDLE, Y=52): BARCODE (human_readable = 1)
+    // 2. LINE 2 (MIDDLE): BARCODE (human_readable = 1 so numbers print cleanly below barcode)
     // ==========================================
     if (showBarcode !== false) {
       const cleanCode = (barcodeValue || '1001').trim().replace(/["\r\n]/g, '');
@@ -1158,7 +1159,7 @@ export class ThermalPrinterService {
       if (barcodeType === 'QR') {
         const qrWidthDots = 100;
         const qrX = barcodeX !== undefined ? Math.max(0, Math.round(barcodeX)) : calcAlignedX(1, qrWidthDots, alignment);
-        elements += `QRCODE ${qrX},${bY},L,4,A,0,"${cleanCode}"\r\n`;
+        elements += `QRCODE ${qrX}, ${bY}, L, 4, A, 0, "${cleanCode}"\r\n`;
       } else {
         const narrow = barcodeRatio === '1:2' ? 1 : 2;
         const wide = barcodeRatio === '1:2' ? 2 : barcodeRatio === '2:2' ? 2 : 3;
@@ -1171,27 +1172,31 @@ export class ThermalPrinterService {
           barcodeX !== undefined
             ? Math.max(0, Math.round(barcodeX))
             : alignment === 'left'
-            ? rollLeftOffsetDots + 15
+            ? 16
             : alignment === 'right'
-            ? Math.max(rollLeftOffsetDots + 10, rollLeftOffsetDots + labelWidthDots - 15 - estBarcodeWidth)
-            : Math.max(rollLeftOffsetDots + 10, Math.round(rollLeftOffsetDots + (labelWidthDots - estBarcodeWidth) / 2));
+            ? Math.max(10, labelWidthDots - 16 - estBarcodeWidth)
+            : Math.max(10, Math.round((labelWidthDots - estBarcodeWidth) / 2));
 
-        // Print BARCODE with human_readable = 1 (no extra TEXT command)
-        elements += `BARCODE ${bX},${bY},"128",${bHeight},1,0,${narrow},${wide},"${cleanCode}"\r\n`;
+        // BARCODE <barcodeX>, <barcodeY>, "128", 40, 1, 0, 2, 3, "<barcodeCode>"
+        elements += `BARCODE ${bX}, ${bY}, "128", ${bHeight}, 1, 0, ${narrow}, ${wide}, "${cleanCode}"\r\n`;
       }
     }
 
     // ==========================================
-    // 3. LINE 3 (BOTTOM, Y=140): MRP / PRICE
+    // 3. LINE 3 (BOTTOM): MRP / PRICE
     // ==========================================
     if (showPrice) {
       const activePrice = mrp || salePrice || 0;
-      const priceText = `${pricePrefix}${activePrice}`.trim().replace(/["\r\n]/g, '');
+      const normalizedPrefix = pricePrefix ? (pricePrefix.endsWith(' ') ? pricePrefix : `${pricePrefix} `) : 'MRP: Rs. ';
+      const priceText = `${normalizedPrefix}${activePrice}`.trim().replace(/["\r\n]/g, '');
       const charW3 = getFontCharWidth(priceFont);
-      const pX = priceX !== undefined ? Math.max(0, Math.round(priceX)) : calcAlignedX(priceText.length, charW3, alignment);
-      const pY = Math.max(0, Math.round(priceY));
+      const resolvedMrpX = mrpX !== undefined ? mrpX : priceX;
+      const resolvedMrpY = mrpY !== undefined ? mrpY : priceY;
+      const pX = resolvedMrpX !== undefined ? Math.max(0, Math.round(resolvedMrpX)) : calcAlignedX(priceText.length, charW3, alignment);
+      // Ensure MRP Y is spaced below barcode + human-readable digits unless explicitly dragged higher
+      const pY = Math.max(0, Math.round(resolvedMrpY));
 
-      elements += `TEXT ${pX},${pY},"${priceFont}",0,1,1,"${priceText}"\r\n`;
+      elements += `TEXT ${pX}, ${pY}, "${priceFont}", 0, 1, 1, "${priceText}"\r\n`;
     }
 
     return (
