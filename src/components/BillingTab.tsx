@@ -426,17 +426,33 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       }
     }
 
-    // 1D. 2-Letter SKU Prefix match if there is a product with matching letters & price > 0 (e.g. "ZF..." -> "Zufar royal king")
-    if ((!matchedProd || matchedProd.price <= 0) && /^[a-z]{2}\d+/i.test(normCode)) {
-      const alphaPrefix = normCode.slice(0, 2);
-      const letterMatch = freshProducts.find((p) => {
+    // 1D. Cost-encoded SKU & 2-Letter Prefix match (e.g. "ZF1678455" / "ZF189756855" where cost=155 -> "Zufar royal king")
+    if ((!matchedProd || matchedProd.price <= 0) && /^[a-z]{1,2}\d+/i.test(normCode)) {
+      const alphaMatch = normCode.match(/^[a-z]{1,2}/i);
+      const alphaPrefix = alphaMatch ? alphaMatch[0].toLowerCase() : normCode.slice(0, 2);
+      const digitsAfterPrefix = normCode.slice(alphaPrefix.length);
+
+      const costOrLetterMatch = freshProducts.find((p) => {
         if (p.price <= 0) return false;
         const pNorm = (p.barcode || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
         const pNameLetters = p.name.trim().toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 2);
+        // Check if product purchasePrice matches the first+last digits of the scanned SKU
+        if (p.purchasePrice && p.purchasePrice > 0 && digitsAfterPrefix.length >= 7) {
+          const cStr = String(Math.round(p.purchasePrice));
+          const fDigit = cStr.slice(0, 1);
+          const lDigits = cStr.slice(1);
+          if (
+            digitsAfterPrefix.startsWith(fDigit) &&
+            (!lDigits || digitsAfterPrefix.endsWith(lDigits)) &&
+            (pNorm.startsWith(alphaPrefix) || pNameLetters.startsWith(alphaPrefix[0]))
+          ) {
+            return true;
+          }
+        }
         return pNorm.startsWith(alphaPrefix) || pNameLetters === alphaPrefix;
       });
-      if (letterMatch) {
-        matchedProd = letterMatch;
+      if (costOrLetterMatch) {
+        matchedProd = costOrLetterMatch;
       }
     }
 
@@ -2399,6 +2415,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         onClose={() => setIsBarcodeScannerOpen(false)}
         onScanSuccess={handleBarcodeScanned}
         language={language}
+        products={allSavedProducts}
       />
     </div>
   );

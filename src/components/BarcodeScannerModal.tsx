@@ -11,37 +11,43 @@ import {
   CheckCircle2,
   AlertCircle,
   Barcode,
+  ZoomIn,
+  Sparkles,
+  Plus,
 } from 'lucide-react';
-import { Language } from '../types';
+import { Language, ProductStockItem } from '../types';
 import { useBackHandler } from '../utils/useBackHandler';
+import { storageService } from '../services/storageService';
 
 // Web Audio API POS Laser Barcode Beep Sound (Zero external assets, works 100% offline)
 export const playBarcodeBeep = (enabled = true): void => {
   if (!enabled || typeof window === 'undefined') return;
   try {
-    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const AudioCtx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     if (!AudioCtx) return;
     const ctx = new AudioCtx();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
 
-    // Classic supermarket POS barcode scanner 1850Hz crisp beep
+    // Classic supermarket POS barcode scanner 1950Hz crisp double-tone beep
     osc.type = 'sine';
-    osc.frequency.setValueAtTime(1850, ctx.currentTime);
-    osc.frequency.setValueAtTime(2150, ctx.currentTime + 0.045);
+    osc.frequency.setValueAtTime(1900, ctx.currentTime);
+    osc.frequency.setValueAtTime(2250, ctx.currentTime + 0.04);
 
     gain.gain.setValueAtTime(0.001, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.35, ctx.currentTime + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
+    gain.gain.exponentialRampToValueAtTime(0.38, ctx.currentTime + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.11);
 
     osc.connect(gain);
     gain.connect(ctx.destination);
 
     osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.13);
+    osc.stop(ctx.currentTime + 0.12);
     setTimeout(() => {
       ctx.close().catch(() => {});
-    }, 200);
+    }, 180);
   } catch (e) {
     console.warn('Beep audio notice:', e);
   }
@@ -56,18 +62,23 @@ interface BarcodeScannerModalProps {
     price?: number;
   } | void;
   language?: Language;
+  products?: ProductStockItem[];
 }
+
+const SCANNER_MODE_PREF_KEY = 'simple_pos_quick_scan_mode_v1';
 
 export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   isOpen,
   onClose,
   onScanSuccess,
   language = 'bn',
+  products = [],
 }) => {
   const isBn = language === 'bn';
   const scannerRegionId = 'pos-html5-barcode-reader';
 
   const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
+  const nativeDetectorTimerRef = useRef<number | null>(null);
   const lastScannedRef = useRef<{ code: string; time: number }>({ code: '', time: 0 });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -75,8 +86,17 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const [continuousMode, setContinuousMode] = useState(true);
+  // Quick Scan mode: 'quick' (auto-closes right after adding item) vs 'continuous' (multi-scan)
+  const [scanMode, setScanMode] = useState<'quick' | 'continuous'>(() => {
+    try {
+      const saved = localStorage.getItem(SCANNER_MODE_PREF_KEY);
+      return saved === 'continuous' ? 'continuous' : 'quick';
+    } catch {
+      return 'quick';
+    }
+  });
   const [torchOn, setTorchOn] = useState(false);
+  const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [lastScanFeedback, setLastScanFeedback] = useState<{
     code: string;
     itemName?: string;
@@ -85,6 +105,12 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     count: number;
   } | null>(null);
   const [manualCode, setManualCode] = useState('');
+
+  // Saved products with barcodes for 1-tap quick scan fallback
+  const savedBarcodeProducts = React.useMemo(() => {
+    const all = products.length > 0 ? products : storageService.getProducts();
+    return all.filter((p) => p.barcode && p.barcode.trim()).slice(0, 8);
+  }, [products, isOpen]);
 
   useBackHandler(
     'barcodeScannerModal',
@@ -96,7 +122,18 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     55
   );
 
+  const updateScanMode = (mode: 'quick' | 'continuous') => {
+    setScanMode(mode);
+    try {
+      localStorage.setItem(SCANNER_MODE_PREF_KEY, mode);
+    } catch {}
+  };
+
   const stopScanner = useCallback(async () => {
+    if (nativeDetectorTimerRef.current) {
+      window.clearInterval(nativeDetectorTimerRef.current);
+      nativeDetectorTimerRef.current = null;
+    }
     const instance = html5QrCodeRef.current;
     if (!instance) return;
     try {
@@ -109,6 +146,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     } finally {
       html5QrCodeRef.current = null;
       setTorchOn(false);
+      setZoomLevel(1);
     }
   }, []);
 
@@ -118,22 +156,22 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       if (!cleanCode) return;
 
       const now = Date.now();
-      // Prevent duplicate rapid-fire scans of the exact same barcode within 1.4 seconds
+      // Prevent duplicate rapid-fire scans of the exact same barcode within 1.1 seconds
       if (
         lastScannedRef.current.code === cleanCode &&
-        now - lastScannedRef.current.time < 1400
+        now - lastScannedRef.current.time < 1100
       ) {
         return;
       }
       lastScannedRef.current = { code: cleanCode, time: now };
 
-      // 1. Play beep sound
+      // 1. Play crisp POS laser beep sound
       playBarcodeBeep(soundEnabled);
 
       // Vibrate on mobile devices if supported
       try {
         if (navigator.vibrate) {
-          navigator.vibrate(60);
+          navigator.vibrate(50);
         }
       } catch {}
 
@@ -148,13 +186,57 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         count: (prev?.count || 0) + 1,
       }));
 
-      // If single-scan mode is selected, close modal automatically after scan
-      if (!continuousMode) {
-        stopScanner().then(() => onClose());
+      // In Quick Scan mode, close modal automatically right after showing brief confirmation
+      if (scanMode === 'quick') {
+        setTimeout(() => {
+          stopScanner().then(() => onClose());
+        }, 320);
       }
     },
-    [continuousMode, onClose, onScanSuccess, soundEnabled, stopScanner]
+    [scanMode, onClose, onScanSuccess, soundEnabled, stopScanner]
   );
+
+  // Start parallel native BarcodeDetector loop on the active <video> element for <50ms 1D barcode recognition
+  const attachTurboNativeBarcodeDetector = useCallback(() => {
+    if (nativeDetectorTimerRef.current) {
+      window.clearInterval(nativeDetectorTimerRef.current);
+      nativeDetectorTimerRef.current = null;
+    }
+    const BarcodeDetectorApi = (window as any).BarcodeDetector;
+    if (!BarcodeDetectorApi) return;
+
+    try {
+      const detector = new BarcodeDetectorApi({
+        formats: [
+          'code_128',
+          'ean_13',
+          'ean_8',
+          'upc_a',
+          'upc_e',
+          'code_39',
+          'code_93',
+          'itf',
+          'qr_code',
+        ],
+      });
+
+      nativeDetectorTimerRef.current = window.setInterval(async () => {
+        try {
+          const regionEl = document.getElementById(scannerRegionId);
+          const videoEl = regionEl?.querySelector('video') as HTMLVideoElement | null;
+          if (!videoEl || videoEl.readyState < 2) return;
+          const barcodes = await detector.detect(videoEl);
+          if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
+            handleDecodedCode(String(barcodes[0].rawValue));
+          }
+        } catch {
+          // ignore frame error
+        }
+      }, 90);
+    } catch {
+      // Native BarcodeDetector not supported
+    }
+  }, [handleDecodedCode]);
 
   const startScanner = useCallback(
     async (mode: 'environment' | 'user') => {
@@ -188,10 +270,15 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         });
         html5QrCodeRef.current = qr;
 
+        // High-speed 30 FPS + Wide 1D Barcode Viewfinder Box for long SKUs like LN589756800
         const config = {
-          fps: 15,
-          qrbox: { width: 250, height: 120 },
-          aspectRatio: 1.5,
+          fps: 30,
+          qrbox: (viewfinderWidth: number, viewfinderHeight: number) => ({
+            width: Math.max(220, Math.floor(viewfinderWidth * 0.92)),
+            height: Math.max(105, Math.floor(viewfinderHeight * 0.58)),
+          }),
+          aspectRatio: 1.6,
+          disableFlip: false,
         };
 
         try {
@@ -201,12 +288,9 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             (decodedText) => {
               handleDecodedCode(decodedText);
             },
-            () => {
-              // Frame scan miss - ignore
-            }
+            () => {}
           );
         } catch {
-          // Fallback to any available camera if strict facingMode fails on desktop/laptop
           const cameras = await Html5Qrcode.getCameras();
           if (cameras && cameras.length > 0) {
             const backCam =
@@ -228,27 +312,38 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             );
           }
         }
+
+        // Apply continuous autofocus & sharp resolution if supported by mobile camera
+        try {
+          await qr.applyVideoConstraints({
+            advanced: [{ focusMode: 'continuous' } as any],
+          });
+        } catch {}
+
+        // Attach parallel native BarcodeDetector turbo loop
+        attachTurboNativeBarcodeDetector();
       } catch (err: any) {
         console.warn('Camera scanner start error:', err);
         setCameraError(
           err?.message ||
             (isBn
-              ? 'ক্যামেরা চালু করা যায়নি। ব্রাউজারে ক্যামেরা পারমিশন Allow করুন অথবা নিচের ছবি/ম্যানুয়াল বক্স ব্যবহার করুন।'
-              : 'Could not start camera. Please allow camera permission or scan from photo below.')
+              ? 'ক্যামেরা চালু করা যায়নি। ব্রাউজারে ক্যামেরা পারমিশন Allow করুন অথবা নিচের ছবি/কুইক বাটন ব্যবহার করুন।'
+              : 'Could not start camera. Please allow camera permission or use quick scan below.')
         );
       } finally {
         setIsStarting(false);
       }
     },
-    [handleDecodedCode, isBn, stopScanner]
+    [attachTurboNativeBarcodeDetector, handleDecodedCode, isBn, stopScanner]
   );
 
   useEffect(() => {
     if (isOpen) {
       setLastScanFeedback(null);
+      lastScannedRef.current = { code: '', time: 0 };
       const timer = setTimeout(() => {
         startScanner(facingMode);
-      }, 80);
+      }, 50);
       return () => {
         clearTimeout(timer);
         stopScanner();
@@ -272,6 +367,24 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     }
   };
 
+  const handleSetZoom = async (targetZoom: number) => {
+    setZoomLevel(targetZoom);
+    const instance = html5QrCodeRef.current;
+    if (!instance || !instance.isScanning) return;
+    try {
+      await instance.applyVideoConstraints({
+        advanced: [{ zoom: targetZoom } as any],
+      });
+    } catch {
+      // Fallback CSS scale if hardware zoom constraint not supported
+      const regionEl = document.getElementById(scannerRegionId);
+      const videoEl = regionEl?.querySelector('video') as HTMLVideoElement | null;
+      if (videoEl) {
+        videoEl.style.transform = targetZoom > 1 ? `scale(${targetZoom})` : 'none';
+      }
+    }
+  };
+
   const handleScanImageFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -283,7 +396,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       if (decodedText) {
         handleDecodedCode(decodedText);
       }
-      if (continuousMode) {
+      if (scanMode === 'continuous') {
         startScanner(facingMode);
       }
     } catch {
@@ -303,22 +416,22 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-2.5 sm:p-4 overflow-y-auto animate-in fade-in duration-150">
       <div className="bg-white rounded-3xl shadow-2xl border border-stone-200 w-full max-w-md overflow-hidden my-auto flex flex-col">
         {/* Header */}
-        <div className="px-4 py-3.5 bg-stone-900 text-white flex items-center justify-between">
+        <div className="px-4 py-3 bg-stone-900 text-white flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center">
-              <Camera className="w-5 h-5 text-emerald-400" />
+              <Zap className="w-5 h-5 text-emerald-400" />
             </div>
             <div>
               <h3 className="text-sm font-black tracking-tight flex items-center gap-1.5">
-                <span>{isBn ? '📷 মোবাইল বারকোড স্ক্যানার' : '📷 Camera Barcode Scanner'}</span>
+                <span>{isBn ? '⚡ কুইক বারকোড স্ক্যানার' : '⚡ Quick Barcode Scanner'}</span>
               </h3>
               <p className="text-[10px] text-stone-400">
                 {isBn
-                  ? 'বারকোডের ওপর ক্যামেরা ধরুন — অটো কার্টে ১টি আইটেম যোগ হবে'
-                  : 'Point back camera at barcode to auto-add 1 item to bill'}
+                  ? 'বারকোডে ক্যামেরা ধরলেই সাথে সাথে বিলে নাম ও দর যুক্ত হবে'
+                  : 'Instant 30-FPS laser barcode lookup & auto-add to bill'}
               </p>
             </div>
           </div>
@@ -349,16 +462,50 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
           </div>
         </div>
 
-        {/* Camera Viewport */}
-        <div className="p-3.5 space-y-3 bg-stone-950">
-          <div className="relative rounded-2xl overflow-hidden bg-black border border-stone-800 min-h-[210px] flex items-center justify-center">
-            <div id={scannerRegionId} className="w-full" />
+        {/* Mode Switcher: Quick 1-Scan (Auto Close) vs Continuous Multi-Scan */}
+        <div className="grid grid-cols-2 gap-1.5 px-3.5 pt-2.5 pb-1 bg-stone-950">
+          <button
+            type="button"
+            onClick={() => updateScanMode('quick')}
+            className={`py-2 px-2.5 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
+              scanMode === 'quick'
+                ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm'
+                : 'bg-stone-900 text-stone-400 border-stone-800 hover:text-stone-200'
+            }`}
+          >
+            <Zap className="w-3.5 h-3.5" />
+            <span>{isBn ? '⚡ কুইক স্ক্যান (Auto)' : '⚡ Quick 1-Scan'}</span>
+          </button>
 
-            {/* Laser Guide Line Overlay */}
+          <button
+            type="button"
+            onClick={() => updateScanMode('continuous')}
+            className={`py-2 px-2.5 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
+              scanMode === 'continuous'
+                ? 'bg-blue-600 text-white border-blue-500 shadow-sm'
+                : 'bg-stone-900 text-stone-400 border-stone-800 hover:text-stone-200'
+            }`}
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>{isBn ? '🔄 একটানা মাল্টি-স্ক্যান' : '🔄 Multi-Scan'}</span>
+          </button>
+        </div>
+
+        {/* Camera Viewport */}
+        <div className="p-3 space-y-2.5 bg-stone-950">
+          <div className="relative rounded-2xl overflow-hidden bg-black border border-stone-800 min-h-[205px] flex items-center justify-center">
+            <div id={scannerRegionId} className="w-full overflow-hidden" />
+
+            {/* Wide 1D Barcode Laser Guide Overlay */}
             {!cameraError && !isStarting && (
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                <div className="w-[250px] h-[110px] border-2 border-emerald-400/80 rounded-xl relative shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]">
-                  <div className="absolute left-2 right-2 top-1/2 -translate-y-1/2 h-0.5 bg-red-500 shadow-[0_0_8px_#ef4444] animate-pulse" />
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-3">
+                <div className="w-full max-w-[310px] h-[105px] border-2 border-emerald-400/90 rounded-2xl relative shadow-[0_0_0_9999px_rgba(0,0,0,0.38)]">
+                  <div className="absolute left-2 right-2 top-1/2 -translate-y-1/2 h-0.5 bg-red-500 shadow-[0_0_10px_#ef4444] animate-pulse" />
+                  <span className="absolute -bottom-5 left-1/2 -translate-x-1/2 text-[10px] font-bold text-emerald-300 whitespace-nowrap bg-black/60 px-2 py-0.5 rounded-full">
+                    {isBn
+                      ? 'ছোট স্টিকার হলে নিচে 1.5x বা 2x জুম ট্যাপ করুন'
+                      : 'Tap 1.5x or 2x zoom below for small stickers'}
+                  </span>
                 </div>
               </div>
             )}
@@ -366,7 +513,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             {isStarting && (
               <div className="absolute inset-0 bg-stone-950/90 flex flex-col items-center justify-center gap-2 text-white text-xs font-bold">
                 <RefreshCw className="w-6 h-6 text-emerald-400 animate-spin" />
-                <span>{isBn ? 'পিছনের ক্যামেরা চালু হচ্ছে...' : 'Starting back camera...'}</span>
+                <span>{isBn ? 'কুইক স্ক্যানার চালু হচ্ছে...' : 'Starting quick scanner...'}</span>
               </div>
             )}
 
@@ -396,26 +543,18 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             )}
           </div>
 
-          {/* Camera Controls Toolbar */}
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5">
+          {/* Camera Controls Toolbar + 1x / 1.5x / 2x Quick Sticker Zoom */}
+          <div className="flex items-center justify-between gap-1.5 flex-wrap">
+            <div className="flex items-center gap-1">
               <button
                 type="button"
                 onClick={() =>
                   setFacingMode((prev) => (prev === 'environment' ? 'user' : 'environment'))
                 }
-                className="px-2.5 py-1.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 text-[11px] font-bold flex items-center gap-1.5 cursor-pointer border border-stone-700"
+                className="px-2.5 py-1.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 text-[11px] font-bold flex items-center gap-1 cursor-pointer border border-stone-700"
               >
-                <RefreshCw className="w-3.5 h-3.5 text-emerald-400" />
-                <span>
-                  {facingMode === 'environment'
-                    ? isBn
-                      ? 'Back Cam'
-                      : 'Back Cam'
-                    : isBn
-                    ? 'Front Cam'
-                    : 'Front Cam'}
-                </span>
+                <Camera className="w-3.5 h-3.5 text-emerald-400" />
+                <span>{facingMode === 'environment' ? 'Back' : 'Front'}</span>
               </button>
 
               <button
@@ -449,24 +588,32 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
               />
             </div>
 
-            {/* Continuous vs Single Scan Mode */}
-            <label className="flex items-center gap-1.5 text-[11px] font-bold text-stone-300 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={continuousMode}
-                onChange={(e) => setContinuousMode(e.target.checked)}
-                className="rounded text-emerald-500 cursor-pointer"
-              />
-              <span>{isBn ? 'একটানা স্ক্যান' : 'Continuous'}</span>
-            </label>
+            {/* 1x / 1.5x / 2x Zoom Buttons for Small 50x25mm Stickers */}
+            <div className="flex items-center gap-1 bg-stone-900 p-0.5 rounded-xl border border-stone-800">
+              <ZoomIn className="w-3.5 h-3.5 text-stone-400 ml-1.5" />
+              {[1, 1.5, 2].map((z) => (
+                <button
+                  key={z}
+                  type="button"
+                  onClick={() => handleSetZoom(z)}
+                  className={`px-2 py-1 rounded-lg text-[10px] font-mono font-black cursor-pointer transition-all ${
+                    zoomLevel === z
+                      ? 'bg-emerald-500 text-stone-950 shadow-2xs'
+                      : 'text-stone-400 hover:text-white'
+                  }`}
+                >
+                  {z}x
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
-        {/* Live Scan Status & Manual Barcode Input */}
-        <div className="p-3.5 bg-white space-y-3">
+        {/* Live Scan Status, 1-Tap Saved Barcode Chips & Manual Input */}
+        <div className="p-3.5 bg-white space-y-2.5">
           {lastScanFeedback && (
             <div
-              className={`p-2.5 rounded-2xl border flex items-center justify-between gap-2 animate-in fade-in duration-150 ${
+              className={`p-2.5 rounded-2xl border flex items-center justify-between gap-2 animate-in fade-in duration-100 ${
                 lastScanFeedback.matched
                   ? 'bg-emerald-50 border-emerald-200 text-emerald-950'
                   : 'bg-amber-50 border-amber-200 text-amber-950'
@@ -490,9 +637,43 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                   </div>
                 </div>
               </div>
-              <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-black shrink-0">
-                +1 {isBn ? 'যোগ হয়েছে' : 'Added'}
+              <span className="px-2.5 py-1 rounded-full bg-emerald-600 text-white text-[10px] font-black shrink-0">
+                +{lastScanFeedback.count} {isBn ? 'যোগ হয়েছে' : 'Added'}
               </span>
+            </div>
+          )}
+
+          {/* 1-Tap Quick Saved Barcode Products (Instant Tap to Scan/Add) */}
+          {savedBarcodeProducts.length > 0 && (
+            <div className="space-y-1">
+              <div className="text-[10px] font-extrabold text-stone-500 flex items-center gap-1">
+                <Sparkles className="w-3 h-3 text-amber-500" />
+                <span>
+                  {isBn
+                    ? 'কুইক ট্যাপ বারকোড প্রোডাক্ট (ট্যাপ করলেই বিলে যোগ হবে):'
+                    : 'Quick-Tap Saved Barcode Products:'}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                {savedBarcodeProducts.map((prod) => (
+                  <button
+                    key={prod.id}
+                    type="button"
+                    onClick={() => handleDecodedCode(prod.barcode || prod.name)}
+                    className="px-2.5 py-1.5 rounded-xl bg-stone-50 hover:bg-emerald-50 border border-stone-200 hover:border-emerald-300 text-left shrink-0 flex items-center gap-1.5 cursor-pointer transition-all active:scale-95"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-[11px] font-extrabold text-stone-900 truncate max-w-[120px]">
+                        {prod.name}
+                      </div>
+                      <div className="text-[9.5px] font-mono font-bold text-emerald-700">
+                        {prod.barcode} • Rs.{prod.price}
+                      </div>
+                    </div>
+                    <Plus className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
@@ -514,8 +695,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                 onChange={(e) => setManualCode(e.target.value)}
                 placeholder={
                   isBn
-                    ? 'অথবা বারকোড নম্বর লিখে Enter চাপুন...'
-                    : 'Or type barcode number & press Enter...'
+                    ? 'বারকোড / SKU নম্বর লিখে + যোগ চাপুন...'
+                    : 'Type barcode / SKU & tap + Add...'
                 }
                 className="w-full border border-stone-200 bg-stone-50 pl-9 pr-3 py-2 rounded-xl text-xs font-mono font-bold text-stone-900 focus:outline-none focus:border-emerald-600 focus:bg-white"
               />
