@@ -46,11 +46,7 @@ import { storageService } from '../services/storageService';
 import { translations } from '../utils/i18n';
 import { useBackHandler } from '../utils/useBackHandler';
 import { KhatabookEntryModal, KhatabookEntryPayload } from './KhatabookEntryModal';
-import {
-  BarcodeScannerModal,
-  EmbeddedDockedBarcodeScanner,
-  playBarcodeBeep,
-} from './BarcodeScannerModal';
+import { BarcodeScannerModal, playBarcodeBeep } from './BarcodeScannerModal';
 
 interface BillingTabProps {
   billItems: BillItem[];
@@ -131,8 +127,12 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   const [itemName, setItemName] = useState(() => initialDraft?.itemName || '');
   const [itemPrice, setItemPrice] = useState(() => initialDraft?.itemPrice || '');
   const [itemQty, setItemQty] = useState(() => initialDraft?.itemQty || '1');
-  const [itemUnit, setItemUnit] = useState(() => initialDraft?.itemUnit || '');
-  const [showUnitDropdown, setShowUnitDropdown] = useState(false);
+  const [itemUnit, setItemUnit] = useState(() => initialDraft?.itemUnit || 'Pcs');
+  const [availableUnits, setAvailableUnits] = useState<string[]>(() =>
+    storageService.getCustomUnits()
+  );
+  const [showUnitSelectorModal, setShowUnitSelectorModal] = useState(false);
+  const [newUnitInput, setNewUnitInput] = useState('');
   const [itemStockInput, setItemStockInput] = useState('');
   const [showInlineStockAdd, setShowInlineStockAdd] = useState(false);
   const [showStockMoreMenu, setShowStockMoreMenu] = useState(false);
@@ -287,25 +287,6 @@ export const BillingTab: React.FC<BillingTabProps> = ({
 
   // Mobile Camera Barcode Scanner Modal State
   const [isBarcodeScannerOpen, setIsBarcodeScannerOpen] = useState(false);
-  // Permanent Docked Camera Barcode Scanner State (Persisted in localStorage)
-  const [isPermanentScannerOpen, setIsPermanentScannerOpen] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('simple_pos_permanent_scanner_active') === 'true';
-    } catch {
-      return false;
-    }
-  });
-
-  const togglePermanentScanner = (forceVal?: boolean) => {
-    setIsPermanentScannerOpen((prev) => {
-      const next = forceVal !== undefined ? forceVal : !prev;
-      try {
-        localStorage.setItem('simple_pos_permanent_scanner_active', String(next));
-      } catch {}
-      return next;
-    });
-  };
-
   const [scanStatusBanner, setScanStatusBanner] = useState<{
     message: string;
     type: 'success' | 'warning';
@@ -320,6 +301,39 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     },
     35
   );
+
+  useBackHandler(
+    'billingUnitSelectorModal',
+    showUnitSelectorModal,
+    () => {
+      setShowUnitSelectorModal(false);
+      return true;
+    },
+    40
+  );
+
+  const handleAddNewUnit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const clean = newUnitInput.trim();
+    if (!clean) return;
+    const updated = storageService.addCustomUnit(clean);
+    setAvailableUnits(updated);
+    setItemUnit(clean);
+    setNewUnitInput('');
+    setShowUnitSelectorModal(false);
+    if (priceInputRef.current) {
+      priceInputRef.current.focus();
+    }
+  };
+
+  const handleDeleteUnit = (u: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const updated = storageService.deleteCustomUnit(u);
+    setAvailableUnits(updated);
+    if (itemUnit.toLowerCase() === u.toLowerCase()) {
+      setItemUnit(updated[0] || 'Pcs');
+    }
+  };
 
   const nameInputRef = useRef<HTMLInputElement>(null);
   const priceInputRef = useRef<HTMLInputElement>(null);
@@ -662,7 +676,6 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     setItemPrice('');
     setItemQty('1');
     setShowSuggestions(false);
-    setShowUnitDropdown(false);
     if (resolvedPrice > 0) {
       setTimeout(() => {
         nameInputRef.current?.focus();
@@ -936,7 +949,6 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     setItemQty('1');
     setItemStockInput('');
     setShowSuggestions(false);
-    setShowUnitDropdown(false);
     if (nameInputRef.current) {
       nameInputRef.current.focus();
     }
@@ -1562,18 +1574,17 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                               placeholder="1"
                               className="w-12 bg-white border border-blue-400 rounded-lg px-1 py-1.5 text-xs font-mono font-bold text-center text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                             />
-                            <input
-                              type="text"
-                              autoFocus={editFocusField === 'unit'}
-                              value={editItemUnit}
+                            <select
+                              value={editItemUnit || 'Pcs'}
                               onChange={(e) => setEditItemUnit(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') handleSaveEditItem(item.id);
-                                if (e.key === 'Escape') handleCancelEditItem();
-                              }}
-                              placeholder={isBn ? 'ইউনিট' : 'Unit'}
-                              className="w-14 bg-white border border-blue-400 rounded-lg px-1.5 py-1.5 text-xs font-semibold text-center text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            />
+                              className="w-16 bg-white border border-blue-400 rounded-lg px-1 py-1.5 text-xs font-bold text-center text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                            >
+                              {availableUnits.map((u) => (
+                                <option key={u} value={u}>
+                                  {u}
+                                </option>
+                              ))}
+                            </select>
                           </div>
                         </td>
                         <td className="p-2 sm:p-2.5 text-right">
@@ -1804,18 +1815,6 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             </div>
           )}
 
-          {/* PERMANENT DOCKED LIVE CAMERA SCANNER (When Enabled, stays continuously open) */}
-          {isPermanentScannerOpen && !isBarcodeScannerOpen && (
-            <EmbeddedDockedBarcodeScanner
-              isOpen={isPermanentScannerOpen && !isBarcodeScannerOpen}
-              onClose={() => togglePermanentScanner(false)}
-              onExpandToModal={() => setIsBarcodeScannerOpen(true)}
-              onScanSuccess={handleBarcodeScanned}
-              language={language}
-              products={allSavedProducts}
-            />
-          )}
-
           {/* ITEM NAME INPUT + CAMERA BARCODE SCANNER BUTTON + 3-DOT STOCK MENU */}
           <div className="flex items-center gap-1.5 sm:gap-2">
             <div ref={suggestionContainerRef} className="relative flex-1">
@@ -1921,50 +1920,22 @@ export const BillingTab: React.FC<BillingTabProps> = ({
               )}
             </div>
 
-            {/* Permanent Quick Camera Scanner Toggle Button */}
-            <button
-              type="button"
-              id="btn-billing-permanent-scanner-toggle"
-              onClick={() => togglePermanentScanner()}
-              className={`px-2.5 sm:px-3 py-2.5 rounded-xl font-bold text-xs shadow-2xs transition-all flex items-center justify-center gap-1.5 cursor-pointer shrink-0 border ${
-                isPermanentScannerOpen
-                  ? 'bg-emerald-600 text-white border-emerald-500 ring-2 ring-emerald-300 shadow-sm'
-                  : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300'
-              }`}
-              title={
-                isBn
-                  ? 'স্ক্রিনে স্থায়ী কুইক স্ক্যানার চালু বা বন্ধ করুন (Permanent Camera Scanner)'
-                  : 'Toggle Permanent Camera Scanner on screen'
-              }
-            >
-              <Zap className="w-4 h-4 fill-current text-amber-300" />
-              <span className="hidden xs:inline sm:inline">
-                {isBn
-                  ? isPermanentScannerOpen
-                    ? '📌 স্থায়ী স্ক্যানার ON'
-                    : '⚡ স্থায়ী স্ক্যানার'
-                  : isPermanentScannerOpen
-                  ? '📌 Permanent ON'
-                  : '⚡ Live Scanner'}
-              </span>
-              <span className="xs:hidden">
-                {isPermanentScannerOpen ? '📌' : '⚡'}
-              </span>
-            </button>
-
-            {/* Mobile Camera Barcode Scanner Modal Button */}
+            {/* Quick Action Camera Barcode Scanner Button */}
             <button
               type="button"
               id="btn-billing-barcode-scanner"
               onClick={() => setIsBarcodeScannerOpen(true)}
-              className="p-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 border border-stone-200 transition-all flex items-center justify-center cursor-pointer shrink-0"
+              className="px-3 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs shadow-2xs transition-all flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
               title={
                 isBn
-                  ? 'ফুলস্ক্রিন ক্যামেরা বারকোড স্ক্যানার'
-                  : 'Open Fullscreen Barcode Scanner'
+                  ? 'ক্যামেরা দিয়ে দ্রুত বারকোড স্ক্যান করুন (কুইক একশন)'
+                  : 'Quick Action Camera Barcode Scanner'
               }
             >
-              <Camera className="w-4 h-4 text-stone-600" />
+              <Camera className="w-4 h-4" />
+              <span className="hidden xs:inline sm:inline">
+                {isBn ? 'স্ক্যান' : 'Scan'}
+              </span>
             </button>
 
             {/* 3-dot (⋮) menu aligned inline with Item Name input */}
@@ -2042,7 +2013,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             </div>
           </div>
 
-          {/* ROW 2: QUANTITY + UNIT (Matches reference screenshot: Quantity on left, Unit on right) */}
+          {/* ROW 2: QUANTITY + UNIT SELECT (No typing, select from added units) */}
           <div className="grid grid-cols-2 gap-2">
             {/* Quantity Input */}
             <div className="relative">
@@ -2059,87 +2030,25 @@ export const BillingTab: React.FC<BillingTabProps> = ({
               />
             </div>
 
-            {/* Unit Input + Dropdown Selector */}
+            {/* Unit Select Button (Tapping opens added units selector, NO typing keyboard!) */}
             <div className="relative">
-              <input
-                type="text"
-                id="itemUnit"
-                value={itemUnit}
-                onFocus={() => setShowUnitDropdown(true)}
-                onChange={(e) => {
-                  setItemUnit(e.target.value);
-                  setShowUnitDropdown(true);
-                }}
-                placeholder={isBn ? 'ইউনিট (Unit: Pcs, Set, গজ...)' : 'Unit (e.g. Pcs, Set, Meter)'}
-                className="w-full border border-stone-200 bg-stone-50/80 pl-3 pr-8 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-stone-900 focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
-              />
               <button
                 type="button"
-                onClick={() => setShowUnitDropdown((prev) => !prev)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700 p-1 rounded-md cursor-pointer"
-                title={isBn ? 'ইউনিট তালিকা দেখুন' : 'Select Unit'}
+                id="btn-select-unit"
+                onClick={() => setShowUnitSelectorModal(true)}
+                className="w-full border border-stone-200 bg-stone-50/80 hover:bg-stone-100 hover:border-blue-400 active:scale-[0.99] px-3 py-2.5 rounded-xl text-xs sm:text-sm font-bold text-stone-900 flex items-center justify-between cursor-pointer transition-all shadow-2xs text-left"
+                title={isBn ? 'ইউনিট সিলেক্ট করুন (বা নতুন ইউনিট যোগ করুন)' : 'Select Unit'}
               >
-                <ChevronDown className="w-4 h-4" />
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-[11px] text-stone-400 font-semibold shrink-0">
+                    {isBn ? 'ইউনিট:' : 'Unit:'}
+                  </span>
+                  <span className="font-extrabold text-blue-700 truncate">
+                    {itemUnit || 'Pcs'}
+                  </span>
+                </div>
+                <ChevronDown className="w-4 h-4 text-stone-400 shrink-0 ml-1" />
               </button>
-
-              {showUnitDropdown && (
-                <>
-                  <div
-                    className="fixed inset-0 z-20"
-                    onClick={() => setShowUnitDropdown(false)}
-                  />
-                  <div className="absolute right-0 left-0 top-full mt-1 z-30 bg-white rounded-xl shadow-xl border border-stone-200 p-1.5 max-h-56 overflow-y-auto animate-in fade-in zoom-in-95 duration-100">
-                    <div className="px-2 py-1 text-[10px] font-bold text-stone-400 uppercase flex items-center justify-between">
-                      <span>{isBn ? 'ইউনিট সিলেক্ট করুন বা টাইপ করুন' : 'Select or Type Unit'}</span>
-                      {itemUnit && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setItemUnit('');
-                            setShowUnitDropdown(false);
-                          }}
-                          className="text-rose-600 hover:underline cursor-pointer"
-                        >
-                          {isBn ? 'মুছুন' : 'Clear'}
-                        </button>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-2 gap-1 pt-0.5">
-                      {[
-                        { val: 'Pcs', label: isBn ? 'Pcs (পিস)' : 'Pcs (Pieces)' },
-                        { val: 'Set', label: isBn ? 'Set (সেট)' : 'Set' },
-                        { val: 'Suit', label: isBn ? 'Suit (সুট)' : 'Suit' },
-                        { val: 'Pair', label: isBn ? 'Pair (জোড়া)' : 'Pair' },
-                        { val: 'Meter', label: isBn ? 'Meter (মিটার)' : 'Meter (m)' },
-                        { val: 'Gaz', label: isBn ? 'Gaz (গজ)' : 'Gaz / Yard' },
-                        { val: 'पिस', label: 'পিস' },
-                        { val: 'সেট', label: 'সেট' },
-                        { val: 'গজ', label: 'গজ' },
-                        { val: 'মিটার', label: 'মিটার' },
-                        { val: 'জোড়া', label: 'জোড়া' },
-                        { val: 'Dozen', label: isBn ? 'Dozen (ডজন)' : 'Dozen (Dz)' },
-                      ].map((u) => (
-                        <button
-                          key={u.val}
-                          type="button"
-                          onClick={() => {
-                            setItemUnit(u.val);
-                            setShowUnitDropdown(false);
-                            priceInputRef.current?.focus();
-                          }}
-                          className={`px-2.5 py-1.5 rounded-lg text-left text-xs font-bold transition-colors cursor-pointer ${
-                            itemUnit === u.val
-                              ? 'bg-blue-600 text-white'
-                              : 'hover:bg-stone-100 text-stone-800'
-                          }`}
-                        >
-                          {u.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              )}
             </div>
           </div>
 
@@ -2525,18 +2434,133 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         language={language}
       />
 
-      {/* MOBILE CAMERA BARCODE SCANNER MODAL (html5-qrcode + BarcodeDetector + Beep) */}
+      {/* MOBILE CAMERA BARCODE SCANNER MODAL (Fast Action Only) */}
       <BarcodeScannerModal
         isOpen={isBarcodeScannerOpen}
         onClose={() => setIsBarcodeScannerOpen(false)}
-        onPinToScreen={() => {
-          setIsBarcodeScannerOpen(false);
-          togglePermanentScanner(true);
-        }}
         onScanSuccess={handleBarcodeScanned}
         language={language}
         products={allSavedProducts}
       />
+
+      {/* UNIT SELECTOR MODAL / SHEET (Choose from added units or add new unit) */}
+      {showUnitSelectorModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border border-stone-200 w-full max-w-md overflow-hidden max-h-[85vh] flex flex-col animate-in slide-in-from-bottom-6 sm:zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="px-4 py-3.5 bg-stone-900 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-blue-500/20 border border-blue-400/30 flex items-center justify-center">
+                  <Package className="w-4 h-4 text-blue-400" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black tracking-tight">
+                    {isBn ? 'ইউনিট নির্বাচন করুন (Select Unit)' : 'Select Product Unit'}
+                  </h3>
+                  <p className="text-[10px] text-stone-400">
+                    {isBn ? 'ট্যাপ করলেই ইউনিট সিলেক্ট হয়ে যাবে' : 'Tap to select unit for this item'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowUnitSelectorModal(false)}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white cursor-pointer transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Quick Add Custom Unit Input */}
+            <div className="p-3.5 bg-blue-50/60 border-b border-blue-100 shrink-0">
+              <form onSubmit={handleAddNewUnit} className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={newUnitInput}
+                  onChange={(e) => setNewUnitInput(e.target.value)}
+                  placeholder={
+                    isBn
+                      ? 'নতুন ইউনিট লিখুন (যেমন: বস্তা, বান্ডিল, ক্যারেট)...'
+                      : 'Type new custom unit (e.g. Bale, Bundle)...'
+                  }
+                  className="flex-1 bg-white border border-blue-200 rounded-xl px-3 py-2 text-xs font-bold text-stone-900 focus:outline-none focus:border-blue-500"
+                />
+                <button
+                  type="submit"
+                  disabled={!newUnitInput.trim()}
+                  className="px-3 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-xl text-xs font-extrabold flex items-center gap-1 cursor-pointer shrink-0 shadow-2xs"
+                >
+                  <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                  <span>{isBn ? '+ যোগ' : '+ Add'}</span>
+                </button>
+              </form>
+            </div>
+
+            {/* Added Units Grid (1-tap selection) */}
+            <div className="p-4 overflow-y-auto space-y-2 flex-1">
+              <div className="text-[11px] font-extrabold text-stone-500 uppercase tracking-wider flex items-center justify-between">
+                <span>{isBn ? 'সেভ করা ইউনিট সমূহ:' : 'Available Units:'}</span>
+                <span className="text-[10px] font-bold text-blue-600">
+                  {availableUnits.length} {isBn ? 'টি' : 'Units'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {availableUnits.map((u) => {
+                  const isSelected = (itemUnit || 'Pcs').toLowerCase() === u.toLowerCase();
+                  const isDefaultUnit = [
+                    'pcs',
+                    'set',
+                    'meter',
+                    'gaz',
+                    'pair',
+                    'suit',
+                    'dozen',
+                  ].includes(u.toLowerCase());
+
+                  return (
+                    <div
+                      key={u}
+                      onClick={() => {
+                        setItemUnit(u);
+                        setShowUnitSelectorModal(false);
+                        if (priceInputRef.current) {
+                          priceInputRef.current.focus();
+                        }
+                      }}
+                      className={`group p-2.5 rounded-2xl border flex items-center justify-between gap-1.5 cursor-pointer transition-all active:scale-95 ${
+                        isSelected
+                          ? 'bg-blue-600 text-white border-blue-600 shadow-sm ring-2 ring-blue-300'
+                          : 'bg-stone-50 hover:bg-blue-50/80 border-stone-200 hover:border-blue-300 text-stone-800'
+                      }`}
+                    >
+                      <div className="min-w-0 flex items-center gap-1.5">
+                        {isSelected && <Check className="w-3.5 h-3.5 stroke-[3] shrink-0" />}
+                        <span className="font-extrabold text-xs truncate">{u}</span>
+                      </div>
+
+                      {!isDefaultUnit && (
+                        <button
+                          type="button"
+                          onClick={(e) => handleDeleteUnit(u, e)}
+                          className={`p-1 rounded-lg transition-colors cursor-pointer shrink-0 opacity-60 group-hover:opacity-100 ${
+                            isSelected
+                              ? 'hover:bg-white/20 text-white'
+                              : 'hover:bg-stone-200 text-stone-400 hover:text-rose-600'
+                          }`}
+                          title={isBn ? 'ইউনিট ডিলিট করুন' : 'Delete Unit'}
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

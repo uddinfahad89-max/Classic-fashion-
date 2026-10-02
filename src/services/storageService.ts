@@ -1496,6 +1496,61 @@ class StorageService {
     this.saveProducts(products);
   }
 
+  // --- UNIT PERSISTENCE & MANAGEMENT ---
+  getCustomUnits(): string[] {
+    const defaultUnits = [
+      'Pcs',
+      'Set',
+      'Meter',
+      'Gaz',
+      'Pair',
+      'Suit',
+      'Dozen',
+      'Than',
+      'Roll',
+      'Box',
+      'Packet',
+      'Kg',
+      'Gram',
+      'Ltr',
+    ];
+    try {
+      const saved = localStorage.getItem('simple_pos_custom_units');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const set = new Set([...defaultUnits, ...parsed]);
+          return Array.from(set);
+        }
+      }
+    } catch {}
+    return defaultUnits;
+  }
+
+  addCustomUnit(unitName: string): string[] {
+    const clean = (unitName || '').trim();
+    if (!clean) return this.getCustomUnits();
+    const current = this.getCustomUnits();
+    if (!current.some((u) => u.toLowerCase() === clean.toLowerCase())) {
+      const updated = [...current, clean];
+      try {
+        localStorage.setItem('simple_pos_custom_units', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    }
+    return current;
+  }
+
+  deleteCustomUnit(unitName: string): string[] {
+    const clean = (unitName || '').trim().toLowerCase();
+    const current = this.getCustomUnits();
+    const updated = current.filter((u) => u.toLowerCase() !== clean);
+    try {
+      localStorage.setItem('simple_pos_custom_units', JSON.stringify(updated));
+    } catch {}
+    return updated;
+  }
+
   // --- OFFLINE BACKUP & EXPORT (DATA SAFETY NET) ---
   exportAllDataOffline(): string {
     const backupData = {
