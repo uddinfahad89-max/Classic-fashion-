@@ -1511,6 +1511,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
 
   // Direct Native TSPL Hardware Command Print
   const handleNativeTsplPrint = async () => {
+    syncLabelToInventory();
     try {
       if (!thermalPrinterService.getIsConnected()) {
         const conn = await thermalPrinterService.connect();

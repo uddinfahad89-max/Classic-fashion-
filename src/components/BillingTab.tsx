@@ -300,11 +300,14 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   const priceInputRef = useRef<HTMLInputElement>(null);
   const qtyInputRef = useRef<HTMLInputElement>(null);
 
-  // Build unified product list (saved stock products + any historical items from bills)
+  // Build unified product list (always combining live localStorage products + prop products)
   const allSavedProducts = useMemo(() => {
     const map = new Map<string, ProductStockItem>();
-    for (const p of products) {
-      if (p.name && p.name.trim()) {
+    const stored = storageService.getProducts();
+    for (const p of [...stored, ...products]) {
+      if (p.id) {
+        map.set(p.id, p);
+      } else if (p.name && p.name.trim()) {
         map.set(p.name.trim().toLowerCase(), p);
       }
     }
@@ -335,10 +338,13 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     return [...exactStartsWith, ...wordStartsWith, ...containsMatch].slice(0, 8);
   }, [allSavedProducts, itemName]);
 
-  // Barcode Auto-Lookup in Inventory + Add 1 Item to Billing Cart + Refresh Input
-  const handleBarcodeScanned = (rawScannedCode: string) => {
-    const rawTrimmed = rawScannedCode.trim();
-    if (!rawTrimmed) return { matched: false };
+  // Comprehensive Barcode -> Product & Rate Resolver (Exact, Normalized, Prefix/Substring SKU, Studio Config, Past Bills)
+  const resolveProductByBarcodeCode = (rawScannedCode: string): {
+    cleanCode: string;
+    matchedProd?: ProductStockItem;
+  } => {
+    const rawTrimmed = (rawScannedCode || '').trim();
+    if (!rawTrimmed) return { cleanCode: '' };
 
     // Extract SKU if QR format "STORE | ITEM | Rs. 850 | SKU: 10001234" was scanned
     let cleanCode = rawTrimmed;
@@ -358,58 +364,135 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     }
 
     const lowerCode = cleanCode.toLowerCase();
+    const normCode = lowerCode.replace(/[^a-z0-9]/g, '');
 
-    // 1. Auto-lookup barcode in Product Stock inventory
-    const freshProducts =
-      allSavedProducts.length > 0 ? allSavedProducts : storageService.getProducts();
-    let matchedProd = freshProducts.find(
-      (p) =>
-        (p.barcode && p.barcode.trim().toLowerCase() === lowerCode) ||
-        p.id.toLowerCase() === lowerCode ||
-        p.name.trim().toLowerCase() === lowerCode
-    );
+    // Always read the freshest products from storageService + props
+    const storedProds = storageService.getProducts();
+    const prodMap = new Map<string, ProductStockItem>();
+    for (const p of [...storedProds, ...allSavedProducts]) {
+      const key = p.id || p.name.trim().toLowerCase();
+      const existing = prodMap.get(key);
+      if (!existing || (p.price > 0 && existing.price <= 0)) {
+        prodMap.set(key, p);
+      }
+    }
+    const freshProducts = Array.from(prodMap.values());
 
-    // 2. Fallback lookup in saved Barcode Label Studio config (if user printed/configured a sticker with this barcode)
-    if (!matchedProd) {
-      const savedDesign = storageService.getBarcodeCustomDesign();
-      if (
-        savedDesign &&
-        savedDesign.barcodeValue &&
-        savedDesign.barcodeValue.trim().toLowerCase() === lowerCode
-      ) {
-        const dPrice = Number(savedDesign.salePrice || savedDesign.mrp || 0);
-        const dName =
-          (savedDesign.itemName || '').trim() ||
-          (savedDesign.storeName || '').trim() ||
-          `Item #${cleanCode}`;
-        matchedProd = {
-          id: `barcode-${cleanCode}`,
-          name: dName,
-          price: dPrice,
-          stock: 1,
-          unit: 'Pcs',
-          barcode: cleanCode,
-          updatedAt: Date.now(),
-        };
+    // 1A. Exact match on barcode, id, or name (preferring items with price > 0)
+    let matchedProd =
+      freshProducts.find(
+        (p) =>
+          p.price > 0 &&
+          ((p.barcode && p.barcode.trim().toLowerCase() === lowerCode) ||
+            p.id.toLowerCase() === lowerCode ||
+            p.name.trim().toLowerCase() === lowerCode)
+      ) ||
+      freshProducts.find(
+        (p) =>
+          (p.barcode && p.barcode.trim().toLowerCase() === lowerCode) ||
+          p.id.toLowerCase() === lowerCode ||
+          p.name.trim().toLowerCase() === lowerCode
+      );
+
+    // 1B. Normalized alphanumeric match (e.g. "ZF-1678" === "ZF1678")
+    if ((!matchedProd || matchedProd.price <= 0) && normCode.length >= 2) {
+      const normMatch = freshProducts.find((p) => {
+        const pNorm = (p.barcode || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+        return pNorm.length >= 2 && pNorm === normCode && p.price > 0;
+      });
+      if (normMatch) matchedProd = normMatch;
+    }
+
+    // 1C. Prefix / Substring SKU match (e.g. scanned "ZF1678455" matches saved SKU "ZF1678" -> "Zufar royal king" Rs 300)
+    if ((!matchedProd || matchedProd.price <= 0) && normCode.length >= 3) {
+      const prefixMatches = freshProducts
+        .filter((p) => {
+          const pNorm = (p.barcode || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+          if (pNorm.length < 3) return false;
+          return normCode.startsWith(pNorm) || pNorm.startsWith(normCode);
+        })
+        .sort((a, b) => {
+          // Prefer products with price > 0, then longest matching barcode
+          if ((b.price > 0 ? 1 : 0) !== (a.price > 0 ? 1 : 0)) {
+            return (b.price > 0 ? 1 : 0) - (a.price > 0 ? 1 : 0);
+          }
+          return (b.barcode || '').length - (a.barcode || '').length;
+        });
+
+      if (prefixMatches.length > 0 && prefixMatches[0].price > 0) {
+        matchedProd = prefixMatches[0];
+      } else if (!matchedProd && prefixMatches.length > 0) {
+        matchedProd = prefixMatches[0];
       }
     }
 
-    // 3. Fallback lookup in previous bills if any billed item had this barcode
-    if (!matchedProd) {
+    // 1D. 2-Letter SKU Prefix match if there is a product with matching letters & price > 0 (e.g. "ZF..." -> "Zufar royal king")
+    if ((!matchedProd || matchedProd.price <= 0) && /^[a-z]{2}\d+/i.test(normCode)) {
+      const alphaPrefix = normCode.slice(0, 2);
+      const letterMatch = freshProducts.find((p) => {
+        if (p.price <= 0) return false;
+        const pNorm = (p.barcode || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+        const pNameLetters = p.name.trim().toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 2);
+        return pNorm.startsWith(alphaPrefix) || pNameLetters === alphaPrefix;
+      });
+      if (letterMatch) {
+        matchedProd = letterMatch;
+      }
+    }
+
+    // 2. Fallback lookup in saved Barcode Label Studio config (exact or prefix match)
+    if (!matchedProd || matchedProd.price <= 0) {
+      const savedDesign = storageService.getBarcodeCustomDesign();
+      if (savedDesign && savedDesign.barcodeValue) {
+        const dCode = savedDesign.barcodeValue.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+        const isDesignMatch =
+          dCode === normCode ||
+          (dCode.length >= 3 && (normCode.startsWith(dCode) || dCode.startsWith(normCode)));
+        const dPrice = Number(savedDesign.salePrice || savedDesign.mrp || 0);
+        if (isDesignMatch && dPrice > 0) {
+          const dName =
+            matchedProd?.name ||
+            (savedDesign.itemName || '').trim() ||
+            (savedDesign.storeName || '').trim() ||
+            `Item #${cleanCode}`;
+          matchedProd = {
+            id: matchedProd?.id || `barcode-${cleanCode}`,
+            name: dName,
+            price: dPrice,
+            stock: matchedProd?.stock ?? 1,
+            unit: matchedProd?.unit || 'Pcs',
+            barcode: cleanCode,
+            updatedAt: Date.now(),
+          };
+        }
+      }
+    }
+
+    // 3. Fallback lookup in previous bills if any billed item had this barcode or prefix with price > 0
+    if (!matchedProd || matchedProd.price <= 0) {
       const pastBills = storageService.getBills();
       for (const b of pastBills) {
-        const foundItem = b.items?.find(
-          (it) =>
-            (it.barcode && it.barcode.trim().toLowerCase() === lowerCode) ||
+        const foundItem = b.items?.find((it) => {
+          if (!it.price || it.price <= 0) return false;
+          const itCode = (it.barcode || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+          return (
+            (itCode &&
+              (itCode === normCode ||
+                (itCode.length >= 3 &&
+                  (normCode.startsWith(itCode) || itCode.startsWith(normCode))))) ||
             it.name.trim().toLowerCase() === lowerCode
-        );
+          );
+        });
         if (foundItem) {
           matchedProd = {
-            id: foundItem.productId || `barcode-${cleanCode}`,
-            name: foundItem.name,
+            id: foundItem.productId || matchedProd?.id || `barcode-${cleanCode}`,
+            name:
+              matchedProd && !matchedProd.name.startsWith('Item (')
+                ? matchedProd.name
+                : foundItem.name,
             price: foundItem.price,
-            stock: 1,
-            unit: foundItem.unit || 'Pcs',
+            stock: matchedProd?.stock ?? 1,
+            unit: foundItem.unit || matchedProd?.unit || 'Pcs',
             barcode: cleanCode,
             updatedAt: Date.now(),
           };
@@ -419,11 +502,11 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     }
 
     // 4. If QR code contained embedded name & price
-    if (!matchedProd && (qrParsedName || qrParsedPrice > 0)) {
+    if ((!matchedProd || matchedProd.price <= 0) && (qrParsedName || qrParsedPrice > 0)) {
       matchedProd = {
-        id: `barcode-${cleanCode}`,
-        name: qrParsedName || `Item #${cleanCode}`,
-        price: qrParsedPrice,
+        id: matchedProd?.id || `barcode-${cleanCode}`,
+        name: qrParsedName || matchedProd?.name || `Item #${cleanCode}`,
+        price: qrParsedPrice || matchedProd?.price || 0,
         stock: 1,
         unit: 'Pcs',
         barcode: cleanCode,
@@ -431,13 +514,55 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       };
     }
 
+    return { cleanCode, matchedProd };
+  };
+
+  // Auto-repair any existing scanned items in the current bill that had Rs 0 rate (e.g. "Item (ZF1678455)")
+  useEffect(() => {
+    if (billItems.length === 0) return;
+    let didRepair = false;
+    const repaired = billItems.map((it) => {
+      if (it.price > 0) return it;
+      const itemMatch = it.name.match(/^Item\s*\(([^)]+)\)$/i);
+      const candidateCode = (it.barcode || (itemMatch ? itemMatch[1] : '')).trim();
+      if (!candidateCode) return it;
+
+      const { matchedProd } = resolveProductByBarcodeCode(candidateCode);
+      if (matchedProd && matchedProd.price > 0) {
+        didRepair = true;
+        return {
+          ...it,
+          name: matchedProd.name,
+          price: matchedProd.price,
+          unit: it.unit || matchedProd.unit || 'Pcs',
+          productId: matchedProd.id,
+          total: Math.round(matchedProd.price * it.qty * 100) / 100,
+        };
+      }
+      return it;
+    });
+
+    if (didRepair) {
+      setBillItems(repaired);
+    }
+  }, [billItems, allSavedProducts]);
+
+  // Barcode Auto-Lookup in Inventory + Add 1 Item to Billing Cart + Refresh Input
+  const handleBarcodeScanned = (rawScannedCode: string) => {
+    const { cleanCode, matchedProd } = resolveProductByBarcodeCode(rawScannedCode);
+    if (!cleanCode) return { matched: false };
+
+    const lowerCode = cleanCode.toLowerCase();
+
     const resolvedName = matchedProd ? matchedProd.name : `Item (${cleanCode})`;
-    const resolvedPrice = matchedProd
-      ? matchedProd.price
-      : parseFloat(itemPrice) > 0
-      ? parseFloat(itemPrice)
-      : 0;
+    const resolvedPrice =
+      matchedProd && matchedProd.price > 0
+        ? matchedProd.price
+        : parseFloat(itemPrice) > 0
+        ? parseFloat(itemPrice)
+        : 0;
     const resolvedUnit = matchedProd?.unit || itemUnit.trim() || 'Pcs';
+    const newItemId = 'item-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6);
 
     // Add 1 item to the billing cart (or increment qty by +1 if already in cart)
     setBillItems((prev) => {
@@ -446,24 +571,30 @@ export const BillingTab: React.FC<BillingTabProps> = ({
           (it.barcode && it.barcode.trim().toLowerCase() === lowerCode) ||
           (matchedProd && it.productId && it.productId === matchedProd.id) ||
           (it.name.trim().toLowerCase() === resolvedName.toLowerCase() &&
-            it.price === resolvedPrice)
+            (it.price === resolvedPrice || it.price === 0))
       );
 
       if (existingIndex >= 0) {
         return prev.map((it, idx) => {
           if (idx !== existingIndex) return it;
           const nextQty = it.qty + 1;
+          const effectivePrice = resolvedPrice > 0 ? resolvedPrice : it.price;
+          const effectiveName =
+            matchedProd && it.name.startsWith('Item (') ? matchedProd.name : it.name;
           return {
             ...it,
+            name: effectiveName,
+            price: effectivePrice,
             qty: nextQty,
             barcode: it.barcode || cleanCode,
-            total: Math.round(it.price * nextQty * 100) / 100,
+            productId: it.productId || matchedProd?.id,
+            total: Math.round(effectivePrice * nextQty * 100) / 100,
           };
         });
       }
 
       const newCartItem: BillItem = {
-        id: 'item-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+        id: newItemId,
         name: resolvedName,
         price: resolvedPrice,
         qty: 1,
@@ -475,33 +606,46 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       return [...prev, newCartItem];
     });
 
+    // If an unlisted barcode still has 0 price, open inline rate editor automatically so user can type rate immediately
+    if (resolvedPrice <= 0) {
+      setEditingItemId(newItemId);
+      setEditItemName(resolvedName);
+      setEditItemPrice('');
+      setEditItemQty('1');
+      setEditItemUnit(resolvedUnit);
+      setEditFocusField('price');
+    }
+
     // Refresh the input fields
     setItemName('');
     setItemPrice('');
     setItemQty('1');
     setShowSuggestions(false);
     setShowUnitDropdown(false);
-    setTimeout(() => {
-      nameInputRef.current?.focus();
-    }, 30);
+    if (resolvedPrice > 0) {
+      setTimeout(() => {
+        nameInputRef.current?.focus();
+      }, 30);
+    }
 
     // Show quick status banner on Billing page
     setScanStatusBanner({
-      message: matchedProd
-        ? isBn
-          ? `✅ স্ক্যান সফল: "${resolvedName}" (+1) বিলে যোগ হয়েছে (${sym}${resolvedPrice})`
-          : `✅ Scanned: "${resolvedName}" (+1) added to cart (${sym}${resolvedPrice})`
-        : isBn
-        ? `⚡ বারকোড "${cleanCode}" (+1) কার্টে যোগ হয়েছে`
-        : `⚡ Barcode "${cleanCode}" (+1) added to cart`,
-      type: matchedProd ? 'success' : 'warning',
+      message:
+        matchedProd && resolvedPrice > 0
+          ? isBn
+            ? `✅ স্ক্যান সফল: "${resolvedName}" (+1) বিলে যোগ হয়েছে (${sym}${resolvedPrice})`
+            : `✅ Scanned: "${resolvedName}" (+1) added to cart (${sym}${resolvedPrice})`
+          : isBn
+          ? `⚡ বারকোড "${cleanCode}" যোগ হয়েছে — নিচে দর (Rate) লিখলে স্টকে অটো সেভ হবে`
+          : `⚡ Barcode "${cleanCode}" added — enter Rate below to auto-save to stock`,
+      type: matchedProd && resolvedPrice > 0 ? 'success' : 'warning',
     });
     setTimeout(() => {
       setScanStatusBanner(null);
-    }, 3200);
+    }, 3500);
 
     return {
-      matched: Boolean(matchedProd),
+      matched: Boolean(matchedProd && resolvedPrice > 0),
       itemName: resolvedName,
       price: resolvedPrice,
     };
@@ -757,18 +901,37 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     const finalQty = isNaN(parsedQty) || parsedQty <= 0 ? 1 : parsedQty;
 
     setBillItems((prev) =>
-      prev.map((item) =>
-        item.id === id
-          ? {
-              ...item,
+      prev.map((item) => {
+        if (item.id !== id) return item;
+        // If this item came from a barcode scan, also save its rate to Product Stock so future scans auto-fill the rate
+        const itemMatch = item.name.match(/^Item\s*\(([^)]+)\)$/i);
+        const itemBarcode = item.barcode || (itemMatch ? itemMatch[1].trim() : undefined);
+        if (itemBarcode && parsedPrice > 0) {
+          storageService.addOrUpdateProduct({
+            id: item.productId,
+            name: cleanName,
+            price: parsedPrice,
+            unit: cleanUnit || item.unit || 'Pcs',
+            barcode: itemBarcode,
+          });
+          if (onQuickSaveProduct) {
+            onQuickSaveProduct({
               name: cleanName,
               price: parsedPrice,
-              qty: finalQty,
-              unit: cleanUnit,
-              total: Math.round(parsedPrice * finalQty * 100) / 100,
-            }
-          : item
-      )
+              barcode: itemBarcode,
+            });
+          }
+        }
+        return {
+          ...item,
+          name: cleanName,
+          price: parsedPrice,
+          qty: finalQty,
+          unit: cleanUnit,
+          barcode: itemBarcode || item.barcode,
+          total: Math.round(parsedPrice * finalQty * 100) / 100,
+        };
+      })
     );
     setEditingItemId(null);
   };

@@ -70,15 +70,15 @@ const AutoBarcodeCanvas: React.FC<{
   );
 };
 
-// Helper to generate a clean SKU code from product name
-const generateAutoSkuFromName = (prodName: string): string => {
+// Helper to generate a deterministic or clean SKU code from product name
+const generateAutoSkuFromName = (prodName: string, seedSuffix?: string): string => {
   const clean = (prodName || '')
     .trim()
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, '');
   const prefix = clean.length >= 2 ? clean.slice(0, 2) : 'PR';
-  const rand = Math.floor(100000 + Math.random() * 900000);
-  return `${prefix}${rand}`;
+  const suffix = seedSuffix || String(Math.floor(100000 + Math.random() * 900000));
+  return `${prefix}${suffix}`;
 };
 
 interface ProductStockModalProps {
@@ -134,10 +134,64 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
   const [purchasePrice, setPurchasePrice] = useState('');
   const [stock, setStock] = useState('');
   const [barcode, setBarcode] = useState('');
+  const [autoSkuSeed, setAutoSkuSeed] = useState(() =>
+    String(Math.floor(100000 + Math.random() * 900000))
+  );
   const [unit, setUnit] = useState('Pcs');
   const [searchQuery, setSearchQuery] = useState('');
   const [quickAddStockId, setQuickAddStockId] = useState<string | null>(null);
   const [quickAddStockQty, setQuickAddStockQty] = useState('');
+
+  // Stable effective barcode so the previewed barcode and saved barcode are 100% identical
+  const effectiveFormBarcode = useMemo(() => {
+    const trimmed = barcode.trim();
+    if (trimmed) return trimmed;
+    if (name.trim()) return generateAutoSkuFromName(name, autoSkuSeed);
+    return '';
+  }, [barcode, name, autoSkuSeed]);
+
+  // Find if typed barcode/SKU matches or extends an existing saved product (e.g. ZF1678455 -> ZF1678 "Zufar royal king" Rs 300)
+  const matchedProductBySku = useMemo(() => {
+    const cleanCode = barcode.trim().toLowerCase();
+    if (!cleanCode || cleanCode.length < 2) return null;
+    return (
+      products.find((p) => {
+        const pCode = (p.barcode || '').trim().toLowerCase();
+        if (!pCode) return false;
+        return (
+          pCode === cleanCode ||
+          (pCode.length >= 3 && cleanCode.startsWith(pCode)) ||
+          (cleanCode.length >= 3 && pCode.startsWith(cleanCode))
+        );
+      }) || null
+    );
+  }, [barcode, products]);
+
+  // Whenever user types a barcode in ProductStockModal, sync it with its rate (or matched product's rate) to BarcodeCustomDesign
+  useEffect(() => {
+    const activeBarcode = effectiveFormBarcode;
+    if (!activeBarcode) return;
+    const resolvedPrice =
+      parseFloat(price) > 0
+        ? parseFloat(price)
+        : matchedProductBySku && matchedProductBySku.price > 0
+        ? matchedProductBySku.price
+        : 0;
+    const resolvedName =
+      name.trim() || (matchedProductBySku ? matchedProductBySku.name : '');
+
+    if (resolvedPrice > 0) {
+      const existingDesign = storageService.getBarcodeCustomDesign() || {};
+      storageService.saveBarcodeCustomDesign({
+        ...existingDesign,
+        storeName: settings.storeName || existingDesign.storeName || 'MY SHOP',
+        itemName: resolvedName || existingDesign.itemName || '',
+        barcodeValue: activeBarcode,
+        mrp: resolvedPrice,
+        salePrice: resolvedPrice,
+      });
+    }
+  }, [effectiveFormBarcode, price, name, matchedProductBySku, settings.storeName]);
 
   const hideCurrency =
     settings.hideCurrencySymbol ||
@@ -188,13 +242,22 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
     setPurchasePrice('');
     setStock('');
     setBarcode('');
+    setAutoSkuSeed(String(Math.floor(100000 + Math.random() * 900000)));
     setUnit('Pcs');
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanName = name.trim();
-    const parsedPrice = parseFloat(price);
+    const cleanName =
+      name.trim() ||
+      (matchedProductBySku ? matchedProductBySku.name : '') ||
+      (barcode.trim() ? `Item ${barcode.trim()}` : '');
+    const parsedPrice =
+      parseFloat(price) > 0
+        ? parseFloat(price)
+        : matchedProductBySku && matchedProductBySku.price > 0
+        ? matchedProductBySku.price
+        : parseFloat(price);
     const parsedCost = purchasePrice ? parseFloat(purchasePrice) : undefined;
     const parsedStock = stock !== '' ? parseInt(stock, 10) : 0;
 
@@ -202,8 +265,8 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
       return;
     }
 
-    // Automatically generate a barcode if SKU was left blank
-    const finalBarcode = barcode.trim() || generateAutoSkuFromName(cleanName);
+    // Use the exact same barcode shown in the live preview
+    const finalBarcode = effectiveFormBarcode || generateAutoSkuFromName(cleanName, autoSkuSeed);
 
     // Sync this product & barcode to the Barcode Label Studio so it's ready to print
     const existingDesign = storageService.getBarcodeCustomDesign() || {};
@@ -217,7 +280,7 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
     });
 
     onSaveProduct({
-      id: editingId || undefined,
+      id: editingId || (matchedProductBySku && !name.trim() ? matchedProductBySku.id : undefined),
       name: cleanName,
       price: parsedPrice,
       purchasePrice: parsedCost && !isNaN(parsedCost) ? parsedCost : undefined,
@@ -358,10 +421,16 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
                 </label>
                 <input
                   type="text"
-                  required
+                  required={!matchedProductBySku && !barcode.trim()}
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder={isBn ? 'যেমন: Cotton Saree / পাঞ্জাবি / শার্ট' : 'e.g. Cotton Saree / Shirt'}
+                  placeholder={
+                    matchedProductBySku
+                      ? matchedProductBySku.name
+                      : isBn
+                      ? 'যেমন: Cotton Saree / পাঞ্জাবি / শার্ট'
+                      : 'e.g. Cotton Saree / Shirt'
+                  }
                   className="w-full border border-stone-300 bg-white px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold focus:outline-none focus:border-blue-600"
                 />
               </div>
@@ -373,12 +442,16 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
                 </label>
                 <input
                   type="number"
-                  required
+                  required={!matchedProductBySku || matchedProductBySku.price <= 0}
                   min="0"
                   step="any"
                   value={price}
                   onChange={(e) => setPrice(e.target.value)}
-                  placeholder="0.00"
+                  placeholder={
+                    matchedProductBySku && matchedProductBySku.price > 0
+                      ? String(matchedProductBySku.price)
+                      : '0.00'
+                  }
                   className="w-full border border-stone-300 bg-white px-3 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-600"
                 />
               </div>
@@ -428,7 +501,11 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
                   </label>
                   <button
                     type="button"
-                    onClick={() => setBarcode(generateAutoSkuFromName(name))}
+                    onClick={() => {
+                      const newSeed = String(Math.floor(100000 + Math.random() * 900000));
+                      setAutoSkuSeed(newSeed);
+                      setBarcode(generateAutoSkuFromName(name, newSeed));
+                    }}
                     className="text-[10px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-0.5 rounded-md cursor-pointer flex items-center gap-1"
                   >
                     <Sparkles className="w-3 h-3 text-amber-500" />
@@ -448,21 +525,28 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
                 />
 
                 {/* Automatic Generated Barcode Live Sticker Preview as soon as SKU or Name is typed */}
-                {(barcode.trim() || name.trim()) && (
+                {effectiveFormBarcode && (
                   <div className="p-3 bg-white rounded-2xl border-2 border-dashed border-blue-300 flex flex-col sm:flex-row items-center justify-between gap-3 animate-in fade-in duration-150">
                     <div className="flex flex-col items-center justify-center bg-white px-3 py-2 rounded-xl border border-stone-200 shadow-2xs min-w-[200px]">
                       <div className="text-[10px] font-mono font-black text-stone-900 uppercase tracking-wider leading-tight">
-                        {settings.storeName || name.trim() || 'MY SHOP'}
+                        {settings.storeName ||
+                          name.trim() ||
+                          matchedProductBySku?.name ||
+                          'MY SHOP'}
                       </div>
                       <AutoBarcodeCanvas
-                        value={barcode.trim() || generateAutoSkuFromName(name)}
+                        value={effectiveFormBarcode}
                         height={34}
                         width={1.55}
                         fontSize={12}
                         className="my-0.5 max-h-14"
                       />
                       <div className="text-[11px] font-mono font-black text-stone-900 leading-none">
-                        MRP: Rs. {price || '0'}
+                        MRP: Rs.{' '}
+                        {price ||
+                          (matchedProductBySku && matchedProductBySku.price > 0
+                            ? String(matchedProductBySku.price)
+                            : '0')}
                       </div>
                     </div>
 
