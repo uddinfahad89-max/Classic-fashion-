@@ -30,6 +30,7 @@ import {
   Barcode,
   Zap,
   Pin,
+  BookUser,
 } from 'lucide-react';
 import {
   BillItem,
@@ -163,6 +164,122 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   const [editItemQty, setEditItemQty] = useState('');
   const [editItemUnit, setEditItemUnit] = useState('');
   const [editFocusField, setEditFocusField] = useState<'name' | 'qty' | 'unit' | 'price'>('name');
+
+  // Customer Contact Picker from Phone Contacts / Saved Accounts & Due Khata
+  const [showSavedCustomerModal, setShowSavedCustomerModal] = useState(false);
+  const [contactSearchQuery, setContactSearchQuery] = useState('');
+
+  // Native-like back button handler for contact picker modal
+  useBackHandler(
+    'billingContactPickerModal',
+    showSavedCustomerModal,
+    () => {
+      setShowSavedCustomerModal(false);
+      return true;
+    },
+    38
+  );
+
+  // Combine unique customer contacts from Customer Dues & Past Invoices
+  const savedCustomerContacts = useMemo(() => {
+    const list: Array<{ name: string; phone: string; due?: number }> = [];
+    const seen = new Set<string>();
+
+    // 1. From Customer Dues (Khata)
+    try {
+      const dues = storageService.getCustomerDues();
+      for (const d of dues) {
+        const cleanName = d.name.trim();
+        const cleanPhone = (d.phone || '').trim();
+        const key = `${cleanName.toLowerCase()}_${cleanPhone}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          list.push({ name: cleanName, phone: cleanPhone, due: d.dueAmount });
+        }
+      }
+    } catch {}
+
+    // 2. From Past Invoices
+    try {
+      const bills = storageService.getBills();
+      for (const b of bills) {
+        if (b.customerName || b.customerPhone) {
+          const cleanName = (b.customerName || '').trim();
+          const cleanPhone = (b.customerPhone || '').trim();
+          const key = `${cleanName.toLowerCase()}_${cleanPhone}`;
+          if (cleanName && !seen.has(key)) {
+            seen.add(key);
+            list.push({ name: cleanName, phone: cleanPhone });
+          }
+        }
+      }
+    } catch {}
+
+    return list;
+  }, [showSavedCustomerModal]);
+
+  const filteredCustomerContacts = useMemo(() => {
+    const q = contactSearchQuery.trim().toLowerCase();
+    if (!q) return savedCustomerContacts;
+    return savedCustomerContacts.filter(
+      (c) => c.name.toLowerCase().includes(q) || c.phone.includes(q)
+    );
+  }, [savedCustomerContacts, contactSearchQuery]);
+
+  // Helper to extract clean 10-digit phone number from various formats (+91, 0, hyphens)
+  const cleanExtractedPhone = (raw: string): string => {
+    if (!raw) return '';
+    const digits = raw.replace(/[^0-9]/g, '');
+    if (digits.length === 12 && digits.startsWith('91')) {
+      return digits.slice(2);
+    }
+    if (digits.length === 11 && digits.startsWith('0')) {
+      return digits.slice(1);
+    }
+    if (digits.length > 10) {
+      return digits.slice(-10);
+    }
+    return digits;
+  };
+
+  // Contact Picker Handler: Uses native Android navigator.contacts API, or opens saved Khata modal
+  const handlePickContact = async () => {
+    // 1. Try Native Mobile Contact Picker API (Chrome on Android / Edge mobile)
+    if ('contacts' in navigator && 'ContactsManager' in window) {
+      try {
+        const props = ['name', 'tel'];
+        const contacts = await (navigator as any).contacts.select(props, { multiple: false });
+        if (contacts && contacts.length > 0) {
+          const selected = contacts[0];
+          const rawName = (selected.name?.[0] || selected.name || '').trim();
+          const rawTel = (selected.tel?.[0] || selected.tel || '').trim();
+          const finalPhone = cleanExtractedPhone(rawTel);
+
+          if (rawName) {
+            setCustomerName(isAllCaps ? rawName.toUpperCase() : rawName);
+          }
+          if (finalPhone) {
+            setCustomerPhone(finalPhone);
+          }
+
+          setScanStatusBanner({
+            type: 'success',
+            message: isBn
+              ? `✓ কন্টাক্ট থেকে কাস্টমার যুক্ত হয়েছে: ${rawName} (${finalPhone || 'ফোন নম্বর নেই'})`
+              : `✓ Contact added: ${rawName} (${finalPhone || 'No phone'})`,
+          });
+          setTimeout(() => setScanStatusBanner(null), 3500);
+          return;
+        }
+      } catch (err) {
+        // User cancelled native picker or permission was denied
+        console.log('Native contact picker cancelled or dismissed:', err);
+      }
+    }
+
+    // 2. Open Saved Customers / Due Khata list modal
+    setShowSavedCustomerModal(true);
+  };
 
   // First-letter Autocomplete state (Disabled by default so it never disturbs typing; optional toggle in 3-dot menu)
   const [enableSavedSuggestions, setEnableSavedSuggestions] = useState(false);
@@ -1275,25 +1392,42 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-          {/* Customer Name */}
+          {/* Customer Name + Contact Picker Button */}
           <div>
-            <div className="relative">
-              <div className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none">
-                <User className="w-4 h-4" />
+            <div className="flex items-center gap-1.5">
+              <div className="relative flex-1">
+                <div className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none">
+                  <User className="w-4 h-4" />
+                </div>
+                <input
+                  type="text"
+                  id="billing-customer-name"
+                  value={customerName}
+                  autoCapitalize={isAllCaps ? 'characters' : 'words'}
+                  style={{ textTransform: isAllCaps ? 'uppercase' : 'none' }}
+                  onChange={(e) => {
+                    const val = isAllCaps ? e.target.value.toUpperCase() : e.target.value;
+                    setCustomerName(val);
+                  }}
+                  placeholder={t.customerNameOptionalPlaceholder}
+                  className="w-full border border-stone-200 bg-stone-50/80 pl-9 pr-3 py-2 rounded-xl text-xs sm:text-sm font-medium focus:outline-none focus:border-blue-500 focus:bg-white transition-all font-mono"
+                />
               </div>
-              <input
-                type="text"
-                id="billing-customer-name"
-                value={customerName}
-                autoCapitalize={isAllCaps ? 'characters' : 'words'}
-                style={{ textTransform: isAllCaps ? 'uppercase' : 'none' }}
-                onChange={(e) => {
-                  const val = isAllCaps ? e.target.value.toUpperCase() : e.target.value;
-                  setCustomerName(val);
-                }}
-                placeholder={t.customerNameOptionalPlaceholder}
-                className="w-full border border-stone-200 bg-stone-50/80 pl-9 pr-3 py-2 rounded-xl text-xs sm:text-sm font-medium focus:outline-none focus:border-blue-500 focus:bg-white transition-all font-mono"
-              />
+
+              {/* Mobile Phonebook Contact / Khata Picker Button */}
+              <button
+                type="button"
+                onClick={handlePickContact}
+                className="px-2.5 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 active:scale-95 text-blue-700 border border-blue-200 flex items-center gap-1.5 text-xs font-bold transition-all cursor-pointer shrink-0 shadow-2xs"
+                title={
+                  isBn
+                    ? 'মোবাইলের কন্টাক্ট লিস্ট বা খাতা থেকে কাস্টমার বাছুন'
+                    : 'Pick customer from phone contacts or saved accounts'
+                }
+              >
+                <BookUser className="w-3.5 h-3.5 text-blue-600" />
+                <span>{isBn ? 'কন্টাক্ট' : 'Contacts'}</span>
+              </button>
             </div>
           </div>
 
@@ -2615,6 +2749,156 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                   );
                 })}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* CUSTOMER CONTACT PICKER MODAL */}
+      {showSavedCustomerModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border border-stone-200 w-full max-w-md overflow-hidden max-h-[85vh] flex flex-col animate-in slide-in-from-bottom-6 sm:zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="px-4 py-3.5 bg-blue-900 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center text-blue-300">
+                  <BookUser className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black tracking-tight">
+                    {isBn ? 'কাস্টমার কন্টাক্ট লিস্ট' : 'Customer Contact List'}
+                  </h3>
+                  <p className="text-[10px] text-blue-200">
+                    {isBn
+                      ? 'মোবাইলের ফোনবুক অথবা খাতা থেকে কাস্টমার বাছুন'
+                      : 'Select customer from phone contacts or saved accounts'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSavedCustomerModal(false)}
+                className="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Content & Search */}
+            <div className="p-4 space-y-3 flex-1 overflow-y-auto">
+              {/* Native Mobile Phonebook Launch Button (Android Chrome) */}
+              {'contacts' in navigator && 'ContactsManager' in window && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      const props = ['name', 'tel'];
+                      const contacts = await (navigator as any).contacts.select(props, { multiple: false });
+                      if (contacts && contacts.length > 0) {
+                        const selected = contacts[0];
+                        const rawName = (selected.name?.[0] || selected.name || '').trim();
+                        const rawTel = (selected.tel?.[0] || selected.tel || '').trim();
+                        const finalPhone = cleanExtractedPhone(rawTel);
+
+                        if (rawName) {
+                          setCustomerName(isAllCaps ? rawName.toUpperCase() : rawName);
+                        }
+                        if (finalPhone) {
+                          setCustomerPhone(finalPhone);
+                        }
+
+                        setScanStatusBanner({
+                          type: 'success',
+                          message: isBn
+                            ? `✓ কন্টাক্ট থেকে কাস্টমার যুক্ত হয়েছে: ${rawName} (${finalPhone || 'ফোন নম্বর নেই'})`
+                            : `✓ Contact added: ${rawName} (${finalPhone || 'No phone'})`,
+                        });
+                        setTimeout(() => setScanStatusBanner(null), 3500);
+                        setShowSavedCustomerModal(false);
+                      }
+                    } catch {}
+                  }}
+                  className="w-full py-2.5 px-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-2xl text-xs font-black flex items-center justify-center gap-2 shadow-sm cursor-pointer active:scale-98 transition-all"
+                >
+                  <Phone className="w-3.5 h-3.5" />
+                  <span>{isBn ? '📱 সরাসরি মোবাইলের ফোনবুক থেকে বাছুন' : 'Open Mobile Phone Contacts'}</span>
+                </button>
+              )}
+
+              {/* Search Bar */}
+              <div className="relative">
+                <input
+                  type="text"
+                  value={contactSearchQuery}
+                  onChange={(e) => setContactSearchQuery(e.target.value)}
+                  placeholder={isBn ? 'নাম বা মোবাইল নম্বর দিয়ে খুঁজুন...' : 'Search by name or phone...'}
+                  className="w-full bg-stone-100 pl-8 pr-3 py-2 rounded-xl text-xs font-semibold focus:outline-none focus:bg-white border border-stone-200"
+                />
+                <User className="w-3.5 h-3.5 text-stone-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+
+              {/* Customer List */}
+              <div className="space-y-1 divide-y divide-stone-100 max-h-72 overflow-y-auto">
+                {filteredCustomerContacts.length > 0 ? (
+                  filteredCustomerContacts.map((c, idx) => (
+                    <button
+                      key={`${c.name}-${c.phone}-${idx}`}
+                      type="button"
+                      onClick={() => {
+                        const cleanP = cleanExtractedPhone(c.phone);
+                        setCustomerName(isAllCaps ? c.name.toUpperCase() : c.name);
+                        setCustomerPhone(cleanP);
+                        setScanStatusBanner({
+                          type: 'success',
+                          message: isBn
+                            ? `✓ কাস্টমার যুক্ত হয়েছে: ${c.name} (${cleanP || 'ফোন নম্বর নেই'})`
+                            : `✓ Customer selected: ${c.name} (${cleanP || 'No phone'})`,
+                        });
+                        setTimeout(() => setScanStatusBanner(null), 3500);
+                        setShowSavedCustomerModal(false);
+                      }}
+                      className="w-full p-2.5 rounded-xl hover:bg-blue-50/70 text-left transition-colors flex items-center justify-between gap-2 cursor-pointer group"
+                    >
+                      <div className="min-w-0 flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-800 font-bold text-xs flex items-center justify-center shrink-0">
+                          {c.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="font-bold text-xs text-stone-900 group-hover:text-blue-700 truncate">
+                            {c.name}
+                          </div>
+                          <div className="text-[11px] font-mono text-stone-500">
+                            {c.phone || (isBn ? 'মোবাইল নম্বর নেই' : 'No phone')}
+                          </div>
+                        </div>
+                      </div>
+
+                      {c.due !== undefined && c.due > 0 && (
+                        <div className="text-right shrink-0">
+                          <span className="text-[9px] text-stone-400 block uppercase">{isBn ? 'বকেয়া' : 'Due'}</span>
+                          <span className="text-xs font-mono font-bold text-rose-600">
+                            {sym}{c.due.toFixed(0)}
+                          </span>
+                        </div>
+                      )}
+                    </button>
+                  ))
+                ) : (
+                  <div className="py-8 text-center text-xs text-stone-400">
+                    {isBn ? 'কোনো কাস্টমার পাওয়া যায়নি।' : 'No customers found.'}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-3 bg-stone-50 border-t border-stone-200 text-right">
+              <button
+                type="button"
+                onClick={() => setShowSavedCustomerModal(false)}
+                className="px-4 py-1.5 bg-stone-200 hover:bg-stone-300 text-stone-800 rounded-xl text-xs font-bold cursor-pointer"
+              >
+                {isBn ? 'বন্ধ করুন' : 'Close'}
+              </button>
             </div>
           </div>
         </div>
