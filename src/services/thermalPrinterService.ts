@@ -581,28 +581,38 @@ export class ThermalPrinterService {
     }
     lines.push(divider);
 
-    // Items table header
-    if (width === 48) {
-      lines.push(padBetween('ITEM', 'QTY   PRICE   TOTAL'));
+    // If Total Only Slip: do not print individual item lines; print summary header instead
+    if (settings.isTotalOnlySlip) {
+      const totalQty = bill.items.reduce((sum, it) => sum + (it.qty || 1), 0);
+      lines.push(padCenter('*** TOTAL AMOUNT SLIP ***'));
+      lines.push(padCenter('*** SUMMARY RECEIPT ***'));
+      lines.push(divider);
+      lines.push(padBetween('PURCHASE OVERVIEW:', `${totalQty} ITEMS`));
+      lines.push(divider);
     } else {
-      lines.push(padBetween('ITEM', 'QTY  TOTAL'));
-    }
-    lines.push(divider);
-
-    bill.items.forEach((item) => {
-      const qtyLabel = item.unit ? `${item.qty} ${item.unit}` : `${item.qty}x`;
+      // Items table header
       if (width === 48) {
-        const itemLine = `${item.name.slice(0, 20)}`;
-        const rightCol = `${qtyLabel}  ${sym}${item.price.toFixed(2)}  ${sym}${item.total.toFixed(2)}`;
-        lines.push(padBetween(itemLine, rightCol));
+        lines.push(padBetween('ITEM', 'QTY   PRICE   TOTAL'));
       } else {
-        const itemLine = `${item.name.slice(0, 16)}`;
-        const rightCol = `${qtyLabel} ${sym}${item.total.toFixed(2)}`;
-        lines.push(padBetween(itemLine, rightCol));
+        lines.push(padBetween('ITEM', 'QTY  TOTAL'));
       }
-    });
+      lines.push(divider);
 
-    lines.push(divider);
+      bill.items.forEach((item) => {
+        const qtyLabel = item.unit ? `${item.qty} ${item.unit}` : `${item.qty}x`;
+        if (width === 48) {
+          const itemLine = `${item.name.slice(0, 20)}`;
+          const rightCol = `${qtyLabel}  ${sym}${item.price.toFixed(2)}  ${sym}${item.total.toFixed(2)}`;
+          lines.push(padBetween(itemLine, rightCol));
+        } else {
+          const itemLine = `${item.name.slice(0, 16)}`;
+          const rightCol = `${qtyLabel} ${sym}${item.total.toFixed(2)}`;
+          lines.push(padBetween(itemLine, rightCol));
+        }
+      });
+
+      lines.push(divider);
+    }
 
     // Totals
     lines.push(padBetween('SUBTOTAL:', `${sym}${bill.subtotal.toFixed(2)}`));

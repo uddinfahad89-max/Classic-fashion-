@@ -5,9 +5,15 @@ import { numberToWords } from '../utils/numberToWords';
 interface TaxInvoiceSheetProps {
   bill: BillInvoice;
   settings: ThermalPrinterSettings;
+  isTotalOnlySlip?: boolean;
 }
 
-export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({ bill, settings }) => {
+export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
+  bill,
+  settings,
+  isTotalOnlySlip = false,
+}) => {
+  const isTotalOnly = isTotalOnlySlip || Boolean(settings.isTotalOnlySlip);
   const rawSym = (settings.currencySymbol || '').replace(/\?/g, '').trim();
   const isCurrencyHidden = settings.hideCurrencySymbol || !rawSym;
   const currencyPrefix = isCurrencyHidden ? '' : `${rawSym} `;
@@ -88,10 +94,12 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({ bill, settings
 
       <div className="border-t border-stone-300 my-3"></div>
 
-      {/* 2. Tax Invoice / Estimate / Tailoring Invoice Banner */}
+      {/* 2. Tax Invoice / Estimate / Tailoring Invoice / Total Slip Banner */}
       <div className="text-center my-2.5">
         <h2 className="text-xl sm:text-2xl font-extrabold text-[#8C8EE8] tracking-normal">
-          {bill.isTailoring
+          {isTotalOnly
+            ? 'টাকার হিসাব স্লিপ / TOTAL AMOUNT SLIP'
+            : bill.isTailoring
             ? '✂️ Tailoring Invoice'
             : bill.paymentMethod === 'estimate'
             ? 'Estimate'
@@ -205,61 +213,89 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({ bill, settings
           </div>
         )}
 
-      {/* 4. Table of Items: Exactly matching photo */}
-      <div className="mt-1 mb-2 overflow-x-auto">
-        <table className="w-full text-sm sm:text-base text-left border-collapse">
-          <thead>
-            <tr className="bg-[#8C8EE8] text-white print:bg-[#8C8EE8] print:text-white">
-              <th className="py-2.5 px-3 text-left font-bold text-white w-10">#</th>
-              <th className="py-2.5 px-3 text-left font-bold text-white">
-                {bill.isTailoring ? 'Item' : 'Item name'}
-              </th>
-              <th className="py-2.5 px-3 text-right font-bold text-white w-20">
-                {bill.isTailoring ? 'Qty' : 'Quantity'}
-              </th>
-              <th className="py-2.5 px-3 text-right font-bold text-white w-24">
-                {bill.isTailoring ? 'Rate' : 'Price/ unit'}
-              </th>
-              <th className="py-2.5 px-3 text-right font-bold text-white w-28">Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            {bill.items.map((item, idx) => (
-              <tr key={item.id || idx} className="bg-white">
-                <td className="py-2.5 px-3 text-left text-stone-900 font-semibold">
-                  {idx + 1}
+      {/* 4. Table of Items: Exactly matching photo (or Total Slip Overview) */}
+      {isTotalOnly ? (
+        <div className="my-4 p-5 rounded-2xl bg-stone-50 border-2 border-stone-300 space-y-3">
+          <div className="flex items-center justify-between border-b border-stone-200 pb-3 flex-wrap gap-2">
+            <div>
+              <span className="text-xs font-bold text-stone-500 uppercase tracking-wider block">
+                পণ্য বিবরণী / Purchase Overview
+              </span>
+              <span className="text-base sm:text-lg font-black text-stone-900">
+                মোট ক্রয়কৃত পণ্য / আইটেম: <strong className="text-[#8C8EE8] font-mono text-xl">{totalQty}</strong> টি
+              </span>
+            </div>
+            <div className="text-right">
+              <span className="text-xs font-bold text-stone-500 uppercase block">পেমেন্ট অবস্থা</span>
+              <span
+                className={`inline-block px-3 py-1 rounded-full text-xs font-black ${
+                  balance <= 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                }`}
+              >
+                {balance <= 0 ? '✓ পরিশোধিত (PAID)' : '⚠️ বকেয়া (DUE)'}
+              </span>
+            </div>
+          </div>
+          <p className="text-xs text-stone-500 italic font-medium">
+            * এই হিসাব স্লিপে ব্যক্তিগত পণ্যের আইটেম তালিকা ও দর গোপন রাখা হয়েছে, শুধু চূড়ান্ত টাকার হিসাব দেওয়া হয়েছে।
+          </p>
+        </div>
+      ) : (
+        <div className="mt-1 mb-2 overflow-x-auto">
+          <table className="w-full text-sm sm:text-base text-left border-collapse">
+            <thead>
+              <tr className="bg-[#8C8EE8] text-white print:bg-[#8C8EE8] print:text-white">
+                <th className="py-2.5 px-3 text-left font-bold text-white w-10">#</th>
+                <th className="py-2.5 px-3 text-left font-bold text-white">
+                  {bill.isTailoring ? 'Item' : 'Item name'}
+                </th>
+                <th className="py-2.5 px-3 text-right font-bold text-white w-20">
+                  {bill.isTailoring ? 'Qty' : 'Quantity'}
+                </th>
+                <th className="py-2.5 px-3 text-right font-bold text-white w-24">
+                  {bill.isTailoring ? 'Rate' : 'Price/ unit'}
+                </th>
+                <th className="py-2.5 px-3 text-right font-bold text-white w-28">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {bill.items.map((item, idx) => (
+                <tr key={item.id || idx} className="bg-white">
+                  <td className="py-2.5 px-3 text-left text-stone-900 font-semibold">
+                    {idx + 1}
+                  </td>
+                  <td className="py-2.5 px-3 text-left font-bold text-stone-900">
+                    {item.name}
+                  </td>
+                  <td className="py-2.5 px-3 text-right text-stone-900 font-semibold whitespace-nowrap">
+                    {item.qty}
+                    {item.unit ? ` ${item.unit}` : ''}
+                  </td>
+                  <td className="py-2.5 px-3 text-right text-stone-900 font-semibold whitespace-nowrap">
+                    {item.price.toFixed(1)}
+                  </td>
+                  <td className="py-2.5 px-3 text-right text-stone-900 font-bold whitespace-nowrap">
+                    {item.total.toFixed(1)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t border-b border-stone-800 font-extrabold text-stone-900">
+                <td className="py-2.5 px-3"></td>
+                <td className="py-2.5 px-3 font-extrabold text-stone-900 text-base sm:text-lg">Total</td>
+                <td className="py-2.5 px-3 text-right font-extrabold text-stone-900 text-base sm:text-lg">
+                  {totalQty}
                 </td>
-                <td className="py-2.5 px-3 text-left font-bold text-stone-900">
-                  {item.name}
-                </td>
-                <td className="py-2.5 px-3 text-right text-stone-900 font-semibold whitespace-nowrap">
-                  {item.qty}
-                  {item.unit ? ` ${item.unit}` : ''}
-                </td>
-                <td className="py-2.5 px-3 text-right text-stone-900 font-semibold whitespace-nowrap">
-                  {item.price.toFixed(1)}
-                </td>
-                <td className="py-2.5 px-3 text-right text-stone-900 font-bold whitespace-nowrap">
-                  {item.total.toFixed(1)}
+                <td className="py-2.5 px-3"></td>
+                <td className="py-2.5 px-3 text-right font-extrabold text-stone-900 text-base sm:text-lg whitespace-nowrap">
+                  {currencyPrefix}{bill.subtotal.toFixed(1)}
                 </td>
               </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr className="border-t border-b border-stone-800 font-extrabold text-stone-900">
-              <td className="py-2.5 px-3"></td>
-              <td className="py-2.5 px-3 font-extrabold text-stone-900 text-base sm:text-lg">Total</td>
-              <td className="py-2.5 px-3 text-right font-extrabold text-stone-900 text-base sm:text-lg">
-                {totalQty}
-              </td>
-              <td className="py-2.5 px-3"></td>
-              <td className="py-2.5 px-3 text-right font-extrabold text-stone-900 text-base sm:text-lg whitespace-nowrap">
-                {currencyPrefix}{bill.subtotal.toFixed(1)}
-              </td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+            </tfoot>
+          </table>
+        </div>
+      )}
 
       {/* 5. Summary & Financials Section: Exactly matching photo */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-5 pb-6">
@@ -273,14 +309,27 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({ bill, settings
 
         {/* Right: Discount, Total, Received, Balance */}
         <div className="space-y-2 text-base sm:text-lg text-stone-800">
-          <div className="flex justify-between items-center py-0.5">
-            <span className="font-medium text-stone-800">
-              Discount {discountPercent > 0 ? `(${discountPercent.toFixed(1)}%)` : ''}
-            </span>
-            <span className="font-semibold text-stone-900">
-              {currencyPrefix}{discountAmount.toFixed(1)}
-            </span>
-          </div>
+          {(isTotalOnly || discountAmount > 0) && (
+            <div className="flex justify-between items-center py-0.5">
+              <span className="font-medium text-stone-800">
+                {isTotalOnly ? 'মোট পণ্যের দাম (Subtotal)' : 'Subtotal'}
+              </span>
+              <span className="font-semibold text-stone-900">
+                {currencyPrefix}{bill.subtotal.toFixed(1)}
+              </span>
+            </div>
+          )}
+
+          {discountAmount > 0 && (
+            <div className="flex justify-between items-center py-0.5">
+              <span className="font-medium text-stone-800">
+                Discount {discountPercent > 0 ? `(${discountPercent.toFixed(1)}%)` : ''}
+              </span>
+              <span className="font-semibold text-rose-600">
+                -{currencyPrefix}{discountAmount.toFixed(1)}
+              </span>
+            </div>
+          )}
 
           {/* Purple Total Highlight Bar */}
           <div className="bg-[#8C8EE8] text-white print:bg-[#8C8EE8] print:text-white font-extrabold py-2 px-3 flex justify-between items-center my-1 text-base sm:text-lg rounded-xs">

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, X, Save, Check, Bluetooth, Power, Trash2, FileText, CheckCircle2, Zap, HelpCircle, Download, Upload, Database, Tag, Copy, Cloud, ShieldCheck } from 'lucide-react';
+import { Settings, X, Save, Check, Bluetooth, Power, Trash2, FileText, CheckCircle2, Zap, HelpCircle, Download, Upload, Database, Tag, Copy, Cloud, ShieldCheck, Receipt } from 'lucide-react';
 import { ThermalPrinterSettings, BluetoothDeviceInfo, Language } from '../types';
 import { translations } from '../utils/i18n';
 import { storageService } from '../services/storageService';
@@ -462,6 +462,35 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 className="sr-only peer"
               />
               <div className="w-11 h-6 bg-stone-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+            </label>
+          </div>
+
+          {/* Total-Only Slip Mode (Summary Bill) in Settings */}
+          <div className="p-3 bg-gradient-to-r from-indigo-50/90 to-purple-50/80 rounded-2xl border border-indigo-200 flex items-center justify-between gap-3 shadow-2xs">
+            <div className="space-y-0.5">
+              <div className="font-bold text-indigo-950 text-xs flex items-center gap-1.5">
+                <Receipt className="w-3.5 h-3.5 text-indigo-600" />
+                <span>{isBn ? 'শুধু টোটাল হিসাব স্লিপ (Total Only Slip - সংক্ষেপিত বিল)' : 'Total Only Slip (Summary Receipt)'}</span>
+                {form.isTotalOnlySlip && (
+                  <span className="text-[10px] bg-indigo-200 text-indigo-900 font-bold px-1.5 py-0.2 rounded-full">
+                    Active
+                  </span>
+                )}
+              </div>
+              <div className="text-[11px] text-indigo-900/85 leading-tight">
+                {isBn
+                  ? 'কিছু কাস্টমারকে পুরো বিল না দিয়ে শুধু দোকানের নাম ও মোট টাকার হিসাব দিতে এটি ডিফল্ট অন রাখতে পারেন (পণ্যের তালিকা গোপন থাকবে)।'
+                  : 'Prints/shares summary receipt with store name and total money calculation without individual item list.'}
+              </div>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+              <input
+                type="checkbox"
+                checked={Boolean(form.isTotalOnlySlip)}
+                onChange={(e) => setForm({ ...form, isTotalOnlySlip: e.target.checked })}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-stone-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
             </label>
           </div>
 

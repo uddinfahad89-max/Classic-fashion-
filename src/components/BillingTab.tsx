@@ -55,7 +55,7 @@ interface BillingTabProps {
   settings: ThermalPrinterSettings;
   bluetoothStatus: BluetoothDeviceInfo;
   isPrinting?: boolean;
-  onPrintBill: (bill: BillInvoice, mode?: 'save' | 'print') => void;
+  onPrintBill: (bill: BillInvoice, mode?: 'save' | 'print', isTotalOnlySlip?: boolean) => void;
   onClearBill: () => void;
   language?: Language;
   onOpenCalculator?: () => void;
@@ -151,6 +151,13 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   const [availableUnits, setAvailableUnits] = useState<string[]>(() =>
     storageService.getCustomUnits()
   );
+  const [isTotalOnlyCheckout, setIsTotalOnlyCheckout] = useState<boolean>(
+    Boolean(settings.isTotalOnlySlip)
+  );
+
+  useEffect(() => {
+    setIsTotalOnlyCheckout(Boolean(settings.isTotalOnlySlip));
+  }, [settings.isTotalOnlySlip]);
   const [showUnitSelectorModal, setShowUnitSelectorModal] = useState(false);
   const [newUnitInput, setNewUnitInput] = useState('');
   const [itemStockInput, setItemStockInput] = useState('');
@@ -1286,7 +1293,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       localStorage.removeItem(BILLING_CART_DRAFT_KEY);
     } catch {}
 
-    onPrintBill(bill, mode);
+    onPrintBill(bill, mode, isTotalOnlyCheckout);
     setItemName('');
     setItemPrice('');
     setItemQty('1');
@@ -2538,6 +2545,26 @@ export const BillingTab: React.FC<BillingTabProps> = ({
               );
             })}
           </div>
+        </div>
+
+        {/* Total Only Slip Quick Preference */}
+        <div className="flex items-center justify-between px-3 py-2 bg-indigo-50/70 hover:bg-indigo-50 rounded-xl border border-indigo-100 transition-colors">
+          <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-stone-700 select-none">
+            <input
+              type="checkbox"
+              checked={isTotalOnlyCheckout}
+              onChange={(e) => setIsTotalOnlyCheckout(e.target.checked)}
+              className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+            />
+            <span className="flex items-center gap-1.5">
+              <span>💰 {isBn ? 'শুধু মোট টাকার হিসাব স্লিপ (পণ্যের তালিকা ছাড়া)' : 'Total Only Slip (Without items list)'}</span>
+            </span>
+          </label>
+          {isTotalOnlyCheckout && (
+            <span className="text-[10px] font-bold bg-indigo-200 text-indigo-900 px-2 py-0.5 rounded-full font-mono">
+              Total Only
+            </span>
+          )}
         </div>
 
         {/* 5. VERY BOTTOM: Two Side-by-Side Action Buttons (Save Bill & Direct Print) */}

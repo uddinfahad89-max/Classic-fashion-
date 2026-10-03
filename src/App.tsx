@@ -80,6 +80,7 @@ export default function App() {
   const [isDataSaverOpen, setIsDataSaverOpen] = useState(false);
   const [isBluetoothHelpOpen, setIsBluetoothHelpOpen] = useState(false);
   const [receiptBill, setReceiptBill] = useState<BillInvoice | null>(null);
+  const [receiptInitialTotalOnly, setReceiptInitialTotalOnly] = useState<boolean>(false);
   const [autoPrintReceipt, setAutoPrintReceipt] = useState(false);
   const [editingBill, setEditingBill] = useState<BillInvoice | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -686,13 +687,21 @@ export default function App() {
   };
 
   // 1. BILLING HANDLERS
-  const handlePrintBill = async (bill: BillInvoice, mode: 'save' | 'print' = 'print') => {
+  const handlePrintBill = async (
+    bill: BillInvoice,
+    mode: 'save' | 'print' = 'print',
+    isTotalOnlySlip?: boolean
+  ) => {
     // 1. Save bill in history & deduct/sync product stock
     storageService.saveBill(bill);
     storageService.deductStockForBill(bill.items);
     setBills(storageService.getBills());
     setProducts(storageService.getProducts());
     setSettings(storageService.getSettings());
+
+    const effectiveTotalOnly =
+      isTotalOnlySlip !== undefined ? isTotalOnlySlip : Boolean(settings.isTotalOnlySlip);
+    setReceiptInitialTotalOnly(effectiveTotalOnly);
 
     // Sync to Supabase cloud in background
     supabaseService.getActiveUserId().then((userId) => {
@@ -759,7 +768,10 @@ export default function App() {
 
     if (thermalPrinterService.getIsConnected()) {
       setIsPrintingBill(true);
-      const printResult = await thermalPrinterService.printViaBluetooth(bill, settings);
+      const printResult = await thermalPrinterService.printViaBluetooth(bill, {
+        ...settings,
+        isTotalOnlySlip: effectiveTotalOnly,
+      });
       setIsPrintingBill(false);
 
       if (printResult.success) {
@@ -1230,6 +1242,12 @@ export default function App() {
     setSettings(updated);
   };
 
+  const handleToggleTotalOnlySlip = (isTotalOnlySlip: boolean) => {
+    const updated = { ...settings, isTotalOnlySlip };
+    storageService.saveSettings(updated);
+    setSettings(updated);
+  };
+
   // Product Stock Handlers
   const handleSaveProductStock = (data: {
     id?: string;
@@ -1463,6 +1481,8 @@ export default function App() {
         onConnectBluetooth={handleConnectBluetooth}
         onUpdatePaperWidth={handleUpdatePaperWidth}
         onToggleLabelMode={handleToggleLabelMode}
+        onToggleTotalOnlySlip={handleToggleTotalOnlySlip}
+        initialTotalOnlySlip={receiptInitialTotalOnly}
         onEditBill={(bill) => {
           setAutoPrintReceipt(false);
           setReceiptBill(null);
