@@ -33,6 +33,8 @@ import {
   Play,
   Share2,
   Layers,
+  Radio,
+  ExternalLink,
 } from 'lucide-react';
 import { CustomerDue, Language, ThermalPrinterSettings } from '../types';
 import { useBackHandler } from '../utils/useBackHandler';
@@ -123,6 +125,7 @@ export const WhatsAppDueAssistantModal: React.FC<WhatsAppDueAssistantModalProps>
   const [isEditingBulkMessage, setIsEditingBulkMessage] = useState(false);
   const [isEditingMasterTemplate, setIsEditingMasterTemplate] = useState(false);
   const [bulkMasterTemplate, setBulkMasterTemplate] = useState<string>('');
+  const [showBroadcastInfo, setShowBroadcastInfo] = useState(false);
 
   // --- BULK REMINDER STATES ---
   const [bulkMinAmount, setBulkMinAmount] = useState<number>(0);
@@ -609,6 +612,55 @@ ${storeName}`;
     }
   };
 
+  // Broadcast common message to WhatsApp (Opens WhatsApp app with generic reminder text so user can pick their Broadcast List or contacts!)
+  const handleOpenWhatsAppBroadcast = () => {
+    const destName = getDestinationLabel(destination, messageLang);
+    let broadcastMsg = '';
+
+    if (scenario === 'purchase_trip') {
+      if (messageLang === 'bn') {
+        broadcastMsg = `আসসালামু আলাইকুম / নমস্কার,
+আশা করি ভালো আছেন।
+
+আমি আগামী দুই-একদিনের মধ্যে নতুন পোশাক ও মাল কিনতে ${destName}-এ যাচ্ছি। বাজারে রওনা হওয়ার আগে পাইকারি মহাজন ও কাপড় পার্টির নগদ পেমেন্ট ক্লিয়ার করতে হচ্ছে।
+
+"${storeName}"-এ আপনার যেসকল পূর্বের বকেয়া হিসাব রয়েছে, বিনীত অনুরোধ রইল—আমি মাল কিনতে যাওয়ার আগেই অনুগ্রহ করে আপনার সম্পূর্ণ বকেয়া টাকাটি ক্লিয়ার/পরিশোধ করে দেবেন। এতে আমার নতুন মাল তুলতে অনেক সুবিধা হবে।
+
+ধন্যবাদ ও শুভেচ্ছা সহ,
+${storeName}`;
+      } else if (messageLang === 'hi') {
+        broadcastMsg = `नमस्ते,
+आशा है आप सकुशल होंगे।
+
+मैं बहुत जल्द नए स्टॉक और माल की खरीदारी के लिए ${destName} जा रहा हूँ।
+
+"${storeName}" में आपका जो भी बकाया हिसाब है, आपसे विनम्र निवेदन है कि मेरे ${destName} रवाना होने से पहले कृपया अपना बकाया बिल क्लियर कर दें।
+
+सधन्यवाद,
+${storeName}`;
+      } else {
+        broadcastMsg = `Dear Customer,
+Hope you are well.
+
+I am shortly traveling to ${destName} for wholesale purchases. Kindly settle your pending balance with "${storeName}" before my departure.
+
+Thank you,
+${storeName}`;
+      }
+    } else {
+      broadcastMsg = `আসসালামু আলাইকুম / নমস্কার,
+আপনার সদয় অবগতির জন্য জানানো যাচ্ছে যে, "${storeName}"-এ আপনার পূর্বের বকেয়া হিসাব রয়েছে।
+সুবিধাজনক সময়ে বকেয়া অর্থটি পরিশোধ করে দেওয়ার বিনীত অনুরোধ রইল।
+
+ধন্যবাদ,
+${storeName}`;
+    }
+
+    navigator.clipboard.writeText(broadcastMsg);
+    // Open WhatsApp
+    window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(broadcastMsg)}`, '_blank');
+  };
+
   // Copy all selected bulk messages into clipboard for broadcast tools
   const handleCopyAllBulkBroadcast = () => {
     if (bulkQueue.length === 0) return;
@@ -663,21 +715,21 @@ ${storeName}`;
     <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto animate-in fade-in duration-150">
       <div className="bg-white rounded-3xl shadow-2xl border border-stone-200 w-full max-w-4xl overflow-hidden my-auto flex flex-col max-h-[96vh]">
         {/* Header */}
-        <div className="px-5 py-3.5 bg-emerald-900 text-white flex items-center justify-between shrink-0">
+        <div className="px-4 sm:px-5 py-3 bg-emerald-900 text-white flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center">
+            <div className="w-9 h-9 rounded-2xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center shrink-0">
               <MessageCircle className="w-5 h-5 text-emerald-400" />
             </div>
             <div>
-              <h3 className="text-base font-black tracking-tight flex items-center gap-2">
+              <h3 className="text-sm sm:text-base font-black tracking-tight flex items-center gap-2">
                 <span>{isBn ? '🤖 বকেয়া তাগাদা সহকারী' : 'WhatsApp Due Reminder Assistant'}</span>
                 <span className="text-[10px] bg-emerald-800/80 text-emerald-200 px-2 py-0.5 rounded-full border border-emerald-700/60 font-semibold font-mono">
                   {receivableDues.length} {isBn ? 'জন বাকি' : 'Dues'}
                 </span>
               </h3>
-              <p className="text-[11px] text-emerald-200/80">
+              <p className="text-[10px] sm:text-[11px] text-emerald-200/80">
                 {isBn
-                  ? 'দিল্লি/কলকাতায় মাল কেনার তাগাদা, অডিও ভয়েস ও এডিট সুবিধাসহ হোয়াটসঅ্যাপ রিমাইন্ডার'
+                  ? 'দিল্লি/কলকাতায় মাল কেনার তাগাদাসহ একক ও বাল্ক হোয়াটসঅ্যাপ মেসেজ'
                   : 'Multilingual single & bulk WhatsApp reminder queues with Audio Voice & Editing'}
               </p>
             </div>
@@ -685,39 +737,39 @@ ${storeName}`;
           <button
             type="button"
             onClick={onClose}
-            className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white cursor-pointer transition-colors"
+            className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white cursor-pointer transition-colors shrink-0"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Mode Switcher Banner: Single vs Bulk */}
-        <div className="px-4 sm:px-5 py-2.5 bg-emerald-950/90 border-b border-emerald-800 flex items-center justify-between gap-3 text-xs shrink-0">
-          <div className="flex items-center gap-2">
+        <div className="px-3 sm:px-5 py-2 bg-emerald-950/90 border-b border-emerald-800 flex items-center justify-between gap-2 text-xs shrink-0 flex-wrap">
+          <div className="flex items-center gap-1.5">
             <button
               type="button"
               onClick={() => setActiveMode('single')}
-              className={`px-3.5 py-1.5 rounded-xl font-black text-xs transition-all cursor-pointer flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-xl font-black text-xs transition-all cursor-pointer flex items-center gap-1.5 ${
                 activeMode === 'single'
                   ? 'bg-white text-emerald-950 shadow-sm'
                   : 'bg-emerald-900/60 hover:bg-emerald-800 text-emerald-200'
               }`}
             >
               <User className="w-3.5 h-3.5" />
-              <span>{isBn ? '👤 একক কাস্টমার তাগাদা' : 'Single Customer'}</span>
+              <span>{isBn ? '👤 একক কাস্টমার' : 'Single Customer'}</span>
             </button>
 
             <button
               type="button"
               onClick={() => setActiveMode('bulk')}
-              className={`px-3.5 py-1.5 rounded-xl font-black text-xs transition-all cursor-pointer flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-xl font-black text-xs transition-all cursor-pointer flex items-center gap-1.5 ${
                 activeMode === 'bulk'
                   ? 'bg-amber-400 text-stone-950 shadow-sm'
                   : 'bg-emerald-900/60 hover:bg-emerald-800 text-emerald-200'
               }`}
             >
               <FastForward className="w-3.5 h-3.5" />
-              <span>{isBn ? '🚀 বাল্ক তাগাদা কাতার (Bulk Reminder)' : 'Bulk Reminder Queue'}</span>
+              <span>{isBn ? '🚀 বাল্ক তাগাদা কাতার' : 'Bulk Reminder Queue'}</span>
               <span className="text-[10px] bg-black/20 px-1.5 py-0.2 rounded-full font-mono font-bold">
                 {bulkQueue.length}
               </span>
@@ -731,7 +783,7 @@ ${storeName}`;
         </div>
 
         {/* Global Controls: Language & Scenario Bar */}
-        <div className="px-4 sm:px-5 py-2.5 bg-stone-100/90 border-b border-stone-200/80 space-y-2 shrink-0">
+        <div className="px-3 sm:px-5 py-2 bg-stone-100/90 border-b border-stone-200/80 space-y-1.5 shrink-0 text-xs">
           <div className="flex flex-wrap items-center justify-between gap-2">
             {/* Language Selection */}
             <div className="flex items-center gap-1.5">
@@ -747,7 +799,7 @@ ${storeName}`;
                     setIsEditingMessage(false);
                     setIsEditingBulkMessage(false);
                   }}
-                  className={`px-2 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  className={`px-2 py-0.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                     messageLang === 'bn' ? 'bg-emerald-600 text-white shadow-2xs' : 'text-stone-700 hover:bg-stone-50'
                   }`}
                 >
@@ -760,7 +812,7 @@ ${storeName}`;
                     setIsEditingMessage(false);
                     setIsEditingBulkMessage(false);
                   }}
-                  className={`px-2 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  className={`px-2 py-0.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                     messageLang === 'hi' ? 'bg-emerald-600 text-white shadow-2xs' : 'text-stone-700 hover:bg-stone-50'
                   }`}
                 >
@@ -773,7 +825,7 @@ ${storeName}`;
                     setIsEditingMessage(false);
                     setIsEditingBulkMessage(false);
                   }}
-                  className={`px-2 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  className={`px-2 py-0.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                     messageLang === 'hinglish' ? 'bg-emerald-600 text-white shadow-2xs' : 'text-stone-700 hover:bg-stone-50'
                   }`}
                 >
@@ -786,7 +838,7 @@ ${storeName}`;
                     setIsEditingMessage(false);
                     setIsEditingBulkMessage(false);
                   }}
-                  className={`px-2 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  className={`px-2 py-0.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                     messageLang === 'en' ? 'bg-emerald-600 text-white shadow-2xs' : 'text-stone-700 hover:bg-stone-50'
                   }`}
                 >
@@ -809,7 +861,7 @@ ${storeName}`;
                     setIsEditingMessage(false);
                     setIsEditingBulkMessage(false);
                   }}
-                  className={`px-2 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                  className={`px-2 py-0.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
                     scenario === 'purchase_trip' ? 'bg-amber-500 text-white shadow-2xs' : 'text-stone-700 hover:bg-stone-50'
                   }`}
                   title={isBn ? 'দিল্লি/কলকাতায় মাল কেনার আগে তাগাদা' : 'Wholesale Purchase Trip Reminder'}
@@ -824,7 +876,7 @@ ${storeName}`;
                     setIsEditingMessage(false);
                     setIsEditingBulkMessage(false);
                   }}
-                  className={`px-2 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                  className={`px-2 py-0.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
                     scenario === 'general' ? 'bg-blue-600 text-white shadow-2xs' : 'text-stone-700 hover:bg-stone-50'
                   }`}
                 >
@@ -838,7 +890,7 @@ ${storeName}`;
                     setIsEditingMessage(false);
                     setIsEditingBulkMessage(false);
                   }}
-                  className={`px-2 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                  className={`px-2 py-0.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
                     scenario === 'urgent' ? 'bg-rose-600 text-white shadow-2xs' : 'text-stone-700 hover:bg-stone-50'
                   }`}
                 >
@@ -921,7 +973,7 @@ ${storeName}`;
         </div>
 
         {/* Content Body */}
-        <div className="p-3.5 sm:p-5 overflow-y-auto space-y-4 flex-1">
+        <div className="p-3 sm:p-4 overflow-y-auto space-y-3.5 flex-1">
           {receivableDues.length === 0 ? (
             <div className="py-12 text-center space-y-3">
               <Check className="w-12 h-12 text-emerald-500 mx-auto" />
@@ -1051,10 +1103,10 @@ ${storeName}`;
                           <button
                             type="button"
                             onClick={() => setIsEditingMessage((prev) => !prev)}
-                            className="text-[11px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer"
+                            className="text-[11px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer bg-blue-50 px-2.5 py-1 rounded-xl border border-blue-200"
                           >
-                            <Edit3 className="w-3 h-3" />
-                            <span>{isEditingMessage ? (isBn ? 'সম্পন্ন' : 'Done') : (isBn ? 'এডিট করুন' : 'Edit Text')}</span>
+                            <Edit3 className="w-3.5 h-3.5" />
+                            <span>{isEditingMessage ? (isBn ? '✓ সম্পন্ন' : 'Done') : (isBn ? '✏️ মেসেজ এডিট করুন' : 'Edit Text')}</span>
                           </button>
                         </div>
                       </div>
@@ -1070,128 +1122,16 @@ ${storeName}`;
                               [customKey]: e.target.value,
                             }));
                           }}
-                          className="w-full bg-stone-50 border border-emerald-300 rounded-2xl p-3 text-xs font-sans text-stone-900 focus:bg-white focus:outline-none focus:border-emerald-600 leading-relaxed font-medium"
+                          className="w-full bg-white border-2 border-blue-400 rounded-2xl p-3 text-xs font-sans text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 leading-relaxed font-medium"
                           placeholder={isBn ? 'মেসেজ এডিট করুন...' : 'Edit reminder message...'}
                         />
                       ) : (
-                        <div className="bg-emerald-50/70 border border-emerald-200/90 rounded-2xl p-3.5 text-xs text-stone-800 whitespace-pre-line leading-relaxed font-sans shadow-2xs">
+                        <div
+                          onClick={() => setIsEditingMessage(true)}
+                          className="bg-emerald-50/70 hover:bg-emerald-50 border border-emerald-200/90 rounded-2xl p-3.5 text-xs text-stone-800 whitespace-pre-line leading-relaxed font-sans shadow-2xs cursor-pointer"
+                          title={isBn ? 'ক্লিক করে এডিট করুন' : 'Click to edit'}
+                        >
                           {currentSingleMessage}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Audio & Voice Studio Section */}
-                    <div className="p-3 bg-gradient-to-r from-teal-50 to-emerald-50 rounded-2xl border border-teal-200/80 space-y-2.5">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5 text-xs font-black text-teal-950">
-                          <Mic className="w-4 h-4 text-teal-600" />
-                          <span>{isBn ? '🎙️ অডিও ভয়েস মেসেজ অপশন' : 'Audio Voice Option'}</span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setShowAudioStudio((prev) => !prev)}
-                          className="text-[11px] font-bold text-teal-700 hover:text-teal-900 underline cursor-pointer"
-                        >
-                          {showAudioStudio ? (isBn ? 'সংকুচিত করুন ▲' : 'Hide ▲') : (isBn ? 'ভয়েস টুলস খুলুন ▼' : 'Open Voice Tools ▼')}
-                        </button>
-                      </div>
-
-                      {/* Text-to-Speech Play & Voice Recording Controls */}
-                      <div className="flex flex-wrap items-center gap-2">
-                        {/* 1. Listen Written Text via TTS Voice */}
-                        <button
-                          type="button"
-                          onClick={() => handleTogglePlayTTS(currentSingleMessage, messageLang)}
-                          className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all ${
-                            isPlayingTTS
-                              ? 'bg-rose-600 text-white shadow-sm animate-pulse'
-                              : 'bg-white hover:bg-teal-100 text-teal-900 border border-teal-300'
-                          }`}
-                        >
-                          {isPlayingTTS ? (
-                            <>
-                              <VolumeX className="w-3.5 h-3.5" />
-                              <span>{isBn ? 'থামান ⏹' : 'Stop Audio'}</span>
-                            </>
-                          ) : (
-                            <>
-                              <Volume2 className="w-3.5 h-3.5 text-teal-600" />
-                              <span>{isBn ? '🔊 মেসেজটি মুখে শোনান' : 'Speak Text Out Loud'}</span>
-                            </>
-                          )}
-                        </button>
-
-                        {/* 2. Record Custom Voice Note */}
-                        {isRecording ? (
-                          <button
-                            type="button"
-                            onClick={handleStopRecording}
-                            className="px-3 py-1.5 rounded-xl text-xs font-black bg-rose-600 text-white flex items-center gap-1.5 cursor-pointer shadow-sm animate-pulse"
-                          >
-                            <MicOff className="w-3.5 h-3.5" />
-                            <span>{isBn ? `রেকর্ড থামান (${recordingSeconds}s) ⏹` : `Stop (${recordingSeconds}s)`}</span>
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={handleStartRecording}
-                            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-white hover:bg-rose-50 text-rose-700 border border-rose-300 flex items-center gap-1.5 cursor-pointer"
-                          >
-                            <Mic className="w-3.5 h-3.5 text-rose-600" />
-                            <span>{isBn ? '🎙️ নিজের কণ্ঠে ভয়েস রেকর্ড করুন' : 'Record Voice Note'}</span>
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Audio Studio Expanded Details */}
-                      {showAudioStudio && (
-                        <div className="pt-2 border-t border-teal-200/60 space-y-2 text-xs">
-                          {audioUrl ? (
-                            <div className="bg-white p-2.5 rounded-xl border border-teal-200 space-y-2">
-                              <div className="flex items-center justify-between">
-                                <span className="font-bold text-teal-900 text-[11px] flex items-center gap-1">
-                                  <Play className="w-3 h-3 text-emerald-600" />
-                                  <span>{isBn ? 'রেকর্ডকৃত ভয়েস প্রিভিউ:' : 'Recorded Voice Preview:'}</span>
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={handleResetAudio}
-                                  className="text-[10px] text-rose-600 hover:underline font-bold cursor-pointer"
-                                >
-                                  {isBn ? 'মুছে ফেলুন' : 'Delete'}
-                                </button>
-                              </div>
-
-                              <audio src={audioUrl} controls className="w-full h-8" />
-
-                              {/* Share Audio Directly */}
-                              <div className="flex items-center gap-2 pt-1">
-                                <button
-                                  type="button"
-                                  onClick={() => handleShareAudioAndText(activeCustomer, currentSingleMessage)}
-                                  className="flex-1 py-1.5 px-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-                                >
-                                  <Share2 className="w-3.5 h-3.5" />
-                                  <span>{isBn ? '📲 অডিও ও টেক্সট একসাথে হোয়াটসঅ্যাপে শেয়ার' : 'Share Audio + Text to WhatsApp'}</span>
-                                </button>
-
-                                <a
-                                  href={audioUrl}
-                                  download={`Voice_Reminder_${activeCustomer.name}.mp3`}
-                                  className="py-1.5 px-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl text-xs font-bold flex items-center gap-1 border border-stone-200"
-                                  title={isBn ? 'অডিও ডাউনলোড করুন' : 'Download Audio'}
-                                >
-                                  <Download className="w-3.5 h-3.5" />
-                                </a>
-                              </div>
-                            </div>
-                          ) : (
-                            <p className="text-[11px] text-teal-800/80 leading-relaxed font-medium">
-                              💡 {isBn
-                                ? 'উপরের বাটনে চাপ দিয়ে ১০-২০ সেকেন্ডে আপনার তাগাদা মুখের কথায় রেকর্ড করুন। তারপর এক ক্লিকে হোয়াটসঅ্যাপে টেক্সট ও অডিও ফাইল একসাথে শেয়ার করতে পারবেন।'
-                                : 'Record a 10-20 sec voice note to send along with your WhatsApp reminder message.'}
-                            </p>
-                          )}
                         </div>
                       )}
                     </div>
@@ -1201,7 +1141,7 @@ ${storeName}`;
                       <button
                         type="button"
                         onClick={() => handleSendWhatsApp(activeCustomer)}
-                        className="w-full py-2.5 px-3 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer shadow-md transition-all"
+                        className="w-full py-3 px-3 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer shadow-md transition-all"
                       >
                         <Send className="w-4 h-4 stroke-[2.5]" />
                         <span>{isBn ? '💬 হোয়াটসঅ্যাপে সরাসরি পাঠান' : 'Send WhatsApp Message'}</span>
@@ -1210,7 +1150,7 @@ ${storeName}`;
                       <button
                         type="button"
                         onClick={() => handleCopyMessage(activeCustomer)}
-                        className={`w-full py-2.5 px-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer transition-all border ${
+                        className={`w-full py-3 px-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer transition-all border ${
                           copiedId === activeCustomer.id
                             ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
                             : 'bg-stone-100 hover:bg-stone-200 text-stone-800 border-stone-300'
@@ -1239,10 +1179,73 @@ ${storeName}`;
             </div>
           ) : (
             /* ================= BULK REMINDER VIEW ================= */
-            <div className="space-y-4">
+            <div className="space-y-3">
+              {/* HOW TO SEND TO EVERYONE AT ONCE (ব্রডকাস্ট ব্যানার) */}
+              <div className="p-3 bg-gradient-to-r from-emerald-50 to-teal-50 border-2 border-emerald-300 rounded-2xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="w-7 h-7 rounded-xl bg-emerald-600 text-white flex items-center justify-center text-xs">
+                      📢
+                    </span>
+                    <div>
+                      <div className="font-black text-xs text-emerald-950 flex items-center gap-1.5">
+                        <span>{isBn ? 'একসাথে সবার কাছে মেসেজ পাঠাতে চান?' : 'Want to send to everyone at once?'}</span>
+                      </div>
+                      <div className="text-[10px] text-emerald-800 font-medium">
+                        {isBn
+                          ? 'হোয়াটসঅ্যাপ ব্রডকাস্ট দিয়ে ১-ক্লিকেই সকল কাস্টমারকে একসাথে মেসেজ পাঠানো যায়'
+                          : 'Use WhatsApp Broadcast to message all customers simultaneously'}
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowBroadcastInfo((p) => !p)}
+                    className="text-[11px] font-bold text-emerald-700 hover:text-emerald-900 underline cursor-pointer"
+                  >
+                    {showBroadcastInfo ? (isBn ? 'সংক্ষিপ্ত ▲' : 'Less ▲') : (isBn ? 'কীভাবে করবেন? ▼' : 'How it works? ▼')}
+                  </button>
+                </div>
+
+                {showBroadcastInfo && (
+                  <div className="p-2.5 bg-white rounded-xl border border-emerald-200 text-[11px] text-stone-700 space-y-1.5 leading-relaxed">
+                    <p className="font-bold text-emerald-900">
+                      💡 {isBn ? 'হোয়াটসঅ্যাপে একসাথে সবাইকে পাঠানোর নিয়ম:' : 'How to send together on WhatsApp:'}
+                    </p>
+                    <ol className="list-decimal pl-4 space-y-1 text-stone-600">
+                      <li>{isBn ? 'হোয়াটসঅ্যাপে গিয়ে থ্রি-ডট (⋮) মেন্যু থেকে "New Broadcast" (নতুন ব্রডকাস্ট) খুলুন।' : 'In WhatsApp, tap ⋮ Menu and select "New Broadcast".'}</li>
+                      <li>{isBn ? 'আপনার বকেয়া থাকা কাস্টমারদের ব্রডকাস্ট লিস্টে সিলেক্ট করুন।' : 'Select all your pending due customers.'}</li>
+                      <li>{isBn ? 'নিচের "📢 ব্রডকাস্ট মেসেজ কপি ও হোয়াটসঅ্যাপ খুলুন" বাটনে চাপ দিয়ে মেসেজটি ব্রডকাস্টে পেস্ট করে সেন্ড করুন। সবার কাছে এক মুহূর্তে পৌঁছে যাবে!' : 'Paste the copied broadcast text and send once to reach everyone!'}</li>
+                    </ol>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                  <button
+                    type="button"
+                    onClick={handleOpenWhatsAppBroadcast}
+                    className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black flex items-center justify-center gap-1.5 shadow-sm cursor-pointer transition-all active:scale-98"
+                  >
+                    <Radio className="w-3.5 h-3.5 text-white" />
+                    <span>{isBn ? '📢 ব্রডকাস্ট মেসেজ কপি ও হোয়াটসঅ্যাপ খুলুন' : 'Open WhatsApp Broadcast'}</span>
+                    <ExternalLink className="w-3 h-3 text-emerald-200" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleCopyAllBulkBroadcast}
+                    className="py-2 px-3 bg-white hover:bg-stone-50 text-stone-800 rounded-xl text-xs font-bold border border-stone-300 flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                  >
+                    <Copy className="w-3.5 h-3.5 text-stone-600" />
+                    <span>{bulkCopySuccess ? (isBn ? '✓ কপি হয়েছে!' : 'Copied!') : (isBn ? '📋 সবার আলাদা মেসেজ কপি' : 'Copy All')}</span>
+                  </button>
+                </div>
+              </div>
+
               {/* Bulk Filters & Selection Toolbar */}
-              <div className="p-3 bg-stone-50 rounded-2xl border border-stone-200 space-y-2.5">
-                <div className="flex flex-wrap items-center justify-between gap-2.5 text-xs">
+              <div className="p-3 bg-stone-50 rounded-2xl border border-stone-200 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                   {/* Left: Quick filters */}
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-bold text-stone-600 flex items-center gap-1">
@@ -1289,15 +1292,6 @@ ${storeName}`;
                       >
                         &gt; {sym}1000
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => setBulkMinAmount(3000)}
-                        className={`px-1.5 py-0.5 rounded-lg font-bold cursor-pointer ${
-                          bulkMinAmount === 3000 ? 'bg-emerald-600 text-white' : 'text-stone-600 hover:bg-stone-100'
-                        }`}
-                      >
-                        &gt; {sym}3000
-                      </button>
                     </div>
                   </div>
 
@@ -1321,7 +1315,7 @@ ${storeName}`;
                 </div>
 
                 {/* Queue Summary & Progress Bar */}
-                <div className="pt-1 border-t border-stone-200/80 space-y-1.5">
+                <div className="pt-1 border-t border-stone-200/80 space-y-1">
                   <div className="flex items-center justify-between text-xs">
                     <div className="flex items-center gap-2">
                       <span className="font-black text-stone-800">
@@ -1351,9 +1345,9 @@ ${storeName}`;
                 </div>
               </div>
 
-              {/* Guided One-by-One Queue Player (১-ক্লিক সিকোয়েন্স সেন্ডার ও টেক্সট এডিটর) */}
+              {/* Guided One-by-One Queue Player with Direct Edit & Direct Send */}
               {bulkQueue.length > 0 && currentBulkCustomer ? (
-                <div className="p-4 bg-gradient-to-br from-emerald-50 to-teal-50/50 rounded-3xl border-2 border-emerald-300 shadow-sm space-y-3">
+                <div className="p-3.5 bg-gradient-to-br from-emerald-50 to-teal-50/50 rounded-3xl border-2 border-emerald-300 shadow-sm space-y-2.5">
                   {/* Stepper Header */}
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -1403,9 +1397,9 @@ ${storeName}`;
                   </div>
 
                   {/* Customer Card */}
-                  <div className="bg-white p-3.5 rounded-2xl border border-stone-200 flex items-center justify-between gap-3 shadow-2xs">
+                  <div className="bg-white p-3 rounded-2xl border border-stone-200 flex items-center justify-between gap-3 shadow-2xs">
                     <div className="min-w-0">
-                      <div className="text-sm font-black text-stone-900 truncate flex items-center gap-2">
+                      <div className="text-sm font-black text-stone-900 truncate flex items-center gap-1.5">
                         <User className="w-4 h-4 text-emerald-600" />
                         <span>{currentBulkCustomer.name}</span>
                       </div>
@@ -1422,13 +1416,13 @@ ${storeName}`;
 
                     <div className="text-right shrink-0">
                       <span className="text-[10px] text-stone-400 font-bold block uppercase">{isBn ? 'বকেয়া' : 'Due'}</span>
-                      <span className="text-lg font-black font-mono text-rose-600">
+                      <span className="text-base sm:text-lg font-black font-mono text-rose-600">
                         {sym}{currentBulkCustomer.dueAmount.toFixed(2)}
                       </span>
                     </div>
                   </div>
 
-                  {/* Bulk Message Box WITH EDITING CONTROLS! */}
+                  {/* Bulk Message Box WITH VERY CLEAR INLINE EDIT BUTTON */}
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-extrabold text-stone-700 flex items-center gap-1.5">
@@ -1436,7 +1430,7 @@ ${storeName}`;
                         <span>{isBn ? 'হোয়াটসঅ্যাপ মেসেজ:' : 'WhatsApp Message:'}</span>
                       </span>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
                         {/* Master Template Customizer Toggle */}
                         <button
                           type="button"
@@ -1453,9 +1447,9 @@ ${storeName}`;
                             }
                             setIsEditingMasterTemplate((prev) => !prev);
                           }}
-                          className="text-[11px] font-bold text-teal-700 hover:text-teal-900 flex items-center gap-1 cursor-pointer bg-teal-50 px-2 py-0.5 rounded-lg border border-teal-200"
+                          className="text-[11px] font-bold text-teal-800 hover:text-teal-950 flex items-center gap-1 cursor-pointer bg-teal-100 hover:bg-teal-200 px-2 py-1 rounded-xl border border-teal-300 transition-all shadow-2xs"
                         >
-                          <Layers className="w-3 h-3 text-teal-600" />
+                          <Layers className="w-3.5 h-3.5 text-teal-700" />
                           <span>{isBn ? 'সবার টেমপ্লেট এডিট' : 'Master Template'}</span>
                         </button>
 
@@ -1463,28 +1457,32 @@ ${storeName}`;
                         <button
                           type="button"
                           onClick={() => handleResetToTemplate(currentBulkCustomer)}
-                          className="text-[11px] font-semibold text-stone-500 hover:text-stone-800 flex items-center gap-1 cursor-pointer"
+                          className="text-[11px] font-semibold text-stone-600 hover:text-stone-900 flex items-center gap-1 cursor-pointer bg-stone-100 hover:bg-stone-200 px-2 py-1 rounded-xl border border-stone-200"
                           title={isBn ? 'স্বয়ংক্রিয় মূল ফরম্যাটে ফেরত যান' : 'Reset to template'}
                         >
                           <RotateCcw className="w-3 h-3" />
                           <span>{isBn ? 'রিসেট' : 'Reset'}</span>
                         </button>
 
-                        {/* Individual Edit Toggle Button */}
+                        {/* Individual Edit Toggle Button - PROMINENT BLUE */}
                         <button
                           type="button"
                           onClick={() => setIsEditingBulkMessage((prev) => !prev)}
-                          className="text-[11px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-200"
+                          className={`text-[11px] font-black flex items-center gap-1 cursor-pointer px-2.5 py-1 rounded-xl transition-all shadow-2xs ${
+                            isEditingBulkMessage
+                              ? 'bg-blue-600 text-white ring-2 ring-blue-400'
+                              : 'bg-blue-100 hover:bg-blue-200 text-blue-800 border border-blue-300'
+                          }`}
                         >
-                          <Edit3 className="w-3 h-3" />
-                          <span>{isEditingBulkMessage ? (isBn ? 'সম্পন্ন' : 'Done') : (isBn ? '✏️ লেখা এডিট করুন' : '✏️ Edit Text')}</span>
+                          <Edit3 className="w-3.5 h-3.5" />
+                          <span>{isEditingBulkMessage ? (isBn ? '✓ এডিট সম্পন্ন' : 'Done') : (isBn ? '✏️ মেসেজ এডিট করুন' : 'Edit Text')}</span>
                         </button>
                       </div>
                     </div>
 
                     {/* Master Template Editor Panel */}
                     {isEditingMasterTemplate && (
-                      <div className="p-3 bg-amber-50/90 border border-amber-300 rounded-2xl space-y-2 text-xs">
+                      <div className="p-3 bg-amber-50/95 border-2 border-amber-300 rounded-2xl space-y-2 text-xs animate-in fade-in duration-100">
                         <div className="flex items-center justify-between font-bold text-amber-900">
                           <span>{isBn ? '📝 সবার জন্য কাস্টম টেমপ্লেট (Master Template):' : 'Custom Master Template for All:'}</span>
                           <span className="text-[10px] text-amber-700 font-normal">
@@ -1496,7 +1494,7 @@ ${storeName}`;
                           value={bulkMasterTemplate}
                           onChange={(e) => setBulkMasterTemplate(e.target.value)}
                           placeholder="আপনার পছন্দমতো পুরো মেসেজটি এখানে লিখুন..."
-                          className="w-full bg-white border border-amber-300 rounded-xl p-2.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-amber-500 font-sans"
+                          className="w-full bg-white border border-amber-300 rounded-xl p-2.5 text-xs text-stone-900 focus:outline-none focus:ring-2 focus:ring-amber-500 font-sans"
                         />
                         <div className="flex items-center justify-between">
                           <button
@@ -1509,40 +1507,58 @@ ${storeName}`;
                           <button
                             type="button"
                             onClick={() => setIsEditingMasterTemplate(false)}
-                            className="px-3 py-1 bg-amber-600 text-white rounded-lg font-bold text-xs cursor-pointer"
+                            className="px-3.5 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-xl font-bold text-xs cursor-pointer shadow-xs"
                           >
-                            {isBn ? '✓ প্রযোজ্য করুন' : 'Apply'}
+                            {isBn ? '✓ প্রযোজ্য করুন' : 'Apply to All'}
                           </button>
                         </div>
                       </div>
                     )}
 
-                    {/* Active Customer Message: Textarea when editing, Div when previewing */}
+                    {/* Active Customer Message: Directly Editable Textarea or Click-to-Edit Div */}
                     {isEditingBulkMessage ? (
-                      <textarea
-                        rows={7}
-                        value={currentBulkMessage}
-                        onChange={(e) => {
-                          const customKey = `${currentBulkCustomer.id}-${messageLang}-${scenario}-${destination}`;
-                          setCustomizedMessages((prev) => ({
-                            ...prev,
-                            [customKey]: e.target.value,
-                          }));
-                        }}
-                        className="w-full bg-white border-2 border-emerald-400 rounded-2xl p-3 text-xs font-sans text-stone-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 leading-relaxed font-medium shadow-inner"
-                        placeholder={isBn ? 'মেসেজ পরিবর্তন বা এডিট করুন...' : 'Edit reminder message for this customer...'}
-                      />
+                      <div className="space-y-1">
+                        <textarea
+                          rows={6}
+                          value={currentBulkMessage}
+                          onChange={(e) => {
+                            const customKey = `${currentBulkCustomer.id}-${messageLang}-${scenario}-${destination}`;
+                            setCustomizedMessages((prev) => ({
+                              ...prev,
+                              [customKey]: e.target.value,
+                            }));
+                          }}
+                          className="w-full bg-white border-2 border-blue-500 rounded-2xl p-3 text-xs font-sans text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 leading-relaxed font-medium shadow-inner"
+                          placeholder={isBn ? 'মেসেজ পরিবর্তন বা এডিট করুন...' : 'Edit reminder message for this customer...'}
+                          autoFocus
+                        />
+                        <div className="text-right">
+                          <button
+                            type="button"
+                            onClick={() => setIsEditingBulkMessage(false)}
+                            className="px-3 py-1 bg-blue-600 text-white rounded-lg text-xs font-bold cursor-pointer"
+                          >
+                            {isBn ? '✓ এডিট সেভ করুন' : 'Save Edit'}
+                          </button>
+                        </div>
+                      </div>
                     ) : (
-                      <div className="bg-white/95 p-3 rounded-2xl border border-stone-200 text-xs text-stone-800 whitespace-pre-line leading-relaxed font-sans max-h-44 overflow-y-auto shadow-2xs">
+                      <div
+                        onClick={() => setIsEditingBulkMessage(true)}
+                        className="bg-white/95 hover:bg-white border border-stone-200 hover:border-blue-300 rounded-2xl p-3 text-xs text-stone-800 whitespace-pre-line leading-relaxed font-sans max-h-36 overflow-y-auto shadow-2xs cursor-pointer relative group"
+                        title={isBn ? 'ক্লিক করে এডিট করুন' : 'Click to edit message'}
+                      >
+                        <div className="absolute top-2 right-2 opacity-60 group-hover:opacity-100 bg-blue-50 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded-md border border-blue-200">
+                          ✏️ {isBn ? 'ক্লিক করে এডিট করুন' : 'Click to edit'}
+                        </div>
                         {currentBulkMessage}
                       </div>
                     )}
                   </div>
 
                   {/* Audio & Voice Quick Bar for Bulk */}
-                  <div className="p-2.5 bg-white/80 rounded-2xl border border-stone-200 flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      {/* TTS Speak */}
+                  <div className="p-2 bg-white/80 rounded-2xl border border-stone-200 flex flex-wrap items-center justify-between gap-1.5 text-xs">
+                    <div className="flex items-center gap-1.5">
                       <button
                         type="button"
                         onClick={() => handleTogglePlayTTS(currentBulkMessage, messageLang)}
@@ -1556,7 +1572,6 @@ ${storeName}`;
                         <span>{isPlayingTTS ? (isBn ? 'থামান ⏹' : 'Stop') : (isBn ? '🔊 ভয়েস শুনুন' : 'Listen')}</span>
                       </button>
 
-                      {/* Microphone Recording */}
                       {isRecording ? (
                         <button
                           type="button"
@@ -1582,7 +1597,7 @@ ${storeName}`;
                       <button
                         type="button"
                         onClick={() => handleShareAudioAndText(currentBulkCustomer, currentBulkMessage)}
-                        className="px-3 py-1 bg-teal-600 hover:bg-teal-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                        className="px-2.5 py-1 bg-teal-600 hover:bg-teal-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer shadow-xs"
                       >
                         <Share2 className="w-3 h-3" />
                         <span>{isBn ? 'অডিও + টেক্সট শেয়ার' : 'Share Audio + Text'}</span>
@@ -1636,56 +1651,8 @@ ${storeName}`;
                 </div>
               )}
 
-              {/* Complete Bulk Broadcast Tools Bar */}
-              <div className="p-3 bg-stone-100/90 rounded-2xl border border-stone-200 flex flex-wrap items-center justify-between gap-3 text-xs">
-                <div>
-                  <div className="font-black text-stone-800 flex items-center gap-1.5">
-                    <Users className="w-4 h-4 text-blue-600" />
-                    <span>{isBn ? 'বাল্ক ব্রডকাস্ট ও এক্সপোর্ট টুলস' : 'Bulk Broadcast & Export Tools'}</span>
-                  </div>
-                  <div className="text-[11px] text-stone-500">
-                    {isBn
-                      ? 'সব কাস্টমারের নম্বর ও মেসেজ এক ক্লিকে কপি করুন অথবা CSV ফাইল ডাউনলোড করুন'
-                      : 'Copy all queued numbers and messages or download ready-to-use CSV'}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleCopyAllBulkBroadcast}
-                    className={`px-3 py-2 rounded-xl font-bold flex items-center gap-1.5 cursor-pointer transition-all border ${
-                      bulkCopySuccess
-                        ? 'bg-emerald-600 text-white border-emerald-600'
-                        : 'bg-white hover:bg-stone-50 text-stone-800 border-stone-300'
-                    }`}
-                  >
-                    {bulkCopySuccess ? (
-                      <>
-                        <Check className="w-4 h-4 stroke-[3]" />
-                        <span>{isBn ? '✓ সব কপি সম্পন্ন!' : '✓ All Copied!'}</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3.5 h-3.5 text-stone-600" />
-                        <span>{isBn ? '📋 সব মেসেজ কপি করুন' : 'Copy All Messages'}</span>
-                      </>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleDownloadBulkCSV}
-                    className="px-3 py-2 rounded-xl bg-white hover:bg-stone-50 text-stone-800 font-bold border border-stone-300 flex items-center gap-1.5 cursor-pointer transition-all"
-                  >
-                    <Download className="w-3.5 h-3.5 text-stone-600" />
-                    <span>{isBn ? '📥 CSV ডাউনলোড' : 'Download CSV'}</span>
-                  </button>
-                </div>
-              </div>
-
               {/* Interactive Queue Grid / Checklist */}
-              <div className="space-y-2">
+              <div className="space-y-1.5 pt-1">
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-black text-stone-700 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
                     <ListOrdered className="w-3.5 h-3.5 text-stone-400" />
@@ -1696,7 +1663,7 @@ ${storeName}`;
                   </span>
                 </div>
 
-                <div className="max-h-56 overflow-y-auto divide-y divide-stone-100 bg-white rounded-2xl border border-stone-200">
+                <div className="max-h-44 overflow-y-auto divide-y divide-stone-100 bg-white rounded-2xl border border-stone-200">
                   {bulkEligibleList.map((c, idx) => {
                     const isSelected = bulkSelectedIds.has(c.id);
                     const isCurrent = currentBulkCustomer?.id === c.id;
@@ -1705,13 +1672,13 @@ ${storeName}`;
                     return (
                       <div
                         key={`${c.id || 'cust'}-${idx}`}
-                        className={`p-2.5 flex items-center justify-between gap-2.5 transition-colors ${
+                        className={`p-2 flex items-center justify-between gap-2 transition-colors ${
                           isCurrent
                             ? 'bg-emerald-50/80 border-l-4 border-l-emerald-600'
                             : 'hover:bg-stone-50'
                         }`}
                       >
-                        <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="flex items-center gap-2 min-w-0">
                           <button
                             type="button"
                             onClick={() => handleBulkToggleSelect(c.id)}
@@ -1748,7 +1715,7 @@ ${storeName}`;
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-3 shrink-0">
+                        <div className="flex items-center gap-2.5 shrink-0">
                           <span className="font-mono font-black text-xs text-rose-600">
                             {sym}{c.dueAmount.toFixed(0)}
                           </span>
@@ -1775,7 +1742,7 @@ ${storeName}`;
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3 bg-stone-50 border-t border-stone-200 flex items-center justify-between text-xs text-stone-500 shrink-0">
+        <div className="px-4 py-2.5 bg-stone-50 border-t border-stone-200 flex items-center justify-between text-xs text-stone-500 shrink-0">
           <span>
             {isBn ? 'মোট বকেয়া কাস্টমার:' : 'Pending Customers:'}{' '}
             <strong className="text-stone-900 font-mono font-bold">{receivableDues.length}</strong>
