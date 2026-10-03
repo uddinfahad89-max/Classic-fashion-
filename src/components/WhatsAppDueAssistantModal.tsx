@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   MessageCircle,
   Copy,
@@ -26,6 +26,13 @@ import {
   CheckCircle2,
   ListOrdered,
   Filter,
+  Mic,
+  MicOff,
+  Volume2,
+  VolumeX,
+  Play,
+  Share2,
+  Layers,
 } from 'lucide-react';
 import { CustomerDue, Language, ThermalPrinterSettings } from '../types';
 import { useBackHandler } from '../utils/useBackHandler';
@@ -112,6 +119,11 @@ export const WhatsAppDueAssistantModal: React.FC<WhatsAppDueAssistantModalProps>
   const [customizedMessages, setCustomizedMessages] = useState<Record<string, string>>({});
   const [isEditingMessage, setIsEditingMessage] = useState(false);
 
+  // Bulk specific editing states
+  const [isEditingBulkMessage, setIsEditingBulkMessage] = useState(false);
+  const [isEditingMasterTemplate, setIsEditingMasterTemplate] = useState(false);
+  const [bulkMasterTemplate, setBulkMasterTemplate] = useState<string>('');
+
   // --- BULK REMINDER STATES ---
   const [bulkMinAmount, setBulkMinAmount] = useState<number>(0);
   const [bulkOnlyWithPhone, setBulkOnlyWithPhone] = useState<boolean>(true);
@@ -119,6 +131,17 @@ export const WhatsAppDueAssistantModal: React.FC<WhatsAppDueAssistantModalProps>
   const [bulkSentIds, setBulkSentIds] = useState<Set<string>>(new Set());
   const [bulkQueueIndex, setBulkQueueIndex] = useState<number>(0);
   const [bulkCopySuccess, setBulkCopySuccess] = useState<boolean>(false);
+
+  // --- AUDIO VOICE STUDIO STATES ---
+  const [showAudioStudio, setShowAudioStudio] = useState<boolean>(false);
+  const [isPlayingTTS, setIsPlayingTTS] = useState<boolean>(false);
+  const [isRecording, setIsRecording] = useState<boolean>(false);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [recordingSeconds, setRecordingSeconds] = useState<number>(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const timerRef = useRef<number | null>(null);
 
   useBackHandler('whatsAppDueAssistantModal', isOpen, () => {
     onClose();
@@ -201,6 +224,7 @@ export const WhatsAppDueAssistantModal: React.FC<WhatsAppDueAssistantModalProps>
   };
 
   // Generate dynamic message template based on scenario, language, and destination
+  // Note: "দাদা/ভাই" has been completely removed as requested!
   const getTemplateMessage = (customer: CustomerDue, lang: MessageLanguage, scn: ReminderScenario, dest: PurchaseDestination): string => {
     const cleanAmount = `${sym}${customer.dueAmount.toFixed(2)}`;
     const destName = getDestinationLabel(dest, lang);
@@ -208,7 +232,7 @@ export const WhatsAppDueAssistantModal: React.FC<WhatsAppDueAssistantModalProps>
     // 1. PURCHASE TRIP SCENARIO (দিল্লি ও কলকাতায় মাল কিনতে যাওয়ার কারণে তাগাদা)
     if (scn === 'purchase_trip') {
       if (lang === 'bn') {
-        return `আসসালামু আলাইকুম / নমস্কার ${customer.name} দাদা/ভাই,
+        return `আসসালামু আলাইকুম / নমস্কার ${customer.name},
 আশা করি ভালো আছেন।
 
 আমি আগামী দুই-একদিনের মধ্যে দোকানের নতুন পোশাক ও মাল কিনতে ${destName}-এ যাচ্ছি। বাজারে রওনা হওয়ার আগে পাইকারি মহাজন ও কাপড় পার্টির বড় অঙ্কের নগদ পেমেন্ট ক্লিয়ার করতে হচ্ছে।
@@ -270,7 +294,7 @@ ${storeName}`;
     // 2. GENERAL POLITE REMINDER
     if (scn === 'general') {
       if (lang === 'bn') {
-        return `আসসালামু আলাইকুম / নমস্কার ${customer.name} দাদা/ভাই,
+        return `আসসালামু আলাইকুম / নমস্কার ${customer.name},
 আশা করি ভালো আছেন।
 
 আপনার সদয় অবগতির জন্য জানানো যাচ্ছে যে, "${storeName}"-এ আপনার পূর্বের বকেয়া হিসাব অনুযায়ী মোট পাওনা ${cleanAmount}/- টাকা।
@@ -319,7 +343,7 @@ ${storeName}`;
     // 3. URGENT REMINDER
     if (lang === 'bn') {
       return `জরুরি বকেয়া তাগাদা:
-আসসালামু আলাইকুম / নমস্কার ${customer.name} দাদা/ভাই,
+আসসালামু আলাইকুম / নমস্কার ${customer.name},
 
 "${storeName}"-এ আপনার বকেয়া থাকা পাওনা টাকার পরিমাণ ${cleanAmount}/-।
 জরুরি প্রয়োজনে আমাদের অবিলম্বে এই টাকাটি সমন্বয় করতে হচ্ছে।
@@ -372,10 +396,19 @@ ${storeName}`;
     if (customizedMessages[customKey]) {
       return customizedMessages[customKey];
     }
+    // If a bulk master template has been edited and active
+    if (bulkMasterTemplate.trim()) {
+      return bulkMasterTemplate
+        .replace(/{name}/g, customer.name)
+        .replace(/{amount}/g, `${sym}${customer.dueAmount.toFixed(2)}`)
+        .replace(/{destination}/g, getDestinationLabel(destination, messageLang))
+        .replace(/{storeName}/g, storeName);
+    }
     return getTemplateMessage(customer, messageLang, scenario, destination);
   };
 
-  const currentMessage = activeCustomer ? generatePoliteMessage(activeCustomer) : '';
+  const currentSingleMessage = activeCustomer ? generatePoliteMessage(activeCustomer) : '';
+  const currentBulkMessage = currentBulkCustomer ? generatePoliteMessage(currentBulkCustomer) : '';
 
   // Handle direct WhatsApp launch
   const handleSendWhatsApp = (customer: CustomerDue) => {
@@ -406,6 +439,141 @@ ${storeName}`;
       return copy;
     });
     setIsEditingMessage(false);
+    setIsEditingBulkMessage(false);
+  };
+
+  // --- AUDIO VOICE STUDIO LOGIC ---
+  const handleTogglePlayTTS = (text: string, lang: MessageLanguage) => {
+    if (!('speechSynthesis' in window)) {
+      alert(isBn ? 'আপনার ব্রাউজারে টেক্সট-টু-স্পিচ ভয়েস সমর্থিত নয়।' : 'Speech synthesis not supported in this browser.');
+      return;
+    }
+
+    if (isPlayingTTS) {
+      window.speechSynthesis.cancel();
+      setIsPlayingTTS(false);
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    if (lang === 'bn') {
+      utterance.lang = 'bn-IN';
+    } else if (lang === 'hi' || lang === 'hinglish') {
+      utterance.lang = 'hi-IN';
+    } else {
+      utterance.lang = 'en-US';
+    }
+    utterance.rate = 0.95;
+
+    utterance.onend = () => setIsPlayingTTS(false);
+    utterance.onerror = () => setIsPlayingTTS(false);
+
+    setIsPlayingTTS(true);
+    window.speechSynthesis.speak(utterance);
+  };
+
+  // Start voice microphone recording
+  const handleStartRecording = async () => {
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        alert(isBn ? 'আপনার ব্রাউজারে মাইক্রোফোন রেকর্ডিং সাপোর্ট নেই।' : 'Microphone recording not supported.');
+        return;
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        const mimeType = mediaRecorder.mimeType || 'audio/mp3';
+        const blob = new Blob(audioChunksRef.current, { type: mimeType });
+        setAudioBlob(blob);
+        const url = URL.createObjectURL(blob);
+        setAudioUrl(url);
+        stream.getTracks().forEach((track) => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordingSeconds(0);
+
+      timerRef.current = window.setInterval(() => {
+        setRecordingSeconds((prev) => prev + 1);
+      }, 1000);
+    } catch {
+      alert(
+        isBn
+          ? 'মাইক্রোফোন চালু করা যায়নি। অনুগ্রহ করে ব্রাউজার সেটিংসে মাইক্রোফোন পারমিশন এলাউ (Allow) করুন।'
+          : 'Could not access microphone. Please grant permission.'
+      );
+    }
+  };
+
+  // Stop voice recording
+  const handleStopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    }
+  };
+
+  // Share Audio + Text via Web Share API
+  const handleShareAudioAndText = async (customer: CustomerDue, message: string) => {
+    if (!audioBlob) return;
+    const cleanPhone = formatIndianWhatsAppPhone(customer.phone || '');
+    const fileName = `Voice_Reminder_${customer.name.replace(/[^a-zA-Z0-9]/g, '_')}.mp3`;
+    const file = new File([audioBlob], fileName, { type: audioBlob.type || 'audio/mp3' });
+
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({
+          files: [file],
+          text: message,
+          title: `${storeName} বকেয়া তাগাদা`,
+        });
+        return;
+      } catch {
+        // Fallback below if cancelled
+      }
+    }
+
+    // Direct download & open WhatsApp fallback
+    if (audioUrl) {
+      const a = document.createElement('a');
+      a.href = audioUrl;
+      a.download = fileName;
+      a.click();
+    }
+
+    const url = cleanPhone
+      ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`
+      : `https://wa.me/?text=${encodeURIComponent(message)}`;
+    window.open(url, '_blank');
+  };
+
+  // Reset audio recording
+  const handleResetAudio = () => {
+    if (audioUrl) {
+      URL.revokeObjectURL(audioUrl);
+    }
+    setAudioBlob(null);
+    setAudioUrl(null);
+    setRecordingSeconds(0);
+    if (isPlayingTTS) {
+      window.speechSynthesis.cancel();
+      setIsPlayingTTS(false);
+    }
   };
 
   // --- BULK ACTION HANDLERS ---
@@ -437,6 +605,7 @@ ${storeName}`;
     // Auto advance to next customer
     if (bulkQueueIndex < bulkQueue.length - 1) {
       setBulkQueueIndex((prev) => prev + 1);
+      setIsEditingBulkMessage(false);
     }
   };
 
@@ -492,7 +661,7 @@ ${storeName}`;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto animate-in fade-in duration-150">
-      <div className="bg-white rounded-3xl shadow-2xl border border-stone-200 w-full max-w-4xl overflow-hidden my-auto flex flex-col max-h-[95vh]">
+      <div className="bg-white rounded-3xl shadow-2xl border border-stone-200 w-full max-w-4xl overflow-hidden my-auto flex flex-col max-h-[96vh]">
         {/* Header */}
         <div className="px-5 py-3.5 bg-emerald-900 text-white flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
@@ -508,8 +677,8 @@ ${storeName}`;
               </h3>
               <p className="text-[11px] text-emerald-200/80">
                 {isBn
-                  ? 'দিল্লি/কলকাতায় মাল কেনার তাগাদাসহ বহুভাষিক একক ও বাল্ক হোয়াটসঅ্যাপ মেসেজ'
-                  : 'Multilingual single & bulk WhatsApp reminder queues (Delhi/Kolkata trip & regular)'}
+                  ? 'দিল্লি/কলকাতায় মাল কেনার তাগাদা, অডিও ভয়েস ও এডিট সুবিধাসহ হোয়াটসঅ্যাপ রিমাইন্ডার'
+                  : 'Multilingual single & bulk WhatsApp reminder queues with Audio Voice & Editing'}
               </p>
             </div>
           </div>
@@ -573,7 +742,11 @@ ${storeName}`;
               <div className="flex items-center gap-1 bg-white p-0.5 rounded-xl border border-stone-200">
                 <button
                   type="button"
-                  onClick={() => setMessageLang('bn')}
+                  onClick={() => {
+                    setMessageLang('bn');
+                    setIsEditingMessage(false);
+                    setIsEditingBulkMessage(false);
+                  }}
                   className={`px-2 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                     messageLang === 'bn' ? 'bg-emerald-600 text-white shadow-2xs' : 'text-stone-700 hover:bg-stone-50'
                   }`}
@@ -582,7 +755,11 @@ ${storeName}`;
                 </button>
                 <button
                   type="button"
-                  onClick={() => setMessageLang('hi')}
+                  onClick={() => {
+                    setMessageLang('hi');
+                    setIsEditingMessage(false);
+                    setIsEditingBulkMessage(false);
+                  }}
                   className={`px-2 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                     messageLang === 'hi' ? 'bg-emerald-600 text-white shadow-2xs' : 'text-stone-700 hover:bg-stone-50'
                   }`}
@@ -591,7 +768,11 @@ ${storeName}`;
                 </button>
                 <button
                   type="button"
-                  onClick={() => setMessageLang('hinglish')}
+                  onClick={() => {
+                    setMessageLang('hinglish');
+                    setIsEditingMessage(false);
+                    setIsEditingBulkMessage(false);
+                  }}
                   className={`px-2 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                     messageLang === 'hinglish' ? 'bg-emerald-600 text-white shadow-2xs' : 'text-stone-700 hover:bg-stone-50'
                   }`}
@@ -600,7 +781,11 @@ ${storeName}`;
                 </button>
                 <button
                   type="button"
-                  onClick={() => setMessageLang('en')}
+                  onClick={() => {
+                    setMessageLang('en');
+                    setIsEditingMessage(false);
+                    setIsEditingBulkMessage(false);
+                  }}
                   className={`px-2 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                     messageLang === 'en' ? 'bg-emerald-600 text-white shadow-2xs' : 'text-stone-700 hover:bg-stone-50'
                   }`}
@@ -619,7 +804,11 @@ ${storeName}`;
               <div className="flex items-center gap-1 bg-white p-0.5 rounded-xl border border-stone-200">
                 <button
                   type="button"
-                  onClick={() => setScenario('purchase_trip')}
+                  onClick={() => {
+                    setScenario('purchase_trip');
+                    setIsEditingMessage(false);
+                    setIsEditingBulkMessage(false);
+                  }}
                   className={`px-2 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
                     scenario === 'purchase_trip' ? 'bg-amber-500 text-white shadow-2xs' : 'text-stone-700 hover:bg-stone-50'
                   }`}
@@ -630,7 +819,11 @@ ${storeName}`;
                 </button>
                 <button
                   type="button"
-                  onClick={() => setScenario('general')}
+                  onClick={() => {
+                    setScenario('general');
+                    setIsEditingMessage(false);
+                    setIsEditingBulkMessage(false);
+                  }}
                   className={`px-2 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
                     scenario === 'general' ? 'bg-blue-600 text-white shadow-2xs' : 'text-stone-700 hover:bg-stone-50'
                   }`}
@@ -640,7 +833,11 @@ ${storeName}`;
                 </button>
                 <button
                   type="button"
-                  onClick={() => setScenario('urgent')}
+                  onClick={() => {
+                    setScenario('urgent');
+                    setIsEditingMessage(false);
+                    setIsEditingBulkMessage(false);
+                  }}
                   className={`px-2 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
                     scenario === 'urgent' ? 'bg-rose-600 text-white shadow-2xs' : 'text-stone-700 hover:bg-stone-50'
                   }`}
@@ -661,7 +858,11 @@ ${storeName}`;
               </span>
               <button
                 type="button"
-                onClick={() => setDestination('delhi_kolkata')}
+                onClick={() => {
+                  setDestination('delhi_kolkata');
+                  setIsEditingMessage(false);
+                  setIsEditingBulkMessage(false);
+                }}
                 className={`px-2.5 py-0.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer shrink-0 ${
                   destination === 'delhi_kolkata'
                     ? 'bg-amber-600 text-white font-black shadow-2xs'
@@ -672,7 +873,11 @@ ${storeName}`;
               </button>
               <button
                 type="button"
-                onClick={() => setDestination('delhi')}
+                onClick={() => {
+                  setDestination('delhi');
+                  setIsEditingMessage(false);
+                  setIsEditingBulkMessage(false);
+                }}
                 className={`px-2.5 py-0.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer shrink-0 ${
                   destination === 'delhi'
                     ? 'bg-amber-600 text-white font-black shadow-2xs'
@@ -683,7 +888,11 @@ ${storeName}`;
               </button>
               <button
                 type="button"
-                onClick={() => setDestination('kolkata')}
+                onClick={() => {
+                  setDestination('kolkata');
+                  setIsEditingMessage(false);
+                  setIsEditingBulkMessage(false);
+                }}
                 className={`px-2.5 py-0.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer shrink-0 ${
                   destination === 'kolkata'
                     ? 'bg-amber-600 text-white font-black shadow-2xs'
@@ -694,7 +903,11 @@ ${storeName}`;
               </button>
               <button
                 type="button"
-                onClick={() => setDestination('surat_mumbai')}
+                onClick={() => {
+                  setDestination('surat_mumbai');
+                  setIsEditingMessage(false);
+                  setIsEditingBulkMessage(false);
+                }}
                 className={`px-2.5 py-0.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer shrink-0 ${
                   destination === 'surat_mumbai'
                     ? 'bg-amber-600 text-white font-black shadow-2xs'
@@ -756,6 +969,7 @@ ${storeName}`;
                         onClick={() => {
                           setSelectedCustomerId(c.id);
                           setIsEditingMessage(false);
+                          handleResetAudio();
                         }}
                         className={`w-full p-2.5 rounded-2xl text-left transition-all cursor-pointer flex items-center justify-between gap-2 ${
                           isSelected
@@ -820,7 +1034,7 @@ ${storeName}`;
                       <div className="flex items-center justify-between text-xs">
                         <span className="font-extrabold text-stone-700 flex items-center gap-1.5">
                           <MessageCircle className="w-4 h-4 text-emerald-600" />
-                          <span>{isBn ? 'হোয়াটসঅ্যাপ মেসেজ প্রিভিউ:' : 'WhatsApp Message Preview:'}</span>
+                          <span>{isBn ? 'হোয়াটসঅ্যাপ মেসেজ ড্রাফট:' : 'WhatsApp Message Draft:'}</span>
                         </span>
 
                         <div className="flex items-center gap-2">
@@ -848,7 +1062,7 @@ ${storeName}`;
                       {isEditingMessage ? (
                         <textarea
                           rows={8}
-                          value={currentMessage}
+                          value={currentSingleMessage}
                           onChange={(e) => {
                             const customKey = `${activeCustomer.id}-${messageLang}-${scenario}-${destination}`;
                             setCustomizedMessages((prev) => ({
@@ -861,7 +1075,123 @@ ${storeName}`;
                         />
                       ) : (
                         <div className="bg-emerald-50/70 border border-emerald-200/90 rounded-2xl p-3.5 text-xs text-stone-800 whitespace-pre-line leading-relaxed font-sans shadow-2xs">
-                          {currentMessage}
+                          {currentSingleMessage}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Audio & Voice Studio Section */}
+                    <div className="p-3 bg-gradient-to-r from-teal-50 to-emerald-50 rounded-2xl border border-teal-200/80 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 text-xs font-black text-teal-950">
+                          <Mic className="w-4 h-4 text-teal-600" />
+                          <span>{isBn ? '🎙️ অডিও ভয়েস মেসেজ অপশন' : 'Audio Voice Option'}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowAudioStudio((prev) => !prev)}
+                          className="text-[11px] font-bold text-teal-700 hover:text-teal-900 underline cursor-pointer"
+                        >
+                          {showAudioStudio ? (isBn ? 'সংকুচিত করুন ▲' : 'Hide ▲') : (isBn ? 'ভয়েস টুলস খুলুন ▼' : 'Open Voice Tools ▼')}
+                        </button>
+                      </div>
+
+                      {/* Text-to-Speech Play & Voice Recording Controls */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {/* 1. Listen Written Text via TTS Voice */}
+                        <button
+                          type="button"
+                          onClick={() => handleTogglePlayTTS(currentSingleMessage, messageLang)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all ${
+                            isPlayingTTS
+                              ? 'bg-rose-600 text-white shadow-sm animate-pulse'
+                              : 'bg-white hover:bg-teal-100 text-teal-900 border border-teal-300'
+                          }`}
+                        >
+                          {isPlayingTTS ? (
+                            <>
+                              <VolumeX className="w-3.5 h-3.5" />
+                              <span>{isBn ? 'থামান ⏹' : 'Stop Audio'}</span>
+                            </>
+                          ) : (
+                            <>
+                              <Volume2 className="w-3.5 h-3.5 text-teal-600" />
+                              <span>{isBn ? '🔊 মেসেজটি মুখে শোনান' : 'Speak Text Out Loud'}</span>
+                            </>
+                          )}
+                        </button>
+
+                        {/* 2. Record Custom Voice Note */}
+                        {isRecording ? (
+                          <button
+                            type="button"
+                            onClick={handleStopRecording}
+                            className="px-3 py-1.5 rounded-xl text-xs font-black bg-rose-600 text-white flex items-center gap-1.5 cursor-pointer shadow-sm animate-pulse"
+                          >
+                            <MicOff className="w-3.5 h-3.5" />
+                            <span>{isBn ? `রেকর্ড থামান (${recordingSeconds}s) ⏹` : `Stop (${recordingSeconds}s)`}</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={handleStartRecording}
+                            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-white hover:bg-rose-50 text-rose-700 border border-rose-300 flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <Mic className="w-3.5 h-3.5 text-rose-600" />
+                            <span>{isBn ? '🎙️ নিজের কণ্ঠে ভয়েস রেকর্ড করুন' : 'Record Voice Note'}</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Audio Studio Expanded Details */}
+                      {showAudioStudio && (
+                        <div className="pt-2 border-t border-teal-200/60 space-y-2 text-xs">
+                          {audioUrl ? (
+                            <div className="bg-white p-2.5 rounded-xl border border-teal-200 space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="font-bold text-teal-900 text-[11px] flex items-center gap-1">
+                                  <Play className="w-3 h-3 text-emerald-600" />
+                                  <span>{isBn ? 'রেকর্ডকৃত ভয়েস প্রিভিউ:' : 'Recorded Voice Preview:'}</span>
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={handleResetAudio}
+                                  className="text-[10px] text-rose-600 hover:underline font-bold cursor-pointer"
+                                >
+                                  {isBn ? 'মুছে ফেলুন' : 'Delete'}
+                                </button>
+                              </div>
+
+                              <audio src={audioUrl} controls className="w-full h-8" />
+
+                              {/* Share Audio Directly */}
+                              <div className="flex items-center gap-2 pt-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleShareAudioAndText(activeCustomer, currentSingleMessage)}
+                                  className="flex-1 py-1.5 px-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                                >
+                                  <Share2 className="w-3.5 h-3.5" />
+                                  <span>{isBn ? '📲 অডিও ও টেক্সট একসাথে হোয়াটসঅ্যাপে শেয়ার' : 'Share Audio + Text to WhatsApp'}</span>
+                                </button>
+
+                                <a
+                                  href={audioUrl}
+                                  download={`Voice_Reminder_${activeCustomer.name}.mp3`}
+                                  className="py-1.5 px-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl text-xs font-bold flex items-center gap-1 border border-stone-200"
+                                  title={isBn ? 'অডিও ডাউনলোড করুন' : 'Download Audio'}
+                                >
+                                  <Download className="w-3.5 h-3.5" />
+                                </a>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-[11px] text-teal-800/80 leading-relaxed font-medium">
+                              💡 {isBn
+                                ? 'উপরের বাটনে চাপ দিয়ে ১০-২০ সেকেন্ডে আপনার তাগাদা মুখের কথায় রেকর্ড করুন। তারপর এক ক্লিকে হোয়াটসঅ্যাপে টেক্সট ও অডিও ফাইল একসাথে শেয়ার করতে পারবেন।'
+                                : 'Record a 10-20 sec voice note to send along with your WhatsApp reminder message.'}
+                            </p>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1021,7 +1351,7 @@ ${storeName}`;
                 </div>
               </div>
 
-              {/* Guided One-by-One Queue Player (১-ক্লিক সিকোয়েন্স সেন্ডার) */}
+              {/* Guided One-by-One Queue Player (১-ক্লিক সিকোয়েন্স সেন্ডার ও টেক্সট এডিটর) */}
               {bulkQueue.length > 0 && currentBulkCustomer ? (
                 <div className="p-4 bg-gradient-to-br from-emerald-50 to-teal-50/50 rounded-3xl border-2 border-emerald-300 shadow-sm space-y-3">
                   {/* Stepper Header */}
@@ -1047,7 +1377,10 @@ ${storeName}`;
                       <button
                         type="button"
                         disabled={bulkQueueIndex === 0}
-                        onClick={() => setBulkQueueIndex((prev) => Math.max(0, prev - 1))}
+                        onClick={() => {
+                          setBulkQueueIndex((prev) => Math.max(0, prev - 1));
+                          setIsEditingBulkMessage(false);
+                        }}
                         className="p-1.5 rounded-xl bg-white border border-stone-200 text-stone-700 hover:bg-stone-50 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
                         title={isBn ? 'পূর্ববর্তী কাস্টমার' : 'Previous Customer'}
                       >
@@ -1057,7 +1390,10 @@ ${storeName}`;
                       <button
                         type="button"
                         disabled={bulkQueueIndex === bulkQueue.length - 1}
-                        onClick={() => setBulkQueueIndex((prev) => Math.min(bulkQueue.length - 1, prev + 1))}
+                        onClick={() => {
+                          setBulkQueueIndex((prev) => Math.min(bulkQueue.length - 1, prev + 1));
+                          setIsEditingBulkMessage(false);
+                        }}
                         className="p-1.5 rounded-xl bg-white border border-stone-200 text-stone-700 hover:bg-stone-50 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
                         title={isBn ? 'পরবর্তী কাস্টমার / স্কিপ' : 'Next / Skip'}
                       >
@@ -1092,9 +1428,166 @@ ${storeName}`;
                     </div>
                   </div>
 
-                  {/* Message Preview */}
-                  <div className="bg-white/90 p-3 rounded-2xl border border-stone-200 text-xs text-stone-800 whitespace-pre-line leading-relaxed font-sans max-h-40 overflow-y-auto shadow-2xs">
-                    {generatePoliteMessage(currentBulkCustomer)}
+                  {/* Bulk Message Box WITH EDITING CONTROLS! */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-extrabold text-stone-700 flex items-center gap-1.5">
+                        <MessageCircle className="w-4 h-4 text-emerald-600" />
+                        <span>{isBn ? 'হোয়াটসঅ্যাপ মেসেজ:' : 'WhatsApp Message:'}</span>
+                      </span>
+
+                      <div className="flex items-center gap-2">
+                        {/* Master Template Customizer Toggle */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!isEditingMasterTemplate && !bulkMasterTemplate) {
+                              setBulkMasterTemplate(
+                                getTemplateMessage(
+                                  { ...currentBulkCustomer, name: '{name}', dueAmount: 0 },
+                                  messageLang,
+                                  scenario,
+                                  destination
+                                ).replace(/₹0\.00|0\.00/g, '{amount}')
+                              );
+                            }
+                            setIsEditingMasterTemplate((prev) => !prev);
+                          }}
+                          className="text-[11px] font-bold text-teal-700 hover:text-teal-900 flex items-center gap-1 cursor-pointer bg-teal-50 px-2 py-0.5 rounded-lg border border-teal-200"
+                        >
+                          <Layers className="w-3 h-3 text-teal-600" />
+                          <span>{isBn ? 'সবার টেমপ্লেট এডিট' : 'Master Template'}</span>
+                        </button>
+
+                        {/* Reset Button */}
+                        <button
+                          type="button"
+                          onClick={() => handleResetToTemplate(currentBulkCustomer)}
+                          className="text-[11px] font-semibold text-stone-500 hover:text-stone-800 flex items-center gap-1 cursor-pointer"
+                          title={isBn ? 'স্বয়ংক্রিয় মূল ফরম্যাটে ফেরত যান' : 'Reset to template'}
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                          <span>{isBn ? 'রিসেট' : 'Reset'}</span>
+                        </button>
+
+                        {/* Individual Edit Toggle Button */}
+                        <button
+                          type="button"
+                          onClick={() => setIsEditingBulkMessage((prev) => !prev)}
+                          className="text-[11px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-200"
+                        >
+                          <Edit3 className="w-3 h-3" />
+                          <span>{isEditingBulkMessage ? (isBn ? 'সম্পন্ন' : 'Done') : (isBn ? '✏️ লেখা এডিট করুন' : '✏️ Edit Text')}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Master Template Editor Panel */}
+                    {isEditingMasterTemplate && (
+                      <div className="p-3 bg-amber-50/90 border border-amber-300 rounded-2xl space-y-2 text-xs">
+                        <div className="flex items-center justify-between font-bold text-amber-900">
+                          <span>{isBn ? '📝 সবার জন্য কাস্টম টেমপ্লেট (Master Template):' : 'Custom Master Template for All:'}</span>
+                          <span className="text-[10px] text-amber-700 font-normal">
+                            ভেরিয়েবল: <code className="bg-amber-100 px-1 rounded">{'{name}'}</code> <code className="bg-amber-100 px-1 rounded">{'{amount}'}</code> <code className="bg-amber-100 px-1 rounded">{'{destination}'}</code>
+                          </span>
+                        </div>
+                        <textarea
+                          rows={6}
+                          value={bulkMasterTemplate}
+                          onChange={(e) => setBulkMasterTemplate(e.target.value)}
+                          placeholder="আপনার পছন্দমতো পুরো মেসেজটি এখানে লিখুন..."
+                          className="w-full bg-white border border-amber-300 rounded-xl p-2.5 text-xs text-stone-900 focus:outline-none focus:ring-1 focus:ring-amber-500 font-sans"
+                        />
+                        <div className="flex items-center justify-between">
+                          <button
+                            type="button"
+                            onClick={() => setBulkMasterTemplate('')}
+                            className="text-[11px] text-stone-500 hover:underline cursor-pointer"
+                          >
+                            {isBn ? 'ডিফল্ট টেমপ্লেটে ফিরে যান' : 'Clear Custom Template'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setIsEditingMasterTemplate(false)}
+                            className="px-3 py-1 bg-amber-600 text-white rounded-lg font-bold text-xs cursor-pointer"
+                          >
+                            {isBn ? '✓ প্রযোজ্য করুন' : 'Apply'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Active Customer Message: Textarea when editing, Div when previewing */}
+                    {isEditingBulkMessage ? (
+                      <textarea
+                        rows={7}
+                        value={currentBulkMessage}
+                        onChange={(e) => {
+                          const customKey = `${currentBulkCustomer.id}-${messageLang}-${scenario}-${destination}`;
+                          setCustomizedMessages((prev) => ({
+                            ...prev,
+                            [customKey]: e.target.value,
+                          }));
+                        }}
+                        className="w-full bg-white border-2 border-emerald-400 rounded-2xl p-3 text-xs font-sans text-stone-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 leading-relaxed font-medium shadow-inner"
+                        placeholder={isBn ? 'মেসেজ পরিবর্তন বা এডিট করুন...' : 'Edit reminder message for this customer...'}
+                      />
+                    ) : (
+                      <div className="bg-white/95 p-3 rounded-2xl border border-stone-200 text-xs text-stone-800 whitespace-pre-line leading-relaxed font-sans max-h-44 overflow-y-auto shadow-2xs">
+                        {currentBulkMessage}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Audio & Voice Quick Bar for Bulk */}
+                  <div className="p-2.5 bg-white/80 rounded-2xl border border-stone-200 flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      {/* TTS Speak */}
+                      <button
+                        type="button"
+                        onClick={() => handleTogglePlayTTS(currentBulkMessage, messageLang)}
+                        className={`px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer transition-all ${
+                          isPlayingTTS
+                            ? 'bg-rose-600 text-white'
+                            : 'bg-stone-100 hover:bg-stone-200 text-stone-800'
+                        }`}
+                      >
+                        <Volume2 className="w-3.5 h-3.5 text-teal-600" />
+                        <span>{isPlayingTTS ? (isBn ? 'থামান ⏹' : 'Stop') : (isBn ? '🔊 ভয়েস শুনুন' : 'Listen')}</span>
+                      </button>
+
+                      {/* Microphone Recording */}
+                      {isRecording ? (
+                        <button
+                          type="button"
+                          onClick={handleStopRecording}
+                          className="px-2.5 py-1 rounded-xl text-xs font-black bg-rose-600 text-white flex items-center gap-1 cursor-pointer animate-pulse"
+                        >
+                          <MicOff className="w-3.5 h-3.5" />
+                          <span>{isBn ? `রেকর্ড শেষ (${recordingSeconds}s)` : `Stop (${recordingSeconds}s)`}</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={handleStartRecording}
+                          className="px-2.5 py-1 rounded-xl text-xs font-bold bg-stone-100 hover:bg-stone-200 text-stone-800 flex items-center gap-1 cursor-pointer"
+                        >
+                          <Mic className="w-3.5 h-3.5 text-rose-600" />
+                          <span>{isBn ? '🎙️ ভয়েস রেকর্ড' : 'Record Voice'}</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {audioUrl && (
+                      <button
+                        type="button"
+                        onClick={() => handleShareAudioAndText(currentBulkCustomer, currentBulkMessage)}
+                        className="px-3 py-1 bg-teal-600 hover:bg-teal-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                      >
+                        <Share2 className="w-3 h-3" />
+                        <span>{isBn ? 'অডিও + টেক্সট শেয়ার' : 'Share Audio + Text'}</span>
+                      </button>
+                    )}
                   </div>
 
                   {/* Big Primary Action: Send & Auto-Advance */}
@@ -1234,7 +1727,10 @@ ${storeName}`;
                           <div
                             onClick={() => {
                               const queueIdx = bulkQueue.findIndex((q) => q.id === c.id);
-                              if (queueIdx >= 0) setBulkQueueIndex(queueIdx);
+                              if (queueIdx >= 0) {
+                                setBulkQueueIndex(queueIdx);
+                                setIsEditingBulkMessage(false);
+                              }
                             }}
                             className="cursor-pointer min-w-0"
                           >

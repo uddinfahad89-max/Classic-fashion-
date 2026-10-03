@@ -25,6 +25,7 @@ import {
   FileSpreadsheet,
   CheckCircle2,
   FastForward,
+  Edit3,
 } from 'lucide-react';
 import { CustomerDue, DueType, ThermalPrinterSettings, BillInvoice, Language } from '../types';
 import { translations } from '../utils/i18n';
@@ -48,6 +49,15 @@ interface CustomerDueTabProps {
   onDeleteDue: (id: string) => void;
   onPrintDueSlip: (bill: BillInvoice) => void;
   onBatchImportDues?: (rows: ParsedDueRow[]) => void;
+  onUpdateCustomerDue?: (
+    id: string,
+    updates: {
+      name?: string;
+      phone?: string;
+      dueAmount?: number;
+      type?: DueType;
+    }
+  ) => void;
 }
 
 export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
@@ -59,6 +69,7 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
   onDeleteDue,
   onPrintDueSlip,
   onBatchImportDues,
+  onUpdateCustomerDue,
 }) => {
   const t = translations[language];
   const isBn = language === 'bn';
@@ -103,6 +114,64 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
   const [whatsAppModalMode, setWhatsAppModalMode] = useState<'single' | 'bulk'>('single');
   const [whatsAppCustomerTarget, setWhatsAppCustomerTarget] = useState<CustomerDue | null>(null);
   const [importSuccessBanner, setImportSuccessBanner] = useState<string | null>(null);
+
+  // Edit Customer Modal State
+  const [isEditCustomerModalOpen, setIsEditCustomerModalOpen] = useState(false);
+  const [editingCustomer, setEditingCustomer] = useState<CustomerDue | null>(null);
+  const [editCustName, setEditCustName] = useState('');
+  const [editCustPhone, setEditCustPhone] = useState('');
+  const [editCustAmount, setEditCustAmount] = useState('');
+  const [editCustType, setEditCustType] = useState<DueType>('receivable');
+
+  useBackHandler('dueEditCustomerModal', isEditCustomerModalOpen, () => {
+    setIsEditCustomerModalOpen(false);
+    return true;
+  }, 40);
+
+  const handleOpenEditCustomer = (customer: CustomerDue) => {
+    setEditingCustomer(customer);
+    setEditCustName(customer.name);
+    setEditCustPhone(customer.phone || '');
+    setEditCustAmount(String(customer.dueAmount));
+    setEditCustType(customer.type || 'receivable');
+    setIsEditCustomerModalOpen(true);
+  };
+
+  const handleSaveCustomerEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCustomer) return;
+    const cleanName = editCustName.trim();
+    if (!cleanName) {
+      alert(isBn ? 'কাস্টমারের নাম লিখুন' : 'Please enter customer name');
+      return;
+    }
+    const parsedAmount = parseFloat(editCustAmount);
+    const validAmount = isNaN(parsedAmount) ? editingCustomer.dueAmount : Math.max(0, parsedAmount);
+
+    if (onUpdateCustomerDue) {
+      onUpdateCustomerDue(editingCustomer.id, {
+        name: cleanName,
+        phone: editCustPhone.trim(),
+        dueAmount: validAmount,
+        type: editCustType,
+      });
+    }
+
+    // Update in selectedCustomer if currently open
+    setSelectedCustomer((prev) => {
+      if (!prev || prev.id !== editingCustomer.id) return prev;
+      return {
+        ...prev,
+        name: cleanName,
+        phone: editCustPhone.trim(),
+        dueAmount: validAmount,
+        type: editCustType,
+      };
+    });
+
+    setIsEditCustomerModalOpen(false);
+    setEditingCustomer(null);
+  };
 
   // Native-like Android Back button handlers for CustomerDueTab
   useBackHandler('dueExcelImportModal', isExcelImportModalOpen, () => {
@@ -746,19 +815,33 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
                 {/* Bottom Card Actions: Quick WhatsApp Remind + Settle/Add */}
                 <div className="pt-2 border-t border-stone-100 flex items-center justify-between gap-1.5 flex-wrap">
                   {/* WhatsApp REMIND Button */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setWhatsAppCustomerTarget(customer);
-                      setWhatsAppModalMode('single');
-                      setIsWhatsAppAssistantModalOpen(true);
-                    }}
-                    className="px-2.5 py-1 rounded-xl bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 text-emerald-700 border border-emerald-200/80 text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
-                    title={isBn ? 'বিনীত হোয়াটসঅ্যাপ তাগাদা মেসেজ দেখুন ও পাঠান' : 'Send WhatsApp Polite Reminder'}
-                  >
-                    <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>{isBn ? 'তাগাদা >' : 'REMIND >'}</span>
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWhatsAppCustomerTarget(customer);
+                        setWhatsAppModalMode('single');
+                        setIsWhatsAppAssistantModalOpen(true);
+                      }}
+                      className="px-2.5 py-1 rounded-xl bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 text-emerald-700 border border-emerald-200/80 text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                      title={isBn ? 'বিনীত হোয়াটসঅ্যাপ তাগাদা মেসেজ দেখুন ও পাঠান' : 'Send WhatsApp Polite Reminder'}
+                    >
+                      <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>{isBn ? 'তাগাদা >' : 'REMIND >'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleOpenEditCustomer(customer);
+                      }}
+                      className="p-1 rounded-xl text-stone-400 hover:text-blue-600 hover:bg-blue-50 border border-transparent hover:border-blue-200 transition-all cursor-pointer"
+                      title={isBn ? 'কাস্টমার এডিট' : 'Edit Customer'}
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
 
                   <div className="flex items-center gap-1.5 ml-auto">
                     {/* Settle/Payment Button */}
@@ -1104,7 +1187,17 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
                   {getInitials(selectedCustomer.name)}
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-stone-900">{selectedCustomer.name}</h3>
+                  <div className="flex items-center gap-1.5">
+                    <h3 className="text-sm font-bold text-stone-900">{selectedCustomer.name}</h3>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEditCustomer(selectedCustomer)}
+                      className="p-1 rounded-lg text-stone-400 hover:text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer"
+                      title={isBn ? 'কাস্টমার এডিট করুন' : 'Edit Customer'}
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                   <p className="text-xs text-stone-500 font-mono">
                     {selectedCustomer.phone || (isBn ? 'মোবাইল যুক্ত নেই' : 'No Phone')}
                   </p>
@@ -1239,35 +1332,200 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
               </button>
             </div>
 
-            {/* Modal Bottom: Delete Customer */}
-            <div className="p-3 bg-stone-50 border-t border-stone-100 flex items-center justify-between">
-              <button
-                type="button"
-                onClick={() => {
-                  if (
-                    window.confirm(
-                      isBn
-                        ? `আপনি কি নিশ্চিতভাবে ${selectedCustomer.name}-এর খাতা মুছে ফেলতে চান?`
-                        : `Are you sure you want to delete ${selectedCustomer.name}'s khata?`
-                    )
-                  ) {
-                    onDeleteDue(selectedCustomer.id);
-                    setSelectedCustomer(null);
-                  }
-                }}
-                className="text-xs font-bold text-rose-600 hover:text-rose-700 flex items-center gap-1.5 cursor-pointer px-2 py-1"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>{isBn ? 'খাতা মুছে ফেলুন' : 'Delete Customer'}</span>
-              </button>
+            {/* Modal Bottom: Delete Customer & Edit Option */}
+            <div className="p-3 bg-stone-50 border-t border-stone-100 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                {/* Delete Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        isBn
+                          ? `আপনি কি নিশ্চিতভাবে ${selectedCustomer.name}-এর খাতা মুছে ফেলতে চান?`
+                          : `Are you sure you want to delete ${selectedCustomer.name}'s khata?`
+                      )
+                    ) {
+                      onDeleteDue(selectedCustomer.id);
+                      setSelectedCustomer(null);
+                    }
+                  }}
+                  className="text-xs font-bold text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-transparent hover:border-rose-200 flex items-center gap-1.5 cursor-pointer px-2.5 py-1.5 rounded-xl transition-all"
+                  title={isBn ? 'কাস্টমার মুছে ফেলুন' : 'Delete Customer'}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>{isBn ? 'খাতা মুছে ফেলুন' : 'Delete Customer'}</span>
+                </button>
+
+                {/* Edit Option right next to Delete */}
+                <button
+                  type="button"
+                  onClick={() => handleOpenEditCustomer(selectedCustomer)}
+                  className="text-xs font-bold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 flex items-center gap-1.5 cursor-pointer px-2.5 py-1.5 rounded-xl transition-all"
+                  title={isBn ? 'কাস্টমারের নাম ও মোবাইল নম্বর এডিট করুন' : 'Edit Customer'}
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                  <span>{isBn ? 'এডিট করুন' : 'Edit'}</span>
+                </button>
+              </div>
+
+              {/* Close Button */}
               <button
                 type="button"
                 onClick={() => setSelectedCustomer(null)}
-                className="px-4 py-1.5 bg-stone-200 hover:bg-stone-300 text-stone-800 rounded-xl text-xs font-bold cursor-pointer"
+                className="px-4 py-1.5 bg-stone-200 hover:bg-stone-300 text-stone-800 rounded-xl text-xs font-bold cursor-pointer transition-colors"
               >
                 {isBn ? 'বন্ধ করুন' : 'Close'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 7.5. MODAL: EDIT CUSTOMER DETAILS */}
+      {isEditCustomerModalOpen && editingCustomer && (
+        <div
+          id="edit-customer-modal-backdrop"
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-stone-950/60 backdrop-blur-xs animate-in fade-in duration-150"
+        >
+          <div
+            id="edit-customer-card"
+            className="w-full max-w-sm bg-white rounded-3xl shadow-2xl border border-stone-200 overflow-hidden animate-in zoom-in-95 duration-150"
+          >
+            <div className="p-4 border-b border-stone-100 bg-stone-50 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center">
+                  <Edit3 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-stone-900 leading-tight">
+                    {isBn ? 'কাস্টমার তথ্য এডিট করুন' : 'Edit Customer Details'}
+                  </h3>
+                  <p className="text-[10px] text-stone-500 font-mono truncate max-w-[180px]">
+                    {editingCustomer.name}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsEditCustomerModalOpen(false);
+                  setEditingCustomer(null);
+                }}
+                className="w-8 h-8 rounded-full bg-stone-200/80 hover:bg-stone-300 flex items-center justify-center text-stone-600 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveCustomerEdit} className="p-4 sm:p-5 space-y-3.5">
+              {/* Type Switcher */}
+              <div className="grid grid-cols-2 gap-2 p-1 bg-stone-100 rounded-2xl">
+                <button
+                  type="button"
+                  onClick={() => setEditCustType('receivable')}
+                  className={`py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                    editCustType === 'receivable'
+                      ? 'bg-rose-600 text-white shadow-xs'
+                      : 'text-stone-600 hover:text-stone-900'
+                  }`}
+                >
+                  {isBn ? 'বাকি পাবো (Get)' : 'Receivable (Get)'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditCustType('payable')}
+                  className={`py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                    editCustType === 'payable'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-stone-600 hover:text-stone-900'
+                  }`}
+                >
+                  {isBn ? 'বাকি দেবো (Give)' : 'Payable (Give)'}
+                </button>
+              </div>
+
+              {/* Name */}
+              <div>
+                <label className="block text-xs font-bold text-stone-700 mb-1">
+                  {isBn ? 'কাস্টমারের নাম *' : 'Customer Name *'}
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editCustName}
+                  onChange={(e) => setEditCustName(e.target.value)}
+                  placeholder={isBn ? 'নাম লিখুন...' : 'Enter customer name...'}
+                  className="w-full px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs font-bold text-stone-900 focus:bg-white focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              {/* Phone */}
+              <div>
+                <label className="block text-xs font-bold text-stone-700 mb-1 flex items-center justify-between">
+                  <span>{isBn ? 'মোবাইল নম্বর' : 'Mobile / WhatsApp Number'}</span>
+                  <span className="text-[10px] text-stone-400 font-normal">
+                    {isBn ? '১০ ডিজিট (ইন্ডিয়ান)' : '10 digits (India)'}
+                  </span>
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 font-mono text-xs">
+                    +91
+                  </span>
+                  <input
+                    type="tel"
+                    value={editCustPhone}
+                    onChange={(e) => setEditCustPhone(e.target.value)}
+                    placeholder="9876543210"
+                    className="w-full pl-10 pr-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs font-mono font-bold text-stone-900 focus:bg-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              {/* Due Balance */}
+              <div>
+                <label className="block text-xs font-bold text-stone-700 mb-1 flex items-center justify-between">
+                  <span>{isBn ? 'বর্তমান বকেয়া টাকার পরিমাণ' : 'Current Due Balance'}</span>
+                  <span className="text-[10px] text-rose-500 font-normal">
+                    {isBn ? '(ব্যালেন্স সংশোধন)' : '(Correct balance)'}
+                  </span>
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 font-mono font-black text-xs">
+                    {sym}
+                  </span>
+                  <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    value={editCustAmount}
+                    onChange={(e) => setEditCustAmount(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full pl-8 pr-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs font-mono font-bold text-stone-900 focus:bg-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="pt-2 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditCustomerModalOpen(false);
+                    setEditingCustomer(null);
+                  }}
+                  className="px-4 py-2 bg-stone-200 hover:bg-stone-300 text-stone-700 rounded-xl text-xs font-bold cursor-pointer"
+                >
+                  {isBn ? 'বাতিল' : 'Cancel'}
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black shadow-xs cursor-pointer"
+                >
+                  {isBn ? '✓ আপডেট সংরক্ষণ করুন' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

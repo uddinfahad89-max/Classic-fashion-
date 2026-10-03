@@ -632,6 +632,38 @@ class StorageService {
     return target;
   }
 
+  updateCustomerDueDetails(
+    id: string,
+    updates: {
+      name?: string;
+      phone?: string;
+      dueAmount?: number;
+      type?: DueType;
+    }
+  ): CustomerDue | null {
+    const dues = this.getCustomerDues();
+    const index = dues.findIndex((d) => d.id === id);
+    if (index === -1) return null;
+
+    const existing = dues[index];
+    if (updates.name !== undefined && updates.name.trim()) {
+      existing.name = updates.name.trim();
+    }
+    if (updates.phone !== undefined) {
+      existing.phone = updates.phone.trim();
+    }
+    if (updates.type !== undefined) {
+      existing.type = updates.type;
+    }
+    if (updates.dueAmount !== undefined && !isNaN(updates.dueAmount)) {
+      existing.dueAmount = Math.max(0, updates.dueAmount);
+    }
+    existing.lastUpdated = Date.now();
+    dues[index] = existing;
+    this.saveCustomerDues(dues);
+    return existing;
+  }
+
   deleteCustomerDue(id: string): void {
     const dues = this.getCustomerDues().filter((d) => d.id !== id);
     this.saveCustomerDues(dues);

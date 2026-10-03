@@ -1044,6 +1044,34 @@ export default function App() {
     });
   };
 
+  const handleUpdateCustomerDue = (
+    id: string,
+    updates: {
+      name?: string;
+      phone?: string;
+      dueAmount?: number;
+      type?: DueType;
+    }
+  ) => {
+    const updated = storageService.updateCustomerDueDetails(id, updates);
+    const updatedDues = storageService.getCustomerDues();
+    setCustomerDues(updatedDues);
+
+    if (updated) {
+      supabaseService.getActiveUserId().then((userId) => {
+        if (userId) {
+          supabaseService.syncCustomerDue(updated, userId);
+        }
+      });
+      showToast(
+        language === 'bn'
+          ? 'কাস্টমারের তথ্য সফলভাবে আপডেট হয়েছে'
+          : 'Customer details updated successfully',
+        'info'
+      );
+    }
+  };
+
   // 4. LANGUAGE SELECT & TOGGLE HANDLER
   const handleSelectLanguage = (nextLang: Language) => {
     storageService.setLanguage(nextLang);
@@ -1354,6 +1382,7 @@ export default function App() {
             onDeleteDue={handleDeleteCustomerDue}
             onPrintDueSlip={(bill) => setReceiptBill(bill)}
             onBatchImportDues={handleBatchImportDues}
+            onUpdateCustomerDue={handleUpdateCustomerDue}
           />
         )}
 
