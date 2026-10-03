@@ -78,6 +78,7 @@ const DEFAULT_SETTINGS: ThermalPrinterSettings = {
   invoicePrefix: '',
   nextInvoiceNumber: 1,
   isLabelMode: false,
+  autoCapitalizeItemNames: true,
 };
 
 class StorageService {

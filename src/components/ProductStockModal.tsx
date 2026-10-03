@@ -490,8 +490,10 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
                   type="text"
                   required={!matchedProductBySku && !barcode.trim()}
                   value={name}
+                  autoCapitalize={settings?.autoCapitalizeItemNames !== false ? 'characters' : 'sentences'}
+                  style={{ textTransform: settings?.autoCapitalizeItemNames !== false ? 'uppercase' : 'none' }}
                   onChange={(e) => {
-                    const nextName = e.target.value;
+                    const nextName = settings?.autoCapitalizeItemNames !== false ? e.target.value.toUpperCase() : e.target.value;
                     setName(nextName);
                     if (purchasePrice.trim() || barcode.trim()) {
                       setBarcode(
@@ -503,10 +505,10 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
                     matchedProductBySku
                       ? matchedProductBySku.name
                       : isBn
-                      ? 'যেমন: Cotton Saree / পাঞ্জাবি / শার্ট'
-                      : 'e.g. Cotton Saree / Shirt'
+                      ? 'যেমন: COTTON SAREE / শার্ট'
+                      : 'e.g. COTTON SAREE / SHIRT'
                   }
-                  className="w-full border border-stone-300 bg-white px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold focus:outline-none focus:border-blue-600"
+                  className="w-full border border-stone-300 bg-white px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold focus:outline-none focus:border-blue-600 font-mono"
                 />
               </div>
 

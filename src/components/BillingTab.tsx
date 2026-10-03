@@ -128,6 +128,25 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   const [itemPrice, setItemPrice] = useState(() => initialDraft?.itemPrice || '');
   const [itemQty, setItemQty] = useState(() => initialDraft?.itemQty || '1');
   const [itemUnit, setItemUnit] = useState(() => initialDraft?.itemUnit || 'Pcs');
+
+  // Auto-Capitalization / All Caps for Item & Customer Names (Default true)
+  const [isAllCaps, setIsAllCaps] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('retail_billing_all_caps');
+      if (saved !== null) return saved === 'true';
+    } catch {}
+    return settings.autoCapitalizeItemNames !== false;
+  });
+
+  const toggleAllCaps = () => {
+    setIsAllCaps((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('retail_billing_all_caps', String(next));
+      } catch {}
+      return next;
+    });
+  };
   const [availableUnits, setAvailableUnits] = useState<string[]>(() =>
     storageService.getCustomUnits()
   );
@@ -920,7 +939,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   const handleAddItem = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
 
-    const finalName = itemName.trim();
+    const finalName = isAllCaps ? itemName.trim().toUpperCase() : itemName.trim();
     const price = parseFloat(itemPrice);
     const qty = parseFloat(itemQty);
 
@@ -1052,7 +1071,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       const cleanUnit = itemUnit.trim() || undefined;
       finalItems.push({
         id: 'item-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
-        name: itemName.trim(),
+        name: isAllCaps ? itemName.trim().toUpperCase() : itemName.trim(),
         price: pendingPrice,
         qty: validQty,
         unit: cleanUnit,
@@ -1266,9 +1285,14 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 type="text"
                 id="billing-customer-name"
                 value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
+                autoCapitalize={isAllCaps ? 'characters' : 'words'}
+                style={{ textTransform: isAllCaps ? 'uppercase' : 'none' }}
+                onChange={(e) => {
+                  const val = isAllCaps ? e.target.value.toUpperCase() : e.target.value;
+                  setCustomerName(val);
+                }}
                 placeholder={t.customerNameOptionalPlaceholder}
-                className="w-full border border-stone-200 bg-stone-50/80 pl-9 pr-3 py-2 rounded-xl text-xs sm:text-sm font-medium focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
+                className="w-full border border-stone-200 bg-stone-50/80 pl-9 pr-3 py-2 rounded-xl text-xs sm:text-sm font-medium focus:outline-none focus:border-blue-500 focus:bg-white transition-all font-mono"
               />
             </div>
           </div>
@@ -1549,13 +1573,18 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                             type="text"
                             autoFocus={editFocusField === 'name'}
                             value={editItemName}
-                            onChange={(e) => setEditItemName(e.target.value)}
+                            autoCapitalize={isAllCaps ? 'characters' : 'sentences'}
+                            style={{ textTransform: isAllCaps ? 'uppercase' : 'none' }}
+                            onChange={(e) => {
+                              const val = isAllCaps ? e.target.value.toUpperCase() : e.target.value;
+                              setEditItemName(val);
+                            }}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') handleSaveEditItem(item.id);
                               if (e.key === 'Escape') handleCancelEditItem();
                             }}
                             placeholder={isBn ? 'পণ্যের নাম' : 'Item Name'}
-                            className="w-full min-w-[95px] bg-white border border-blue-400 rounded-lg px-2 py-1.5 text-xs font-bold text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            className="w-full min-w-[95px] bg-white border border-blue-400 rounded-lg px-2 py-1.5 text-xs font-bold text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
                           />
                         </td>
                         <td className="p-2 sm:p-2.5 text-center">
@@ -1740,9 +1769,14 @@ export const BillingTab: React.FC<BillingTabProps> = ({
               <input
                 type="text"
                 value={itemName}
-                onChange={(e) => setItemName(e.target.value)}
-                placeholder={isBn ? 'প্রোডাক্টের নাম (যেমন: শার্ট)' : 'Product Name'}
-                className="border border-emerald-300 bg-white px-3 py-2 rounded-xl text-xs font-semibold focus:outline-none focus:border-emerald-600"
+                autoCapitalize={isAllCaps ? 'characters' : 'sentences'}
+                style={{ textTransform: isAllCaps ? 'uppercase' : 'none' }}
+                onChange={(e) => {
+                  const val = isAllCaps ? e.target.value.toUpperCase() : e.target.value;
+                  setItemName(val);
+                }}
+                placeholder={isBn ? 'প্রোডাক্টের নাম (যেমন: শার্ট / SHIRT)' : 'Product Name'}
+                className="border border-emerald-300 bg-white px-3 py-2 rounded-xl text-xs font-semibold focus:outline-none focus:border-emerald-600 font-mono"
               />
               <input
                 type="number"
@@ -1823,6 +1857,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 type="text"
                 id="itemName"
                 autoComplete="off"
+                autoCapitalize={isAllCaps ? 'characters' : 'sentences'}
+                style={{ textTransform: isAllCaps ? 'uppercase' : 'none' }}
                 value={itemName}
                 onFocus={() => {
                   if (enableSavedSuggestions && itemName.trim().length > 0) {
@@ -1830,7 +1866,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                   }
                 }}
                 onChange={(e) => {
-                  const val = e.target.value;
+                  const val = isAllCaps ? e.target.value.toUpperCase() : e.target.value;
                   setItemName(val);
                   if (enableSavedSuggestions) {
                     setShowSuggestions(val.trim().length > 0);
@@ -1841,11 +1877,33 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 onKeyDown={handleNameKeyDown}
                 placeholder={
                   isBn
-                    ? 'পণ্যের নাম লিখুন (যেমন: Shirt, Pant, Panjabi...)'
+                    ? 'পণ্যের নাম লিখুন (যেমন: SHIRT, PANT, PUNJABI...)'
                     : t.itemNamePlaceholder
                 }
-                className="w-full border border-stone-200 bg-stone-50/80 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-medium focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
+                className="w-full border border-stone-200 bg-stone-50/80 pl-3 pr-16 py-2.5 rounded-xl text-xs sm:text-sm font-medium focus:outline-none focus:border-blue-500 focus:bg-white transition-all font-mono"
               />
+
+              {/* CAPS LOCK 1-TAP TOGGLE BADGE INSIDE INPUT */}
+              <button
+                type="button"
+                onClick={toggleAllCaps}
+                className={`absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 rounded-lg text-[10px] font-black font-mono transition-all cursor-pointer select-none ${
+                  isAllCaps
+                    ? 'bg-blue-600 text-white shadow-xs ring-1 ring-blue-400'
+                    : 'bg-stone-200 text-stone-600 hover:bg-stone-300'
+                }`}
+                title={
+                  isAllCaps
+                    ? isBn
+                      ? 'ক্যাপিটাল লেটার চালু (সব বড় হাতের অক্ষরে টাইপ হচ্ছে)'
+                      : 'ALL CAPS ON (Auto-Uppercase)'
+                    : isBn
+                    ? 'ক্যাপিটাল লেটার বন্ধ'
+                    : 'ALL CAPS OFF'
+                }
+              >
+                {isAllCaps ? '🔤 CAPS' : 'abc'}
+              </button>
 
               {/* OPTIONAL SAVED PRODUCTS DROPDOWN (Only shown if explicitly enabled from 3-dot menu) */}
               {enableSavedSuggestions && showSuggestions && matchingProducts.length > 0 && (

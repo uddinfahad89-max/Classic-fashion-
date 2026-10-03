@@ -231,6 +231,7 @@ export interface ThermalPrinterSettings {
   invoicePrefix?: string;
   nextInvoiceNumber?: number;
   isLabelMode?: boolean;
+  autoCapitalizeItemNames?: boolean;
 }
 
 export interface NetworkStatusInfo {

@@ -628,9 +628,18 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
                       type="text"
                       required
                       value={item.name}
-                      onChange={(e) => handleUpdateItemName(item.id, e.target.value)}
+                      autoCapitalize={settings.autoCapitalizeItemNames !== false ? 'characters' : 'sentences'}
+                      style={{ textTransform: settings.autoCapitalizeItemNames !== false ? 'uppercase' : 'none' }}
+                      onChange={(e) =>
+                        handleUpdateItemName(
+                          item.id,
+                          settings.autoCapitalizeItemNames !== false
+                            ? e.target.value.toUpperCase()
+                            : e.target.value
+                        )
+                      }
                       placeholder={t.itemNameLabel}
-                      className="w-full border border-stone-200 bg-stone-50/50 hover:bg-white focus:bg-white px-2.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold text-stone-900 focus:outline-none focus:border-blue-600"
+                      className="w-full border border-stone-200 bg-stone-50/50 hover:bg-white focus:bg-white px-2.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold text-stone-900 focus:outline-none focus:border-blue-600 font-mono"
                     />
                   </div>
 
@@ -714,9 +723,17 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
                 <input
                   type="text"
                   value={newItemName}
-                  onChange={(e) => setNewItemName(e.target.value)}
-                  placeholder={language === 'bn' ? 'পণ্যের নাম (যেমন: Cloth, Pant, Sari)' : 'Item name'}
-                  className="flex-2 border border-stone-200 bg-white px-3 py-1.5 rounded-xl text-xs font-medium focus:outline-none focus:border-blue-500"
+                  autoCapitalize={settings.autoCapitalizeItemNames !== false ? 'characters' : 'sentences'}
+                  style={{ textTransform: settings.autoCapitalizeItemNames !== false ? 'uppercase' : 'none' }}
+                  onChange={(e) =>
+                    setNewItemName(
+                      settings.autoCapitalizeItemNames !== false
+                        ? e.target.value.toUpperCase()
+                        : e.target.value
+                    )
+                  }
+                  placeholder={language === 'bn' ? 'পণ্যের নাম (যেমন: CLOTH, PANT, SARI)' : 'Item name'}
+                  className="flex-2 border border-stone-200 bg-white px-3 py-1.5 rounded-xl text-xs font-medium focus:outline-none focus:border-blue-500 font-mono"
                 />
                 <div className="flex gap-2 flex-1">
                   <div className="relative flex-1">

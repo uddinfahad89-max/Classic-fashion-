@@ -465,6 +465,35 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </label>
           </div>
 
+          {/* Auto Capitalize / All Caps for Billing */}
+          <div className="p-3 bg-blue-50/70 rounded-2xl border border-blue-200 flex items-center justify-between gap-3 shadow-2xs">
+            <div className="space-y-0.5">
+              <div className="font-bold text-blue-950 text-xs flex items-center gap-1.5">
+                <span className="font-black text-blue-600 font-mono text-xs">🔤 CAPS</span>
+                <span>{isBn ? 'বিল টাইপ করার সময় ক্যাপিটাল লেটার (ALL CAPS)' : 'All Caps in Billing (Auto UPPERCASE)'}</span>
+                {form.autoCapitalizeItemNames !== false && (
+                  <span className="text-[10px] bg-blue-200 text-blue-900 font-bold px-1.5 py-0.2 rounded-full">
+                    Active
+                  </span>
+                )}
+              </div>
+              <div className="text-[11px] text-blue-900/85 leading-tight">
+                {isBn
+                  ? 'বিলিংয়ের সময় পণ্যের নাম ও বিবরণ সবসময় বড় হাতের অক্ষরে (যেমন: SHIRT, PANT) স্বয়ংক্রিয়ভাবে টাইপ হবে।'
+                  : 'Automatically converts product & item names to UPPERCASE letters while typing bills.'}
+              </div>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+              <input
+                type="checkbox"
+                checked={form.autoCapitalizeItemNames !== false}
+                onChange={(e) => setForm({ ...form, autoCapitalizeItemNames: e.target.checked })}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-stone-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+            </label>
+          </div>
+
           {/* Data Saver Mode in Settings */}
           <div className="p-3 bg-emerald-50/70 rounded-2xl border border-emerald-200 flex items-center justify-between gap-3">
             <div>
