@@ -28,7 +28,10 @@ export interface BarcodeLabelConfig {
   barcodeType: 'CODE128' | 'EAN13' | 'QR';
   mrp?: number;
   salePrice: number;
+  purchasePrice?: number;
+  showPurchasePrice?: boolean;
   sizeOrVariant?: string;
+  productQuantity?: number;
   batchOrDate?: string;
   footerNote?: string;
   sizePreset: LabelSizePreset;

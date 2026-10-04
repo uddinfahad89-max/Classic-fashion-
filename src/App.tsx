@@ -72,6 +72,7 @@ export default function App() {
   const [language, setLanguage] = useState<Language>(storageService.getLanguage());
   const [purchaseTrips, setPurchaseTrips] = useState<PurchaseTrip[]>([]);
   const [products, setProducts] = useState<ProductStockItem[]>(() => storageService.getProducts());
+  const [barcodeTargetProduct, setBarcodeTargetProduct] = useState<ProductStockItem | null>(null);
   const [isProductStockOpen, setIsProductStockOpen] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isAppLocked, setIsAppLocked] = useState(false);
@@ -1427,6 +1428,15 @@ export default function App() {
             settings={settings}
             language={language}
             bills={bills}
+            products={products}
+            selectedProduct={barcodeTargetProduct}
+            onSaveProduct={(savedProd) => {
+              const fresh = storageService.getProducts();
+              setProducts(fresh);
+              if (savedProd) {
+                setBarcodeTargetProduct(savedProd);
+              }
+            }}
             onShowToast={showToast}
           />
         )}
@@ -1578,6 +1588,7 @@ export default function App() {
           );
         }}
         onOpenBarcodeStudio={(prod) => {
+          setBarcodeTargetProduct(prod);
           setActiveTab('barcode');
           showToast(
             language === 'bn'

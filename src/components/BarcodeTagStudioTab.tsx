@@ -61,14 +61,19 @@ import {
   TagCornerRadius,
   TagTitleFontSize,
   TagAlignment,
+  ProductStockItem,
 } from '../types';
 import { thermalPrinterService } from '../services/thermalPrinterService';
 import { storageService } from '../services/storageService';
+import { generateAutoSkuFromName } from './ProductStockModal';
 
 interface BarcodeTagStudioTabProps {
   settings: ThermalPrinterSettings;
   language: Language;
   bills: BillInvoice[];
+  products?: ProductStockItem[];
+  selectedProduct?: ProductStockItem | null;
+  onSaveProduct?: (productData: any) => void;
   onShowToast: (message: string, type?: 'success' | 'info' | 'error') => void;
 }
 
@@ -148,6 +153,9 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
   settings,
   language,
   bills,
+  products,
+  selectedProduct,
+  onSaveProduct,
   onShowToast,
 }) => {
   const isBn = language === 'bn';
@@ -174,7 +182,10 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
       barcodeType: 'CODE128',
       mrp: 850,
       salePrice: 850,
+      purchasePrice: undefined,
+      showPurchasePrice: false,
       sizeOrVariant: '',
+      productQuantity: 1,
       batchOrDate: '',
       footerNote: '',
       sizePreset: '2x1',
@@ -281,8 +292,12 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
       showStoreName: labelConfig.showStoreName,
       showMrp: labelConfig.showMrp,
       showSalePrice: labelConfig.showSalePrice,
+      purchasePrice: labelConfig.purchasePrice,
+      showPurchasePrice: labelConfig.showPurchasePrice,
       showBarcode: labelConfig.showBarcode,
       showSize: labelConfig.showSize,
+      sizeOrVariant: labelConfig.sizeOrVariant,
+      productQuantity: labelConfig.productQuantity,
       showBatch: labelConfig.showBatch,
       showFooterNote: labelConfig.showFooterNote,
       mrpPrefix: labelConfig.mrpPrefix,
@@ -425,13 +440,187 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     return captured;
   };
 
-  // Auto-generate SKU / Barcode
+  // 6-digit seed for cost-encoded SKU generation
+  const [autoSkuSeed, setAutoSkuSeed] = useState<string>(() => {
+    return String(Math.floor(100000 + Math.random() * 900000));
+  });
+
+  // Track the product this barcode belongs to for automatic saving
+  const [activeProductId, setActiveProductId] = useState<string | null>(() => selectedProduct?.id || null);
+
+  // Cost-encoded SKU generator helper matching ProductStockModal:
+  // [1-2 Alphabets] + [1st digit of Cost] + [6 Middle Digits] + [Remaining digits of Cost]
+  const getEncodedSku = (
+    costVal?: string | number,
+    prodName?: string,
+    seed?: string,
+    currentCode?: string
+  ): string => {
+    const targetName = (prodName !== undefined ? prodName : labelConfig.itemName) || labelConfig.storeName || 'CL';
+    const targetSeed = seed || autoSkuSeed;
+    return generateAutoSkuFromName(targetName, targetSeed, costVal, currentCode || labelConfig.barcodeValue);
+  };
+
+  // Auto-sync whenever selectedProduct is provided or updated
+  useEffect(() => {
+    if (selectedProduct) {
+      setActiveProductId(selectedProduct.id);
+      let extractedName = selectedProduct.name;
+      let extractedSize = '';
+      const sizeMatch = selectedProduct.name.match(/\(([^)]+)\)$/);
+      if (sizeMatch) {
+        extractedSize = sizeMatch[1];
+        extractedName = selectedProduct.name.replace(/\(([^)]+)\)$/, '').trim();
+      }
+      const targetSku =
+        selectedProduct.barcode ||
+        getEncodedSku(selectedProduct.purchasePrice, extractedName, autoSkuSeed);
+
+      setLabelConfig((prev) => ({
+        ...prev,
+        itemName: extractedName,
+        showItemName: true,
+        salePrice: selectedProduct.price || prev.salePrice,
+        mrp: selectedProduct.price || prev.mrp,
+        purchasePrice: selectedProduct.purchasePrice,
+        showPurchasePrice: Boolean(selectedProduct.purchasePrice && selectedProduct.purchasePrice > 0),
+        sizeOrVariant: extractedSize || prev.sizeOrVariant,
+        showSize: Boolean(extractedSize || prev.showSize),
+        productQuantity: selectedProduct.stock !== undefined ? selectedProduct.stock : 1,
+        barcodeValue: targetSku,
+      }));
+    }
+  }, [selectedProduct]);
+
+  // Select product from saved product stock list
+  const handleSelectProduct = (prod: ProductStockItem) => {
+    setActiveProductId(prod.id);
+    let extractedName = prod.name;
+    let extractedSize = '';
+    const sizeMatch = prod.name.match(/\(([^)]+)\)$/);
+    if (sizeMatch) {
+      extractedSize = sizeMatch[1];
+      extractedName = prod.name.replace(/\(([^)]+)\)$/, '').trim();
+    }
+    const targetSku =
+      prod.barcode ||
+      getEncodedSku(prod.purchasePrice, extractedName, autoSkuSeed, labelConfig.barcodeValue);
+
+    setLabelConfig((prev) => ({
+      ...prev,
+      itemName: extractedName,
+      showItemName: true,
+      salePrice: prod.price || prev.salePrice,
+      mrp: prod.price || prev.mrp,
+      purchasePrice: prod.purchasePrice,
+      showPurchasePrice: Boolean(prod.purchasePrice && prod.purchasePrice > 0),
+      sizeOrVariant: extractedSize || prev.sizeOrVariant,
+      showSize: Boolean(extractedSize || prev.showSize),
+      productQuantity: prod.stock !== undefined ? prod.stock : 1,
+      barcodeValue: targetSku,
+    }));
+
+    onShowToast(
+      isBn
+        ? `"${prod.name}" প্রোডাক্টটি বারকোড স্টুডিওতে লোড করা হয়েছে`
+        : `Loaded "${prod.name}" in Barcode Studio`,
+      'info'
+    );
+  };
+
+  // Helper to auto-save and link the barcode directly to the target product in stock/catalog
+  const autoSaveToProduct = (
+    barcodeVal: string,
+    currentConfig?: BarcodeLabelConfig,
+    showToastMessage: boolean = false
+  ) => {
+    const cfg = currentConfig || labelConfig;
+    const name = (cfg.itemName || '').trim();
+    if (!name && !activeProductId) return;
+
+    const price = cfg.salePrice || cfg.mrp || 0;
+    const cost = cfg.purchasePrice && cfg.purchasePrice > 0 ? cfg.purchasePrice : undefined;
+    const stock = cfg.productQuantity !== undefined ? cfg.productQuantity : 1;
+    const fullName = cfg.sizeOrVariant ? `${name} (${cfg.sizeOrVariant})` : name;
+
+    const savedProd = storageService.addOrUpdateProduct({
+      id: activeProductId || undefined,
+      name: fullName || name,
+      price: price,
+      purchasePrice: cost,
+      stock: stock,
+      barcode: barcodeVal.trim(),
+      unit: 'Pcs',
+    });
+
+    if (savedProd?.id) {
+      setActiveProductId(savedProd.id);
+    }
+
+    if (onSaveProduct) {
+      onSaveProduct(savedProd);
+    }
+
+    if (showToastMessage) {
+      onShowToast(
+        isBn
+          ? `"${fullName || name}" প্রোডাক্টে বারকোড (${barcodeVal.trim()}) সেভ হয়েছে!`
+          : `Saved barcode (${barcodeVal.trim()}) to product "${fullName || name}"!`,
+        'success'
+      );
+    }
+  };
+
+  const handlePurchasePriceChange = (valStr: string) => {
+    const numVal = valStr === '' ? undefined : Number(valStr);
+    const newSku = getEncodedSku(numVal, labelConfig.itemName, autoSkuSeed, labelConfig.barcodeValue);
+    setLabelConfig((prev) => ({
+      ...prev,
+      purchasePrice: numVal,
+      barcodeValue: newSku,
+    }));
+    if (labelConfig.itemName?.trim() || activeProductId) {
+      autoSaveToProduct(newSku, { ...labelConfig, purchasePrice: numVal, barcodeValue: newSku }, false);
+    }
+  };
+
+  const handleItemNameChange = (nameStr: string) => {
+    const matched = products?.find(
+      (p) => p.name.trim().toLowerCase() === nameStr.trim().toLowerCase()
+    );
+    if (matched) {
+      setActiveProductId(matched.id);
+    }
+    setLabelConfig((prev) => {
+      const updated: BarcodeLabelConfig = { ...prev, itemName: nameStr };
+      if (prev.purchasePrice && prev.purchasePrice > 0) {
+        updated.barcodeValue = getEncodedSku(prev.purchasePrice, nameStr, autoSkuSeed, prev.barcodeValue);
+      }
+      return updated;
+    });
+  };
+
+  const handleSaveProductStock = (customConfig?: BarcodeLabelConfig) => {
+    const cfg = customConfig || labelConfig;
+    const name = (cfg.itemName || '').trim();
+    if (!name && !activeProductId) {
+      onShowToast(isBn ? 'অনুগ্রহ করে পণ্যের নাম লিখুন' : 'Please enter product name', 'error');
+      return;
+    }
+    autoSaveToProduct(cfg.barcodeValue || '', cfg, true);
+  };
+
+  // Auto-generate SKU / Barcode with cost encoded
   const handleGenerateBarcode = () => {
-    const randomNum = Math.floor(100000 + Math.random() * 900000);
-    const prefix = (labelConfig.storeName || 'POS').substring(0, 2).toUpperCase().replace(/[^A-Z]/g, 'IT');
-    const newCode = `${prefix}-${randomNum}`;
+    const newSeed = String(Math.floor(100000 + Math.random() * 900000));
+    setAutoSkuSeed(newSeed);
+    const newCode = getEncodedSku(labelConfig.purchasePrice, labelConfig.itemName, newSeed, labelConfig.barcodeValue);
     setLabelConfig((prev) => ({ ...prev, barcodeValue: newCode }));
-    onShowToast(isBn ? 'নতুন বারকোড তৈরি হয়েছে!' : 'New barcode generated!', 'info');
+    if (labelConfig.itemName?.trim() || activeProductId) {
+      autoSaveToProduct(newCode, { ...labelConfig, barcodeValue: newCode }, true);
+    } else {
+      onShowToast(isBn ? 'নতুন বারকোড তৈরি হয়েছে!' : 'New barcode generated!', 'info');
+    }
   };
 
   // Render Barcode PNG image via Canvas or QR Code whenever barcodeValue changes or design changes
@@ -1860,33 +2049,63 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                   />
                 </div>
 
-                {/* Product Name (Optional) */}
+                {/* Product Name */}
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="text-xs font-bold text-stone-700 flex items-center gap-1">
                       <span>{isBn ? 'পণ্যের নাম' : 'Product Name'}</span>
                       <span className="text-[10px] text-stone-400 font-normal">({isBn ? 'ঐচ্ছিক' : 'Optional'})</span>
                     </label>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                      {/* Pick from Saved Product Stock */}
+                      {products && products.length > 0 && (
+                        <select
+                          onChange={(e) => {
+                            const prod = products.find((p) => p.id === e.target.value);
+                            if (prod) {
+                              handleSelectProduct(prod);
+                            }
+                          }}
+                          value={activeProductId || ''}
+                          className="text-[9px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded px-1.5 py-0.5 cursor-pointer max-w-[125px] sm:max-w-[145px] truncate"
+                          title={isBn ? 'স্টকের প্রোডাক্ট বাছুন' : 'Pick from Stock'}
+                        >
+                          <option value="" disabled>
+                            {isBn ? '📦 স্টক প্রোডাক্ট' : '📦 From Stock'}
+                          </option>
+                          {products.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name} ({sym}{p.price})
+                            </option>
+                          ))}
+                        </select>
+                      )}
+
+                      {/* Pick from Recent Bills */}
                       {recentBillItems.length > 0 && (
                         <select
                           onChange={(e) => {
                             const sel = recentBillItems.find((item) => item.name === e.target.value);
                             if (sel) {
-                              setLabelConfig((prev) => ({
-                                ...prev,
-                                itemName: sel.name,
-                                showItemName: true,
-                                salePrice: sel.price,
-                                mrp: Math.round(sel.price * 1.3),
-                              }));
+                              setLabelConfig((prev) => {
+                                const nextSku = getEncodedSku(prev.purchasePrice, sel.name, autoSkuSeed, prev.barcodeValue);
+                                return {
+                                  ...prev,
+                                  itemName: sel.name,
+                                  showItemName: true,
+                                  salePrice: sel.price,
+                                  mrp: Math.round(sel.price * 1.3),
+                                  barcodeValue: nextSku,
+                                };
+                              });
                             }
                           }}
                           value=""
-                          className="text-[10px] font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded px-1.5 py-0.5 cursor-pointer"
+                          className="text-[9px] font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded px-1.5 py-0.5 cursor-pointer max-w-[105px] truncate"
+                          title={isBn ? 'বিলের আইটেম বাছুন' : 'Pick from Bills'}
                         >
                           <option value="" disabled>
-                            {isBn ? '⚡ বিল থেকে আইটেম বাছুন' : '⚡ Pick from Bills'}
+                            {isBn ? '⚡ বিল থেকে' : '⚡ Bills'}
                           </option>
                           {recentBillItems.map((item, idx) => (
                             <option key={idx} value={item.name}>
@@ -1904,28 +2123,29 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                           }
                           className="rounded text-blue-600 cursor-pointer"
                         />
-                        <span>{isBn ? 'স্টিকারে দেখান' : 'Show'}</span>
+                        <span>{isBn ? 'দেখান' : 'Show'}</span>
                       </label>
                     </div>
                   </div>
                   <input
                     type="text"
                     value={labelConfig.itemName}
-                    onChange={(e) => setLabelConfig((prev) => ({ ...prev, itemName: e.target.value }))}
-                    placeholder={isBn ? 'ফাঁকা রাখলে দেখাবে না (যেমন: কটন শাড়ি / কুর্তি)' : 'Leave blank to hide on tag (Optional)'}
+                    onChange={(e) => handleItemNameChange(e.target.value)}
+                    placeholder={isBn ? 'যেমন: কটন শার্ট / জিন্স প্যান্ট' : 'e.g. Cotton Shirt / Jeans'}
                     className="w-full bg-stone-50 hover:bg-stone-100/60 focus:bg-white text-stone-900 font-bold border border-stone-200 rounded-xl px-3 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
                   />
                 </div>
 
-                {/* Row: Size/Variant & Barcode Code with Auto Gen (Both Optional) */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Row: Size/Variant & Product Quantity Side-by-Side (সাইজের পাশে প্রোডাক্ট কোয়ান্টিটি) */}
+                <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
+                  {/* Size / Variant */}
                   <div>
                     <div className="flex items-center justify-between mb-1">
-                      <label className="text-xs font-bold text-stone-700 flex items-center gap-1">
+                      <label className="text-xs font-bold text-stone-700 flex items-center gap-1 truncate">
                         <span>{isBn ? 'সাইজ / ভ্যারিয়েন্ট' : 'Size / Variant'}</span>
-                        <span className="text-[10px] text-stone-400 font-normal">({isBn ? 'ঐচ্ছিক' : 'Optional'})</span>
+                        <span className="text-[10px] text-stone-400 font-normal">({isBn ? 'ঐচ্ছিক' : 'Opt'})</span>
                       </label>
-                      <label className="flex items-center gap-1 cursor-pointer text-[10px] text-stone-500">
+                      <label className="flex items-center gap-1 cursor-pointer text-[10px] text-stone-500 shrink-0">
                         <input
                           type="checkbox"
                           checked={labelConfig.showSize}
@@ -1941,79 +2161,168 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                       type="text"
                       value={labelConfig.sizeOrVariant || ''}
                       onChange={(e) => setLabelConfig((prev) => ({ ...prev, sizeOrVariant: e.target.value }))}
-                      placeholder={isBn ? 'ফাঁকা রাখলে দেখাবে না (Free Size / L / XL)' : 'Leave blank to hide (Optional)'}
+                      placeholder={isBn ? 'যেমন: Free Size / L / XL / 32' : 'e.g. Free Size / L / XL'}
                       className="w-full bg-stone-50 hover:bg-stone-100/60 focus:bg-white text-stone-900 font-bold border border-stone-200 rounded-xl px-3 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
                     />
                   </div>
 
+                  {/* Product Quantity (মজুদ / স্টক / পিস - সাইজের ঠিক পাশে) */}
                   <div>
                     <div className="flex items-center justify-between mb-1">
-                      <label className="text-xs font-bold text-stone-700 flex items-center gap-1">
-                        <span>{isBn ? 'বারকোড নম্বর / SKU' : 'Barcode SKU'}</span>
-                        <span className="text-[10px] text-stone-400 font-normal">({isBn ? 'ঐচ্ছিক' : 'Optional'})</span>
+                      <label className="text-xs font-bold text-stone-700 flex items-center gap-1 truncate">
+                        <Package className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                        <span>{isBn ? 'প্রোডাক্ট কোয়ান্টিটি' : 'Product Qty'}</span>
+                        <span className="text-[10px] text-stone-400 font-normal">({isBn ? 'স্টক' : 'Stock'})</span>
                       </label>
-                      <button
-                        type="button"
-                        onClick={handleGenerateBarcode}
-                        className="text-[10px] font-black text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2 py-0.5 rounded-md cursor-pointer transition-all flex items-center gap-1"
-                      >
-                        <Sparkles className="w-3 h-3 text-amber-500" />
-                        <span>{isBn ? 'অটো কোড' : 'Auto'}</span>
-                      </button>
+                      <span className="text-[10px] text-stone-500 font-bold">{isBn ? 'পিস' : 'Pcs'}</span>
                     </div>
                     <input
-                      type="text"
-                      value={labelConfig.barcodeValue}
-                      onChange={(e) => setLabelConfig((prev) => ({ ...prev, barcodeValue: e.target.value }))}
-                      placeholder="2857854050000"
+                      type="number"
+                      min="0"
+                      value={labelConfig.productQuantity !== undefined ? labelConfig.productQuantity : 1}
+                      onChange={(e) => {
+                        const val = e.target.value === '' ? undefined : Number(e.target.value) || 0;
+                        setLabelConfig((prev) => ({ ...prev, productQuantity: val }));
+                        if (labelConfig.itemName?.trim() || activeProductId) {
+                          autoSaveToProduct(labelConfig.barcodeValue, { ...labelConfig, productQuantity: val }, false);
+                        }
+                      }}
+                      placeholder={isBn ? 'যেমন: 10' : 'e.g. 10'}
                       className="w-full bg-stone-50 hover:bg-stone-100/60 focus:bg-white text-stone-900 font-black font-mono border border-stone-200 rounded-xl px-3 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
                     />
                   </div>
                 </div>
 
-                {/* Row: Sale Price (Original MRP hidden into 3-Dot menu) */}
+                {/* Row 2: Barcode SKU with Auto Generator */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold text-stone-700 flex items-center gap-1.5 flex-wrap">
+                      <span>{isBn ? 'বারকোড নম্বর / SKU' : 'Barcode SKU'}</span>
+                      <span className="text-[10px] text-stone-400 font-normal">({isBn ? 'ঐচ্ছিক' : 'Optional'})</span>
+                      {activeProductId && (
+                        <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100/80 px-1.5 py-0.5 rounded-full">
+                          {isBn ? '✓ প্রোডাক্ট স্টকে সেভ থাকবে' : '✓ Auto-saves to product'}
+                        </span>
+                      )}
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleGenerateBarcode}
+                      className="text-[10px] font-black text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2 py-0.5 rounded-md cursor-pointer transition-all flex items-center gap-1"
+                    >
+                      <Sparkles className="w-3 h-3 text-amber-500" />
+                      <span>{isBn ? 'অটো কোড' : 'Auto'}</span>
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    value={labelConfig.barcodeValue}
+                    onChange={(e) => setLabelConfig((prev) => ({ ...prev, barcodeValue: e.target.value }))}
+                    onBlur={() => {
+                      if (labelConfig.barcodeValue.trim() && (labelConfig.itemName?.trim() || activeProductId)) {
+                        autoSaveToProduct(labelConfig.barcodeValue.trim(), labelConfig, true);
+                      }
+                    }}
+                    placeholder="2857854050000"
+                    className="w-full bg-stone-50 hover:bg-stone-100/60 focus:bg-white text-stone-900 font-black font-mono border border-stone-200 rounded-xl px-3 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                  />
+                </div>
+
+                {/* Row 3: Sale Price & Purchase Rate Side-by-Side (Sale price পাসে purchase rate লেখার সাথে সাথে অটো SKU) */}
                 <div className="p-3 bg-stone-50/80 rounded-xl border border-stone-200">
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="text-xs font-bold text-stone-700 flex items-center gap-1">
-                        <Tag className="w-3.5 h-3.5 text-blue-600" />
-                        <span>{isBn ? 'বিক্রয় মূল্য (Sale Price / MRP)' : 'Sale Price'}</span>
-                        <span className="text-[10px] text-stone-400 font-normal">({isBn ? 'ঐচ্ছিক' : 'Opt'})</span>
-                      </label>
-                      <label className="flex items-center gap-1 cursor-pointer text-[10px] text-stone-500">
+                  <div className="grid grid-cols-2 gap-3">
+                    {/* Sale Price */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-xs font-bold text-stone-700 flex items-center gap-1 truncate">
+                          <Tag className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                          <span>{isBn ? 'বিক্রয় মূল্য' : 'Sale Price'}</span>
+                          <span className="text-[10px] text-stone-400 font-normal">({isBn ? 'ঐচ্ছিক' : 'Opt'})</span>
+                        </label>
+                        <label className="flex items-center gap-1 cursor-pointer text-[10px] text-stone-500 shrink-0">
+                          <input
+                            type="checkbox"
+                            checked={labelConfig.showSalePrice || labelConfig.showMrp}
+                            onChange={(e) =>
+                              setLabelConfig((prev) => ({
+                                ...prev,
+                                showSalePrice: e.target.checked,
+                                showMrp: e.target.checked,
+                              }))
+                            }
+                            className="rounded text-blue-600 cursor-pointer"
+                          />
+                          <span>{isBn ? 'দেখান' : 'Show'}</span>
+                        </label>
+                      </div>
+                      <div className="relative">
+                        <span className="absolute left-3 top-2 text-xs font-bold text-blue-600">{sym}</span>
                         <input
-                          type="checkbox"
-                          checked={labelConfig.showSalePrice || labelConfig.showMrp}
-                          onChange={(e) =>
+                          type="number"
+                          min="0"
+                          value={labelConfig.salePrice || labelConfig.mrp || ''}
+                          onChange={(e) => {
+                            const val = e.target.value === '' ? 0 : Number(e.target.value) || 0;
                             setLabelConfig((prev) => ({
                               ...prev,
-                              showSalePrice: e.target.checked,
-                              showMrp: e.target.checked,
-                            }))
-                          }
-                          className="rounded text-blue-600 cursor-pointer"
+                              salePrice: val,
+                              mrp: val,
+                            }));
+                          }}
+                          placeholder={isBn ? 'যেমন: 850' : 'e.g. 850'}
+                          className="w-full bg-white text-stone-950 font-bold border border-stone-300 rounded-lg pl-8 pr-2 py-1.5 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                         />
-                        <span>{isBn ? 'দেখান' : 'Show'}</span>
-                      </label>
+                      </div>
                     </div>
-                    <div className="relative">
-                      <span className="absolute left-3 top-2 text-xs font-bold text-blue-600">{sym}</span>
-                      <input
-                        type="number"
-                        min="0"
-                        value={labelConfig.salePrice || labelConfig.mrp || ''}
-                        onChange={(e) => {
-                          const val = e.target.value === '' ? 0 : Number(e.target.value) || 0;
-                          setLabelConfig((prev) => ({
-                            ...prev,
-                            salePrice: val,
-                            mrp: val,
-                          }));
-                        }}
-                        placeholder={isBn ? 'যেমন: 850 (ফাঁকা রাখতে পারেন)' : 'e.g. 850 (Optional)'}
-                        className="w-full bg-white text-stone-950 font-bold border border-stone-300 rounded-lg pl-8 pr-2 py-1.5 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
+
+                    {/* Purchase Rate (কেনা দাম - লেখার সাথে সাথে অটো এসকিউ কোড আপডেট হবে) */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-xs font-bold text-stone-700 flex items-center gap-1 truncate">
+                          <ShoppingBag className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span>{isBn ? 'কেনা দাম' : 'Purchase Rate'}</span>
+                          <span className="text-[10px] text-stone-400 font-normal">({isBn ? 'ঐচ্ছিক' : 'Opt'})</span>
+                        </label>
+                        <label className="flex items-center gap-1 cursor-pointer text-[10px] text-stone-500 shrink-0">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(labelConfig.showPurchasePrice)}
+                            onChange={(e) =>
+                              setLabelConfig((prev) => ({
+                                ...prev,
+                                showPurchasePrice: e.target.checked,
+                              }))
+                            }
+                            className="rounded text-emerald-600 cursor-pointer"
+                          />
+                          <span>{isBn ? 'দেখান' : 'Show'}</span>
+                        </label>
+                      </div>
+                      <div className="relative">
+                        <span className="absolute left-3 top-2 text-xs font-bold text-emerald-600">{sym}</span>
+                        <input
+                          type="number"
+                          min="0"
+                          value={labelConfig.purchasePrice || ''}
+                          onChange={(e) => handlePurchasePriceChange(e.target.value)}
+                          placeholder={isBn ? 'যেমন: 500' : 'e.g. 500'}
+                          className="w-full bg-white text-stone-950 font-bold border border-stone-300 rounded-lg pl-8 pr-2 py-1.5 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
                     </div>
+                  </div>
+
+                  {/* Save Product & Barcode to Catalog / Stock */}
+                  <div className="mt-2.5 pt-2 border-t border-stone-200/80 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleSaveProductStock()}
+                      className="flex-1 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-all shadow-xs"
+                      title={isBn ? 'বারকোড সহ এই প্রোডাক্টটি স্টকে সেভ করুন' : 'Save this product & barcode to stock'}
+                    >
+                      <CheckCircle2 className="w-4 h-4 text-white" />
+                      <span>{isBn ? '💾 প্রোডাক্ট ও বারকোড সেভ করুন' : '💾 Save Product & Barcode'}</span>
+                    </button>
                   </div>
                 </div>
               </div>
@@ -2088,14 +2397,72 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                 />
               </div>
 
-              {/* Item Name & Size/Variant */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-[11px] font-bold text-stone-600 flex items-center gap-1">
-                      <span>{isBn ? 'পণ্যের নাম (Item Name)' : 'Item Name'}</span>
-                      <span className="text-[10px] text-stone-400 font-normal">({isBn ? 'ঐচ্ছিক' : 'Optional'})</span>
-                    </label>
+              {/* Item Name */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[11px] font-bold text-stone-600 flex items-center gap-1">
+                    <span>{isBn ? 'পণ্যের নাম (Item Name)' : 'Item Name'}</span>
+                    <span className="text-[10px] text-stone-400 font-normal">({isBn ? 'ঐচ্ছিক' : 'Optional'})</span>
+                  </label>
+                  <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                    {/* Pick from Saved Product Stock */}
+                    {products && products.length > 0 && (
+                      <select
+                        onChange={(e) => {
+                          const prod = products.find((p) => p.id === e.target.value);
+                          if (prod) {
+                            handleSelectProduct(prod);
+                          }
+                        }}
+                        value={activeProductId || ''}
+                        className="text-[9px] font-bold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded px-1.5 py-0.5 cursor-pointer max-w-[125px] sm:max-w-[145px] truncate"
+                        title={isBn ? 'স্টকের প্রোডাক্ট বাছুন' : 'Pick from Stock'}
+                      >
+                        <option value="" disabled>
+                          {isBn ? '📦 স্টক প্রোডাক্ট' : '📦 From Stock'}
+                        </option>
+                        {products.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name} ({sym}{p.price})
+                          </option>
+                        ))}
+                      </select>
+                    )}
+
+                    {/* Pick from Bills */}
+                    {recentBillItems.length > 0 && (
+                      <select
+                        onChange={(e) => {
+                          const sel = recentBillItems.find((item) => item.name === e.target.value);
+                          if (sel) {
+                            setLabelConfig((prev) => {
+                              const nextSku = getEncodedSku(prev.purchasePrice, sel.name, autoSkuSeed, prev.barcodeValue);
+                              return {
+                                ...prev,
+                                itemName: sel.name,
+                                showItemName: true,
+                                salePrice: sel.price,
+                                mrp: Math.round(sel.price * 1.3),
+                                barcodeValue: nextSku,
+                              };
+                            });
+                          }
+                        }}
+                        value=""
+                        className="text-[9px] font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded px-1.5 py-0.5 cursor-pointer max-w-[105px] truncate"
+                        title={isBn ? 'বিলের আইটেম বাছুন' : 'Pick from Bills'}
+                      >
+                        <option value="" disabled>
+                          {isBn ? '⚡ বিল থেকে' : '⚡ Bills'}
+                        </option>
+                        {recentBillItems.map((item, idx) => (
+                          <option key={idx} value={item.name}>
+                            {item.name} ({sym}{item.price})
+                          </option>
+                        ))}
+                      </select>
+                    )}
+
                     <label className="flex items-center gap-1 cursor-pointer">
                       <input
                         type="checkbox"
@@ -2110,18 +2477,25 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                       </span>
                     </label>
                   </div>
-                  <input
-                    type="text"
-                    value={labelConfig.itemName}
-                    onChange={(e) => setLabelConfig((prev) => ({ ...prev, itemName: e.target.value }))}
-                    placeholder={isBn ? 'ফাঁকা রাখলে দেখাবে না (ঐচ্ছিক)' : 'Leave blank to hide (Optional)'}
-                    className="w-full border border-stone-200 bg-stone-50/70 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
-                  />
                 </div>
+                <input
+                  type="text"
+                  value={labelConfig.itemName}
+                  onChange={(e) => handleItemNameChange(e.target.value)}
+                  placeholder={isBn ? 'ফাঁকা রাখলে দেখাবে না (ঐচ্ছিক)' : 'Leave blank to hide (Optional)'}
+                  className="w-full border border-stone-200 bg-stone-50/70 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
+                />
+              </div>
 
+              {/* Row: Size/Variant & Product Quantity Side-by-Side (সাইজের পাশে প্রোডাক্ট কোয়ান্টিটি) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {/* Size / Variant */}
                 <div>
-                  <label className="text-[11px] font-bold text-stone-600 mb-1 flex items-center justify-between">
-                    <span>{isBn ? 'সাইজ / ভ্যারিয়েন্ট (Size)' : 'Size / Variant'}</span>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[11px] font-bold text-stone-600 flex items-center gap-1">
+                      <span>{isBn ? 'সাইজ / ভ্যারিয়েন্ট (Size)' : 'Size / Variant'}</span>
+                      <span className="text-[10px] text-stone-400 font-normal">({isBn ? 'ঐচ্ছিক' : 'Opt'})</span>
+                    </label>
                     <label className="flex items-center gap-1 cursor-pointer">
                       <input
                         type="checkbox"
@@ -2135,7 +2509,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                         {isBn ? 'দেখাও' : 'Show'}
                       </span>
                     </label>
-                  </label>
+                  </div>
                   <input
                     type="text"
                     value={labelConfig.sizeOrVariant || ''}
@@ -2146,10 +2520,36 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                     className="w-full border border-stone-200 bg-stone-50/70 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
                   />
                 </div>
+
+                {/* Product Quantity (মজুদ / স্টক পরিমাণ - সাইজের ঠিক পাশে) */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[11px] font-bold text-stone-600 flex items-center gap-1 truncate">
+                      <Package className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                      <span>{isBn ? 'প্রোডাক্ট কোয়ান্টিটি' : 'Product Qty'}</span>
+                      <span className="text-[10px] text-stone-400 font-normal">({isBn ? 'স্টক' : 'Stock'})</span>
+                    </label>
+                    <span className="text-[10px] text-stone-500 font-bold">{isBn ? 'পিস' : 'Pcs'}</span>
+                  </div>
+                  <input
+                    type="number"
+                    min="0"
+                    value={labelConfig.productQuantity !== undefined ? labelConfig.productQuantity : 1}
+                    onChange={(e) => {
+                      const val = e.target.value === '' ? undefined : Number(e.target.value) || 0;
+                      setLabelConfig((prev) => ({ ...prev, productQuantity: val }));
+                      if (labelConfig.itemName?.trim() || activeProductId) {
+                        autoSaveToProduct(labelConfig.barcodeValue, { ...labelConfig, productQuantity: val }, false);
+                      }
+                    }}
+                    placeholder={isBn ? 'যেমন: 10' : 'e.g. 10'}
+                    className="w-full border border-stone-200 bg-stone-50/70 px-3 py-2 rounded-xl text-xs sm:text-sm font-bold font-mono focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
+                  />
+                </div>
               </div>
 
-              {/* Pricing: MRP and Sale Price */}
-              <div className="grid grid-cols-2 gap-2.5 p-3 bg-amber-50/60 rounded-xl border border-amber-200/80">
+              {/* Pricing: MRP, Sale Price and Purchase Rate */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 p-3 bg-amber-50/60 rounded-xl border border-amber-200/80">
                 <div>
                   <label className="text-[11px] font-bold text-stone-600 mb-1 flex items-center justify-between">
                     <span>{isBn ? 'M.R.P. (কাটা দাম)' : 'M.R.P. Price'}</span>
@@ -2210,14 +2610,52 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                     <input
                       type="number"
                       value={labelConfig.salePrice || ''}
-                      onChange={(e) =>
+                      onChange={(e) => {
+                        const val = Number(e.target.value) || 0;
                         setLabelConfig((prev) => ({
                           ...prev,
-                          salePrice: Number(e.target.value) || 0,
-                        }))
-                      }
+                          salePrice: val,
+                        }));
+                        if (labelConfig.itemName?.trim() || activeProductId) {
+                          autoSaveToProduct(labelConfig.barcodeValue, { ...labelConfig, salePrice: val }, false);
+                        }
+                      }}
                       placeholder={isBn ? 'ঐচ্ছিক (ফাঁকা রাখতে পারেন)' : 'Optional'}
                       className="w-full border-2 border-rose-300 bg-white pl-8 pr-2 py-2 rounded-xl text-xs sm:text-sm font-mono font-black text-rose-600 focus:outline-none focus:border-rose-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[11px] font-black text-emerald-700 flex items-center gap-1">
+                      <span>{isBn ? 'কেনা দাম (Purchase)' : 'Purchase Rate'}</span>
+                      <span className="text-[10px] text-stone-400 font-normal">({isBn ? 'ঐচ্ছিক' : 'Optional'})</span>
+                    </label>
+                    <label className="flex items-center gap-1 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(labelConfig.showPurchasePrice)}
+                        onChange={(e) =>
+                          setLabelConfig((prev) => ({ ...prev, showPurchasePrice: e.target.checked }))
+                        }
+                        className="rounded text-emerald-600"
+                      />
+                      <span className="text-[10px] text-stone-400 font-medium">
+                        {isBn ? 'দেখাও' : 'Show'}
+                      </span>
+                    </label>
+                  </div>
+                  <div className="relative">
+                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-emerald-600 text-xs font-mono font-bold">
+                      {sym}
+                    </span>
+                    <input
+                      type="number"
+                      value={labelConfig.purchasePrice || ''}
+                      onChange={(e) => handlePurchasePriceChange(e.target.value)}
+                      placeholder={isBn ? 'যেমন: 500' : 'e.g. 500'}
+                      className="w-full border border-stone-200 bg-white pl-8 pr-2 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold text-emerald-700 focus:outline-none focus:border-emerald-500"
                     />
                   </div>
                 </div>
@@ -2226,9 +2664,14 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
               {/* Barcode & SKU Setup */}
               <div className="p-3 bg-stone-50 rounded-xl border border-stone-200 space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="text-[11px] font-bold text-stone-700 flex items-center gap-1.5">
+                  <label className="text-[11px] font-bold text-stone-700 flex items-center gap-1.5 flex-wrap">
                     <BarcodeIcon className="w-3.5 h-3.5 text-stone-600" />
                     <span>{isBn ? 'বারকোড ও এসকেইউ (Barcode / SKU)' : 'Barcode & SKU'}</span>
+                    {activeProductId && (
+                      <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100/80 px-1.5 py-0.5 rounded-full">
+                        {isBn ? '✓ স্টকে সেভ থাকবে' : '✓ Auto-saves to stock'}
+                      </span>
+                    )}
                   </label>
                   <div className="flex items-center gap-2">
                     <select
@@ -2263,9 +2706,25 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                   onChange={(e) =>
                     setLabelConfig((prev) => ({ ...prev, barcodeValue: e.target.value }))
                   }
+                  onBlur={() => {
+                    if (labelConfig.barcodeValue.trim() && (labelConfig.itemName?.trim() || activeProductId)) {
+                      autoSaveToProduct(labelConfig.barcodeValue.trim(), labelConfig, true);
+                    }
+                  }}
                   placeholder="যেমন: CF-1002 বা 890123456789"
                   className="w-full border border-stone-200 bg-white px-3 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold text-stone-800"
                 />
+
+                <div className="pt-1.5 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleSaveProductStock()}
+                    className="flex-1 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs transition-all"
+                  >
+                    <CheckCircle2 className="w-4 h-4 text-white" />
+                    <span>{isBn ? '💾 প্রোডাক্ট ও বারকোড সেভ করুন' : '💾 Save Product & Barcode'}</span>
+                  </button>
+                </div>
               </div>
 
               {/* Additional Options (Batch & Note) */}
@@ -3123,31 +3582,11 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
         {/* RIGHT COLUMN: Live Sticker Preview & Printing Actions (5 Cols on desktop) */}
         <div className="lg:col-span-5 space-y-4">
           <div className="bg-white p-4 sm:p-5 rounded-2xl border border-stone-200 shadow-xs space-y-3.5">
-            {/* Visual Thermal Sticker Container (Interactive 4Barcode Drag & Drop Canvas) */}
+            {/* Visual Thermal Sticker Container */}
             <div
               onClick={() => setSelectedCanvasItem(null)}
               className="bg-stone-100/90 p-3 sm:p-4 rounded-2xl border border-dashed border-stone-300 flex flex-col items-center justify-center min-h-[215px] gap-2 overflow-hidden"
             >
-              <div className="flex items-center justify-between w-full max-w-[312px] px-1 text-[10px] font-bold text-stone-600">
-                <span className="flex items-center gap-1">
-                  <span>🖐️</span>
-                  <span>
-                    {isBn
-                      ? 'ট্যাপ করে সরান • কোণার হ্যান্ডেল টেনে ছোট-বড় করুন'
-                      : 'Drag to move • Pull handles to resize'}
-                  </span>
-                </span>
-                {selectedCanvasItem && (
-                  <span className="font-mono font-black text-[9.5px] bg-indigo-600 text-white px-2 py-0.5 rounded-full shadow-2xs">
-                    {selectedCanvasItem === 'shop'
-                      ? `Shop (Font ${tsplLayout.shopFont})`
-                      : selectedCanvasItem === 'barcode'
-                      ? `Barcode: ${Math.round(tsplLayout.estBarcodeW * 0.75)}×${tsplLayout.barcodeHeight}px`
-                      : `MRP (Font ${tsplLayout.priceFont})`}
-                  </span>
-                )}
-              </div>
-
               <div
                 ref={labelPreviewRef}
                 id="thermal-sticker-live-card"
@@ -3201,9 +3640,6 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                     style={{
                       width: '300px',
                       height: '150px',
-                      backgroundImage:
-                        'radial-gradient(circle, rgba(0,0,0,0.07) 1px, transparent 1px)',
-                      backgroundSize: '15px 15px',
                     }}
                   >
                     {/* Line 1: Shop Name (Top - Directly Draggable & Resizable) */}
@@ -3217,7 +3653,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                         className={`absolute font-mono font-black whitespace-nowrap leading-none cursor-grab active:cursor-grabbing touch-none px-1 py-0.5 rounded-xs ${
                           selectedCanvasItem === 'shop'
                             ? 'ring-1 ring-indigo-500 bg-indigo-50/40 z-20'
-                            : 'hover:ring-1 hover:ring-stone-300 z-10'
+                            : 'z-10'
                         }`}
                         style={{
                           left: `${Math.round((tsplLayout.shopX - tsplLayout.rollLeftOffset) * 0.75)}px`,
@@ -3264,7 +3700,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                         className={`absolute flex flex-col items-start cursor-grab active:cursor-grabbing touch-none p-0.5 rounded-xs ${
                           selectedCanvasItem === 'barcode'
                             ? 'ring-1.5 ring-indigo-600 bg-indigo-50/25 z-20'
-                            : 'ring-1 ring-dashed ring-indigo-300/80 hover:ring-indigo-500 z-10'
+                            : 'z-10'
                         }`}
                         style={{
                           left: `${Math.round((tsplLayout.barcodeX - tsplLayout.rollLeftOffset) * 0.75)}px`,
@@ -3363,7 +3799,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                         className={`absolute font-mono font-black whitespace-nowrap leading-none cursor-grab active:cursor-grabbing touch-none px-1 py-0.5 rounded-xs ${
                           selectedCanvasItem === 'price'
                             ? 'ring-1 ring-indigo-500 bg-indigo-50/40 z-20'
-                            : 'hover:ring-1 hover:ring-stone-300 z-10'
+                            : 'z-10'
                         }`}
                         style={{
                           left: `${Math.round((tsplLayout.priceX - tsplLayout.rollLeftOffset) * 0.75)}px`,
@@ -3450,6 +3886,11 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                         {labelConfig.showSalePrice && (
                           <div className="text-sm font-black font-mono text-stone-950 leading-tight">
                             {sym}{labelConfig.salePrice}
+                          </div>
+                        )}
+                        {labelConfig.showPurchasePrice && Boolean(labelConfig.purchasePrice) && (
+                          <div className="text-[8px] font-bold font-mono text-emerald-800 leading-none mt-0.5">
+                            CP: {sym}{labelConfig.purchasePrice}
                           </div>
                         )}
                         {labelConfig.customOfferText ? (
@@ -3674,6 +4115,11 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                                 {sym}{labelConfig.salePrice}
                               </span>
                             )}
+                            {labelConfig.showPurchasePrice && Boolean(labelConfig.purchasePrice) && (
+                              <span className="text-[8px] font-bold font-mono text-emerald-800 bg-emerald-50 px-1 py-0.2 rounded-xs ml-1">
+                                CP: {sym}{labelConfig.purchasePrice}
+                              </span>
+                            )}
                           </div>
                         )}
                       </div>
@@ -3712,207 +4158,170 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
               </div>
             </div>
 
-            {/* Bluetooth Thermal Printer Integration Card (Compact — Advanced settings moved to 3-Dot Menu) */}
-            <div className="p-3.5 bg-linear-to-br from-indigo-50/90 via-blue-50/60 to-sky-50/90 rounded-2xl border border-indigo-200/90 shadow-xs">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <div
-                    className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition-all ${
-                      btConnected
-                        ? 'bg-indigo-600 text-white shadow-indigo-200 shadow-sm'
-                        : 'bg-stone-200 text-stone-600'
-                    }`}
-                  >
-                    <Bluetooth className={`w-4 h-4 ${btConnected ? 'animate-pulse' : ''}`} />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-xs font-black text-stone-900">
-                        {isBn ? 'ব্লুটুথ থার্মাল প্রিন্টার' : 'Bluetooth Thermal Printer'}
-                      </span>
-                      {btConnected ? (
-                        <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping inline-block" />
-                          {isBn ? 'কানেক্টেড' : 'Connected'}
-                        </span>
-                      ) : (
-                        <span className="bg-stone-200 text-stone-700 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                          {isBn ? 'কানেক্ট নেই' : 'Disconnected'}
-                        </span>
-                      )}
+            {/* Action Area: Print Barcode with Quantity & Bluetooth beside it (as requested: উপরের লাইনগুলো রিমুভ করে print barcode পাশে) */}
+            <div className="space-y-2 pt-1">
+              <div className="flex items-stretch gap-2">
+                {/* 1. Primary Print Barcode Label Button */}
+                <button
+                  type="button"
+                  id="btn-bt-thermal-print"
+                  onClick={handleBtThermalPrint}
+                  disabled={isBtPrinting}
+                  className="flex-1 bg-linear-to-r from-blue-600 via-indigo-600 to-indigo-700 hover:from-blue-500 hover:to-indigo-600 active:scale-[0.99] text-white py-2.5 px-3 rounded-2xl font-black shadow-md transition-all flex items-center justify-between gap-2 cursor-pointer disabled:opacity-50 min-w-0"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+                      <Printer className={`w-4 h-4 text-white ${isBtPrinting ? 'animate-bounce' : ''}`} />
                     </div>
-                    <p className="text-[10px] text-stone-600 truncate max-w-[210px] font-medium">
-                      {btConnected
-                        ? (btDeviceName || 'Thermal POS Printer')
-                        : (isBn ? 'ওয়্যারলেস প্রিন্ট করতে প্রিন্টার পেয়ার করুন' : 'Pair printer to print wirelessly')}
-                    </p>
+                    <div className="text-left leading-tight min-w-0">
+                      <div className="font-black text-xs sm:text-sm flex items-center gap-1">
+                        <span className="truncate">{isBn ? 'বারকোড প্রিন্ট' : 'Print Barcode'}</span>
+                        <span className="text-[9px] bg-amber-400 text-stone-950 font-black px-1 rounded-xs shrink-0">
+                          ⚡ 1-Tap
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-blue-100 font-medium mt-0.5 truncate">
+                        {isBtPrinting
+                          ? (isBn ? 'প্রিন্ট হচ্ছে...' : 'Printing...')
+                          : btConnected
+                          ? (isBn ? '✓ প্রিন্টার রেডি' : '✓ Ready')
+                          : (isBn ? 'অটো-কানেক্ট' : 'Auto-Connect')}
+                      </div>
+                    </div>
                   </div>
-                </div>
+                  <div className="shrink-0 text-right">
+                    <span className="text-[10px] bg-white/25 px-1.5 py-0.5 rounded font-mono font-black text-white block">
+                      {labelConfig.quantity || 1} {((labelConfig.quantity || 1) > 1) ? 'pcs' : 'pc'}
+                    </span>
+                  </div>
+                </button>
 
-                <div className="flex items-center gap-1 shrink-0">
+                {/* 2. Beside Print Barcode: Sticker Quantity Stepper & Bluetooth Connect */}
+                <div className="flex flex-col gap-1 shrink-0 justify-center">
+                  {/* Quantity Stepper */}
+                  <div className="flex items-center bg-stone-100 border border-stone-300 rounded-xl p-0.5 shadow-2xs">
+                    <button
+                      type="button"
+                      onClick={() => setLabelConfig((prev) => ({ ...prev, quantity: Math.max(1, (prev.quantity || 1) - 1) }))}
+                      className="w-6 h-6 flex items-center justify-center rounded-lg bg-white hover:bg-stone-200 text-stone-800 font-black text-xs cursor-pointer shadow-2xs"
+                      title={isBn ? 'কমান' : 'Decrease'}
+                    >
+                      -
+                    </button>
+                    <input
+                      type="number"
+                      min="1"
+                      max="500"
+                      value={labelConfig.quantity === 0 ? '' : labelConfig.quantity}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        if (raw === '') {
+                          setLabelConfig((prev) => ({ ...prev, quantity: 0 }));
+                        } else {
+                          const parsed = parseInt(raw, 10);
+                          if (!isNaN(parsed)) {
+                            setLabelConfig((prev) => ({ ...prev, quantity: Math.min(500, Math.max(0, parsed)) }));
+                          }
+                        }
+                      }}
+                      onBlur={() => {
+                        setLabelConfig((prev) => ({
+                          ...prev,
+                          quantity: prev.quantity && prev.quantity >= 1 ? prev.quantity : 1,
+                        }));
+                      }}
+                      className="w-8 text-center text-xs font-mono font-black text-stone-900 bg-transparent focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setLabelConfig((prev) => ({ ...prev, quantity: (prev.quantity || 1) + 1 }))}
+                      className="w-6 h-6 flex items-center justify-center rounded-lg bg-white hover:bg-stone-200 text-stone-800 font-black text-xs cursor-pointer shadow-2xs"
+                      title={isBn ? 'বাড়ান' : 'Increase'}
+                    >
+                      +
+                    </button>
+                  </div>
+
+                  {/* Bluetooth Connect status button */}
+                  <button
+                    type="button"
+                    onClick={handleConnectBt}
+                    disabled={btConnecting}
+                    className={`py-1 px-2 rounded-xl text-[10px] font-black flex items-center justify-center gap-1 transition-all cursor-pointer shadow-2xs border ${
+                      btConnected
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                        : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
+                    }`}
+                    title={btConnected ? (btDeviceName || 'Printer Connected') : 'Connect Bluetooth Printer'}
+                  >
+                    <Bluetooth className={`w-3 h-3 ${btConnected ? 'text-emerald-600' : 'text-indigo-600'}`} />
+                    <span>
+                      {btConnecting
+                        ? '...'
+                        : btConnected
+                        ? (isBn ? 'কানেক্টেড' : 'Connected')
+                        : (isBn ? 'কানেক্ট' : 'Connect')}
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Sub-row: Quick Quantity Preset Pills & Save as PNG & 3-Dot */}
+              <div className="flex items-center justify-between gap-1.5 flex-wrap pt-0.5">
+                {/* Quantity Presets: 1, 5, 10, 20 */}
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] text-stone-500 font-bold">{isBn ? 'কপি:' : 'Qty:'}</span>
+                  {[1, 5, 10, 20].map((num) => (
+                    <button
+                      key={num}
+                      type="button"
+                      onClick={() => setLabelConfig((prev) => ({ ...prev, quantity: num }))}
+                      className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-bold transition-all cursor-pointer ${
+                        labelConfig.quantity === num
+                          ? 'bg-indigo-600 text-white shadow-2xs'
+                          : 'bg-stone-100 hover:bg-stone-200 text-stone-700 border border-stone-200'
+                      }`}
+                    >
+                      {num}
+                    </button>
+                  ))}
                   {btConnected && (
                     <button
                       type="button"
                       id="btn-bt-test-print"
                       onClick={handleTestPrint}
-                      className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white border border-emerald-500 text-[11px] font-bold rounded-lg transition-all cursor-pointer shadow-2xs flex items-center gap-1"
-                      title={isBn ? 'টেস্ট স্টিকার প্রিন্ট দিন' : 'Test sticker print'}
+                      className="px-1.5 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 text-[10px] font-bold rounded-md transition-all cursor-pointer flex items-center gap-0.5 ml-1"
+                      title={isBn ? 'টেস্ট প্রিন্ট' : 'Test print'}
                     >
-                      <Printer className="w-3 h-3" />
-                      <span>{isBn ? 'টেস্ট প্রিন্ট' : 'Test Print'}</span>
+                      <Printer className="w-2.5 h-2.5" />
+                      <span>{isBn ? 'টেস্ট' : 'Test'}</span>
                     </button>
                   )}
+                </div>
+
+                {/* Save as PNG + 3-Dot More Options */}
+                <div className="flex items-center gap-1">
                   <button
                     type="button"
-                    onClick={handleConnectBt}
-                    disabled={btConnecting}
-                    className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all flex items-center gap-1 cursor-pointer shadow-2xs active:scale-95 ${
-                      btConnected
-                        ? 'bg-white hover:bg-stone-50 text-indigo-700 border border-indigo-200'
-                        : 'bg-indigo-600 hover:bg-indigo-700 text-white'
-                    }`}
+                    id="btn-download-tag-img"
+                    onClick={handleDownloadImage}
+                    disabled={isGeneratingImg}
+                    className="px-2.5 py-1 bg-stone-900 hover:bg-stone-800 active:scale-[0.99] text-white rounded-lg font-bold text-[10px] shadow-2xs transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50"
                   >
-                    <Bluetooth className="w-3 h-3" />
-                    <span>
-                      {btConnecting
-                        ? (isBn ? 'খোঁজা হচ্ছে...' : 'Pairing...')
-                        : btConnected
-                        ? (isBn ? 'পরিবর্তন' : 'Change')
-                        : (isBn ? 'কানেক্ট করুন' : 'Connect')}
-                    </span>
+                    <Download className="w-3 h-3" />
+                    <span>{isBn ? 'PNG সেভ' : 'Save PNG'}</span>
                   </button>
+
                   <button
                     type="button"
+                    id="btn-bottom-more-dots"
                     onClick={() => setIsMoreMenuOpen(true)}
-                    className="p-1.5 bg-white hover:bg-stone-100 text-stone-700 border border-indigo-200 rounded-lg transition-all cursor-pointer shadow-2xs"
-                    title={isBn ? 'প্রিন্টার সেটিংস (৩ ডট)' : 'Printer Settings (3-Dot)'}
+                    className="p-1 bg-stone-100 hover:bg-stone-200 active:scale-[0.99] text-stone-700 border border-stone-300 rounded-lg text-xs transition-all flex items-center justify-center cursor-pointer"
+                    title={isBn ? 'আরো সেটিংস (৩ ডট)' : 'More Settings'}
                   >
-                    <MoreVertical className="w-3.5 h-3.5" />
+                    <MoreVertical className="w-3.5 h-3.5 text-stone-700" />
                   </button>
                 </div>
-              </div>
-            </div>
-
-            {/* Print Quantity Selector */}
-            <div className="p-3 bg-stone-50 rounded-xl border border-stone-200 flex items-center justify-between">
-              <span className="text-xs font-bold text-stone-700">
-                {isBn ? 'প্রিন্ট সংখ্যা (Copies):' : 'Sticker Quantity:'}
-              </span>
-              <div className="flex items-center gap-1.5">
-                {[1, 5, 10, 20].map((num) => (
-                  <button
-                    key={num}
-                    type="button"
-                    onClick={() => setLabelConfig((prev) => ({ ...prev, quantity: num }))}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer ${
-                      labelConfig.quantity === num
-                        ? 'bg-indigo-600 text-white shadow-xs'
-                        : 'bg-white text-stone-700 border border-stone-200 hover:bg-stone-100'
-                    }`}
-                  >
-                    {num}
-                  </button>
-                ))}
-                <input
-                  type="number"
-                  min="1"
-                  max="500"
-                  value={labelConfig.quantity === 0 ? '' : labelConfig.quantity}
-                  onChange={(e) => {
-                    const raw = e.target.value;
-                    if (raw === '') {
-                      setLabelConfig((prev) => ({ ...prev, quantity: 0 }));
-                    } else {
-                      const parsed = parseInt(raw, 10);
-                      if (!isNaN(parsed)) {
-                        setLabelConfig((prev) => ({ ...prev, quantity: Math.min(500, Math.max(0, parsed)) }));
-                      }
-                    }
-                  }}
-                  onBlur={() => {
-                    setLabelConfig((prev) => ({
-                      ...prev,
-                      quantity: prev.quantity && prev.quantity >= 1 ? prev.quantity : 1,
-                    }));
-                  }}
-                  placeholder="1"
-                  className="w-14 bg-white border border-stone-200 rounded-lg px-2 py-1 text-xs font-mono font-bold text-center focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-            </div>
-
-            {/* Primary Action Buttons */}
-            <div className="space-y-2 pt-1">
-              {/* HERO ACTION: Direct Bluetooth Thermal Print */}
-              <button
-                type="button"
-                id="btn-bt-thermal-print"
-                onClick={handleBtThermalPrint}
-                disabled={isBtPrinting}
-                className="w-full bg-linear-to-r from-blue-600 via-indigo-600 to-indigo-700 hover:from-blue-500 hover:to-indigo-600 active:scale-[0.99] text-white py-3 px-4 rounded-2xl font-black text-sm sm:text-base shadow-lg transition-all flex items-center justify-between gap-2.5 cursor-pointer disabled:opacity-50"
-              >
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
-                    <Printer className={`w-5 h-5 text-white ${isBtPrinting ? 'animate-bounce' : ''}`} />
-                  </div>
-                  <div className="text-left leading-tight min-w-0">
-                    <div className="font-black text-sm sm:text-base flex items-center gap-1.5 flex-wrap">
-                      <span>{isBn ? '🖨️ সরাসরি বারকোড প্রিন্ট করুন' : '🖨️ Print Barcode Label'}</span>
-                      <span className="text-[10px] bg-amber-400 text-stone-950 font-black px-1.5 py-0.2 rounded-xs">
-                        ⚡ {isBn ? '১-ট্যাপ ফাস্ট' : '1-Tap Fast'}
-                      </span>
-                      {btConnected ? (
-                        <span className="text-[10px] bg-emerald-400 text-stone-950 font-black px-1.5 py-0.2 rounded-xs">
-                          {isBn ? 'প্রিন্টার রেডি' : 'Ready'}
-                        </span>
-                      ) : (
-                        <span className="text-[10px] bg-indigo-100 text-indigo-900 font-bold px-1.5 py-0.2 rounded-xs">
-                          {isBn ? 'অটো-কানেক্ট' : 'Auto-Connect'}
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-[11px] text-blue-100 font-medium mt-0.5 truncate">
-                      {isBtPrinting
-                        ? (isBn ? 'প্রিন্টারে ডেটা পাঠানো হচ্ছে...' : 'Streaming data to printer...')
-                        : (isBn
-                            ? `স্থায়ী ডিফল্ট: ${paperRollWidth === '50mm_label' ? '৫০×২৫ মিমি স্টিকার' : paperRollWidth} • ${printerProtocol.toUpperCase()} • ${labelConfig.quantity}টি কপি`
-                            : `Default: ${paperRollWidth === '50mm_label' ? '50×25mm Sticker' : paperRollWidth} • ${printerProtocol.toUpperCase()} • ${labelConfig.quantity} cop${labelConfig.quantity > 1 ? 'ies' : 'y'}`)}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex flex-col items-end shrink-0">
-                  <span className="text-[11px] bg-white/20 px-2.5 py-1 rounded-lg font-mono font-black uppercase tracking-wider text-white">
-                    {printerProtocol.toUpperCase()}
-                  </span>
-                  <span className="text-[9px] text-blue-200 mt-0.5 font-bold">
-                    {paperRollWidth === '50mm_label' ? '50×25mm' : paperRollWidth}
-                  </span>
-                </div>
-              </button>
-
-              {/* Save as PNG + 3-Dot More Options Button */}
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  id="btn-download-tag-img"
-                  onClick={handleDownloadImage}
-                  disabled={isGeneratingImg}
-                  className="flex-1 bg-stone-900 hover:bg-stone-800 active:scale-[0.99] text-white py-2.5 rounded-xl font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                  title="4Barcode অ্যাপ বা গ্যালারিতে সেভ করুন"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>{isBn ? '4Barcode ছবি সেভ' : 'Save as PNG'}</span>
-                </button>
-
-                <button
-                  type="button"
-                  id="btn-bottom-more-dots"
-                  onClick={() => setIsMoreMenuOpen(true)}
-                  className="px-3.5 py-2.5 bg-stone-100 hover:bg-stone-200 active:scale-[0.99] text-stone-800 border border-stone-300 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1 cursor-pointer shrink-0"
-                  title={isBn ? 'আরো প্রিন্ট ও সেটিংস অপশন (৩ ডট)' : 'More Print & Settings Options'}
-                >
-                  <MoreVertical className="w-4 h-4 text-stone-700" />
-                </button>
               </div>
             </div>
 
@@ -3958,64 +4367,6 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                   <RotateCcw className="w-3 h-3" />
                   <span>{isBn ? 'অটো সেন্টার রিসেট' : 'Reset Center'}</span>
                 </button>
-              </div>
-
-              {/* Interactive Drag-and-Drop Coordinate Bar (Live X, Y Dots/Pixels) */}
-              <div className="bg-white p-2.5 rounded-xl border border-indigo-200/80 space-y-2">
-                <div className="flex items-center justify-between text-[10px] font-extrabold text-indigo-950">
-                  <span>
-                    {isBn
-                      ? '📍 লাইভ ড্র্যাগ-অ্যান্ড-ড্রপ পজিশন (X, Y Dots):'
-                      : '📍 Live Drag-and-Drop Coordinates (X, Y Dots):'}
-                  </span>
-                  <span className="text-[9.5px] font-mono text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">
-                    50×25mm (400×200)
-                  </span>
-                </div>
-                <div className="grid grid-cols-3 gap-1.5 text-[10px] font-mono">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedCanvasItem('shop')}
-                    className={`p-1.5 rounded-lg border text-left transition-all cursor-pointer ${
-                      selectedCanvasItem === 'shop'
-                        ? 'bg-indigo-600 text-white border-indigo-600'
-                        : 'bg-stone-50 hover:bg-indigo-50 text-stone-800 border-stone-200'
-                    }`}
-                  >
-                    <div className="font-sans font-bold text-[9px] opacity-80">1. Shop Name</div>
-                    <div className="font-black">
-                      X:{tsplLayout.shopX} Y:{tsplLayout.shopY}
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedCanvasItem('barcode')}
-                    className={`p-1.5 rounded-lg border text-left transition-all cursor-pointer ${
-                      selectedCanvasItem === 'barcode'
-                        ? 'bg-indigo-600 text-white border-indigo-600'
-                        : 'bg-stone-50 hover:bg-indigo-50 text-stone-800 border-stone-200'
-                    }`}
-                  >
-                    <div className="font-sans font-bold text-[9px] opacity-80">2. Barcode (128)</div>
-                    <div className="font-black">
-                      X:{tsplLayout.barcodeX} Y:{tsplLayout.barcodeY}
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedCanvasItem('price')}
-                    className={`p-1.5 rounded-lg border text-left transition-all cursor-pointer ${
-                      selectedCanvasItem === 'price'
-                        ? 'bg-indigo-600 text-white border-indigo-600'
-                        : 'bg-stone-50 hover:bg-indigo-50 text-stone-800 border-stone-200'
-                    }`}
-                  >
-                    <div className="font-sans font-bold text-[9px] opacity-80">3. MRP</div>
-                    <div className="font-black">
-                      X:{tsplLayout.priceX} Y:{tsplLayout.priceY}
-                    </div>
-                  </button>
-                </div>
               </div>
 
               {/* Row A: Alignment Toggles (Left, Center, Right) — Print Orientation (DIRECTION) hidden into 3-Dot menu */}

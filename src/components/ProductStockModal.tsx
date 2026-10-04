@@ -70,8 +70,8 @@ const AutoBarcodeCanvas: React.FC<{
   );
 };
 
-// Extract 1 or 2 smart uppercase letters (preserves custom 1-2 letter prefix if provided, otherwise derives from product name e.g. "Zufar" -> "ZF", "Linen" -> "LN")
-const extractSkuPrefix = (prodName: string, existingCode?: string): string => {
+// Extract 1 or 2 smart uppercase letters (preserves custom 1-2 letter prefix if provided, otherwise derives from product name e.g. "Zufar" -> "ZF", "Classic" -> "CL")
+export const extractSkuPrefix = (prodName: string, existingCode?: string): string => {
   const existingAlpha = (existingCode || '').trim().toUpperCase().match(/^[A-Z]{1,2}/);
   if (existingAlpha) {
     return existingAlpha[0];
@@ -93,14 +93,14 @@ const extractSkuPrefix = (prodName: string, existingCode?: string): string => {
   if (alphaOnly.length === 1) {
     return alphaOnly;
   }
-  return 'LN';
+  return 'CL';
 };
 
 // Generate automatic SKU encoding purchasePrice (Cost):
 // [1-2 Alphabets] + [1st digit of Cost] + [6 Middle Digits] + [Remaining digits of Cost]
-// Example: Cost = 500, Prefix = LN, Middle = 897568 => LN589756800
-// Example: Cost = 155, Prefix = ZF, Middle = 897568 => ZF189756855
-const generateAutoSkuFromName = (
+// Example: Cost = 500, Prefix = CL, Middle = 710251 => CL571025100
+// Example: Cost = 150, Prefix = AM, Middle = 710251 => AM171025150
+export const generateAutoSkuFromName = (
   prodName: string,
   seedSuffix?: string,
   costPrice?: string | number,
@@ -324,6 +324,9 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
       barcodeValue: finalBarcode,
       mrp: parsedPrice,
       salePrice: parsedPrice,
+      purchasePrice: parsedCost && !isNaN(parsedCost) ? parsedCost : undefined,
+      showPurchasePrice: Boolean(parsedCost && parsedCost > 0),
+      productQuantity: isNaN(parsedStock) ? 1 : Math.max(0, parsedStock),
     });
 
     onSaveProduct({
@@ -645,6 +648,60 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
                           ? 'প্রোডাক্ট সেভ করলে এই বারকোডটি স্টকে যুক্ত হয়ে যাবে'
                           : 'Saving product links this barcode for camera scanning & printing'}
                       </span>
+                      {onOpenBarcodeStudio && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const cleanName =
+                              name.trim() ||
+                              (matchedProductBySku ? matchedProductBySku.name : '') ||
+                              (barcode.trim() ? `Item ${barcode.trim()}` : '');
+                            const parsedPrice =
+                              parseFloat(price) > 0
+                                ? parseFloat(price)
+                                : matchedProductBySku && matchedProductBySku.price > 0
+                                ? matchedProductBySku.price
+                                : 0;
+                            const parsedCost = purchasePrice ? parseFloat(purchasePrice) : undefined;
+                            const parsedStock = stock !== '' ? parseInt(stock, 10) : 1;
+                            const finalBarcode =
+                              effectiveFormBarcode ||
+                              generateAutoSkuFromName(cleanName, autoSkuSeed, parsedCost, barcode);
+
+                            if (cleanName) {
+                              const saved = storageService.addOrUpdateProduct({
+                                id: editingId || undefined,
+                                name: cleanName,
+                                price: parsedPrice,
+                                purchasePrice: parsedCost && !isNaN(parsedCost) ? parsedCost : undefined,
+                                stock: isNaN(parsedStock) ? 1 : Math.max(0, parsedStock),
+                                unit: unit || 'Pcs',
+                                barcode: finalBarcode,
+                              });
+                              onSaveProduct(saved);
+
+                              const existingDesign = storageService.getBarcodeCustomDesign() || {};
+                              storageService.saveBarcodeCustomDesign({
+                                ...existingDesign,
+                                storeName: settings.storeName || 'MY SHOP',
+                                itemName: cleanName,
+                                barcodeValue: finalBarcode,
+                                mrp: parsedPrice,
+                                salePrice: parsedPrice,
+                                purchasePrice: parsedCost,
+                                showPurchasePrice: Boolean(parsedCost && parsedCost > 0),
+                                productQuantity: isNaN(parsedStock) ? 1 : Math.max(0, parsedStock),
+                              });
+                              onOpenBarcodeStudio(saved);
+                              onClose();
+                            }
+                          }}
+                          className="mt-1 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs transition-all"
+                        >
+                          <Printer className="w-3.5 h-3.5" />
+                          <span>{isBn ? 'বারকোড রেডি ও প্রিন্ট করুন' : 'Make Barcode Ready & Print'}</span>
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}
@@ -788,6 +845,9 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
                                       barcodeValue: prod.barcode,
                                       mrp: prod.price,
                                       salePrice: prod.price,
+                                      purchasePrice: prod.purchasePrice,
+                                      showPurchasePrice: Boolean(prod.purchasePrice && prod.purchasePrice > 0),
+                                      productQuantity: prod.stock !== undefined ? prod.stock : 1,
                                     });
                                     onOpenBarcodeStudio(prod);
                                     onClose();
