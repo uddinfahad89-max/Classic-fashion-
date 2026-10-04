@@ -273,29 +273,22 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
     } else if (isTotalOnlySlip) {
       const store = settings.storeName || 'CLASSIC FASHION';
       const totalQty = bill.items.reduce((sum, it) => sum + (it.qty || 1), 0);
-      const isTailoring = Boolean(bill.isTailoring);
-      const adv = bill.paidAmount || 0;
-      const bal =
-        bill.balance !== undefined ? bill.balance : Math.max(0, bill.grandTotal - adv);
+      const isDue = (bill.balance && bill.balance > 0) || (bill.paymentStatus !== 'PAID' && bill.grandTotal > (bill.paidAmount || 0));
+      const dueAmt = bill.balance !== undefined ? bill.balance : Math.max(0, bill.grandTotal - (bill.paidAmount || 0));
 
       message =
-        `*${store} - ${language === 'bn' ? 'টাকার হিসাব স্লিপ' : 'Summary Receipt'} #${bill.invoiceNo}*\n` +
+        `*${store}*\n` +
         `--------------------------------\n` +
-        `তারিখ (Date): ${bill.date}\n` +
-        (bill.customerName ? `কাস্টমার (Customer): ${bill.customerName}\n` : '') +
-        (bill.customerPhone ? `মোবাইল (Phone): ${bill.customerPhone}\n` : '') +
+        `Bill: #${bill.invoiceNo} | Date: ${bill.date}\n` +
+        (bill.customerName ? `Customer: ${bill.customerName}\n` : '') +
+        `Total Quantity: ${totalQty} items\n` +
+        `Status: ${isDue ? 'UNPAID / DUE (বাকি)' : 'PAID (পরিশোধিত)'}\n` +
+        (bill.discount > 0 ? `Discount: -${currency}${bill.discount.toFixed(1)}\n` : '') +
+        `*Total Amount: ${currency}${bill.grandTotal.toFixed(1)}*\n` +
+        (bill.paidAmount && bill.paidAmount > 0 && isDue ? `Paid: ${currency}${bill.paidAmount.toFixed(1)}\n` : '') +
+        (isDue && dueAmt > 0 ? `*Due (বাকি): ${currency}${dueAmt.toFixed(1)}*\n` : '') +
         `--------------------------------\n` +
-        `💰 *টাকার হিসাব বিবরণী:*\n` +
-        `• মোট পণ্য: ${totalQty} টি\n` +
-        `• সাবটোটাল: ${currency}${bill.subtotal.toFixed(1)}\n` +
-        (bill.discount > 0 ? `• ডিসকাউন্ট: -${currency}${bill.discount.toFixed(1)}\n` : '') +
-        `• *সর্বমোট বিল:* ${currency}${bill.grandTotal.toFixed(1)}\n` +
-        `• পেমেন্ট মেথড: ${bill.paymentMethod.toUpperCase()}\n` +
-        `• ${isTailoring ? 'অগ্রিম জমা (Advance)' : 'পরিশোধ/জমা (Paid)'}: ${currency}${adv.toFixed(1)}\n` +
-        `• *বর্তমান বাকি (Balance Due):* ${currency}${bal.toFixed(1)}\n` +
-        `--------------------------------\n` +
-        `*বিঃদ্রঃ এই স্লিপে পণ্যের তালিকা গোপন রেখে শুধু মোট টাকার হিসাব দেওয়া হয়েছে।*\n\n` +
-        `ধন্যবাদ! আবার আসবেন।`;
+        `Thank you! Visit again.`;
     } else {
       const store = settings.storeName || 'CLASSIC FASHION';
       const itemsList = bill.items

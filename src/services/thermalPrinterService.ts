@@ -581,38 +581,61 @@ export class ThermalPrinterService {
     }
     lines.push(divider);
 
-    // If Total Only Slip: do not print individual item lines; print summary header instead
+    // If Total Only Slip: do not print individual item lines; print exact user requested fields:
+    // Shop name, Total quantity, Paid/Unpaid status, Discount, Total amount, and Due (বাকি নিলে)
     if (settings.isTotalOnlySlip) {
       const totalQty = bill.items.reduce((sum, it) => sum + (it.qty || 1), 0);
-      lines.push(padCenter('*** TOTAL AMOUNT SLIP ***'));
-      lines.push(padCenter('*** SUMMARY RECEIPT ***'));
-      lines.push(divider);
-      lines.push(padBetween('PURCHASE OVERVIEW:', `${totalQty} ITEMS`));
-      lines.push(divider);
-    } else {
-      // Items table header
-      if (width === 48) {
-        lines.push(padBetween('ITEM', 'QTY   PRICE   TOTAL'));
-      } else {
-        lines.push(padBetween('ITEM', 'QTY  TOTAL'));
+      const isDue = (bill.balance && bill.balance > 0) || (bill.paymentStatus !== 'PAID' && bill.grandTotal > (bill.paidAmount || 0));
+      const dueAmt = bill.balance !== undefined ? bill.balance : Math.max(0, bill.grandTotal - (bill.paidAmount || 0));
+
+      lines.push(padBetween('TOTAL QUANTITY:', `${totalQty} ITEMS`));
+      lines.push(padBetween('STATUS:', isDue ? 'UNPAID / DUE' : 'PAID'));
+      if (bill.discount > 0) {
+        lines.push(padBetween('DISCOUNT:', `-${sym}${bill.discount.toFixed(2)}`));
       }
-      lines.push(divider);
+      lines.push(doubleDiv);
+      lines.push(padBetween('TOTAL AMOUNT:', `${sym}${bill.grandTotal.toFixed(2)}`));
+      if (bill.paidAmount && bill.paidAmount > 0 && isDue) {
+        lines.push(padBetween('PAID:', `${sym}${bill.paidAmount.toFixed(2)}`));
+      }
+      if (isDue && dueAmt > 0) {
+        lines.push(padBetween('DUE (BAKI):', `${sym}${dueAmt.toFixed(2)}`));
+      }
+      lines.push(doubleDiv);
 
-      bill.items.forEach((item) => {
-        const qtyLabel = item.unit ? `${item.qty} ${item.unit}` : `${item.qty}x`;
-        if (width === 48) {
-          const itemLine = `${item.name.slice(0, 20)}`;
-          const rightCol = `${qtyLabel}  ${sym}${item.price.toFixed(2)}  ${sym}${item.total.toFixed(2)}`;
-          lines.push(padBetween(itemLine, rightCol));
-        } else {
-          const itemLine = `${item.name.slice(0, 16)}`;
-          const rightCol = `${qtyLabel} ${sym}${item.total.toFixed(2)}`;
-          lines.push(padBetween(itemLine, rightCol));
-        }
-      });
-
-      lines.push(divider);
+      let cleanFooter = (settings.footerNote || '').trim()
+        .replace(/[\u0980-\u09FF]/g, '')
+        .replace(/\?+/g, '')
+        .trim();
+      if (!cleanFooter || cleanFooter.length < 3) {
+        cleanFooter = '(Thank you! Visit again)';
+      }
+      lines.push(padCenter(cleanFooter));
+      return lines.join('\n');
     }
+
+    // Items table header
+    if (width === 48) {
+      lines.push(padBetween('ITEM', 'QTY   PRICE   TOTAL'));
+    } else {
+      lines.push(padBetween('ITEM', 'QTY  TOTAL'));
+    }
+    lines.push(divider);
+
+    bill.items.forEach((item) => {
+      const qtyLabel = item.unit ? `${item.qty} ${item.unit}` : `${item.qty}x`;
+      if (width === 48) {
+        const itemLine = `${item.name.slice(0, 20)}`;
+        const rightCol = `${qtyLabel}  ${sym}${item.price.toFixed(2)}  ${sym}${item.total.toFixed(2)}`;
+        lines.push(padBetween(itemLine, rightCol));
+      } else {
+        const itemLine = `${item.name.slice(0, 16)}`;
+        const rightCol = `${qtyLabel} ${sym}${item.total.toFixed(2)}`;
+        lines.push(padBetween(itemLine, rightCol));
+      }
+    });
+
+    lines.push(divider);
 
     // Totals
     lines.push(padBetween('SUBTOTAL:', `${sym}${bill.subtotal.toFixed(2)}`));

@@ -69,6 +69,111 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
     formattedTime = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
   }
 
+  // ONLY SLIP (TOTAL ONLY SLIP): Minimalistic summary requested by user containing only:
+  // Shop name, Total quantity, Paid/Unpaid, Discount, Total amount, and Due (বাকি নিলে)
+  if (isTotalOnly) {
+    return (
+      <div
+        id={`tax-invoice-${bill.id}`}
+        className="tax-invoice-sheet bg-white text-stone-900 w-full max-w-[480px] mx-auto p-5 sm:p-6 rounded-2xl shadow-sm border border-stone-200 print:border-none print:shadow-none print:p-2 font-sans"
+      >
+        {/* 1. Shop name */}
+        <div className="text-center space-y-1 pb-3 border-b border-stone-200">
+          <h1 className="text-2xl sm:text-3xl font-black tracking-wide text-stone-900 uppercase">
+            {storeName}
+          </h1>
+          {storeAddress && (
+            <p className="text-xs sm:text-base text-stone-600 font-medium">
+              {storeAddress}
+            </p>
+          )}
+          {storePhone && (
+            <p className="text-xs sm:text-base text-stone-600 font-medium">
+              Phone: {storePhone}
+            </p>
+          )}
+          <div className="flex items-center justify-between text-xs sm:text-sm font-semibold text-stone-600 pt-2 px-1">
+            <span>Bill: #{bill.invoiceNo}</span>
+            <span>Date: {formattedDate}</span>
+          </div>
+          {bill.customerName && (
+            <div className="text-left text-xs sm:text-sm pt-1 text-stone-700 px-1">
+              <span className="text-stone-500 font-normal">Customer: </span>
+              <strong className="text-stone-900 uppercase">{bill.customerName}</strong>
+              {bill.customerPhone && <span className="text-stone-500"> ({bill.customerPhone})</span>}
+            </div>
+          )}
+        </div>
+
+        {/* 2. Total items & Paid / Unpaid Option */}
+        <div className="my-4 p-3.5 sm:p-4 rounded-xl bg-stone-50 border border-stone-200 flex items-center justify-between gap-3">
+          <div>
+            <span className="text-xs text-stone-500 block font-medium">Total Quantity</span>
+            <span className="text-lg sm:text-xl font-black text-stone-900 font-mono">
+              {totalQty} <span className="text-xs font-semibold text-stone-500">items</span>
+            </span>
+          </div>
+
+          <div className="text-right">
+            <span className="text-xs text-stone-500 block font-medium">Status</span>
+            <span
+              className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-black ${
+                balance <= 0
+                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                  : 'bg-rose-100 text-rose-800 border border-rose-300'
+              }`}
+            >
+              {balance <= 0 ? '✓ PAID (পরিশোধিত)' : '⚠️ UNPAID / DUE (বাকি)'}
+            </span>
+          </div>
+        </div>
+
+        {/* 3. Discount, Total amount, and বাকি নিলে Due */}
+        <div className="space-y-2.5 pt-2 pb-3 border-t border-stone-200 text-base sm:text-lg">
+          {discountAmount > 0 && (
+            <div className="flex justify-between items-center text-stone-700 font-medium px-1">
+              <span>Discount</span>
+              <span className="font-bold text-rose-600">
+                -{currencyPrefix}{discountAmount.toFixed(1)}
+              </span>
+            </div>
+          )}
+
+          {/* Purple Total Amount Bar */}
+          <div className="bg-[#8C8EE8] text-white print:bg-[#8C8EE8] print:text-white font-extrabold py-2.5 px-3.5 flex justify-between items-center rounded-xl text-lg sm:text-xl shadow-xs">
+            <span>Total Amount</span>
+            <span>
+              {currencyPrefix}{bill.grandTotal.toFixed(1)}
+            </span>
+          </div>
+
+          {paidAmount > 0 && balance > 0 && (
+            <div className="flex justify-between items-center text-stone-700 font-medium text-sm sm:text-base px-1">
+              <span>Paid (পরিশোধ)</span>
+              <span className="font-bold text-emerald-700">
+                {currencyPrefix}{paidAmount.toFixed(1)}
+              </span>
+            </div>
+          )}
+
+          {balance > 0 && (
+            <div className="flex justify-between items-center bg-rose-50 border border-rose-200 px-3.5 py-2 rounded-xl text-rose-900 font-bold">
+              <span>Due (বাকি)</span>
+              <span className="text-lg sm:text-xl font-black text-rose-700">
+                {currencyPrefix}{balance.toFixed(1)}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Clean minimal footer */}
+        <div className="text-center pt-3 border-t border-stone-100 text-xs text-stone-400 font-medium">
+          Thank you! Visit again.
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       id={`tax-invoice-${bill.id}`}
