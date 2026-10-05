@@ -131,23 +131,13 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   const [itemUnit, setItemUnit] = useState(() => initialDraft?.itemUnit || 'Pcs');
 
   // Auto-Capitalization / All Caps for Item & Customer Names (Default true)
-  const [isAllCaps, setIsAllCaps] = useState<boolean>(() => {
+  const [isAllCaps] = useState<boolean>(() => {
     try {
       const saved = localStorage.getItem('retail_billing_all_caps');
       if (saved !== null) return saved === 'true';
     } catch {}
     return settings.autoCapitalizeItemNames !== false;
   });
-
-  const toggleAllCaps = () => {
-    setIsAllCaps((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem('retail_billing_all_caps', String(next));
-      } catch {}
-      return next;
-    });
-  };
   const [availableUnits, setAvailableUnits] = useState<string[]>(() =>
     storageService.getCustomUnits()
   );
@@ -1666,37 +1656,54 @@ export const BillingTab: React.FC<BillingTabProps> = ({
               </span>
             </div>
 
-            <button
-              type="button"
-              onClick={() => {
-                if (confirm(t.clearBillConfirm)) {
-                  try {
-                    localStorage.removeItem(BILLING_CART_DRAFT_KEY);
-                  } catch {}
-                  onClearBill();
-                  setCustomerName('');
-                  setCustomerPhone('');
-                  setDiscountValue('');
-                  setPaidAmount('');
-                  setPaymentMethod('estimate');
-                }
-              }}
-              className="text-[11px] text-stone-500 hover:text-red-600 flex items-center gap-1 transition-colors cursor-pointer shrink-0"
-            >
-              <RotateCcw className="w-3 h-3" />
-              <span>{t.clearBill}</span>
-            </button>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => handleCheckoutAndPrint('save')}
+                disabled={!canCheckout || isPrinting}
+                className={`px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1 shadow-2xs transition-all cursor-pointer ${
+                  canCheckout && !isPrinting
+                    ? 'bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white'
+                    : 'bg-stone-200 text-stone-400 cursor-not-allowed'
+                }`}
+                title={isBn ? 'বিল সেভ করুন' : 'Save Bill'}
+              >
+                <Check className="w-3.5 h-3.5 stroke-[3]" />
+                <span className="whitespace-nowrap">{isBn ? 'বিল সেভ' : 'Save Bill'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm(t.clearBillConfirm)) {
+                    try {
+                      localStorage.removeItem(BILLING_CART_DRAFT_KEY);
+                    } catch {}
+                    onClearBill();
+                    setCustomerName('');
+                    setCustomerPhone('');
+                    setDiscountValue('');
+                    setPaidAmount('');
+                    setPaymentMethod('estimate');
+                  }
+                }}
+                className="text-[11px] text-stone-500 hover:text-red-600 flex items-center gap-1 transition-colors cursor-pointer shrink-0"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span className="hidden xs:inline">{t.clearBill}</span>
+              </button>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-xs sm:text-sm">
               <thead>
                 <tr className="bg-stone-100/70 text-stone-600 text-[11px] uppercase tracking-wider font-semibold border-b border-stone-200">
-                  <th className="text-left p-2.5 sm:p-3">{isBn ? 'পণ্য' : 'Item'}</th>
-                  <th className="text-center p-2.5 sm:p-3 w-24">{t.qty}</th>
-                  <th className="text-right p-2.5 sm:p-3">{t.unitPrice}</th>
-                  <th className="text-right p-2.5 sm:p-3">{isBn ? 'মোট' : 'Total'}</th>
-                  <th className="p-2.5 sm:p-3 w-16 text-right">{isBn ? 'অ্যাকশন' : ''}</th>
+                  <th className="text-left p-2 sm:p-2.5">{isBn ? 'পণ্য' : 'Item'}</th>
+                  <th className="text-center p-2 sm:p-2.5 w-20">{t.qty}</th>
+                  <th className="text-right p-2 sm:p-2.5">{t.unitPrice}</th>
+                  <th className="text-right p-2 sm:p-2.5">{isBn ? 'মোট' : 'Total'}</th>
+                  <th className="sticky right-0 bg-stone-100/90 text-right p-2 sm:p-2.5 w-24 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">{isBn ? 'অ্যাকশন' : ''}</th>
                 </tr>
               </thead>
               <tbody id="billTable" className="divide-y divide-stone-100">
@@ -1709,7 +1716,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                   if (isEditing) {
                     return (
                       <tr key={item.id} className="bg-blue-50/70 transition-colors">
-                        <td className="p-2 sm:p-2.5">
+                        <td className="p-1.5 sm:p-2.5">
                           <input
                             type="text"
                             autoFocus={editFocusField === 'name'}
@@ -1725,10 +1732,10 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                               if (e.key === 'Escape') handleCancelEditItem();
                             }}
                             placeholder={isBn ? 'পণ্যের নাম' : 'Item Name'}
-                            className="w-full min-w-[95px] bg-white border border-blue-400 rounded-lg px-2 py-1.5 text-xs font-bold text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                            className="w-full min-w-[75px] bg-white border border-blue-400 rounded-lg px-2 py-1 text-xs font-bold text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
                           />
                         </td>
-                        <td className="p-2 sm:p-2.5 text-center">
+                        <td className="p-1.5 sm:p-2.5 text-center">
                           <div className="inline-flex items-center gap-1">
                             <input
                               type="number"
@@ -1742,12 +1749,12 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                                 if (e.key === 'Escape') handleCancelEditItem();
                               }}
                               placeholder="1"
-                              className="w-12 bg-white border border-blue-400 rounded-lg px-1 py-1.5 text-xs font-mono font-bold text-center text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              className="w-10 sm:w-11 bg-white border border-blue-400 rounded-lg px-1 py-1 text-xs font-mono font-bold text-center text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                             />
                             <select
                               value={editItemUnit || 'Pcs'}
                               onChange={(e) => setEditItemUnit(e.target.value)}
-                              className="w-16 bg-white border border-blue-400 rounded-lg px-1 py-1.5 text-xs font-bold text-center text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                              className="w-12 sm:w-14 bg-white border border-blue-400 rounded-lg px-0.5 py-1 text-[10px] sm:text-xs font-bold text-center text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
                             >
                               {availableUnits.map((u) => (
                                 <option key={u} value={u}>
@@ -1757,7 +1764,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                             </select>
                           </div>
                         </td>
-                        <td className="p-2 sm:p-2.5 text-right">
+                        <td className="p-1.5 sm:p-2.5 text-right">
                           <input
                             type="number"
                             min="0"
@@ -1770,27 +1777,28 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                               if (e.key === 'Escape') handleCancelEditItem();
                             }}
                             placeholder="0.00"
-                            className="w-20 bg-white border border-blue-400 rounded-lg px-2 py-1.5 text-xs font-mono font-bold text-right text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 ml-auto block"
+                            className="w-16 sm:w-20 bg-white border border-blue-400 rounded-lg px-1.5 py-1 text-xs font-mono font-bold text-right text-stone-900 focus:outline-none focus:ring-2 focus:ring-blue-500 ml-auto block"
                           />
                         </td>
-                        <td className="p-2 sm:p-2.5 text-right font-mono font-bold text-blue-900 whitespace-nowrap">
+                        <td className="p-1.5 sm:p-2.5 text-right font-mono font-bold text-blue-900 whitespace-nowrap text-xs">
                           {sym}
                           {liveEditTotal.toFixed(2)}
                         </td>
-                        <td className="p-2 sm:p-2.5 text-right">
+                        <td className="sticky right-0 bg-blue-50/95 z-10 p-1.5 sm:p-2 text-right shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">
                           <div className="inline-flex items-center justify-end gap-1">
                             <button
                               type="button"
                               onClick={() => handleSaveEditItem(item.id)}
-                              className="p-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white shadow-2xs transition-colors cursor-pointer"
+                              className="px-2 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-2xs transition-colors cursor-pointer flex items-center gap-1 whitespace-nowrap shrink-0"
                               title={isBn ? 'সেভ করুন' : 'Save changes'}
                             >
                               <Check className="w-3.5 h-3.5 stroke-[3]" />
+                              <span>{isBn ? 'সেভ' : 'Save'}</span>
                             </button>
                             <button
                               type="button"
                               onClick={handleCancelEditItem}
-                              className="p-1.5 rounded-lg bg-stone-200 hover:bg-stone-300 text-stone-700 transition-colors cursor-pointer"
+                              className="p-1.5 rounded-lg bg-stone-200 hover:bg-stone-300 text-stone-700 transition-colors cursor-pointer shrink-0"
                               title={isBn ? 'বাতিল করুন' : 'Cancel'}
                             >
                               <X className="w-3.5 h-3.5" />
@@ -1852,7 +1860,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                         {sym}
                         {item.total.toFixed(2)}
                       </td>
-                      <td className="p-2 sm:p-2.5 text-right">
+                      <td className="sticky right-0 bg-white group-hover:bg-stone-50 z-10 p-2 sm:p-2.5 text-right shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">
                         <div className="inline-flex items-center justify-end gap-1">
                           <button
                             type="button"
@@ -2021,30 +2029,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                     ? 'পণ্যের নাম লিখুন (যেমন: SHIRT, PANT, PUNJABI...)'
                     : t.itemNamePlaceholder
                 }
-                className="w-full border border-stone-200 bg-stone-50/80 pl-3 pr-16 py-2.5 rounded-xl text-xs sm:text-sm font-medium focus:outline-none focus:border-blue-500 focus:bg-white transition-all font-mono"
+                className="w-full border border-stone-200 bg-stone-50/80 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-medium focus:outline-none focus:border-blue-500 focus:bg-white transition-all font-mono"
               />
-
-              {/* CAPS LOCK 1-TAP TOGGLE BADGE INSIDE INPUT */}
-              <button
-                type="button"
-                onClick={toggleAllCaps}
-                className={`absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 rounded-lg text-[10px] font-black font-mono transition-all cursor-pointer select-none ${
-                  isAllCaps
-                    ? 'bg-blue-600 text-white shadow-xs ring-1 ring-blue-400'
-                    : 'bg-stone-200 text-stone-600 hover:bg-stone-300'
-                }`}
-                title={
-                  isAllCaps
-                    ? isBn
-                      ? 'ক্যাপিটাল লেটার চালু (সব বড় হাতের অক্ষরে টাইপ হচ্ছে)'
-                      : 'ALL CAPS ON (Auto-Uppercase)'
-                    : isBn
-                    ? 'ক্যাপিটাল লেটার বন্ধ'
-                    : 'ALL CAPS OFF'
-                }
-              >
-                {isAllCaps ? '🔤 CAPS' : 'abc'}
-              </button>
 
               {/* OPTIONAL SAVED PRODUCTS DROPDOWN (Only shown if explicitly enabled from 3-dot menu) */}
               {enableSavedSuggestions && showSuggestions && matchingProducts.length > 0 && (
@@ -2568,7 +2554,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         </div>
 
         {/* 5. VERY BOTTOM: Two Side-by-Side Action Buttons (Save Bill & Direct Print) */}
-        <div className="grid grid-cols-2 gap-3 pt-1">
+        <div className="grid grid-cols-2 gap-2 sm:gap-3 pt-1">
           {/* Button 1: Save Bill Only */}
           <button
             type="button"
@@ -2610,7 +2596,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             ) : (
               <>
                 <Printer className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
-                <span className="truncate">
+                <span className="whitespace-nowrap">
                   {isBn ? 'প্রিন্ট করুন' : language === 'hi' ? 'प्रिंट करें' : 'Print Bill'}
                 </span>
                 <span className="opacity-90 font-mono text-[11px] bg-white/20 px-1.5 py-0.5 rounded-md font-semibold shrink-0">

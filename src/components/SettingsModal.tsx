@@ -102,9 +102,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 overflow-y-auto">
-      <div className="bg-white rounded-3xl shadow-xl border border-stone-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-        <div className="p-4 border-b border-stone-200 bg-stone-50 flex justify-between items-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-2.5 sm:p-4 animate-in fade-in duration-150">
+      <div className="bg-white rounded-3xl shadow-2xl border border-stone-200 w-full max-w-md my-auto flex flex-col max-h-[92vh] overflow-hidden">
+        <div className="p-4 border-b border-stone-200 bg-stone-50 flex justify-between items-center shrink-0">
           <div className="flex items-center gap-2">
             <Settings className="w-4 h-4 text-blue-600" />
             <h3 className="font-bold text-sm text-stone-900">{t.settingsTitle}</h3>
@@ -117,8 +117,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-4 sm:p-5 space-y-3.5 text-xs">
-          {/* Bluetooth Printer Section */}
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden min-h-0">
+          <div className="p-4 sm:p-5 space-y-3.5 text-xs overflow-y-auto flex-1">
+            {/* Bluetooth Printer Section */}
           <div className="p-3 bg-stone-50 border border-stone-200 rounded-2xl space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5 font-bold text-stone-900">
@@ -494,35 +495,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </label>
           </div>
 
-          {/* Auto Capitalize / All Caps for Billing */}
-          <div className="p-3 bg-blue-50/70 rounded-2xl border border-blue-200 flex items-center justify-between gap-3 shadow-2xs">
-            <div className="space-y-0.5">
-              <div className="font-bold text-blue-950 text-xs flex items-center gap-1.5">
-                <span className="font-black text-blue-600 font-mono text-xs">🔤 CAPS</span>
-                <span>{isBn ? 'বিল টাইপ করার সময় ক্যাপিটাল লেটার (ALL CAPS)' : 'All Caps in Billing (Auto UPPERCASE)'}</span>
-                {form.autoCapitalizeItemNames !== false && (
-                  <span className="text-[10px] bg-blue-200 text-blue-900 font-bold px-1.5 py-0.2 rounded-full">
-                    Active
-                  </span>
-                )}
-              </div>
-              <div className="text-[11px] text-blue-900/85 leading-tight">
-                {isBn
-                  ? 'বিলিংয়ের সময় পণ্যের নাম ও বিবরণ সবসময় বড় হাতের অক্ষরে (যেমন: SHIRT, PANT) স্বয়ংক্রিয়ভাবে টাইপ হবে।'
-                  : 'Automatically converts product & item names to UPPERCASE letters while typing bills.'}
-              </div>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer shrink-0">
-              <input
-                type="checkbox"
-                checked={form.autoCapitalizeItemNames !== false}
-                onChange={(e) => setForm({ ...form, autoCapitalizeItemNames: e.target.checked })}
-                className="sr-only peer"
-              />
-              <div className="w-11 h-6 bg-stone-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-            </label>
-          </div>
-
           {/* Data Saver Mode in Settings */}
           <div className="p-3 bg-emerald-50/70 rounded-2xl border border-emerald-200 flex items-center justify-between gap-3">
             <div>
@@ -710,26 +682,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             )}
           </div>
+        </div>
 
-          <div className="pt-2 flex gap-2 justify-end">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-3.5 py-2 rounded-xl text-stone-600 hover:bg-stone-100 font-medium cursor-pointer"
-            >
-              {isBn ? 'বাতিল' : 'Cancel'}
-            </button>
+        {/* Sticky Save Footer */}
+        <div className="p-3 sm:p-4 border-t border-stone-200 bg-stone-50/95 flex items-center gap-2 justify-end shrink-0 shadow-xs">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-3.5 py-2 rounded-xl text-stone-600 hover:bg-stone-100 font-medium cursor-pointer text-xs"
+          >
+            {isBn ? 'বাতিল' : 'Cancel'}
+          </button>
 
-            <button
-              type="submit"
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl flex items-center gap-1.5 shadow-xs cursor-pointer"
-            >
-              {saved ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-              <span>{saved ? (isBn ? 'সংরক্ষিত!' : 'Saved!') : t.saveSettingsBtn}</span>
-            </button>
-          </div>
-        </form>
-      </div>
+          <button
+            type="submit"
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl flex items-center gap-1.5 shadow-xs cursor-pointer text-xs sm:text-sm"
+          >
+            {saved ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+            <span className="whitespace-nowrap">{saved ? (isBn ? 'সংরক্ষিত!' : 'Saved!') : t.saveSettingsBtn}</span>
+          </button>
+        </div>
+      </form>
     </div>
-  );
+  </div>
+);
 };

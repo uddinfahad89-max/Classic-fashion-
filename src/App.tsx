@@ -1332,7 +1332,7 @@ export default function App() {
       />
 
       {/* Main Workspace */}
-      <main className="flex-1 pb-16 sm:pb-20">
+      <main className="flex-1 pb-28 sm:pb-32">
         {activeTab === 'billing' && (
           <BillingTab
             billItems={billItems}
