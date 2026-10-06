@@ -219,26 +219,17 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
             </>
           )}
 
-          {/* Dynamic UPI Payment QR Code for Due in Total Only Slip (Vyapar style) */}
+          {/* Dynamic UPI Payment QR Code for Due in Total Only Slip */}
           {showUpiQr && upiQrUrl && (
             <div className="my-2 p-3 bg-stone-50 border border-stone-200 rounded-xl text-center flex flex-col items-center shadow-2xs">
-              <span className="text-[11px] font-bold text-stone-800 uppercase tracking-wide mb-1.5 flex items-center gap-1">
-                <span>📱 বাকি পরিশোধ করতে স্ক্যান করুন (Scan to Pay Due)</span>
+              <span className="text-xs font-black text-stone-900 uppercase tracking-wider mb-2">
+                Scan & Pay
               </span>
               <img
                 src={upiQrUrl}
                 alt="UPI QR"
                 className="w-28 h-28 object-contain bg-white p-1 rounded-lg border border-stone-200"
               />
-              <div className="text-xs font-black text-rose-600 font-mono mt-1">
-                {hasDue ? `বাকি টাকা: ${currencyPrefix}${balance.toFixed(2)}` : `${currencyPrefix}${upiPayAmount.toFixed(2)}`}
-              </div>
-              <div className="text-[10px] font-mono text-stone-600 font-bold">
-                UPI ID: {settings.upiId}
-              </div>
-              <div className="text-[9px] text-stone-500">
-                GPay • PhonePe • Paytm • BHIM
-              </div>
             </div>
           )}
         </div>
@@ -612,28 +603,17 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
           )}
         </div>
 
-        {/* Center: Dynamic UPI Payment QR Code for Due Balance (Vyapar app style) */}
+        {/* Center: Dynamic UPI Payment QR Code for Due Balance */}
         {showUpiQr && upiQrUrl && (
           <div className="flex flex-col items-center justify-center p-2.5 bg-stone-50 border border-stone-300 rounded-xl text-center self-center sm:self-auto shadow-2xs">
-            <div className="text-[11px] font-bold text-stone-900 uppercase tracking-wide mb-1 flex items-center gap-1">
-              <span>📱 Scan & Pay via UPI</span>
+            <div className="text-xs font-black text-stone-900 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+              <span>Scan & Pay</span>
             </div>
             <img
               src={upiQrUrl}
               alt="UPI Payment QR Code"
               className="w-28 h-28 sm:w-32 sm:h-32 object-contain bg-white p-1 rounded-lg border border-stone-200"
             />
-            <div className="pt-1.5 space-y-0.5 text-center">
-              <div className="text-xs sm:text-sm font-black text-rose-600 font-mono">
-                {hasDue ? `বাকি টাকা: ${currencyPrefix}${balance.toFixed(2)}` : `${currencyPrefix}${upiPayAmount.toFixed(2)}`}
-              </div>
-              <div className="text-[10px] font-bold text-stone-700 font-mono">
-                UPI ID: {settings.upiId}
-              </div>
-              <div className="text-[9px] text-stone-500 font-semibold">
-                GPay • PhonePe • Paytm • BHIM
-              </div>
-            </div>
           </div>
         )}
 

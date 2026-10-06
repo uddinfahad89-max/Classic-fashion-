@@ -616,21 +616,6 @@ export class ThermalPrinterService {
       }
       lines.push(doubleDiv);
 
-      if (settings.upiId && settings.upiId.trim() && isDue && dueAmt > 0) {
-        lines.push(padCenter('SCAN TO PAY DUE (UPI)'));
-        lines.push(padCenter(`UPI: ${settings.upiId.trim()}`));
-        lines.push(padCenter(`DUE: ${sym}${dueAmt.toFixed(2)}`));
-        lines.push(divider);
-      }
-
-      let cleanFooter = (settings.footerNote || '').trim()
-        .replace(/[\u0980-\u09FF]/g, '')
-        .replace(/\?+/g, '')
-        .trim();
-      if (!cleanFooter || cleanFooter.length < 3) {
-        cleanFooter = '(Thank you! Visit again)';
-      }
-      lines.push(padCenter(cleanFooter));
       return lines.join('\n');
     }
 
@@ -705,43 +690,7 @@ export class ThermalPrinterService {
         ? bill.balance
         : Math.max(0, bill.grandTotal - (bill.paidAmount || 0));
 
-    if (
-      settings.upiId &&
-      settings.upiId.trim() &&
-      ((isDueFull && dueAmtFull > 0) || bill.paymentMethod === 'upi')
-    ) {
-      const upiPayAmt = isDueFull && dueAmtFull > 0 ? dueAmtFull : bill.grandTotal;
-      lines.push(divider);
-      lines.push(padCenter('SCAN TO PAY DUE VIA UPI'));
-      lines.push(padCenter(`UPI ID: ${settings.upiId.trim()}`));
-      lines.push(padCenter(`DUE AMOUNT: ${sym}${upiPayAmt.toFixed(2)}`));
-      lines.push(padCenter('(GPay / PhonePe / Paytm / BHIM)'));
-    }
-
     lines.push(doubleDiv);
-
-    // Clean footer note to completely eradicate '?' and non-ASCII marks on thermal receipts
-    let cleanFooter = (settings.footerNote || '').trim();
-    // Strip any Bengali/Indic Unicode scripts
-    cleanFooter = cleanFooter.replace(/[\u0980-\u09FF]/g, '').trim();
-    // Strip any question marks completely (e.g. from ??????!)
-    cleanFooter = cleanFooter.replace(/\?+/g, '').trim();
-    // Remove leftover empty parentheses like "()" or "( )"
-    cleanFooter = cleanFooter.replace(/\(\s*\)/g, '').trim();
-    // Keep only clean printable ASCII
-    cleanFooter = cleanFooter.replace(/[^\x20-\x7E]/g, '').trim();
-    cleanFooter = cleanFooter.replace(/\?/g, '').trim();
-    if (
-      !cleanFooter ||
-      cleanFooter.length < 3 ||
-      cleanFooter.toLowerCase() === 'thank you for shopping with us! visit again.' ||
-      cleanFooter.toLowerCase() === 'thank you! visit again.'
-    ) {
-      cleanFooter = '(Thank you! Visit again)';
-    }
-
-    lines.push(padCenter(cleanFooter));
-    lines.push(padCenter('Powered by Simple Shop POS'));
 
     return lines.join('\n');
   }
@@ -881,9 +830,9 @@ export class ThermalPrinterService {
       commands.push(0x0a);
       commands.push(0x1b, 0x61, 0x01); // ESC a 1 (Center)
 
-      // Title: SCAN & PAY DUE (Bold)
+      // Title: SCAN & PAY (Bold, Centered)
       commands.push(0x1b, 0x45, 0x01); // ESC E 1 (Bold ON)
-      appendText(isDueEsc ? 'SCAN TO PAY DUE (UPI):\n' : 'SCAN & PAY VIA UPI:\n');
+      appendText('SCAN & PAY\n');
       commands.push(0x1b, 0x45, 0x00); // ESC E 0 (Bold OFF)
 
       // Standard ESC/POS QR Code Model 2 Commands
@@ -906,10 +855,6 @@ export class ThermalPrinterService {
       commands.push(0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x51, 0x30);
       commands.push(0x0a);
 
-      // Info below QR code
-      appendText(`UPI ID: ${settings.upiId.trim()}\n`);
-      appendText(`DUE AMOUNT: Rs. ${upiPayAmt.toFixed(2)}\n`);
-      appendText('(GPay / PhonePe / Paytm / BHIM)\n');
       commands.push(0x1b, 0x61, 0x00); // ESC a 0 (Left align)
     }
 
