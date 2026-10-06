@@ -292,8 +292,10 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
         ? 'due'
         : paymentMethod;
 
-    let paymentStatus: 'PAID' | 'DUE' | 'PARTIAL' = 'PAID';
-    if (finalPaymentMethod === 'due' || finalBalance > 0) {
+    let paymentStatus: 'PAID' | 'DUE' | 'PARTIAL' | 'ESTIMATE' = 'PAID';
+    if (finalPaymentMethod === 'estimate') {
+      paymentStatus = finalPaid >= grandTotal && grandTotal > 0 ? 'PAID' : finalPaid > 0 ? 'PARTIAL' : 'ESTIMATE';
+    } else if (finalPaymentMethod === 'due' || finalBalance > 0) {
       paymentStatus = finalPaid > 0 && finalBalance > 0 ? 'PARTIAL' : 'DUE';
     } else {
       paymentStatus = 'PAID';
@@ -316,6 +318,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
       changeAmount: finalPaymentMethod === 'due' ? 0 : changeAmount,
       balance: finalBalance,
       currentBalance: finalBalance,
+      isEstimate: finalPaymentMethod === 'estimate' || bill.isEstimate,
       isTailoring,
       deliveryDate: isTailoring && deliveryDate.trim() ? deliveryDate.trim() : undefined,
       tailoringStatus: isTailoring ? tailoringStatus : undefined,

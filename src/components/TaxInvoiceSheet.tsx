@@ -20,6 +20,7 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
       ? Boolean(bill.isEstimate)
       : bill.paymentMethod === 'estimate' ||
         (!bill.isTailoring && settings.defaultInvoiceFormat !== 'tax_invoice');
+  const isBillEstimate = isEstimate || bill.paymentMethod === 'estimate' || bill.paymentStatus === 'ESTIMATE';
   const rawSym = (settings.currencySymbol || '').replace(/\?/g, '').trim();
   const isCurrencyHidden = settings.hideCurrencySymbol || !rawSym;
   const currencyPrefix = isCurrencyHidden ? '' : `${rawSym} `;
@@ -47,6 +48,8 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
       (bill.paidAmount === bill.grandTotal && (!bill.balance || bill.balance === 0)));
 
   const paidAmount = isFullDue
+    ? 0
+    : isBillEstimate && (!bill.paidAmount || (bill.paidAmount === bill.grandTotal && bill.paymentStatus === 'ESTIMATE'))
     ? 0
     : bill.paidAmount !== undefined
     ? bill.paidAmount
@@ -152,12 +155,18 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
             <span className="text-xs text-stone-500 block font-medium">Status</span>
             <span
               className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-black ${
-                balance <= 0
+                isBillEstimate
+                  ? 'bg-blue-100 text-blue-800 border border-blue-300'
+                  : balance <= 0
                   ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                   : 'bg-rose-100 text-rose-800 border border-rose-300'
               }`}
             >
-              {balance <= 0 ? '✓ PAID (পরিশোধিত)' : '⚠️ UNPAID / DUE (বাকি)'}
+              {isBillEstimate
+                ? '📋 ESTIMATE (এস্টিমেট)'
+                : balance <= 0
+                ? '✓ PAID (পরিশোধিত)'
+                : '⚠️ UNPAID / DUE (বাকি)'}
             </span>
           </div>
         </div>
@@ -181,22 +190,33 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
             </span>
           </div>
 
-          {paidAmount > 0 && balance > 0 && (
-            <div className="flex justify-between items-center text-stone-700 font-medium text-sm sm:text-base px-1">
-              <span>Paid (পরিশোধ)</span>
-              <span className="font-bold text-emerald-700">
-                {currencyPrefix}{paidAmount.toFixed(1)}
+          {isBillEstimate ? (
+            <div className="flex justify-between items-center bg-blue-50 border border-blue-200 px-3.5 py-2 rounded-xl text-blue-900 font-bold text-sm sm:text-base">
+              <span>Payment Mode (পেমেন্ট ধরন)</span>
+              <span className="font-black uppercase tracking-wide">
+                এস্টিমেট (ESTIMATE)
               </span>
             </div>
-          )}
+          ) : (
+            <>
+              {paidAmount > 0 && balance > 0 && (
+                <div className="flex justify-between items-center text-stone-700 font-medium text-sm sm:text-base px-1">
+                  <span>Paid (পরিশোধ)</span>
+                  <span className="font-bold text-emerald-700">
+                    {currencyPrefix}{paidAmount.toFixed(1)}
+                  </span>
+                </div>
+              )}
 
-          {balance > 0 && (
-            <div className="flex justify-between items-center bg-rose-50 border border-rose-200 px-3.5 py-2 rounded-xl text-rose-900 font-bold">
-              <span>Due (বাকি)</span>
-              <span className="text-lg sm:text-xl font-black text-rose-700">
-                {currencyPrefix}{balance.toFixed(1)}
-              </span>
-            </div>
+              {balance > 0 && (
+                <div className="flex justify-between items-center bg-rose-50 border border-rose-200 px-3.5 py-2 rounded-xl text-rose-900 font-bold">
+                  <span>Due (বাকি)</span>
+                  <span className="text-lg sm:text-xl font-black text-rose-700">
+                    {currencyPrefix}{balance.toFixed(1)}
+                  </span>
+                </div>
+              )}
+            </>
           )}
 
           {/* Dynamic UPI Payment QR Code for Due in Total Only Slip (Vyapar style) */}
@@ -263,8 +283,8 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
             ? 'টাকার হিসাব স্লিপ / TOTAL AMOUNT SLIP'
             : bill.isTailoring
             ? '✂️ Tailoring Invoice'
-            : isEstimate
-            ? 'Estimate Bill'
+            : isBillEstimate
+            ? 'এস্টিমেট বিল / ESTIMATE BILL'
             : 'Tax Invoice'}
         </h2>
       </div>
@@ -294,20 +314,28 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
         {/* Right: Invoice Metadata (Concise) */}
         <div className="text-right space-y-1 font-semibold text-stone-800 text-sm sm:text-base">
           <div className="font-bold text-stone-900">
-            {bill.isTailoring ? 'Order Info' : isEstimate ? 'Estimate Details' : 'Invoice Details'}
+            {bill.isTailoring ? 'Order Info' : isBillEstimate ? 'Estimate Details' : 'Invoice Details'}
           </div>
           <div>
-            {isEstimate ? 'Estimate No:' : 'Invoice No:'}{' '}
+            {isBillEstimate ? 'Estimate No:' : 'Invoice No:'}{' '}
             <span className="font-extrabold text-stone-900">#{bill.invoiceNo}</span>
           </div>
           <div>Date: {formattedDate}</div>
-          {balance > 0 && (
-            <div className="pt-0.5">
+          <div className="pt-0.5">
+            {isBillEstimate ? (
+              <span className="inline-block px-2.5 py-0.5 rounded text-xs sm:text-sm font-black bg-blue-100 text-blue-800 border border-blue-300">
+                📋 ESTIMATE BILL (এস্টিমেট)
+              </span>
+            ) : balance > 0 ? (
               <span className="inline-block px-2 py-0.5 rounded text-xs sm:text-sm font-black bg-rose-100 text-rose-700 border border-rose-300">
                 {paidAmount > 0 ? `PARTIAL DUE: ${currencyPrefix}${balance.toFixed(1)}` : `DUE (বাকি): ${currencyPrefix}${balance.toFixed(1)}`}
               </span>
-            </div>
-          )}
+            ) : (
+              <span className="inline-block px-2 py-0.5 rounded text-xs sm:text-sm font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
+                ✓ PAID (পরিশোধিত)
+              </span>
+            )}
+          </div>
           {bill.isTailoring && bill.deliveryDate && (
             <div className="font-bold text-stone-900 bg-stone-100 px-2 py-0.5 rounded inline-block mt-0.5 text-sm sm:text-base">
               Delivery:{' '}
@@ -502,23 +530,57 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
             </span>
           </div>
 
-          <div className="flex justify-between items-center py-0.5">
-            <span className="font-medium text-stone-800">
-              {bill.isTailoring ? 'Advance' : 'Received'}
-            </span>
-            <span className="font-semibold text-stone-900">
-              {currencyPrefix}{paidAmount.toFixed(1)}
-            </span>
-          </div>
+          {isBillEstimate ? (
+            <div className="space-y-1 pt-1">
+              <div className="flex justify-between items-center py-1.5 px-2.5 rounded-lg bg-blue-50 border border-blue-200 text-blue-900 font-bold">
+                <span className="text-sm sm:text-base">পেমেন্ট ধরন (Payment Mode)</span>
+                <span className="font-black uppercase tracking-wider text-sm sm:text-base">
+                  এস্টিমেট (ESTIMATE)
+                </span>
+              </div>
+              {paidAmount > 0 && (
+                <div className="flex justify-between items-center py-0.5">
+                  <span className="font-medium text-stone-800">Advance / Paid</span>
+                  <span className="font-semibold text-emerald-700">
+                    {currencyPrefix}{paidAmount.toFixed(1)}
+                  </span>
+                </div>
+              )}
+              {paidAmount > 0 && balance > 0 && (
+                <div className="flex justify-between items-center py-0.5">
+                  <span className="font-semibold text-stone-800">Estimated Balance</span>
+                  <span className="font-extrabold text-stone-900">
+                    {currencyPrefix}{balance.toFixed(1)}
+                  </span>
+                </div>
+              )}
+              {paidAmount <= 0 && (
+                <div className="text-right text-xs text-stone-500 font-medium italic pt-0.5">
+                  * এস্টিমেট বিল / কোটেশন (Payment Not Finalized)
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
+              <div className="flex justify-between items-center py-0.5">
+                <span className="font-medium text-stone-800">
+                  {bill.isTailoring ? 'Advance' : 'Received'}
+                </span>
+                <span className="font-semibold text-stone-900">
+                  {currencyPrefix}{paidAmount.toFixed(1)}
+                </span>
+              </div>
 
-          <div className="flex justify-between items-center py-0.5">
-            <span className="font-semibold text-stone-800">
-              {bill.isTailoring ? 'Balance Due' : 'Balance'}
-            </span>
-            <span className="font-extrabold text-stone-900">
-              {currencyPrefix}{balance.toFixed(1)}
-            </span>
-          </div>
+              <div className="flex justify-between items-center py-0.5">
+                <span className="font-semibold text-stone-800">
+                  {bill.isTailoring ? 'Balance Due' : 'Balance'}
+                </span>
+                <span className="font-extrabold text-stone-900">
+                  {currencyPrefix}{balance.toFixed(1)}
+                </span>
+              </div>
+            </>
+          )}
           {/* Bottom underline */}
           <div className="border-b border-stone-800 pt-0.5"></div>
         </div>

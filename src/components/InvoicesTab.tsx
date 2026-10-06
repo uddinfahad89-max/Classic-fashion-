@@ -528,7 +528,7 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
                     <span className="text-[11px] font-mono font-bold text-stone-500 bg-stone-100 px-1.5 py-0.5 rounded">
                       #{bill.invoiceNo}
                     </span>
-                    {bill.paymentMethod === 'estimate' ? (
+                    {bill.paymentMethod === 'estimate' || bill.isEstimate || bill.paymentStatus === 'ESTIMATE' ? (
                       <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-700 text-[10px] font-bold border border-blue-200">
                         {isBn ? 'এস্টিমেট (Estimate)' : 'ESTIMATE'}
                       </span>

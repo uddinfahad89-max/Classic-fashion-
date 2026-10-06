@@ -4,7 +4,7 @@ export type ThermalProtocol = 'escpos' | 'tspl';
 
 export type PaymentMethod = 'estimate' | 'cash' | 'upi' | 'card' | 'due';
 
-export type PaymentStatus = 'PAID' | 'DUE' | 'PARTIAL';
+export type PaymentStatus = 'PAID' | 'DUE' | 'PARTIAL' | 'ESTIMATE';
 
 export type ActiveTab = 'billing' | 'invoices' | 'cashbook' | 'due' | 'purchases' | 'barcode';
 

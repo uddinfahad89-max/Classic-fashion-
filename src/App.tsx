@@ -1480,33 +1480,35 @@ export default function App() {
       />
 
       {/* Thermal Receipt Print & Preview Dialog */}
-      <PrintReceiptModal
-        bill={receiptBill}
-        onClose={() => {
-          setAutoPrintReceipt(false);
-          setReceiptBill(null);
-        }}
-        settings={settings}
-        bluetoothStatus={bluetoothStatus}
-        onConnectBluetooth={handleConnectBluetooth}
-        onUpdatePaperWidth={handleUpdatePaperWidth}
-        onToggleLabelMode={handleToggleLabelMode}
-        onToggleTotalOnlySlip={handleToggleTotalOnlySlip}
-        initialTotalOnlySlip={receiptInitialTotalOnly}
-        onEditBill={(bill) => {
-          setAutoPrintReceipt(false);
-          setReceiptBill(null);
-          setEditingBill(bill);
-        }}
-        onDeleteBill={(id) => {
-          setAutoPrintReceipt(false);
-          handleDeleteBill(id);
-          setReceiptBill(null);
-        }}
-        language={language}
-        autoPrint={autoPrintReceipt}
-        onAutoPrintComplete={() => setAutoPrintReceipt(false)}
-      />
+      {receiptBill && (
+        <PrintReceiptModal
+          bill={receiptBill}
+          onClose={() => {
+            setAutoPrintReceipt(false);
+            setReceiptBill(null);
+          }}
+          settings={settings}
+          bluetoothStatus={bluetoothStatus}
+          onConnectBluetooth={handleConnectBluetooth}
+          onUpdatePaperWidth={handleUpdatePaperWidth}
+          onToggleLabelMode={handleToggleLabelMode}
+          onToggleTotalOnlySlip={handleToggleTotalOnlySlip}
+          initialTotalOnlySlip={receiptInitialTotalOnly}
+          onEditBill={(bill) => {
+            setAutoPrintReceipt(false);
+            setReceiptBill(null);
+            setEditingBill(bill);
+          }}
+          onDeleteBill={(id) => {
+            setAutoPrintReceipt(false);
+            handleDeleteBill(id);
+            setReceiptBill(null);
+          }}
+          language={language}
+          autoPrint={autoPrintReceipt}
+          onAutoPrintComplete={() => setAutoPrintReceipt(false)}
+        />
+      )}
 
       {/* Global Edit Invoice Modal */}
       {editingBill && (

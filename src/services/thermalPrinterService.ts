@@ -593,21 +593,26 @@ export class ThermalPrinterService {
     // Shop name, Total quantity, Paid/Unpaid status, Discount, Total amount, and Due (বাকি নিলে)
     if (settings.isTotalOnlySlip) {
       const totalQty = bill.items.reduce((sum, it) => sum + (it.qty || 1), 0);
-      const isDue = (bill.balance && bill.balance > 0) || (bill.paymentStatus !== 'PAID' && bill.grandTotal > (bill.paidAmount || 0));
+      const isThermalEstimate = isEstimate || bill.paymentMethod === 'estimate' || bill.paymentStatus === 'ESTIMATE';
+      const isDue = !isThermalEstimate && ((bill.balance && bill.balance > 0) || (bill.paymentStatus !== 'PAID' && bill.grandTotal > (bill.paidAmount || 0)));
       const dueAmt = bill.balance !== undefined ? bill.balance : Math.max(0, bill.grandTotal - (bill.paidAmount || 0));
 
       lines.push(padBetween('TOTAL QUANTITY:', `${totalQty} ITEMS`));
-      lines.push(padBetween('STATUS:', isDue ? 'UNPAID / DUE' : 'PAID'));
+      lines.push(padBetween('STATUS:', isThermalEstimate ? 'ESTIMATE (এস্টিমেট)' : isDue ? 'UNPAID / DUE' : 'PAID'));
       if (bill.discount > 0) {
         lines.push(padBetween('DISCOUNT:', `-${sym}${bill.discount.toFixed(2)}`));
       }
       lines.push(doubleDiv);
       lines.push(padBetween('TOTAL AMOUNT:', `${sym}${bill.grandTotal.toFixed(2)}`));
-      if (bill.paidAmount && bill.paidAmount > 0 && isDue) {
-        lines.push(padBetween('PAID:', `${sym}${bill.paidAmount.toFixed(2)}`));
-      }
-      if (isDue && dueAmt > 0) {
-        lines.push(padBetween('DUE (BAKI):', `${sym}${dueAmt.toFixed(2)}`));
+      if (isThermalEstimate) {
+        lines.push(padBetween('PAYMENT:', 'ESTIMATE (এস্টিমেট)'));
+      } else {
+        if (bill.paidAmount && bill.paidAmount > 0 && isDue) {
+          lines.push(padBetween('PAID:', `${sym}${bill.paidAmount.toFixed(2)}`));
+        }
+        if (isDue && dueAmt > 0) {
+          lines.push(padBetween('DUE (BAKI):', `${sym}${dueAmt.toFixed(2)}`));
+        }
       }
       lines.push(doubleDiv);
 
@@ -665,13 +670,27 @@ export class ThermalPrinterService {
     }
     lines.push(doubleDiv);
     lines.push(padBetween('GRAND TOTAL:', `${sym}${bill.grandTotal.toFixed(2)}`));
-    lines.push(padBetween('PAYMENT:', bill.paymentMethod.toUpperCase()));
+
+    const isThermalEstimateFull = isEstimate || bill.paymentMethod === 'estimate' || bill.paymentStatus === 'ESTIMATE';
+    lines.push(
+      padBetween(
+        'PAYMENT:',
+        isThermalEstimateFull ? 'ESTIMATE (এস্টিমেট)' : bill.paymentMethod.toUpperCase()
+      )
+    );
 
     if (bill.isTailoring) {
       const adv = bill.paidAmount || 0;
       const bal = bill.balance !== undefined ? bill.balance : Math.max(0, bill.grandTotal - adv);
       lines.push(padBetween('ADVANCE PAID:', `${sym}${adv.toFixed(2)}`));
       lines.push(padBetween('BALANCE DUE:', `${sym}${bal.toFixed(2)}`));
+    } else if (isThermalEstimateFull) {
+      lines.push(padBetween('STATUS:', 'ESTIMATE (কোটেশন)'));
+      if (bill.paidAmount > 0 && bill.paidAmount < bill.grandTotal) {
+        lines.push(padBetween('ADVANCE/PAID:', `${sym}${bill.paidAmount.toFixed(2)}`));
+        const estBal = bill.balance !== undefined ? bill.balance : Math.max(0, bill.grandTotal - bill.paidAmount);
+        lines.push(padBetween('EST. BALANCE:', `${sym}${estBal.toFixed(2)}`));
+      }
     } else if (bill.paidAmount > 0) {
       lines.push(padBetween('PAID:', `${sym}${bill.paidAmount.toFixed(2)}`));
       lines.push(padBetween('CHANGE:', `${sym}${bill.changeAmount.toFixed(2)}`));

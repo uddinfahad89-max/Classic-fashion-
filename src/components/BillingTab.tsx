@@ -1232,8 +1232,14 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       finalInvoiceNo = storageService.getNextInvoiceNumber();
     }
 
+    const isThisAnEstimate = paymentMethod === 'estimate' || isEstimateBill;
+
     const actualPaid =
-      paymentMethod === 'due'
+      paymentMethod === 'estimate'
+        ? paidAmount.trim() !== ''
+          ? Math.max(0, paidNum)
+          : 0
+        : paymentMethod === 'due'
         ? paidAmount.trim() !== '' && paidNum < finalGrandTotal
           ? paidNum
           : 0
@@ -1243,7 +1249,9 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         ? 0
         : finalGrandTotal;
     const balanceAmount =
-      paymentMethod === 'due' || isTailoring || (paidAmount.trim() !== '' && paidNum < finalGrandTotal)
+      paymentMethod === 'estimate'
+        ? Math.max(0, finalGrandTotal - actualPaid)
+        : paymentMethod === 'due' || isTailoring || (paidAmount.trim() !== '' && paidNum < finalGrandTotal)
         ? Math.max(0, finalGrandTotal - actualPaid)
         : 0;
     const hasMeasurements = Object.values(measurements).some((v) => Boolean(v && String(v).trim()));
@@ -1269,13 +1277,23 @@ export const BillingTab: React.FC<BillingTabProps> = ({
           ? 'due'
           : paymentMethod,
       paymentStatus:
-        balanceAmount <= 0 ? 'PAID' : actualPaid > 0 ? 'PARTIAL' : 'DUE',
+        paymentMethod === 'estimate'
+          ? actualPaid >= finalGrandTotal && finalGrandTotal > 0
+            ? 'PAID'
+            : actualPaid > 0
+            ? 'PARTIAL'
+            : 'ESTIMATE'
+          : balanceAmount <= 0
+          ? 'PAID'
+          : actualPaid > 0
+          ? 'PARTIAL'
+          : 'DUE',
       paidAmount: actualPaid,
-      changeAmount: paidNum > finalGrandTotal ? finalChangeAmount : 0,
+      changeAmount: paymentMethod === 'estimate' ? 0 : paidNum > finalGrandTotal ? finalChangeAmount : 0,
       balance: balanceAmount,
       previousBalance: 0,
       currentBalance: balanceAmount,
-      isEstimate: isEstimateBill,
+      isEstimate: isThisAnEstimate,
       ...(isTailoring
         ? {
             isTailoring: true,
@@ -2377,6 +2395,10 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                     ? isBn
                       ? `অগ্রিম জমা ${sym ? `(${sym})` : ''}`
                       : `Advance ${sym ? `(${sym})` : ''}`
+                    : paymentMethod === 'estimate'
+                    ? isBn
+                      ? `অগ্রিম/পরিশোধ (এস্টিমেট) ${sym ? `(${sym})` : ''}`
+                      : `Advance/Paid (Estimate) ${sym ? `(${sym})` : ''}`
                     : `${t.paidReceivedLabel} ${sym ? `(${sym})` : ''}`}
                 </label>
                 {grandTotal > 0 && (
@@ -2397,7 +2419,13 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                   step="any"
                   value={paidAmount}
                   onChange={(e) => setPaidAmount(e.target.value)}
-                  placeholder={grandTotal > 0 ? grandTotal.toFixed(2) : '0.00'}
+                  placeholder={
+                    paymentMethod === 'estimate'
+                      ? '0.00 (এস্টিমেট)'
+                      : grandTotal > 0
+                      ? grandTotal.toFixed(2)
+                      : '0.00'
+                  }
                   className="w-full border border-stone-200 bg-stone-50/80 pl-3 pr-8 py-2.5 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
                 />
                 <button
@@ -2548,7 +2576,12 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                   onClick={() => {
                     const nextMode = method.id as PaymentMethod;
                     setPaymentMethod(nextMode);
-                    if (nextMode === 'due' && paidNum >= grandTotal) {
+                    if (nextMode === 'estimate') {
+                      setIsEstimateBill(true);
+                      if (paidAmount === grandTotal.toFixed(2)) {
+                        setPaidAmount('');
+                      }
+                    } else if (nextMode === 'due' && paidNum >= grandTotal) {
                       setPaidAmount('');
                     }
                   }}
