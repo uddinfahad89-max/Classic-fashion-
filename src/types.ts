@@ -149,6 +149,8 @@ export interface BillInvoice {
   balance?: number;
   previousBalance?: number;
   currentBalance?: number;
+  // Estimate vs Tax Invoice
+  isEstimate?: boolean;
   // Tailoring Purpose Fields
   isTailoring?: boolean;
   deliveryDate?: string;
@@ -229,7 +231,7 @@ export interface ThermalPrinterSettings {
   hideCurrencySymbol?: boolean;
   footerNote: string;
   autoPrintOnCheckout: boolean;
-  defaultInvoiceFormat?: 'tax_invoice' | 'thermal';
+  defaultInvoiceFormat?: 'tax_invoice' | 'estimate' | 'thermal';
   isDataSaverEnabled?: boolean;
   invoicePrefix?: string;
   nextInvoiceNumber?: number;

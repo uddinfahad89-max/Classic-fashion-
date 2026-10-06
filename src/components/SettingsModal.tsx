@@ -324,14 +324,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
 
             <div>
-              <label className="block text-stone-700 font-semibold mb-1">{isBn ? 'UPI আইডি (ঐচ্ছিক)' : 'UPI ID (Optional)'}</label>
+              <label className="block text-stone-700 font-semibold mb-1 flex items-center justify-between">
+                <span>{isBn ? 'UPI আইডি (QR কোড পেমেন্ট)' : 'UPI ID (QR Code & Due Pay)'}</span>
+                {form.upiId && form.upiId.trim() && (
+                  <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded font-bold">
+                    ✓ QR Enabled
+                  </span>
+                )}
+              </label>
               <input
                 type="text"
                 value={form.upiId || ''}
                 onChange={(e) => setForm({ ...form, upiId: e.target.value })}
-                placeholder="example@upi"
+                placeholder="e.g. 9876543210@paytm or shop@okaxis"
                 className="w-full border border-stone-200 bg-stone-50/80 p-2 rounded-xl text-xs font-mono focus:outline-none focus:border-blue-500"
               />
+              <p className="text-[10px] text-blue-700 font-medium pt-1 leading-tight">
+                {isBn
+                  ? '💡 Vyapar অ্যাপের মতো: এটি দিলে যারা বাকি (Due) নিবে তাদের বিলে ও থার্মাল প্রিন্টে অটো QR কোড আসবে, যাতে কাস্টমার স্ক্যান করে পেমেন্ট করতে পারে।'
+                  : '💡 Like Vyapar app: If set, bills with Due (বাকি) will automatically print a dynamic UPI QR Code for instant scan & pay.'}
+              </p>
             </div>
           </div>
 
@@ -464,6 +476,45 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               />
               <div className="w-11 h-6 bg-stone-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
             </label>
+          </div>
+
+          {/* Default Invoice Format: Estimate Bill vs Tax Invoice */}
+          <div className="p-3 bg-blue-50/70 rounded-2xl border border-blue-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="space-y-0.5">
+              <div className="font-bold text-blue-950 text-xs flex items-center gap-1.5">
+                <FileText className="w-3.5 h-3.5 text-blue-600" />
+                <span>{isBn ? 'ডিফল্ট বিলের শিরোনাম (Default Bill Header)' : 'Default Invoice Title Header'}</span>
+              </div>
+              <div className="text-[11px] text-blue-900/80 leading-tight">
+                {isBn
+                  ? 'দোকানের ক্যাশ মেমো / রসিদে "Estimate Bill" নাকি "Tax Invoice" লেখা থাকবে তা নির্ধারণ করুন।'
+                  : 'Choose whether printed/shared receipts header says "Estimate Bill" or "Tax Invoice".'}
+              </div>
+            </div>
+            <div className="flex items-center bg-white rounded-xl p-1 border border-blue-200 text-xs font-bold shrink-0 self-start sm:self-auto shadow-2xs">
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, defaultInvoiceFormat: 'estimate' })}
+                className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                  form.defaultInvoiceFormat !== 'tax_invoice'
+                    ? 'bg-blue-600 text-white shadow-2xs'
+                    : 'text-stone-600 hover:text-stone-900'
+                }`}
+              >
+                {isBn ? '📋 এস্টিমেট বিল' : 'Estimate Bill'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, defaultInvoiceFormat: 'tax_invoice' })}
+                className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                  form.defaultInvoiceFormat === 'tax_invoice'
+                    ? 'bg-blue-600 text-white shadow-2xs'
+                    : 'text-stone-600 hover:text-stone-900'
+                }`}
+              >
+                {isBn ? '🏛️ ট্যাক্স ইনভয়েস' : 'Tax Invoice'}
+              </button>
+            </div>
           </div>
 
           {/* Total-Only Slip Mode (Summary Bill) in Settings */}

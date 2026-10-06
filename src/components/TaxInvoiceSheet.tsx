@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { BillInvoice, ThermalPrinterSettings } from '../types';
 import { numberToWords } from '../utils/numberToWords';
+import { buildUpiUri, generateQrDataUrl } from '../utils/qrCode';
 
 interface TaxInvoiceSheetProps {
   bill: BillInvoice;
@@ -14,6 +15,11 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
   isTotalOnlySlip = false,
 }) => {
   const isTotalOnly = isTotalOnlySlip || Boolean(settings.isTotalOnlySlip);
+  const isEstimate =
+    bill.isEstimate !== undefined
+      ? Boolean(bill.isEstimate)
+      : bill.paymentMethod === 'estimate' ||
+        (!bill.isTailoring && settings.defaultInvoiceFormat !== 'tax_invoice');
   const rawSym = (settings.currencySymbol || '').replace(/\?/g, '').trim();
   const isCurrencyHidden = settings.hideCurrencySymbol || !rawSym;
   const currencyPrefix = isCurrencyHidden ? '' : `${rawSym} `;
@@ -68,6 +74,34 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
     formattedDate = `${day}-${month}-${year}`;
     formattedTime = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
   }
+
+  // Dynamic UPI Payment QR Code (Vyapar app feature: auto-generate when customer has Due or pays via UPI)
+  const [upiQrUrl, setUpiQrUrl] = useState<string>('');
+  const hasDue = balance > 0;
+  const showUpiQr = Boolean(
+    settings.upiId &&
+    settings.upiId.trim() &&
+    (hasDue || bill.paymentMethod === 'due' || bill.paymentMethod === 'upi')
+  );
+  const upiPayAmount = hasDue ? balance : bill.grandTotal;
+
+  useEffect(() => {
+    if (!showUpiQr || !settings.upiId || !settings.upiId.trim()) {
+      setUpiQrUrl('');
+      return;
+    }
+    const cleanStore = (storeName || 'Store').replace(/[^A-Za-z0-9 ]/g, '').trim() || 'Store';
+    const uri = buildUpiUri({
+      vpa: settings.upiId.trim(),
+      payeeName: cleanStore,
+      amount: upiPayAmount,
+      invoiceNo: bill.invoiceNo,
+      note: hasDue ? `Due Bill #${bill.invoiceNo}` : `Bill #${bill.invoiceNo}`,
+    });
+    generateQrDataUrl(uri, 150).then((url) => {
+      setUpiQrUrl(url);
+    });
+  }, [showUpiQr, settings.upiId, storeName, upiPayAmount, bill.invoiceNo, hasDue]);
 
   // ONLY SLIP (TOTAL ONLY SLIP): Minimalistic summary requested by user containing only:
   // Shop name, Total quantity, Paid/Unpaid, Discount, Total amount, and Due (বাকি নিলে)
@@ -164,6 +198,29 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
               </span>
             </div>
           )}
+
+          {/* Dynamic UPI Payment QR Code for Due in Total Only Slip (Vyapar style) */}
+          {showUpiQr && upiQrUrl && (
+            <div className="my-2 p-3 bg-stone-50 border border-stone-200 rounded-xl text-center flex flex-col items-center shadow-2xs">
+              <span className="text-[11px] font-bold text-stone-800 uppercase tracking-wide mb-1.5 flex items-center gap-1">
+                <span>📱 বাকি পরিশোধ করতে স্ক্যান করুন (Scan to Pay Due)</span>
+              </span>
+              <img
+                src={upiQrUrl}
+                alt="UPI QR"
+                className="w-28 h-28 object-contain bg-white p-1 rounded-lg border border-stone-200"
+              />
+              <div className="text-xs font-black text-rose-600 font-mono mt-1">
+                {hasDue ? `বাকি টাকা: ${currencyPrefix}${balance.toFixed(2)}` : `${currencyPrefix}${upiPayAmount.toFixed(2)}`}
+              </div>
+              <div className="text-[10px] font-mono text-stone-600 font-bold">
+                UPI ID: {settings.upiId}
+              </div>
+              <div className="text-[9px] text-stone-500">
+                GPay • PhonePe • Paytm • BHIM
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Clean minimal footer */}
@@ -201,13 +258,13 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
 
       {/* 2. Tax Invoice / Estimate / Tailoring Invoice / Total Slip Banner */}
       <div className="text-center my-2.5">
-        <h2 className="text-xl sm:text-2xl font-extrabold text-[#8C8EE8] tracking-normal">
+        <h2 className="text-xl sm:text-2xl font-black text-[#5046E5] print:text-black tracking-wide uppercase">
           {isTotalOnly
             ? 'টাকার হিসাব স্লিপ / TOTAL AMOUNT SLIP'
             : bill.isTailoring
             ? '✂️ Tailoring Invoice'
-            : bill.paymentMethod === 'estimate'
-            ? 'Estimate'
+            : isEstimate
+            ? 'Estimate Bill'
             : 'Tax Invoice'}
         </h2>
       </div>
@@ -237,10 +294,11 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
         {/* Right: Invoice Metadata (Concise) */}
         <div className="text-right space-y-1 font-semibold text-stone-800 text-sm sm:text-base">
           <div className="font-bold text-stone-900">
-            {bill.isTailoring ? 'Order Info' : 'Invoice Details'}
+            {bill.isTailoring ? 'Order Info' : isEstimate ? 'Estimate Details' : 'Invoice Details'}
           </div>
           <div>
-            No: <span className="font-extrabold text-stone-900">#{bill.invoiceNo}</span>
+            {isEstimate ? 'Estimate No:' : 'Invoice No:'}{' '}
+            <span className="font-extrabold text-stone-900">#{bill.invoiceNo}</span>
           </div>
           <div>Date: {formattedDate}</div>
           {balance > 0 && (
@@ -466,10 +524,10 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
         </div>
       </div>
 
-      {/* 6. Footer: Terms & Authorized Signatory */}
-      <div className="flex justify-between items-end pt-5 border-t border-stone-200">
+      {/* 6. Footer: Terms, Dynamic UPI QR (Vyapar style) & Authorized Signatory */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end pt-5 border-t border-stone-200 gap-4">
         {/* Left: Terms and Conditions */}
-        <div className="space-y-1 max-w-[320px]">
+        <div className="space-y-1 max-w-[280px]">
           <div className="font-bold text-stone-900 text-sm sm:text-base">Terms and Conditions</div>
           {bill.isTailoring ? (
             <>
@@ -492,8 +550,33 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
           )}
         </div>
 
+        {/* Center: Dynamic UPI Payment QR Code for Due Balance (Vyapar app style) */}
+        {showUpiQr && upiQrUrl && (
+          <div className="flex flex-col items-center justify-center p-2.5 bg-stone-50 border border-stone-300 rounded-xl text-center self-center sm:self-auto shadow-2xs">
+            <div className="text-[11px] font-bold text-stone-900 uppercase tracking-wide mb-1 flex items-center gap-1">
+              <span>📱 Scan & Pay via UPI</span>
+            </div>
+            <img
+              src={upiQrUrl}
+              alt="UPI Payment QR Code"
+              className="w-28 h-28 sm:w-32 sm:h-32 object-contain bg-white p-1 rounded-lg border border-stone-200"
+            />
+            <div className="pt-1.5 space-y-0.5 text-center">
+              <div className="text-xs sm:text-sm font-black text-rose-600 font-mono">
+                {hasDue ? `বাকি টাকা: ${currencyPrefix}${balance.toFixed(2)}` : `${currencyPrefix}${upiPayAmount.toFixed(2)}`}
+              </div>
+              <div className="text-[10px] font-bold text-stone-700 font-mono">
+                UPI ID: {settings.upiId}
+              </div>
+              <div className="text-[9px] text-stone-500 font-semibold">
+                GPay • PhonePe • Paytm • BHIM
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Right: Authorized Signatory */}
-        <div className="text-center space-y-1 w-48">
+        <div className="text-center space-y-1 w-44 self-end">
           <div className="text-stone-800 text-sm sm:text-base font-semibold">
             For: <span className="font-bold text-stone-900">{storeName}</span>
           </div>

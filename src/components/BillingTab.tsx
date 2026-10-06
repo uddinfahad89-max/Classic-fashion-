@@ -289,6 +289,13 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   const [customerPhone, setCustomerPhone] = useState(() => initialDraft?.customerPhone || '');
   // Tailoring Invoice State
   const [isTailoring, setIsTailoring] = useState(() => Boolean(initialDraft?.isTailoring));
+  // Estimate Bill State (Defaults to true for retail POS / Estimate billing)
+  const [isEstimateBill, setIsEstimateBill] = useState<boolean>(
+    () =>
+      initialDraft?.isEstimate !== undefined
+        ? Boolean(initialDraft.isEstimate)
+        : settings.defaultInvoiceFormat !== 'tax_invoice'
+  );
   const [deliveryDate, setDeliveryDate] = useState(() => initialDraft?.deliveryDate || '');
   const [trialDate, setTrialDate] = useState(() => initialDraft?.trialDate || '');
   const [tailoringStatus, setTailoringStatus] = useState<TailoringOrderStatus>(
@@ -1268,6 +1275,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       balance: balanceAmount,
       previousBalance: 0,
       currentBalance: balanceAmount,
+      isEstimate: isEstimateBill,
       ...(isTailoring
         ? {
             isTailoring: true,
@@ -1349,26 +1357,55 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         className="bg-white rounded-2xl p-3 sm:p-4 shadow-xs border border-stone-200"
       >
         <div className="flex items-center justify-between gap-2 mb-2.5 flex-wrap">
-          {/* Tailoring Mode Toggle + Automatic Sequential Invoice Number Badge */}
+          {/* Estimate / Tax Toggle + Tailoring Mode Toggle + Automatic Sequential Invoice Number Badge */}
           <div className="flex items-center justify-between w-full gap-1.5 flex-wrap">
-            <button
-              type="button"
-              id="btn-toggle-tailoring-invoice"
-              onClick={() => setIsTailoring((prev) => !prev)}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs ${
-                isTailoring
-                  ? 'bg-purple-600 text-white border-purple-600 ring-2 ring-purple-200'
-                  : 'bg-purple-50 hover:bg-purple-100 text-purple-800 border-purple-200'
-              }`}
-              title={
-                isBn
-                  ? 'টেইলারিং অর্ডার ও মাপ সহ ইনভয়েস তৈরি করুন'
-                  : 'Switch to Tailoring Order & Measurement Invoice'
-              }
-            >
-              <Scissors className="w-3.5 h-3.5" />
-              <span>{isBn ? '✂️ টেইলারিং ইনভয়েস' : '✂️ Tailoring Invoice'}</span>
-            </button>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <button
+                type="button"
+                id="btn-toggle-estimate-bill"
+                onClick={() => setIsEstimateBill((prev) => !prev)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs ${
+                  isEstimateBill
+                    ? 'bg-blue-600 text-white border-blue-600 ring-2 ring-blue-200'
+                    : 'bg-stone-100 hover:bg-stone-200 text-stone-700 border-stone-300'
+                }`}
+                title={
+                  isBn
+                    ? 'এস্টিমেট বিল বা ট্যাক্স ইনভয়েস পরিবর্তন করুন'
+                    : 'Toggle between Estimate Bill and Tax Invoice'
+                }
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>
+                  {isEstimateBill
+                    ? isBn
+                      ? '📋 এস্টিমেট বিল (Estimate)'
+                      : '📋 Estimate Bill'
+                    : isBn
+                    ? '🏛️ ট্যাক্স ইনভয়েস (Tax Invoice)'
+                    : '🏛️ Tax Invoice'}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                id="btn-toggle-tailoring-invoice"
+                onClick={() => setIsTailoring((prev) => !prev)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs ${
+                  isTailoring
+                    ? 'bg-purple-600 text-white border-purple-600 ring-2 ring-purple-200'
+                    : 'bg-purple-50 hover:bg-purple-100 text-purple-800 border-purple-200'
+                }`}
+                title={
+                  isBn
+                    ? 'টেইলারিং অর্ডার ও মাপ সহ ইনভয়েস তৈরি করুন'
+                    : 'Switch to Tailoring Order & Measurement Invoice'
+                }
+              >
+                <Scissors className="w-3.5 h-3.5" />
+                <span>{isBn ? '✂️ টেইলারিং ইনভয়েস' : '✂️ Tailoring Invoice'}</span>
+              </button>
+            </div>
 
             <span
               id="billing-auto-invoice-badge"
@@ -2569,7 +2606,15 @@ export const BillingTab: React.FC<BillingTabProps> = ({
           >
             <Check className="w-4 h-4 sm:w-5 sm:h-5 shrink-0 stroke-[2.5]" />
             <span className="truncate">
-              {isBn ? 'বিল সেভ করুন' : language === 'hi' ? 'बिल सेव करें' : 'Save Bill'}
+              {isEstimateBill
+                ? isBn
+                  ? 'এস্টিমেট সেভ করুন'
+                  : 'Save Estimate'
+                : isBn
+                ? 'বিল সেভ করুন'
+                : language === 'hi'
+                ? 'बिल सेव करें'
+                : 'Save Bill'}
             </span>
             <span className="opacity-90 font-mono text-[11px] bg-white/20 px-1.5 py-0.5 rounded-md font-semibold shrink-0">
               #{invoiceNo || storageService.getNextInvoiceNumber()}
@@ -2597,7 +2642,15 @@ export const BillingTab: React.FC<BillingTabProps> = ({
               <>
                 <Printer className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
                 <span className="whitespace-nowrap">
-                  {isBn ? 'প্রিন্ট করুন' : language === 'hi' ? 'प्रिंट करें' : 'Print Bill'}
+                  {isEstimateBill
+                    ? isBn
+                      ? 'এস্টিমেট প্রিন্ট'
+                      : 'Print Estimate'
+                    : isBn
+                    ? 'প্রিন্ট করুন'
+                    : language === 'hi'
+                    ? 'प्रिंट करें'
+                    : 'Print Bill'}
                 </span>
                 <span className="opacity-90 font-mono text-[11px] bg-white/20 px-1.5 py-0.5 rounded-md font-semibold shrink-0">
                   #{invoiceNo || storageService.getNextInvoiceNumber()}

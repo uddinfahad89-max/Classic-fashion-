@@ -538,13 +538,21 @@ export class ThermalPrinterService {
     lines.push(padCenter(settings.storeName.trim().toUpperCase()));
     if (settings.storeAddress) lines.push(padCenter(settings.storeAddress.trim().toUpperCase()));
     if (settings.storePhone) lines.push(padCenter(`Tel: ${settings.storePhone.trim()}`));
+    const isEstimate =
+      bill.isEstimate !== undefined
+        ? Boolean(bill.isEstimate)
+        : bill.paymentMethod === 'estimate' ||
+          (!bill.isTailoring && settings.defaultInvoiceFormat !== 'tax_invoice');
     if (bill.isTailoring) {
       lines.push(padCenter('*** TAILORING ORDER SLIP ***'));
+    } else if (isEstimate) {
+      lines.push(padCenter('*** ESTIMATE BILL ***'));
     }
     lines.push(doubleDiv);
 
     // Bill Meta
-    lines.push(padBetween(`Bill: #${bill.invoiceNo}`, bill.date));
+    const billDocPrefix = isEstimate ? 'Estimate:' : 'Bill:';
+    lines.push(padBetween(`${billDocPrefix} #${bill.invoiceNo}`, bill.date));
     if (bill.customerName) {
       lines.push(padBetween('Cust:', bill.customerName));
     }
@@ -603,6 +611,13 @@ export class ThermalPrinterService {
       }
       lines.push(doubleDiv);
 
+      if (settings.upiId && settings.upiId.trim() && isDue && dueAmt > 0) {
+        lines.push(padCenter('SCAN TO PAY DUE (UPI)'));
+        lines.push(padCenter(`UPI: ${settings.upiId.trim()}`));
+        lines.push(padCenter(`DUE: ${sym}${dueAmt.toFixed(2)}`));
+        lines.push(divider);
+      }
+
       let cleanFooter = (settings.footerNote || '').trim()
         .replace(/[\u0980-\u09FF]/g, '')
         .replace(/\?+/g, '')
@@ -660,6 +675,28 @@ export class ThermalPrinterService {
     } else if (bill.paidAmount > 0) {
       lines.push(padBetween('PAID:', `${sym}${bill.paidAmount.toFixed(2)}`));
       lines.push(padBetween('CHANGE:', `${sym}${bill.changeAmount.toFixed(2)}`));
+    }
+
+    const isDueFull =
+      (bill.balance !== undefined && bill.balance > 0) ||
+      (bill.paymentStatus !== 'PAID' && bill.grandTotal > (bill.paidAmount || 0)) ||
+      bill.paymentMethod === 'due';
+    const dueAmtFull =
+      bill.balance !== undefined
+        ? bill.balance
+        : Math.max(0, bill.grandTotal - (bill.paidAmount || 0));
+
+    if (
+      settings.upiId &&
+      settings.upiId.trim() &&
+      ((isDueFull && dueAmtFull > 0) || bill.paymentMethod === 'upi')
+    ) {
+      const upiPayAmt = isDueFull && dueAmtFull > 0 ? dueAmtFull : bill.grandTotal;
+      lines.push(divider);
+      lines.push(padCenter('SCAN TO PAY DUE VIA UPI'));
+      lines.push(padCenter(`UPI ID: ${settings.upiId.trim()}`));
+      lines.push(padCenter(`DUE AMOUNT: ${sym}${upiPayAmt.toFixed(2)}`));
+      lines.push(padCenter('(GPay / PhonePe / Paytm / BHIM)'));
     }
 
     lines.push(doubleDiv);
@@ -796,6 +833,66 @@ export class ThermalPrinterService {
     // Absolute Safety Net: Strip any rogue '?' characters (e.g. '?500.00' -> '500.00', '???????' -> '')
     receiptText = receiptText.replace(/\?+(\d)/g, '$1').replace(/\?{2,}/g, '');
     appendText(receiptText);
+
+    // Dynamic UPI Payment QR Code for Thermal Print (Vyapar app feature)
+    const isDueEsc =
+      (bill.balance !== undefined && bill.balance > 0) ||
+      (bill.paymentStatus !== 'PAID' && bill.grandTotal > (bill.paidAmount || 0)) ||
+      bill.paymentMethod === 'due';
+    const dueAmtEsc =
+      bill.balance !== undefined
+        ? bill.balance
+        : Math.max(0, bill.grandTotal - (bill.paidAmount || 0));
+
+    if (
+      settings.upiId &&
+      settings.upiId.trim() &&
+      ((isDueEsc && dueAmtEsc > 0) || bill.paymentMethod === 'upi')
+    ) {
+      const upiPayAmt = isDueEsc && dueAmtEsc > 0 ? dueAmtEsc : bill.grandTotal;
+      const cleanStore =
+        (settings.storeName || 'Store').replace(/[^A-Za-z0-9 ]/g, '').trim() || 'Store';
+      const upiUri = `upi://pay?pa=${settings.upiId.trim()}&pn=${encodeURIComponent(
+        cleanStore
+      )}&am=${upiPayAmt.toFixed(2)}&cu=INR&tn=${encodeURIComponent(
+        `Bill #${bill.invoiceNo}`
+      )}`;
+
+      // Line break + Center align
+      commands.push(0x0a);
+      commands.push(0x1b, 0x61, 0x01); // ESC a 1 (Center)
+
+      // Title: SCAN & PAY DUE (Bold)
+      commands.push(0x1b, 0x45, 0x01); // ESC E 1 (Bold ON)
+      appendText(isDueEsc ? 'SCAN TO PAY DUE (UPI):\n' : 'SCAN & PAY VIA UPI:\n');
+      commands.push(0x1b, 0x45, 0x00); // ESC E 0 (Bold OFF)
+
+      // Standard ESC/POS QR Code Model 2 Commands
+      const uriBytes: number[] = [];
+      for (let i = 0; i < upiUri.length; i++) {
+        uriBytes.push(upiUri.charCodeAt(i));
+      }
+      // Function 165: Model 2 (0x1D 0x28 0x6B 0x04 0x00 0x31 0x41 0x32 0x00)
+      commands.push(0x1d, 0x28, 0x6b, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00);
+      // Function 167: Module size (size 5 dots - universally crisp on 58mm/80mm rolls)
+      commands.push(0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x43, 0x05);
+      // Function 169: Error correction level M (0x31)
+      commands.push(0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x45, 0x31);
+      // Function 180: Store data (pL, pH, 0x31, 0x50, 0x30, data...)
+      const len = uriBytes.length + 3;
+      const pL = len % 256;
+      const pH = Math.floor(len / 256);
+      commands.push(0x1d, 0x28, 0x6b, pL, pH, 0x31, 0x50, 0x30, ...uriBytes);
+      // Function 181: Print symbol (0x1D 0x28 0x6B 0x03 0x00 0x31 0x51 0x30)
+      commands.push(0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x51, 0x30);
+      commands.push(0x0a);
+
+      // Info below QR code
+      appendText(`UPI ID: ${settings.upiId.trim()}\n`);
+      appendText(`DUE AMOUNT: Rs. ${upiPayAmt.toFixed(2)}\n`);
+      appendText('(GPay / PhonePe / Paytm / BHIM)\n');
+      commands.push(0x1b, 0x61, 0x00); // ESC a 0 (Left align)
+    }
 
     // Feed and Paper Cut
     commands.push(0x0a, 0x0a, 0x0a);

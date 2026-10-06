@@ -73,7 +73,7 @@ const DEFAULT_SETTINGS: ThermalPrinterSettings = {
   hideCurrencySymbol: false,
   footerNote: '(Thank you! Visit again)',
   autoPrintOnCheckout: true,
-  defaultInvoiceFormat: 'tax_invoice',
+  defaultInvoiceFormat: 'estimate',
   isDataSaverEnabled: false,
   invoicePrefix: '',
   nextInvoiceNumber: 1,

@@ -122,8 +122,32 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
 
   if (!bill) return null;
 
+  const [estimateMode, setEstimateMode] = useState<boolean>(() =>
+    bill.isEstimate !== undefined
+      ? Boolean(bill.isEstimate)
+      : bill.paymentMethod === 'estimate' ||
+        (!bill.isTailoring && effectiveSettings.defaultInvoiceFormat !== 'tax_invoice')
+  );
+
+  useEffect(() => {
+    if (bill) {
+      setEstimateMode(
+        bill.isEstimate !== undefined
+          ? Boolean(bill.isEstimate)
+          : bill.paymentMethod === 'estimate' ||
+            (!bill.isTailoring && effectiveSettings.defaultInvoiceFormat !== 'tax_invoice')
+      );
+    }
+  }, [bill, effectiveSettings.defaultInvoiceFormat]);
+
+  const effectiveBill: BillInvoice = {
+    ...bill,
+    isEstimate: estimateMode,
+  };
+
+  const isEstimate = estimateMode;
   const formattedDateForFile = bill.date.replace(/[\/\s:]/g, '-');
-  const prefix = isTotalOnlySlip ? 'TotalSlip' : isLabelMode ? 'Labels' : 'Sale';
+  const prefix = isTotalOnlySlip ? 'TotalSlip' : isLabelMode ? 'Labels' : isEstimate ? 'EstimateBill' : 'Sale';
   const pdfFilename = `${prefix}_${bill.invoiceNo}_${formattedDateForFile}.pdf`;
   const imageFilename = `${prefix}_${bill.invoiceNo}_${formattedDateForFile}.png`;
 
@@ -158,7 +182,7 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
           : 'Streaming data to Bluetooth Thermal Printer...'
       );
 
-      const res = await thermalPrinterService.printViaBluetooth(bill, effectiveSettings);
+      const res = await thermalPrinterService.printViaBluetooth(effectiveBill, effectiveSettings);
       if (res.success) {
         setFeedbackMessage(
           language === 'bn'
@@ -194,7 +218,7 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
 
   // 3. Android RawBT App Print Fallback
   const handleRawBtPrint = () => {
-    thermalPrinterService.printViaRawBT(bill, effectiveSettings);
+    thermalPrinterService.printViaRawBT(effectiveBill, effectiveSettings);
   };
 
   // 4. Standard Print for Tax Invoice
@@ -287,6 +311,13 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
         `*Total Amount: ${currency}${bill.grandTotal.toFixed(1)}*\n` +
         (bill.paidAmount && bill.paidAmount > 0 && isDue ? `Paid: ${currency}${bill.paidAmount.toFixed(1)}\n` : '') +
         (isDue && dueAmt > 0 ? `*Due (বাকি): ${currency}${dueAmt.toFixed(1)}*\n` : '') +
+        (settings.upiId && isDue && dueAmt > 0
+          ? `📲 *Pay Due via UPI:*\nupi://pay?pa=${settings.upiId.trim()}&pn=${encodeURIComponent(
+              settings.storeName || 'Store'
+            )}&am=${dueAmt.toFixed(2)}&cu=INR&tn=${encodeURIComponent(
+              `Due Bill #${bill.invoiceNo}`
+            )}\n`
+          : '') +
         `--------------------------------\n` +
         `Thank you! Visit again.`;
     } else {
@@ -299,8 +330,11 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
         .join('\n');
 
       const isTailoring = Boolean(bill.isTailoring);
+      const isEstimateBill = Boolean(bill.isEstimate || bill.paymentMethod === 'estimate');
       const headerLine = isTailoring
         ? `*✂️ ${store} - Tailoring Order #${bill.invoiceNo}*\n`
+        : isEstimateBill
+        ? `*${store} - Estimate Bill #${bill.invoiceNo}*\n`
         : `*${store} - Tax Invoice #${bill.invoiceNo}*\n`;
 
       let tailoringMeta = '';
@@ -349,6 +383,14 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
         `*${isTailoring ? 'Balance Due' : 'Balance'}:* ${currency}${
           bill.balance !== undefined ? bill.balance : bill.grandTotal - (bill.paidAmount || 0)
         }\n\n` +
+        (settings.upiId &&
+        (bill.balance !== undefined ? bill.balance : bill.grandTotal - (bill.paidAmount || 0)) > 0
+          ? `📲 *Scan / Pay Due via UPI (${settings.upiId}):*\nupi://pay?pa=${settings.upiId.trim()}&pn=${encodeURIComponent(
+              settings.storeName || 'Store'
+            )}&am=${(
+              bill.balance !== undefined ? bill.balance : bill.grandTotal - (bill.paidAmount || 0)
+            ).toFixed(2)}&cu=INR&tn=${encodeURIComponent(`Due Bill #${bill.invoiceNo}`)}\n\n`
+          : '') +
         `Thank you for choosing us!`;
     }
 
@@ -465,6 +507,21 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
                       >
                         <Smartphone className="w-3.5 h-3.5 text-stone-600" />
                         <span>RawBT App Print</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEstimateMode(!estimateMode);
+                          setShowMoreMenu(false);
+                        }}
+                        className="w-full px-3 py-2 rounded-xl text-left text-xs font-bold text-stone-700 hover:bg-stone-100 flex items-center justify-between cursor-pointer transition-colors"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <FileText className="w-3.5 h-3.5 text-blue-600" />
+                          <span>{language === 'bn' ? 'এস্টিমেট বিল (Estimate Bill)' : 'Estimate Bill'}</span>
+                        </span>
+                        {estimateMode && <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />}
                       </button>
 
                       <button
@@ -689,7 +746,7 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
               />
             ) : (
               <TaxInvoiceSheet
-                bill={bill}
+                bill={effectiveBill}
                 settings={effectiveSettings}
                 isTotalOnlySlip={isTotalOnlySlip}
               />
