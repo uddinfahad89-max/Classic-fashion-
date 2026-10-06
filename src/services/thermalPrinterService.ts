@@ -550,20 +550,21 @@ export class ThermalPrinterService {
     }
     lines.push(doubleDiv);
 
-    // Bill Meta
-    const billDocPrefix = isEstimate ? 'Estimate:' : 'Bill:';
-    lines.push(padBetween(`${billDocPrefix} #${bill.invoiceNo}`, bill.date));
-    if (bill.customerName) {
-      lines.push(padBetween('Cust:', bill.customerName));
-    }
+    // Bill Meta - Compact & Side-by-Side to save paper
+    const billDocPrefix = isEstimate ? 'Est:' : 'Bill:';
+    const cleanCustName = bill.customerName?.trim()
+      ? ` (${bill.customerName.trim().slice(0, width === 48 ? 16 : 9)})`
+      : '';
+    lines.push(padBetween(`${billDocPrefix} #${bill.invoiceNo}${cleanCustName}`, bill.date));
+
     if (bill.customerPhone) {
       lines.push(padBetween('Phone:', bill.customerPhone));
     }
     if (bill.isTailoring && bill.deliveryDate) {
-      lines.push(padBetween('DELIVERY DATE:', bill.deliveryDate));
+      lines.push(padBetween('DELIVERY:', bill.deliveryDate));
     }
     if (bill.isTailoring && bill.trialDate) {
-      lines.push(padBetween('TRIAL DATE:', bill.trialDate));
+      lines.push(padBetween('TRIAL:', bill.trialDate));
     }
     if (bill.isTailoring && bill.measurements) {
       const m = bill.measurements;
@@ -577,7 +578,6 @@ export class ThermalPrinterService {
       if (m.hip) mParts.push(`Hp:${m.hip}`);
       if (m.bottom) mParts.push(`Bt:${m.bottom}`);
       if (mParts.length > 0 || m.designNotes) {
-        lines.push(divider);
         lines.push('MEASUREMENTS (INCH):');
         if (mParts.length > 0) {
           lines.push(mParts.join(' | '));
@@ -587,45 +587,13 @@ export class ThermalPrinterService {
         }
       }
     }
-    lines.push(divider);
 
-    // If Total Only Slip: do not print individual item lines; print exact user requested fields:
-    // Shop name, Total quantity, Paid/Unpaid status, Discount, Total amount, and Due (বাকি নিলে)
-    if (settings.isTotalOnlySlip) {
-      const totalQty = bill.items.reduce((sum, it) => sum + (it.qty || 1), 0);
-      const isThermalEstimate = isEstimate || bill.paymentMethod === 'estimate' || bill.paymentStatus === 'ESTIMATE';
-      const isDue = !isThermalEstimate && ((bill.balance && bill.balance > 0) || (bill.paymentStatus !== 'PAID' && bill.grandTotal > (bill.paidAmount || 0)));
-      const dueAmt = bill.balance !== undefined ? bill.balance : Math.max(0, bill.grandTotal - (bill.paidAmount || 0));
-
-      lines.push(padBetween('TOTAL QUANTITY:', `${totalQty} ITEMS`));
-      lines.push(padBetween('STATUS:', isThermalEstimate ? 'ESTIMATE (এস্টিমেট)' : isDue ? 'UNPAID / DUE' : 'PAID'));
-      if (bill.discount > 0) {
-        lines.push(padBetween('DISCOUNT:', `-${sym}${bill.discount.toFixed(2)}`));
-      }
-      lines.push(doubleDiv);
-      lines.push(padBetween('TOTAL AMOUNT:', `${sym}${bill.grandTotal.toFixed(2)}`));
-      if (isThermalEstimate) {
-        lines.push(padBetween('PAYMENT:', 'ESTIMATE (এস্টিমেট)'));
-      } else {
-        if (bill.paidAmount && bill.paidAmount > 0 && isDue) {
-          lines.push(padBetween('PAID:', `${sym}${bill.paidAmount.toFixed(2)}`));
-        }
-        if (isDue && dueAmt > 0) {
-          lines.push(padBetween('DUE (BAKI):', `${sym}${dueAmt.toFixed(2)}`));
-        }
-      }
-      lines.push(doubleDiv);
-
-      return lines.join('\n');
-    }
-
-    // Items table header
+    // Items table header (Slashes 1 & 2 removed: no extra dividers above/below)
     if (width === 48) {
       lines.push(padBetween('ITEM', 'QTY   PRICE   TOTAL'));
     } else {
       lines.push(padBetween('ITEM', 'QTY  TOTAL'));
     }
-    lines.push(divider);
 
     bill.items.forEach((item) => {
       const qtyLabel = item.unit ? `${item.qty} ${item.unit}` : `${item.qty}x`;
@@ -640,46 +608,31 @@ export class ThermalPrinterService {
       }
     });
 
-    lines.push(divider);
+    // (Slash 3 removed): No divider below items
 
-    // Totals
-    lines.push(padBetween('SUBTOTAL:', `${sym}${bill.subtotal.toFixed(2)}`));
+    // Subtotal & Discount: Side-by-Side to save vertical space (only if discount > 0)
     if (bill.discount > 0) {
-      const discountLabel =
-        bill.discountType === 'percent' && bill.discountValue
-          ? `DISCOUNT (${bill.discountValue}%):`
-          : 'DISCOUNT:';
-      lines.push(padBetween(discountLabel, `-${sym}${bill.discount.toFixed(2)}`));
-    } else {
-      lines.push(padBetween('DISCOUNT:', `${sym}0.00`));
+      lines.push(
+        padBetween(
+          `SUBTOTAL: ${sym}${bill.subtotal.toFixed(2)}`,
+          `DISC: -${sym}${bill.discount.toFixed(2)}`
+        )
+      );
     }
-    lines.push(doubleDiv);
-    lines.push(padBetween('GRAND TOTAL:', `${sym}${bill.grandTotal.toFixed(2)}`));
 
-    const isThermalEstimateFull = isEstimate || bill.paymentMethod === 'estimate' || bill.paymentStatus === 'ESTIMATE';
+    // (Slash 4 removed): No double divider above Grand Total
+
+    // Grand Total & Payment Method: Side-by-Side on 1 single line!
+    const isThermalEstimateFull =
+      isEstimate || bill.paymentMethod === 'estimate' || bill.paymentStatus === 'ESTIMATE';
+    const payLabel = isThermalEstimateFull ? 'ESTIMATE' : bill.paymentMethod.toUpperCase();
+
     lines.push(
       padBetween(
-        'PAYMENT:',
-        isThermalEstimateFull ? 'ESTIMATE (এস্টিমেট)' : bill.paymentMethod.toUpperCase()
+        `GRAND TOTAL: ${sym}${bill.grandTotal.toFixed(2)}`,
+        `PAY: ${payLabel}`
       )
     );
-
-    if (bill.isTailoring) {
-      const adv = bill.paidAmount || 0;
-      const bal = bill.balance !== undefined ? bill.balance : Math.max(0, bill.grandTotal - adv);
-      lines.push(padBetween('ADVANCE PAID:', `${sym}${adv.toFixed(2)}`));
-      lines.push(padBetween('BALANCE DUE:', `${sym}${bal.toFixed(2)}`));
-    } else if (isThermalEstimateFull) {
-      lines.push(padBetween('STATUS:', 'ESTIMATE (কোটেশন)'));
-      if (bill.paidAmount > 0 && bill.paidAmount < bill.grandTotal) {
-        lines.push(padBetween('ADVANCE/PAID:', `${sym}${bill.paidAmount.toFixed(2)}`));
-        const estBal = bill.balance !== undefined ? bill.balance : Math.max(0, bill.grandTotal - bill.paidAmount);
-        lines.push(padBetween('EST. BALANCE:', `${sym}${estBal.toFixed(2)}`));
-      }
-    } else if (bill.paidAmount > 0) {
-      lines.push(padBetween('PAID:', `${sym}${bill.paidAmount.toFixed(2)}`));
-      lines.push(padBetween('CHANGE:', `${sym}${bill.changeAmount.toFixed(2)}`));
-    }
 
     const isDueFull =
       (bill.balance !== undefined && bill.balance > 0) ||
@@ -690,7 +643,18 @@ export class ThermalPrinterService {
         ? bill.balance
         : Math.max(0, bill.grandTotal - (bill.paidAmount || 0));
 
-    lines.push(doubleDiv);
+    // Tailoring or Due balances: Side-by-side to save paper
+    if (bill.isTailoring) {
+      const adv = bill.paidAmount || 0;
+      const bal = bill.balance !== undefined ? bill.balance : Math.max(0, bill.grandTotal - adv);
+      lines.push(padBetween(`ADVANCE: ${sym}${adv.toFixed(2)}`, `BAL DUE: ${sym}${bal.toFixed(2)}`));
+    } else if (bill.paidAmount > 0 && isDueFull) {
+      lines.push(padBetween(`PAID: ${sym}${bill.paidAmount.toFixed(2)}`, `DUE: ${sym}${dueAmtFull.toFixed(2)}`));
+    } else if (isDueFull && dueAmtFull > 0 && bill.paymentMethod !== 'due') {
+      lines.push(padBetween('DUE (BAKI):', `${sym}${dueAmtFull.toFixed(2)}`));
+    }
+
+    lines.push(divider);
 
     return lines.join('\n');
   }
@@ -842,8 +806,8 @@ export class ThermalPrinterService {
       }
       // Function 165: Model 2 (0x1D 0x28 0x6B 0x04 0x00 0x31 0x41 0x32 0x00)
       commands.push(0x1d, 0x28, 0x6b, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00);
-      // Function 167: Module size (size 5 dots - universally crisp on 58mm/80mm rolls)
-      commands.push(0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x43, 0x05);
+      // Function 167: Module size (size 4 dots - ultra-crisp, compact, saves paper on 58mm/80mm rolls)
+      commands.push(0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x43, 0x04);
       // Function 169: Error correction level M (0x31)
       commands.push(0x1d, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x45, 0x31);
       // Function 180: Store data (pL, pH, 0x31, 0x50, 0x30, data...)
@@ -858,8 +822,8 @@ export class ThermalPrinterService {
       commands.push(0x1b, 0x61, 0x00); // ESC a 0 (Left align)
     }
 
-    // Feed and Paper Cut
-    commands.push(0x0a, 0x0a, 0x0a);
+    // Feed and Paper Cut (2 lines - minimum needed for clean tear without wasting paper)
+    commands.push(0x0a, 0x0a);
     commands.push(0x1d, 0x56, 0x41, 0x10); // GS V 65: Partial Cut
 
     return new Uint8Array(commands);
