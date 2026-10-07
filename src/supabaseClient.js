@@ -58,17 +58,42 @@ export const getSupabaseConfig = () => {
 
 export const setCustomSupabaseCredentials = (url, key) => {
   try {
+    const cleanUrl = url ? url.trim() : '';
+    const cleanKey = key ? key.trim() : '';
+
     if (typeof window !== 'undefined' && window.localStorage) {
-      if (url) window.localStorage.setItem('pos_supabase_url', url.trim());
+      if (cleanUrl) window.localStorage.setItem('pos_supabase_url', cleanUrl);
       else window.localStorage.removeItem('pos_supabase_url');
 
-      if (key) window.localStorage.setItem('pos_supabase_anon_key', key.trim());
+      if (cleanKey) window.localStorage.setItem('pos_supabase_anon_key', cleanKey);
       else window.localStorage.removeItem('pos_supabase_anon_key');
+    }
+
+    // Also persist to server disk so other devices and browsers immediately have it
+    if (typeof fetch !== 'undefined') {
+      fetch('/api/supabase/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: cleanUrl, key: cleanKey }),
+      }).catch((e) => console.warn('Server supabase config sync notice:', e));
     }
   } catch (e) {
     console.warn('Failed to save Supabase credentials:', e);
   }
 };
+
+// Initial background check: fetch shared credentials from server if localStorage is empty
+if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
+  fetch('/api/supabase/config')
+    .then((r) => r.json())
+    .then((cfg) => {
+      if (cfg && cfg.url && cfg.key && !window.localStorage.getItem('pos_supabase_url')) {
+        window.localStorage.setItem('pos_supabase_url', cfg.url);
+        window.localStorage.setItem('pos_supabase_anon_key', cfg.key);
+      }
+    })
+    .catch(() => {});
+}
 
 export const supabase = createClient(defaultUrl, defaultAnonKey, {
   auth: {

@@ -332,6 +332,8 @@ export default function App() {
     setSettings(updated);
 
     if (cleanEmail) {
+      await storageService.restoreFromAccountVaultAsync(cleanEmail);
+
       const loggedIn = storageService.loginUser(
         cleanEmail,
         cleanName,
@@ -344,18 +346,32 @@ export default function App() {
       );
       setUserProfile(loggedIn);
 
+      // Check if existing data was recovered from server vault or local
+      const existingBills = storageService.getBills();
+      if (existingBills.length > 0) {
+        setBills(existingBills);
+        setCashEntries(storageService.getCashEntries());
+        setCustomerDues(storageService.getCustomerDues());
+        setPurchaseTrips(storageService.getPurchaseTrips());
+        setProducts(storageService.getProducts());
+      } else {
+        setBills([]);
+        setCashEntries([]);
+        setCustomerDues([]);
+        setPurchaseTrips([]);
+      }
+
       // Also sync profile to Supabase if session exists
       const activeUserId = await supabaseService.getActiveUserId();
       if (activeUserId) {
         await supabaseService.syncProfile(updated, loggedIn, activeUserId);
       }
+    } else {
+      setBills([]);
+      setCashEntries([]);
+      setCustomerDues([]);
+      setPurchaseTrips([]);
     }
-
-    // New onboarding user starts with clean blank lists
-    setBills([]);
-    setCashEntries([]);
-    setCustomerDues([]);
-    setPurchaseTrips([]);
 
     setIsOnboardingOpen(false);
     showToast(
@@ -1282,6 +1298,12 @@ export default function App() {
   const handleDeleteProductStock = (productId: string) => {
     storageService.deleteProduct(productId);
     setProducts(storageService.getProducts());
+
+    // Sync product deletion to Supabase cloud if connected
+    supabaseService.getActiveUserId().then((userId) => {
+      supabaseService.deleteProduct(productId, userId || undefined);
+    });
+
     showToast(
       language === 'bn' ? 'প্রোডাক্ট তালিকা থেকে মুছে ফেলা হয়েছে' : 'Product removed from stock',
       'info'

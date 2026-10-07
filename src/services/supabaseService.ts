@@ -364,12 +364,21 @@ class SupabaseService {
 
       // 2. Email match (exact or case-insensitive)
       if (cleanEmail.includes('@')) {
-        const { data } = await supabase
+        const { data: emailRows } = await supabase
           .from('profiles')
           .select('*')
           .ilike('email', cleanEmail)
-          .maybeSingle();
-        if (data) return data;
+          .limit(5);
+        if (Array.isArray(emailRows) && emailRows.length > 0) {
+          const best =
+            emailRows.find(
+              (p) =>
+                (p.store_name && p.store_name !== 'My Store') ||
+                p.phone ||
+                (p.signatory_name && !p.signatory_name.startsWith('User '))
+            ) || emailRows[0];
+          return best;
+        }
       }
 
       // 3. Phone matching (exact or last 10 digits match on phone or store_phone)
@@ -888,6 +897,30 @@ class SupabaseService {
           }
         }
       }
+      // Fallback to persistent server vault if Supabase returned 0 bills or products
+      if (bills.length === 0 || products.length === 0) {
+        try {
+          const serverLookup = userEmail || userPhone || targetIdOrIdentifier;
+          if (serverLookup && typeof fetch !== 'undefined') {
+            const norm = (serverLookup || '').trim().toLowerCase().replace(/[\s+()_-]/g, '');
+            const sRes = await fetch(`/api/vault/${encodeURIComponent(norm)}`);
+            if (sRes.ok) {
+              const sJson = await sRes.json();
+              if (sJson.success && sJson.vault) {
+                if (bills.length === 0 && Array.isArray(sJson.vault.bills) && sJson.vault.bills.length > 0) {
+                  bills = sJson.vault.bills;
+                }
+                if (products.length === 0 && Array.isArray(sJson.vault.products) && sJson.vault.products.length > 0) {
+                  products = sJson.vault.products;
+                }
+                if (!settings.storeName && sJson.vault.settings?.storeName) {
+                  settings = { ...settings, ...sJson.vault.settings };
+                }
+              }
+            }
+          }
+        } catch {}
+      }
     } catch (fetchErr) {
       console.error('Supabase cloud restore error:', fetchErr);
     }
@@ -940,14 +973,13 @@ class SupabaseService {
   }
 
   // Delete invoice from Supabase cloud
-  async deleteInvoice(invoiceId: string, userId: string): Promise<boolean> {
-    if (!userId || !this.isConfigured()) return false;
+  async deleteInvoice(invoiceId: string, _userId?: string): Promise<boolean> {
+    if (!this.isConfigured()) return false;
     try {
       const { error } = await supabase
         .from('invoices')
         .delete()
-        .eq('id', invoiceId)
-        .eq('user_id', userId);
+        .or(`id.eq.${invoiceId},invoice_no.eq.${invoiceId}`);
       return !error;
     } catch {
       return false;
@@ -1061,14 +1093,13 @@ class SupabaseService {
   }
 
   // Delete product from Supabase cloud
-  async deleteProduct(productId: string, userId: string): Promise<boolean> {
-    if (!userId || !this.isConfigured()) return false;
+  async deleteProduct(productId: string, _userId?: string): Promise<boolean> {
+    if (!this.isConfigured()) return false;
     try {
       const { error } = await supabase
         .from('products')
         .delete()
-        .eq('id', productId)
-        .eq('user_id', userId);
+        .eq('id', productId);
       return !error;
     } catch {
       return false;

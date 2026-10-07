@@ -265,17 +265,25 @@ class StorageService {
     }
   }
 
-  saveBillsList(bills: BillInvoice[]): void {
+  saveBillsList(bills: BillInvoice[], shouldResequence: boolean = false): void {
     try {
       const settings = this.getSettings();
       const prefix = settings.invoicePrefix !== undefined ? settings.invoicePrefix : '';
-      const { bills: resequenced } = this.resequenceBillsInternal(bills, prefix);
-      const expectedNext = resequenced.length + 1;
+      let finalBills = bills;
+      if (shouldResequence) {
+        const { bills: resequenced } = this.resequenceBillsInternal(bills, prefix);
+        finalBills = resequenced;
+      }
+      const maxExistingNum = finalBills.reduce((max, b) => {
+        const numPart = parseInt((b.invoiceNo || '').replace(/[^\d]/g, ''), 10);
+        return !isNaN(numPart) && numPart > max ? numPart : max;
+      }, 0);
+      const expectedNext = Math.max(maxExistingNum + 1, finalBills.length + 1);
       if (settings.nextInvoiceNumber !== expectedNext) {
         settings.nextInvoiceNumber = expectedNext;
         localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
       }
-      localStorage.setItem(STORAGE_KEYS.BILLS, JSON.stringify(resequenced));
+      localStorage.setItem(STORAGE_KEYS.BILLS, JSON.stringify(finalBills));
       this.syncActiveAccountVault();
     } catch (e) {
       console.error('Failed to save bills list:', e);
@@ -283,7 +291,7 @@ class StorageService {
   }
 
   saveBills(bills: BillInvoice[]): void {
-    this.saveBillsList(bills);
+    this.saveBillsList(bills, false);
   }
 
   // Get next sequential invoice number based on current active bills count (e.g. 13 bills -> #14)
@@ -291,7 +299,11 @@ class StorageService {
     const settings = this.getSettings();
     const prefix = settings.invoicePrefix !== undefined ? settings.invoicePrefix : '';
     const bills = this.getBills();
-    const nextNum = bills.length + 1;
+    const maxExistingNum = bills.reduce((max, b) => {
+      const numPart = parseInt((b.invoiceNo || '').replace(/[^\d]/g, ''), 10);
+      return !isNaN(numPart) && numPart > max ? numPart : max;
+    }, 0);
+    const nextNum = Math.max(maxExistingNum + 1, bills.length + 1);
     return `${prefix}${nextNum}`;
   }
 
@@ -319,7 +331,7 @@ class StorageService {
     if (bills.length > 500) {
       bills.splice(500);
     }
-    this.saveBillsList(bills);
+    this.saveBillsList(bills, false);
 
     // Direct backup of this bill to server disk (only if logged in with phone or email)
     try {
@@ -339,7 +351,20 @@ class StorageService {
 
   deleteBill(id: string): void {
     const bills = this.getBills().filter((b) => b.id !== id && b.invoiceNo !== id);
-    this.saveBillsList(bills);
+    this.saveBillsList(bills, false);
+
+    // Call server disk deletion endpoint so this bill is permanently deleted from server vault
+    try {
+      const profile = this.getUserProfile();
+      const identifier = profile.email || profile.phone || profile.shopId;
+      if (identifier && typeof window !== 'undefined' && typeof fetch !== 'undefined') {
+        fetch('/api/bills/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ identifier, billId: id }),
+        }).catch((e) => console.warn('Server bill delete notice:', e));
+      }
+    } catch {}
   }
 
   getBillById(id: string): BillInvoice | undefined {
@@ -982,15 +1007,7 @@ class StorageService {
 
     // Attempt restoring account data from vault
     const lookupKey = cleanPhone || cleanEmail || raw;
-    const restored = this.restoreFromAccountVault(lookupKey);
-
-    if (!restored) {
-      // If this account doesn't have existing saved vault data, ensure a clean empty slate!
-      localStorage.setItem(STORAGE_KEYS.BILLS, JSON.stringify([]));
-      localStorage.setItem(STORAGE_KEYS.CASHBOOK, JSON.stringify([]));
-      localStorage.setItem(STORAGE_KEYS.DUES, JSON.stringify([]));
-      localStorage.setItem(STORAGE_KEYS.PURCHASES, JSON.stringify([]));
-    }
+    this.restoreFromAccountVault(lookupKey);
 
     const current = this.getUserProfile();
 
@@ -1476,8 +1493,9 @@ class StorageService {
           list = parsed;
         }
       }
-      // If product list is empty, seed once from any existing invoices so past items appear in autocomplete
-      if (list.length === 0) {
+      // If product list is empty and never initialized, seed once from any existing invoices
+      if (list.length === 0 && !localStorage.getItem('pos_products_initialized')) {
+        localStorage.setItem('pos_products_initialized', 'true');
         const bills = this.getBills();
         if (bills.length > 0) {
           const map = new Map<string, ProductStockItem>();
@@ -1664,8 +1682,21 @@ class StorageService {
   }
 
   deleteProduct(productId: string): void {
+    localStorage.setItem('pos_products_initialized', 'true');
     const products = this.getProducts().filter((p) => p.id !== productId);
     this.saveProducts(products);
+
+    try {
+      const profile = this.getUserProfile();
+      const identifier = profile.email || profile.phone || profile.shopId;
+      if (identifier && typeof window !== 'undefined' && typeof fetch !== 'undefined') {
+        fetch('/api/products/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ identifier, productId }),
+        }).catch((e) => console.warn('Server product delete notice:', e));
+      }
+    } catch {}
   }
 
   // --- UNIT PERSISTENCE & MANAGEMENT ---

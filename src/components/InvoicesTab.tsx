@@ -610,6 +610,22 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
                   >
                     <Edit2 className="w-4 h-4" />
                   </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteConfirmBill({
+                        id: bill.id,
+                        invoiceNo: bill.invoiceNo,
+                        customerName: bill.customerName,
+                        amount: bill.grandTotal,
+                      });
+                    }}
+                    className="p-2 rounded-xl text-stone-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition-colors cursor-pointer"
+                    title={isBn ? 'ইনভয়েস মুছুন' : 'Delete Invoice'}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
             );

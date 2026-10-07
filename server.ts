@@ -24,45 +24,59 @@ function getVaultFilePath(identifier: string): string {
   return path.join(DATA_DIR, `${norm}.json`);
 }
 
-// Clean any old legacy demo data across all vault files on startup
-function cleanAllVaultFiles() {
+// Server-side persistent Supabase credentials file
+const SUPABASE_CONFIG_FILE = path.join(process.cwd(), 'data', 'supabase_config.json');
+
+function getSavedSupabaseConfig(): { url: string; key: string } {
   try {
-    if (fs.existsSync(DATA_DIR)) {
-      const files = fs.readdirSync(DATA_DIR);
-      for (const file of files) {
-        if (file.endsWith('.json') && file !== 'accounts_index.json') {
-          const filePath = path.join(DATA_DIR, file);
-          try {
-            const content = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-            content.bills = [];
-            content.cashEntries = [];
-            content.customerDues = [];
-            content.purchaseTrips = [];
-            fs.writeFileSync(filePath, JSON.stringify(content, null, 2), 'utf-8');
-          } catch (e) {
-            console.error('Error cleaning vault file:', file, e);
-          }
-        }
-      }
-      const indexPath = path.join(DATA_DIR, 'accounts_index.json');
-      if (fs.existsSync(indexPath)) {
-        try {
-          const list = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
-          for (const item of list) {
-            item.billsCount = 0;
-          }
-          fs.writeFileSync(indexPath, JSON.stringify(list, null, 2), 'utf-8');
-        } catch (e) {}
+    if (fs.existsSync(SUPABASE_CONFIG_FILE)) {
+      const parsed = JSON.parse(fs.readFileSync(SUPABASE_CONFIG_FILE, 'utf-8'));
+      if (parsed && parsed.url) {
+        return { url: parsed.url || '', key: parsed.key || '' };
       }
     }
-  } catch (err) {
-    console.error('cleanAllVaultFiles error:', err);
+  } catch (e) {
+    console.warn('Error reading supabase config:', e);
   }
+  return {
+    url: process.env.VITE_SUPABASE_URL || '',
+    key: process.env.VITE_SUPABASE_ANON_KEY || '',
+  };
 }
 
-cleanAllVaultFiles();
-
 // ----------------- API ENDPOINTS -----------------
+
+// Supabase shared config across all client devices and browsers
+app.get('/api/supabase/config', (_req, res) => {
+  const cfg = getSavedSupabaseConfig();
+  const isConfigured = Boolean(
+    cfg.url &&
+    cfg.key &&
+    cfg.url.startsWith('https://') &&
+    !cfg.url.includes('placeholder')
+  );
+  res.json({
+    url: cfg.url,
+    key: cfg.key,
+    isConfigured,
+  });
+});
+
+app.post('/api/supabase/config', (req, res) => {
+  try {
+    const { url, key } = req.body || {};
+    const cleanUrl = (url || '').trim();
+    const cleanKey = (key || '').trim();
+    fs.writeFileSync(
+      SUPABASE_CONFIG_FILE,
+      JSON.stringify({ url: cleanUrl, key: cleanKey }, null, 2),
+      'utf-8'
+    );
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Health check
 app.get('/api/health', (_req, res) => {
@@ -214,6 +228,113 @@ app.post('/api/bills/save', (req, res) => {
     fs.writeFileSync(filePath, JSON.stringify(vault, null, 2), 'utf-8');
 
     return res.json({ success: true, totalBills: vault.bills.length });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete a bill from the server vault
+app.post('/api/bills/delete', (req, res) => {
+  try {
+    const { identifier, billId } = req.body;
+    if (!identifier || !billId) {
+      return res.status(400).json({ error: 'Missing identifier or billId' });
+    }
+
+    const norm = normalizeId(identifier);
+    const candidates = [identifier];
+
+    // Find any linked identifiers in accounts index
+    const indexPath = path.join(DATA_DIR, 'accounts_index.json');
+    if (fs.existsSync(indexPath)) {
+      try {
+        const list = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
+        const match = list.find(
+          (a: any) =>
+            normalizeId(a.identifier) === norm ||
+            normalizeId(a.phone) === norm ||
+            normalizeId(a.email) === norm ||
+            (norm.length >= 10 && normalizeId(a.phone).endsWith(norm.slice(-10)))
+        );
+        if (match) {
+          if (match.email) candidates.push(match.email);
+          if (match.phone) candidates.push(match.phone);
+          if (match.identifier) candidates.push(match.identifier);
+        }
+      } catch (e) {}
+    }
+
+    let deletedCount = 0;
+    for (const cand of Array.from(new Set(candidates))) {
+      const filePath = getVaultFilePath(cand);
+      if (fs.existsSync(filePath)) {
+        try {
+          const vault = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+          if (Array.isArray(vault.bills)) {
+            const initialLen = vault.bills.length;
+            vault.bills = vault.bills.filter(
+              (b: any) => b.id !== billId && b.invoiceNo !== billId
+            );
+            if (vault.bills.length !== initialLen) {
+              deletedCount++;
+              vault.lastActive = Date.now();
+              fs.writeFileSync(filePath, JSON.stringify(vault, null, 2), 'utf-8');
+            }
+          }
+        } catch (e) {}
+      }
+    }
+
+    return res.json({ success: true, deleted: deletedCount > 0 });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete a product from the server vault
+app.post('/api/products/delete', (req, res) => {
+  try {
+    const { identifier, productId } = req.body;
+    if (!identifier || !productId) {
+      return res.status(400).json({ error: 'Missing identifier or productId' });
+    }
+
+    const norm = normalizeId(identifier);
+    const candidates = [identifier];
+
+    const indexPath = path.join(DATA_DIR, 'accounts_index.json');
+    if (fs.existsSync(indexPath)) {
+      try {
+        const list = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
+        const match = list.find(
+          (a: any) =>
+            normalizeId(a.identifier) === norm ||
+            normalizeId(a.phone) === norm ||
+            normalizeId(a.email) === norm
+        );
+        if (match) {
+          if (match.email) candidates.push(match.email);
+          if (match.phone) candidates.push(match.phone);
+          if (match.identifier) candidates.push(match.identifier);
+        }
+      } catch (e) {}
+    }
+
+    for (const cand of Array.from(new Set(candidates))) {
+      const filePath = getVaultFilePath(cand);
+      if (fs.existsSync(filePath)) {
+        try {
+          const vault = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+          if (Array.isArray(vault.products)) {
+            vault.products = vault.products.filter((p: any) => p.id !== productId);
+            vault.lastActive = Date.now();
+            fs.writeFileSync(filePath, JSON.stringify(vault, null, 2), 'utf-8');
+          }
+        } catch (e) {}
+      }
+    }
+
+    return res.json({ success: true });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

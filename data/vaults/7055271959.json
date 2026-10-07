@@ -1,0 +1,251 @@
+{
+  "identifier": "7055271959",
+  "email": "uddinfahad89@gmail.com",
+  "phone": "7055271959",
+  "name": "Fahad uddin",
+  "role": "Owner",
+  "pin": "1234",
+  "password": "123456",
+  "isAppLockEnabled": false,
+  "settings": {
+    "storeName": "Classic fashion",
+    "storePhone": "7055271959",
+    "storeAddress": "Kotamoni",
+    "signatoryName": "",
+    "upiId": "",
+    "paperWidth": "80mm",
+    "currencySymbol": "Rs",
+    "currencyName": "Rupees",
+    "hideCurrencySymbol": false,
+    "footerNote": "(Thank you! Visit again)",
+    "autoPrintOnCheckout": true,
+    "defaultInvoiceFormat": "tax_invoice",
+    "isDataSaverEnabled": false,
+    "invoicePrefix": "",
+    "nextInvoiceNumber": 3,
+    "isLabelMode": false,
+    "autoCapitalizeItemNames": true,
+    "isTotalOnlySlip": false
+  },
+  "bills": [
+    {
+      "id": "inv-1791363265568",
+      "invoiceNo": "2",
+      "date": "07-10-2026",
+      "time": "02:24 pm",
+      "timestamp": 1791363265568,
+      "customerName": "FAJAL AHMED",
+      "items": [
+        {
+          "id": "item-1791363249168-lo7b",
+          "name": "T SHIRT",
+          "price": 500,
+          "qty": 1,
+          "unit": "Pcs",
+          "total": 500
+        },
+        {
+          "id": "item-1791363258946-23du",
+          "name": "SAREE",
+          "price": 300,
+          "qty": 1,
+          "unit": "Pcs",
+          "total": 300
+        }
+      ],
+      "subtotal": 800,
+      "discount": 0,
+      "discountType": "fixed",
+      "discountValue": 0,
+      "grandTotal": 800,
+      "paymentMethod": "estimate",
+      "paymentStatus": "ESTIMATE",
+      "paidAmount": 0,
+      "changeAmount": 0,
+      "balance": 800,
+      "previousBalance": 0,
+      "currentBalance": 800,
+      "isEstimate": true
+    },
+    {
+      "id": "inv-1790869620619",
+      "invoiceNo": "1",
+      "date": "01-10-2026",
+      "time": "09:17 pm",
+      "timestamp": 1790869620619,
+      "customerName": "Fahad UDDIN",
+      "items": [
+        {
+          "id": "item-1790869596026-qs9n",
+          "name": "Nitee",
+          "price": 500,
+          "qty": 1,
+          "total": 500
+        },
+        {
+          "id": "item-1790869604125-4kcu",
+          "name": "Jama",
+          "price": 500,
+          "qty": 1,
+          "total": 500
+        },
+        {
+          "id": "item-1790869613906-q8sv",
+          "name": "Longi",
+          "price": 600,
+          "qty": 1,
+          "total": 600
+        }
+      ],
+      "subtotal": 1600,
+      "discount": 0,
+      "discountType": "fixed",
+      "discountValue": 0,
+      "grandTotal": 1600,
+      "paymentMethod": "due",
+      "paymentStatus": "DUE",
+      "paidAmount": 0,
+      "changeAmount": 0,
+      "balance": 1600,
+      "previousBalance": 0,
+      "currentBalance": 1600,
+      "isTailoring": false
+    }
+  ],
+  "cashEntries": [],
+  "customerDues": [],
+  "purchaseTrips": [],
+  "products": [
+    {
+      "id": "prod-1791039536792-74ba",
+      "name": "ঈঙঙ",
+      "price": 2500,
+      "stock": 0,
+      "unit": "Pcs",
+      "updatedAt": 1791039536792
+    },
+    {
+      "id": "prod-1791039536792-nwov",
+      "name": "TSHIRT",
+      "price": 500,
+      "stock": 0,
+      "unit": "Pcs",
+      "updatedAt": 1791039536792
+    },
+    {
+      "id": "prod-1790936718182-tvy5",
+      "name": "Zufar royal king",
+      "price": 300,
+      "purchasePrice": 155,
+      "stock": 18,
+      "unit": "Pcs",
+      "category": "",
+      "barcode": "ZF1678455",
+      "updatedAt": 1790936798351
+    },
+    {
+      "id": "prod-1790869620621-s68w",
+      "name": "Longi areba2x2",
+      "price": 350,
+      "stock": 0,
+      "unit": "Pcs",
+      "updatedAt": 1790939854851,
+      "purchasePrice": 260,
+      "barcode": "Ar26789560"
+    },
+    {
+      "id": "prod-1790869620621-tio7",
+      "name": "Nitee3x3",
+      "price": 300,
+      "stock": 60,
+      "unit": "Pcs",
+      "updatedAt": 1790939986905,
+      "purchasePrice": 160,
+      "barcode": "NI372674"
+    },
+    {
+      "id": "prod-1790656251231-tbx6",
+      "name": "Xparko (Free)",
+      "price": 130,
+      "stock": 1,
+      "unit": "Pcs",
+      "category": "",
+      "barcode": "CL743746",
+      "updatedAt": 1791362524542,
+      "purchasePrice": 5
+    },
+    {
+      "id": "prod-1790656108621-l0wg",
+      "name": "Panjabi / Kurta selai",
+      "price": 500,
+      "stock": 0,
+      "unit": "Pcs",
+      "category": "",
+      "barcode": "",
+      "updatedAt": 1790656346945
+    },
+    {
+      "id": "prod-1790443551789-qang",
+      "name": "Pant  cotton",
+      "price": 700,
+      "stock": 50,
+      "unit": "Pcs",
+      "category": "",
+      "barcode": "",
+      "updatedAt": 1790443551789
+    },
+    {
+      "id": "prod-1790443455673-b2lh",
+      "name": "Pakistani cotton",
+      "price": 1000,
+      "stock": 50,
+      "unit": "Pcs",
+      "category": "",
+      "barcode": "",
+      "updatedAt": 1790443455673
+    },
+    {
+      "id": "prod-1790443433626-zvyg",
+      "name": "Saree cotton",
+      "price": 350,
+      "stock": 50,
+      "unit": "Pcs",
+      "category": "",
+      "barcode": "",
+      "updatedAt": 1790443433626
+    },
+    {
+      "id": "prod-1790443382643-wqya",
+      "name": "T shirt",
+      "price": 500,
+      "stock": 0,
+      "unit": "Pcs",
+      "updatedAt": 1791363265575
+    },
+    {
+      "id": "prod-1790443382643-5r7a",
+      "name": "Shirt",
+      "price": 800,
+      "stock": 0,
+      "unit": "Pcs",
+      "updatedAt": 1790417972911
+    },
+    {
+      "id": "prod-1790443382643-4503",
+      "name": "Jama",
+      "price": 500,
+      "stock": 0,
+      "unit": "Pcs",
+      "updatedAt": 1790869620621
+    },
+    {
+      "id": "prod-1791363265575-r7o2",
+      "name": "SAREE",
+      "price": 300,
+      "stock": 0,
+      "unit": "Pcs",
+      "updatedAt": 1791363265575
+    }
+  ],
+  "lastActive": 1791363283216
+}
