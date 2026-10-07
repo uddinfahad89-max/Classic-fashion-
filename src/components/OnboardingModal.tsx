@@ -1,10 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Store,
-  Phone,
-  MapPin,
-  Volume2,
-  Sparkles,
   CheckCircle2,
   Mail,
   Lock,
@@ -20,43 +16,39 @@ import {
   ShieldCheck,
   AlertCircle,
   RefreshCw,
-  KeyRound,
-  Smartphone,
-  Send,
-  MessageSquare,
-  Info,
   History,
+  User,
 } from 'lucide-react';
 import { Language, SavedAccountItem } from '../types';
 import { supabaseService, SUPABASE_SQL_SETUP_SCRIPT } from '../services/supabaseService';
-import { otpService } from '../services/otpService';
 import { storageService } from '../services/storageService';
 import {
   isSupabaseConfigured,
   getSupabaseConfig,
   setCustomSupabaseCredentials,
 } from '../supabaseClient.js';
+import { ResetPasswordModal } from './ResetPasswordModal';
 
 interface OnboardingModalProps {
   isOpen: boolean;
   onSave: (data: {
     storeName: string;
-    storePhone: string;
-    storeAddress: string;
-    ownerEmail?: string;
-    ownerPin?: string;
+    storePhone?: string;
+    storeAddress?: string;
+    ownerEmail: string;
     ownerName?: string;
-    password?: string;
+    password: string;
   }) => void | Promise<void>;
   onLoginExisting?: (
-    identifier: string,
-    secret: string,
-    method?: 'email_password' | 'otp' | 'app_pin'
+    email: string,
+    password: string,
+    method?: 'email_password'
   ) => Promise<{ success: boolean; error?: string }>;
   language?: Language;
   onSelectLanguage?: (lang: Language) => void;
   onClose?: () => void;
   canDismiss?: boolean;
+  onOpenForgotPassword?: (email?: string) => void;
 }
 
 export const OnboardingModal: React.FC<OnboardingModalProps> = ({
@@ -65,64 +57,46 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
   onLoginExisting,
   language = 'bn',
   onSelectLanguage,
+  onClose,
+  canDismiss = false,
+  onOpenForgotPassword,
 }) => {
   const isBn = language === 'bn';
   const isHi = language === 'hi';
 
-  // Top-level Mode: 'signup' | 'login' | 'sql_guide'
-  const [activeTab, setActiveTab] = useState<'signup' | 'login' | 'sql_guide'>('signup');
+  // Navigation Tab: 'login' | 'signup' | 'sql_guide'
+  const [activeTab, setActiveTab] = useState<'login' | 'signup' | 'sql_guide'>('login');
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
 
-  // Login & Data Restore Sub-Method: 'email_password' | 'otp' | 'app_pin'
-  const [loginMethod, setLoginMethod] = useState<'email_password' | 'otp' | 'app_pin'>('email_password');
+  // Sign Up Form State
+  const [signupEmail, setSignupEmail] = useState('');
+  const [signupPassword, setSignupPassword] = useState('');
+  const [signupStoreName, setSignupStoreName] = useState('');
+  const [signupOwnerName, setSignupOwnerName] = useState('');
+  const [showSignupPassword, setShowSignupPassword] = useState(false);
 
-  // Sign up form state
-  const [storeName, setStoreName] = useState('');
-  const [storePhone, setStorePhone] = useState('');
-  const [ownerEmail, setOwnerEmail] = useState('');
-  const [ownerPassword, setOwnerPassword] = useState('');
-  const [ownerPin, setOwnerPin] = useState('1234');
-  const [ownerName, setOwnerName] = useState('');
-  const [storeAddress, setStoreAddress] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [showSignupPin, setShowSignupPin] = useState(false);
-
-  // 1. Email/Password Login form state
+  // Log In Form State
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [showLoginPassword, setShowLoginPassword] = useState(false);
 
-  // 2. Mobile OTP Login form state
-  const [otpPhone, setOtpPhone] = useState('');
-  const [otpStep, setOtpStep] = useState<'request' | 'verify'>('request');
-  const [otpCode, setOtpCode] = useState('');
-  const [generatedOtp, setGeneratedOtp] = useState<string | null>(null);
-  const [otpCountdown, setOtpCountdown] = useState(0);
-  const [otpSending, setOtpSending] = useState(false);
-
-  // 3. 4-Digit App PIN Login form state
-  const [pinIdentifier, setPinIdentifier] = useState('');
-  const [pinCode, setPinCode] = useState('');
-  const [showLoginPin, setShowLoginPin] = useState(false);
-
-  // Saved accounts in local vault for quick restore
+  // Saved accounts in local vault for fast 1-click restore
   const [savedAccounts, setSavedAccounts] = useState<SavedAccountItem[]>([]);
 
-  // Supabase Custom Config state
+  // Supabase Custom Config State
   const [showSupabaseSettings, setShowSupabaseSettings] = useState(false);
   const currentConfig = getSupabaseConfig();
   const [customUrl, setCustomUrl] = useState(currentConfig.url || '');
   const [customKey, setCustomKey] = useState(currentConfig.key || '');
   const [configSaved, setConfigSaved] = useState(false);
 
-  // UI state
+  // UI States
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [isCopiedSql, setIsCopiedSql] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const hasSpokenRef = useRef(false);
 
-  // Helper dictionary
+  // Helper translations
   const t = (bn: string, en: string, hi: string) => {
     if (isHi) return hi;
     if (isBn) return bn;
@@ -133,128 +107,86 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
     if (isOpen) {
       const accounts = storageService.getSavedAccounts();
       setSavedAccounts(accounts);
-      if (accounts.length > 0) {
-        if (!otpPhone && accounts[0].phone) setOtpPhone(accounts[0].phone);
-        if (!pinIdentifier) setPinIdentifier(accounts[0].phone || accounts[0].email || accounts[0].identifier);
-        if (!loginEmail && accounts[0].email) setLoginEmail(accounts[0].email);
+      if (accounts.length > 0 && !loginEmail) {
+        setLoginEmail(accounts[0].email || accounts[0].identifier || '');
       }
-    }
-  }, [isOpen]);
-
-  useEffect(() => {
-    let timer: NodeJS.Timeout;
-    if (otpCountdown > 0) {
-      timer = setTimeout(() => setOtpCountdown((prev) => prev - 1), 1000);
-    }
-    return () => clearTimeout(timer);
-  }, [otpCountdown]);
-
-  // Play Speech Alert
-  const playVoiceAlert = () => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-    try {
-      window.speechSynthesis.cancel();
-      const textToSpeak =
-        activeTab === 'login'
-          ? 'Log in using your Email and 6-character Password, Mobile OTP, or your 4-Digit App PIN to restore your shop data.'
-          : 'Welcome! Enter your shop name, mobile number, a 6-character account password, and your 4-digit App PIN to start.';
-      const utterance = new SpeechSynthesisUtterance(textToSpeak);
-      utterance.rate = 0.95;
-      utterance.pitch = 1.0;
-      utterance.lang = 'en-US';
-
-      utterance.onstart = () => setIsSpeaking(true);
-      utterance.onend = () => setIsSpeaking(false);
-      utterance.onerror = () => setIsSpeaking(false);
-
-      window.speechSynthesis.speak(utterance);
-    } catch {
-      setIsSpeaking(false);
-    }
-  };
-
-  useEffect(() => {
-    if (isOpen && !hasSpokenRef.current) {
-      hasSpokenRef.current = true;
-      const timer = setTimeout(() => {
-        playVoiceAlert();
-      }, 600);
-      return () => clearTimeout(timer);
     }
   }, [isOpen]);
 
   if (!isOpen) return null;
 
-  // Handle Signup (Mobile Number & Password only)
+  const validateEmail = (email: string): boolean => {
+    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return re.test(email.trim());
+  };
+
+  // Handle Sign Up (Email & Password Only)
   const handleSignupSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccessMsg(null);
 
-    const cleanPhone = storePhone.trim().replace(/[^\d+]/g, '');
-    if (!cleanPhone || cleanPhone.length < 8) {
+    const cleanEmail = signupEmail.trim().toLowerCase();
+    const cleanPassword = signupPassword.trim();
+    const cleanStoreName = signupStoreName.trim();
+    const cleanOwnerName = signupOwnerName.trim();
+
+    if (!cleanEmail) {
       setError(
-        t(
-          'দয়া করে সঠিক মোবাইল নম্বর লিখুন',
-          'Please enter a valid mobile number',
-          'कृपया सही मोबाइल नंबर दर्ज करें'
-        )
+        t('দয়া করে আপনার ইমেল ঠিকানা লিখুন', 'Please enter your email address', 'कृपया अपना ईमेल पता दर्ज करें')
       );
       return;
     }
 
-    const cleanPassword = ownerPassword.trim();
+    if (!validateEmail(cleanEmail)) {
+      setError(
+        t('সঠিক ইমেল ঠিকানা লিখুন (যেমন: name@example.com)', 'Please enter a valid email address (e.g. name@example.com)', 'कृपया सही ईमेल पता दर्ज करें')
+      );
+      return;
+    }
+
     if (!cleanPassword) {
       setError(
-        t(
-          'দয়া করে পাসওয়ার্ড লিখুন',
-          'Please enter a password',
-          'कृपया पासवर्ड दर्ज करें'
-        )
+        t('দয়া করে পাসওয়ার্ড লিখুন', 'Please enter a password', 'कृपया पासवर्ड दर्ज करें')
       );
       return;
     }
 
-    const existingSettings = storageService.getSettings();
-    const resolvedStoreName = storeName.trim() || existingSettings.storeName || '';
-    const resolvedEmail =
-      ownerEmail.trim() || `${cleanPhone.replace(/[^\d]/g, '')}@posstore.com`;
-    const resolvedPin = (ownerPin || '1234').trim();
+    if (cleanPassword.length < 6) {
+      setError(
+        t('পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে', 'Password must be at least 6 characters', 'पासवर्ड कम से कम 6 अक्षरों का होना चाहिए')
+      );
+      return;
+    }
 
     setIsLoading(true);
 
     try {
-      // 1. Attempt Supabase Auth & Multi-User isolation if configured
+      // 1. Attempt Supabase Auth Sign Up
       if (isSupabaseConfigured()) {
-        const result = await supabaseService.signUp(resolvedEmail, cleanPassword, {
-          storeName: resolvedStoreName,
-          phone: cleanPhone,
-          storeAddress: storeAddress.trim(),
-          name: ownerName.trim() || `User ${cleanPhone.slice(-4)}`,
+        const result = await supabaseService.signUp(cleanEmail, cleanPassword, {
+          storeName: cleanStoreName || 'My Store',
+          phone: '',
+          name: cleanOwnerName || cleanEmail.split('@')[0],
         });
 
         if (!result.success && result.error) {
-          console.warn('Supabase signup notice:', result.error);
+          setError(result.error);
+          setIsLoading(false);
+          return;
         }
       }
 
-      // 2. Complete setup & state init
+      // 2. Complete local store & user initialization
       await onSave({
-        storeName: resolvedStoreName,
-        storePhone: cleanPhone,
-        storeAddress: storeAddress.trim(),
-        ownerEmail: resolvedEmail,
-        ownerPin: resolvedPin,
-        ownerName: ownerName.trim() || `User ${cleanPhone.slice(-4)}`,
+        storeName: cleanStoreName || 'My Store',
+        ownerEmail: cleanEmail,
+        ownerName: cleanOwnerName || cleanEmail.split('@')[0],
         password: cleanPassword,
       });
 
       setSuccessMsg(
-        t(
-          'সাইন আপ সফল হয়েছে!',
-          'Sign up successful!',
-          'साइन अप सफल!'
-        )
+        t('সাইন আপ সফল হয়েছে!', 'Sign up successful!', 'साइन अप सफल!')
       );
     } catch (err: any) {
       setError(err.message || 'Signup failed');
@@ -263,220 +195,84 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
     }
   };
 
-  // Send 4-Digit Mobile OTP
-  const handleSendOtp = () => {
-    setError(null);
-    setSuccessMsg(null);
-    const cleanPhone = otpPhone.trim().replace(/[^\d+]/g, '');
-    if (cleanPhone.length < 8) {
-      setError(
-        t(
-          'অনুগ্রহ করে সঠিক মোবাইল নম্বর লিখুন (কমপক্ষে ৮-১০ ডিজিট)',
-          'Please enter a valid mobile phone number (min 8-10 digits)',
-          'कृपया सही मोबाइल नंबर दर्ज करें (कम से कम 8-10 अंक)'
-        )
-      );
-      return;
-    }
-
-    setOtpSending(true);
-    setTimeout(() => {
-      const code = otpService.generateOtp(cleanPhone);
-      setGeneratedOtp(code);
-      setOtpStep('verify');
-      setOtpSending(false);
-      setOtpCountdown(60);
-      setSuccessMsg(
-        t(
-          `আপনার মোবাইল নম্বরে (${cleanPhone}) ৪-ডিজিটের ওটিপি কোড পাঠানো হয়েছে!`,
-          `A 4-digit OTP verification code has been sent to ${cleanPhone}!`,
-          `आपके मोबाइल नंबर (${cleanPhone}) पर 4-अंकीय ओटीपी कोड भेजा गया है!`
-        )
-      );
-    }, 300);
-  };
-
-  const handleAutoFillOtp = () => {
-    if (generatedOtp) {
-      setOtpCode(generatedOtp);
-      setError(null);
-    } else {
-      const active = otpService.getOtp(otpPhone);
-      if (active) {
-        setOtpCode(active);
-        setError(null);
-      }
-    }
-  };
-
-  // Handle Login & Cloud/Vault Data Restore across all 3 methods
+  // Handle Login (Email & Password Only)
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccessMsg(null);
 
+    const cleanEmail = loginEmail.trim().toLowerCase();
+    const cleanPassword = loginPassword.trim();
+
+    if (!cleanEmail) {
+      setError(
+        t('দয়া করে আপনার ইমেল ঠিকানা লিখুন', 'Please enter your email address', 'कृपया अपना ईमेल पता दर्ज करें')
+      );
+      return;
+    }
+
+    if (!validateEmail(cleanEmail)) {
+      setError(
+        t('সঠিক ইমেল ঠিকানা লিখুন (যেমন: name@example.com)', 'Please enter a valid email address (e.g. name@example.com)', 'कृपया सही ईमेल पता दर्ज करें')
+      );
+      return;
+    }
+
+    if (!cleanPassword) {
+      setError(
+        t('দয়া করে আপনার পাসওয়ার্ড লিখুন', 'Please enter your password', 'कृपया अपना पासवर्ड दर्ज करें')
+      );
+      return;
+    }
+
+    if (cleanPassword.length < 6) {
+      setError(
+        t('পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে', 'Password must be at least 6 characters', 'पासवर्ड कम से कम 6 अक्षरों का होना चाहिए')
+      );
+      return;
+    }
+
     if (!onLoginExisting) return;
 
-    // METHOD 1: MOBILE OR EMAIL & PASSWORD
-    if (loginMethod === 'email_password') {
-      const cleanEmail = loginEmail.trim();
-      if (!cleanEmail) {
-        setError(t('দয়া করে আপনার মোবাইল নম্বর বা ইমেল লিখুন', 'Please enter your mobile number or email', 'कृपया मोबाइल नंबर या ईमेल दर्ज करें'));
-        return;
-      }
-      if (!loginPassword) {
-        setError(t('দয়া করে আপনার পাসওয়ার্ড লিখুন', 'Please enter your password', 'कृपया अपना पासवर्ड दर्ज करें'));
-        return;
-      }
+    setIsLoading(true);
 
-      setIsLoading(true);
-      try {
-        const result = await onLoginExisting(cleanEmail, loginPassword, 'email_password');
-        if (!result.success) {
-          setError(
-            result.error ||
-              t(
-                'লগইন ব্যর্থ হয়েছে! মোবাইল নম্বর ও পাসওয়ার্ড সঠিক কিনা পরীক্ষা করুন।',
-                'Login failed! Please check your mobile number and password.',
-                'लॉगिन विफल! कृपया मोबाइल नंबर और पासवर्ड की जाँच करें।'
-              )
-          );
-          setIsLoading(false);
-          return;
-        }
-        setSuccessMsg(
-          t(
-            'লগইন সফল! আপনার দোকানের ডেটা রিস্টোর হচ্ছে...',
-            'Login successful! Restoring your shop data...',
-            'लॉगिन सफल! डेटा रिस्टोर हो रहा है...'
-          )
+    try {
+      const result = await onLoginExisting(cleanEmail, cleanPassword, 'email_password');
+      if (!result.success) {
+        setError(
+          result.error ||
+            t(
+              'ইমেল অথবা পাসওয়ার্ড সঠিক নয়!',
+              'Invalid email or password',
+              'ईमेल या पासवर्ड गलत है!'
+            )
         );
-      } catch (err: any) {
-        setError(err.message || 'Login failed');
-      } finally {
         setIsLoading(false);
-      }
-      return;
-    }
-
-    // METHOD 2: MOBILE OTP
-    if (loginMethod === 'otp') {
-      const cleanPhone = otpPhone.trim();
-      const cleanOtp = otpCode.trim();
-      if (!cleanPhone || cleanPhone.replace(/[^\d+]/g, '').length < 8) {
-        setError(
-          t(
-            'অনুগ্রহ করে সঠিক মোবাইল নম্বর লিখুন',
-            'Please enter a valid mobile number',
-            'कृपया सही मोबाइल नंबर दर्ज करें'
-          )
-        );
-        return;
-      }
-      if (!cleanOtp || cleanOtp.length !== 4) {
-        setError(
-          t(
-            'অনুগ্রহ করে ৪-ডিজিটের ওটিপি কোডটি লিখুন (যেমন: 1234 বা SMS কোড)',
-            'Please enter the 4-digit OTP code (e.g. 1234 or SMS code)',
-            'कृपया 4-अंकीय ओटीपी कोड दर्ज करें'
-          )
-        );
         return;
       }
 
-      setIsLoading(true);
-      try {
-        const result = await onLoginExisting(cleanPhone, cleanOtp, 'otp');
-        if (!result.success) {
-          setError(
-            result.error ||
-              t(
-                'ওটিপি কোড সঠিক নয়! সঠিক ৪-ডিজিট কোড দিন অথবা অটো-ফিল চাপুন।',
-                'Invalid OTP code! Please enter the correct 4-digit code or tap Auto-Fill.',
-                'अमान्य ओटीपी कोड!'
-              )
-          );
-          setIsLoading(false);
-          return;
-        }
-        setSuccessMsg(
-          t(
-            'ওটিপি যাচাই সফল! আপনার দোকানের ডেটা রিস্টোর হচ্ছে...',
-            'OTP Verified! Restoring your shop data...',
-            'ओटीपी सत्यापित! डेटा रिस्टोर हो रहा है...'
-          )
-        );
-      } catch (err: any) {
-        setError(err.message || 'OTP Login failed');
-      } finally {
-        setIsLoading(false);
-      }
-      return;
-    }
-
-    // METHOD 3: 4-DIGIT APP PIN
-    if (loginMethod === 'app_pin') {
-      const cleanId = pinIdentifier.trim();
-      const cleanPin = pinCode.trim();
-      if (!cleanId) {
-        setError(
-          t(
-            'অনুগ্রহ করে আপনার নিবন্ধিত মোবাইল নম্বর বা ইমেল লিখুন',
-            'Please enter your registered mobile number or email',
-            'कृपया अपना पंजीकृत मोबाइल नंबर या ईमेल दर्ज करें'
-          )
-        );
-        return;
-      }
-      if (cleanPin.length !== 4 || !/^\d{4}$/.test(cleanPin)) {
-        setError(
-          t(
-            'অনুগ্রহ করে ৪-সংখ্যার অ্যাপ পিন লিখুন (যেমন: 1234)। ৬+ অক্ষরের পাসওয়ার্ড দিয়ে ঢুকতে "Email / Password" ট্যাব ব্যবহার করুন।',
-            'Please enter your 4-digit numeric App PIN (e.g. 1234). For 6+ character passwords, use the "Email / Password" tab.',
-            'कृपया 4-अंकीय ऐप पिन दर्ज करें (जैसे: 1234)।'
-          )
-        );
-        return;
-      }
-
-      setIsLoading(true);
-      try {
-        const result = await onLoginExisting(cleanId, cleanPin, 'app_pin');
-        if (!result.success) {
-          setError(
-            result.error ||
-              t(
-                '৪-ডিজিট অ্যাপ পিন মেলেনি! সঠিক পিন দিন অথবা "Mobile OTP" দিয়ে লগইন করুন।',
-                'Incorrect 4-Digit App PIN! Please check your PIN or use Mobile OTP.',
-                '4-अंकीय ऐप पिन गलत है!'
-              )
-          );
-          setIsLoading(false);
-          return;
-        }
-        setSuccessMsg(
-          t(
-            'পিন লগইন সফল! আপনার দোকানের ডেটা রিস্টোর হচ্ছে...',
-            'PIN Login successful! Restoring your shop data...',
-            'पिन लॉगिन सफल! डेटा रिस्टोर हो रहा है...'
-          )
-        );
-      } catch (err: any) {
-        setError(err.message || 'PIN Login failed');
-      } finally {
-        setIsLoading(false);
-      }
+      setSuccessMsg(
+        t(
+          'লগইন সফল! আপনার দোকানের ক্লাউড ডেটা রিস্টোর হচ্ছে...',
+          'Login successful! Restoring shop cloud data...',
+          'लॉगिन सफल! डेटा रिस्टोर हो रहा है...'
+        )
+      );
+    } catch (err: any) {
+      setError(err.message || 'Login failed');
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  // Copy SQL setup script to clipboard
-  const handleCopySql = () => {
+  // Copy Supabase SQL script
+  const handleCopySql = async () => {
     try {
-      navigator.clipboard.writeText(SUPABASE_SQL_SETUP_SCRIPT);
+      await navigator.clipboard.writeText(SUPABASE_SQL_SETUP_SCRIPT);
       setIsCopiedSql(true);
-      setTimeout(() => setIsCopiedSql(false), 3000);
-    } catch (e) {
-      console.warn('Copy failed:', e);
+      setTimeout(() => setIsCopiedSql(false), 2500);
+    } catch (err) {
+      console.error('Failed to copy SQL script:', err);
     }
   };
 
@@ -490,21 +286,16 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
 
   const configured = isSupabaseConfigured();
 
-  // Live password helper flags
-  const signupPassLen = ownerPassword.trim().length;
-  const isSignupPassFourDigitPin = signupPassLen === 4 && /^\d{4}$/.test(ownerPassword.trim());
-  const isLoginPassFourDigitPin = loginPassword.trim().length === 4 && /^\d{4}$/.test(loginPassword.trim());
-
   return (
     <div
       id="onboarding-multiuser-modal"
       className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-stone-950/75 backdrop-blur-xs animate-in fade-in duration-200"
     >
       <div
-        className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-stone-200 overflow-hidden max-h-[94vh] flex flex-col"
+        className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-stone-200 overflow-hidden max-h-[94vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Banner Header */}
+        {/* Banner Header Card */}
         <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-indigo-700 px-5 py-4 text-white shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -515,45 +306,28 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                 <h2 className="text-base sm:text-lg font-black tracking-tight flex items-center gap-1.5">
                   <span>{t('মাল্টি-ইউজার ক্লাউড POS', 'Multi-User Cloud POS', 'मल्टी-यूज़र क्लाउड POS')}</span>
                   <span className="text-[10px] bg-emerald-400 text-stone-950 font-black px-2 py-0.5 rounded-full">
-                    Cloud & Vault
+                    Cloud Auth
                   </span>
                 </h2>
                 <p className="text-xs text-blue-100 font-medium">
                   {t(
-                    'নিরাপদ সাইন-আপ এবং ওটিপি / পিন / পাসওয়ার্ড ডেটা রিস্টোর',
-                    'Secure Sign Up & Restore via Email, Mobile OTP, or 4-Digit PIN',
-                    'सुरक्षित साइन-अप और ओटीपी / पिन / पासवर्ड डेटा रिस्टोर'
+                    'নিরাপদ ইমেল ও পাসওয়ার্ড লগইন এবং ক্লাউড ডেটা সিঙ্ক',
+                    'Secure Email & Password Authentication & Cloud Sync',
+                    'सुरक्षित ईमेल व पासवर्ड प्रमाणीकरण एवं क्लाउड सिंक'
                   )}
                 </p>
               </div>
             </div>
-
-            {/* Voice Prompt Play Button */}
-            <button
-              type="button"
-              onClick={playVoiceAlert}
-              className={`p-2 rounded-xl border transition-all cursor-pointer flex items-center gap-1 text-xs font-semibold ${
-                isSpeaking
-                  ? 'bg-amber-400 text-stone-900 border-amber-300 animate-pulse'
-                  : 'bg-white/15 text-white border-white/20 hover:bg-white/25'
-              }`}
-              title="Listen to Voice Prompt / অডিও শুনুন"
-            >
-              <Volume2 className="w-4 h-4" />
-              <span className="hidden sm:inline text-[11px]">
-                {isSpeaking ? (isBn ? 'বলছে...' : 'Playing...') : (isBn ? 'ভয়েস' : 'Voice')}
-              </span>
-            </button>
           </div>
 
-          {/* Top Info Banner */}
+          {/* Sub-header Connection Pill */}
           <div className="mt-2.5 bg-white/10 border border-white/15 rounded-xl px-3 py-1.5 flex items-center justify-between gap-2 text-xs text-blue-50">
             <div className="flex items-center gap-1.5 min-w-0">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
               <span className="text-[11px] truncate">
                 {configured
-                  ? t('ক্লাউড সিঙ্ক রেডি (RLS সুরক্ষিত)', 'Supabase Cloud Ready (RLS Secured)', 'क्लाउड सिंक तैयार (RLS सुरक्षित)')
-                  : t('ক্লাউড ও লোকাল ভল্ট সিঙ্ক চালু', 'Cloud & Local Vault Sync Ready', 'क्लाउड व लोकल वॉल्ट सिंक चालू')}
+                  ? t('Supabase ক্লাউড কানেক্টেড (RLS সুরক্ষিত)', 'Supabase Cloud Connected (RLS Secured)', 'Supabase क्लाउड कनेक्टेड (RLS सुरक्षित)')
+                  : t('ক্লাউড ও লোকাল ডেটাবেস প্রস্তুত', 'Cloud & Local Database Ready', 'क्लाउड व लोकल डेटाबेस तैयार')}
               </span>
             </div>
             <button
@@ -566,26 +340,9 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
           </div>
         </div>
 
-        {/* Language Selection Bar & Navigation Tabs */}
-        <div className="bg-stone-50 border-b border-stone-200 px-4 py-2 flex flex-col sm:flex-row items-center justify-between gap-2 shrink-0">
-          {/* Main Action Tabs */}
-          <div className="flex items-center gap-1 bg-stone-200/80 p-0.5 rounded-xl text-xs font-bold w-full sm:w-auto">
-            <button
-              type="button"
-              onClick={() => {
-                setActiveTab('signup');
-                setError(null);
-                setSuccessMsg(null);
-              }}
-              className={`flex-1 sm:flex-initial px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                activeTab === 'signup'
-                  ? 'bg-blue-600 text-white shadow-xs'
-                  : 'text-stone-700 hover:text-stone-900 hover:bg-white/60'
-              }`}
-            >
-              <UserPlus className="w-3.5 h-3.5" />
-              <span>{t('নতুন দোকান (Sign Up)', 'New Shop (Sign Up)', 'नई दुकान (Sign Up)')}</span>
-            </button>
+        {/* Navigation Tabs Bar: [Log In] and [Sign Up] */}
+        <div className="bg-stone-50 border-b border-stone-200 px-4 py-2.5 flex items-center justify-between gap-2 shrink-0">
+          <div className="flex items-center gap-1 bg-stone-200/80 p-0.5 rounded-xl text-xs font-bold flex-1 sm:flex-initial">
             <button
               type="button"
               onClick={() => {
@@ -593,37 +350,37 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                 setError(null);
                 setSuccessMsg(null);
               }}
-              className={`flex-1 sm:flex-initial px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+              className={`flex-1 sm:flex-initial px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                 activeTab === 'login'
                   ? 'bg-blue-600 text-white shadow-xs'
                   : 'text-stone-700 hover:text-stone-900 hover:bg-white/60'
               }`}
             >
               <LogIn className="w-3.5 h-3.5" />
-              <span>{t('লগইন ও ডেটা রিস্টোর', 'Login & Data Restore', 'लॉगिन व डेटा रिस्टोर')}</span>
+              <span>{t('লগইন (Log In)', 'Log In', 'लॉगिन')}</span>
             </button>
+
             <button
               type="button"
               onClick={() => {
-                setActiveTab('sql_guide');
+                setActiveTab('signup');
                 setError(null);
                 setSuccessMsg(null);
               }}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1 ${
-                activeTab === 'sql_guide'
-                  ? 'bg-indigo-600 text-white shadow-xs'
+              className={`flex-1 sm:flex-initial px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                activeTab === 'signup'
+                  ? 'bg-blue-600 text-white shadow-xs'
                   : 'text-stone-700 hover:text-stone-900 hover:bg-white/60'
               }`}
-              title="Supabase Database SQL Setup"
             >
-              <Database className="w-3.5 h-3.5" />
-              <span className="hidden md:inline">SQL</span>
+              <UserPlus className="w-3.5 h-3.5" />
+              <span>{t('সাইন আপ (Sign Up)', 'Sign Up', 'साइन अप')}</span>
             </button>
           </div>
 
           {/* Language Selector */}
           {onSelectLanguage && (
-            <div className="flex items-center gap-1 bg-white border border-stone-200 p-0.5 rounded-lg text-xs font-bold shrink-0">
+            <div className="flex items-center gap-0.5 bg-white border border-stone-200 p-0.5 rounded-lg text-xs font-bold shrink-0">
               <Globe className="w-3.5 h-3.5 text-stone-500 ml-1" />
               <button
                 type="button"
@@ -656,9 +413,9 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
           )}
         </div>
 
-        {/* Form Body / Content Container */}
-        <div className="p-4 sm:p-5 overflow-y-auto space-y-3.5">
-          {/* Alerts */}
+        {/* Modal Body Container */}
+        <div className="p-4 sm:p-5 overflow-y-auto space-y-4">
+          {/* Status Alerts */}
           {error && (
             <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-start gap-2 animate-in fade-in">
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
@@ -674,73 +431,244 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
           )}
 
           {/* ========================================================================= */}
-          {/* TAB 1: SIGN UP (MOBILE NUMBER & PASSWORD ONLY) */}
+          {/* TAB 1: LOG IN (EMAIL + PASSWORD ONLY) */}
           {/* ========================================================================= */}
-          {activeTab === 'signup' && (
-            <form onSubmit={handleSignupSubmit} className="space-y-4">
-              {/* 1. Mobile Number */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
-                  <Phone className="w-3.5 h-3.5 text-blue-600" />
-                  <span>{t('মোবাইল নম্বর (Mobile Number) *', 'Mobile Number *', 'मोबाइल नंबर *')}</span>
-                </label>
-                <input
-                  type="tel"
-                  required
-                  autoFocus
-                  value={storePhone}
-                  onChange={(e) => {
-                    setStorePhone(e.target.value);
-                    if (error) setError(null);
-                  }}
-                  placeholder={t('মোবাইল নম্বর লিখুন', 'Enter mobile number', 'मोबाइल नंबर दर्ज करें')}
-                  className="w-full px-3.5 py-2.5 text-sm bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-blue-500 focus:bg-white font-semibold font-mono transition-all"
-                />
-              </div>
+          {activeTab === 'login' && (
+            <div className="space-y-4">
+              {/* Saved accounts in device (Fast 1-click selection) */}
+              {savedAccounts.length > 0 && (
+                <div className="p-2.5 bg-blue-50/70 border border-blue-200/80 rounded-2xl space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px] font-bold text-blue-950">
+                    <span className="flex items-center gap-1">
+                      <History className="w-3.5 h-3.5 text-blue-600" />
+                      <span>{t('এই ডিভাইসে সংরক্ষিত অ্যাকাউন্ট:', 'Saved Accounts on Device:', 'सहेजे गए खाते:')}</span>
+                    </span>
+                    <span className="text-[10px] text-blue-700 font-mono">{savedAccounts.length}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {savedAccounts.map((acc) => (
+                      <button
+                        key={acc.identifier}
+                        type="button"
+                        onClick={() => {
+                          if (acc.email) setLoginEmail(acc.email);
+                          setError(null);
+                        }}
+                        className="px-2.5 py-1 rounded-xl bg-white hover:bg-blue-100/60 border border-blue-200 text-left text-[11px] font-bold text-stone-800 flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all"
+                      >
+                        <Store className="w-3 h-3 text-blue-600 shrink-0" />
+                        <span className="truncate max-w-[120px]">{acc.storeName || acc.name}</span>
+                        <span className="text-[10px] font-mono text-stone-500 truncate max-w-[100px]">
+                          ({acc.email})
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
-              {/* 2. Password */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-stone-800 flex items-center justify-between">
-                  <span className="flex items-center gap-1.5">
-                    <Lock className="w-3.5 h-3.5 text-blue-600" />
-                    <span>{t('পাসওয়ার্ড (Password) *', 'Password *', 'पासवर्ड *')}</span>
-                  </span>
+              <form onSubmit={handleLoginSubmit} className="space-y-3.5">
+                {/* Email Address */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
+                    <Mail className="w-3.5 h-3.5 text-blue-600" />
+                    <span>{t('ইমেল ঠিকানা (Email Address) *', 'Email Address *', 'ईमेल पता *')}</span>
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    autoFocus
+                    value={loginEmail}
+                    onChange={(e) => {
+                      setLoginEmail(e.target.value);
+                      if (error) setError(null);
+                    }}
+                    placeholder="owner@example.com"
+                    className="w-full px-3.5 py-2.5 text-sm bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-blue-500 focus:bg-white font-medium transition-all"
+                  />
+                </div>
+
+                {/* Password */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5 text-blue-600" />
+                      <span>{t('পাসওয়ার্ড (Password) *', 'Password *', 'पासवर्ड *')}</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowLoginPassword(!showLoginPassword)}
+                      className="text-[11px] text-stone-500 hover:text-stone-800 flex items-center gap-1 cursor-pointer"
+                    >
+                      {showLoginPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      <span>{showLoginPassword ? 'Hide' : 'Show'}</span>
+                    </button>
+                  </div>
+                  <input
+                    type={showLoginPassword ? 'text' : 'password'}
+                    required
+                    value={loginPassword}
+                    onChange={(e) => {
+                      setLoginPassword(e.target.value);
+                      if (error) setError(null);
+                    }}
+                    placeholder={t('কমপক্ষে ৬ অক্ষরের পাসওয়ার্ড', 'Minimum 6 character password', 'कम से कम 6 अक्षरों का पासवर्ड')}
+                    className="w-full px-3.5 py-2.5 text-sm bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-blue-500 focus:bg-white font-medium transition-all"
+                  />
+                  <div className="flex justify-end pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (onOpenForgotPassword) {
+                          onOpenForgotPassword(loginEmail);
+                        } else {
+                          setIsResetModalOpen(true);
+                        }
+                      }}
+                      className="text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer transition-colors"
+                    >
+                      {t('পাসওয়ার্ড ভুলে গেছেন?', 'Forgot Password?', 'पासवर्ड भूल गए?')}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Submit Log In Button */}
+                <div className="pt-1.5">
+                  <button
+                    type="submit"
+                    disabled={isLoading}
+                    className="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-indigo-700 hover:from-blue-500 hover:to-indigo-600 active:scale-[0.99] text-white font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20 cursor-pointer transition-all disabled:opacity-50"
+                  >
+                    {isLoading ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <LogIn className="w-4 h-4" />
+                    )}
+                    <span>
+                      {isLoading
+                        ? t('লগইন ও ডেটা রিস্টোর হচ্ছে...', 'Logging in & Restoring Data...', 'लॉगिन और डेटा रिस्टोर हो रहा है...')
+                        : t('লগইন ও ক্লাউড ডেটা রিস্টোর', 'Log In & Restore Shop Data', 'लॉगिन व डेटा रिस्टोर करें')}
+                    </span>
+                  </button>
+                </div>
+
+                {/* Switch to Sign Up */}
+                <div className="text-center pt-1">
                   <button
                     type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="text-[11px] text-stone-500 hover:text-stone-800 flex items-center gap-1 cursor-pointer"
+                    onClick={() => {
+                      setActiveTab('signup');
+                      setError(null);
+                      setSuccessMsg(null);
+                    }}
+                    className="text-xs text-blue-600 hover:text-blue-800 font-bold cursor-pointer underline inline-flex items-center gap-1"
                   >
-                    {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                    <span>{showPassword ? 'Hide' : 'Show'}</span>
+                    <UserPlus className="w-3.5 h-3.5" />
+                    <span>
+                      {t(
+                        'নতুন দোকান? নতুন অ্যাকাউন্ট খুলতে এখানে চাপুন ➜',
+                        'New to POS? Click here to Sign Up ➜',
+                        'नई दुकान? नया खाता बनाने के लिए यहाँ क्लिक करें ➜'
+                      )}
+                    </span>
                   </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {/* ========================================================================= */}
+          {/* TAB 2: SIGN UP (EMAIL + PASSWORD ONLY) */}
+          {/* ========================================================================= */}
+          {activeTab === 'signup' && (
+            <form onSubmit={handleSignupSubmit} className="space-y-3.5">
+              {/* Email Address */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
+                  <Mail className="w-3.5 h-3.5 text-blue-600" />
+                  <span>{t('ইমেল ঠিকানা (Email Address) *', 'Email Address *', 'ईमेल पता *')}</span>
                 </label>
                 <input
-                  type={showPassword ? 'text' : 'password'}
+                  type="email"
                   required
-                  value={ownerPassword}
+                  autoFocus
+                  value={signupEmail}
                   onChange={(e) => {
-                    setOwnerPassword(e.target.value);
+                    setSignupEmail(e.target.value);
                     if (error) setError(null);
                   }}
-                  placeholder={t('পাসওয়ার্ড লিখুন', 'Enter password', 'पासवर्ड दर्ज करें')}
+                  placeholder="owner@example.com"
                   className="w-full px-3.5 py-2.5 text-sm bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-blue-500 focus:bg-white font-medium transition-all"
                 />
               </div>
 
-              {/* Info Note: Shop Name & Address can be added later */}
-              <div className="p-2.5 rounded-xl bg-blue-50/80 border border-blue-200/80 text-[11px] text-blue-900 flex items-center gap-2">
-                <Store className="w-4 h-4 text-blue-600 shrink-0" />
-                <span>
-                  {t(
-                    'দোকানের নাম ও ঠিকানা (Shop Name & Address) পরে যেকোনো সময় প্রোফাইল বা সেটিংস থেকে অ্যাড করা যাবে।',
-                    'Shop Name & Address can be added later anytime from Profile or Settings.',
-                    'दुकान का नाम और पता बाद में कभी भी प्रोफ़ाइल या सेटिंग्स से जोड़ा जा सकता है।'
-                  )}
-                </span>
+              {/* Password */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
+                    <Lock className="w-3.5 h-3.5 text-blue-600" />
+                    <span>{t('পাসওয়ার্ড (Password) *', 'Password (min 6 chars) *', 'पासवर्ड *')}</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowSignupPassword(!showSignupPassword)}
+                    className="text-[11px] text-stone-500 hover:text-stone-800 flex items-center gap-1 cursor-pointer"
+                  >
+                    {showSignupPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    <span>{showSignupPassword ? 'Hide' : 'Show'}</span>
+                  </button>
+                </div>
+                <input
+                  type={showSignupPassword ? 'text' : 'password'}
+                  required
+                  value={signupPassword}
+                  onChange={(e) => {
+                    setSignupPassword(e.target.value);
+                    if (error) setError(null);
+                  }}
+                  placeholder={t('কমপক্ষে ৬ অক্ষরের পাসওয়ার্ড তৈরি করুন', 'Create password (min 6 characters)', 'कम से कम 6 अक्षरों का पासवर्ड बनाएं')}
+                  className="w-full px-3.5 py-2.5 text-sm bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-blue-500 focus:bg-white font-medium transition-all"
+                />
               </div>
 
-              {/* Submit Action Button */}
-              <div className="pt-1">
+              {/* Shop Name (Optional) */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
+                  <Store className="w-3.5 h-3.5 text-blue-600" />
+                  <span>{t('দোকানের নাম (Shop Name - Optional)', 'Shop Name (Optional)', 'दुकान का नाम (वैकल्पिक)')}</span>
+                </label>
+                <input
+                  type="text"
+                  value={signupStoreName}
+                  onChange={(e) => {
+                    setSignupStoreName(e.target.value);
+                    if (error) setError(null);
+                  }}
+                  placeholder={t('যেমন: Classic Fashion', 'e.g. Classic Fashion', 'उदा: Classic Fashion')}
+                  className="w-full px-3.5 py-2.5 text-sm bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-blue-500 focus:bg-white font-medium transition-all"
+                />
+              </div>
+
+              {/* Owner Name (Optional) */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
+                  <User className="w-3.5 h-3.5 text-blue-600" />
+                  <span>{t('মালিকের নাম (Owner Name - Optional)', 'Owner Name (Optional)', 'मालिक का नाम (वैकल्पिक)')}</span>
+                </label>
+                <input
+                  type="text"
+                  value={signupOwnerName}
+                  onChange={(e) => {
+                    setSignupOwnerName(e.target.value);
+                    if (error) setError(null);
+                  }}
+                  placeholder={t('মালিক বা ক্যাশিয়ারের নাম', 'Store Owner or Cashier name', 'मालिक का नाम')}
+                  className="w-full px-3.5 py-2.5 text-sm bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-blue-500 focus:bg-white font-medium transition-all"
+                />
+              </div>
+
+              {/* Submit Sign Up Button */}
+              <div className="pt-1.5">
                 <button
                   type="submit"
                   disabled={isLoading}
@@ -754,18 +682,19 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                   <span>
                     {isLoading
                       ? t('অ্যাকাউন্ট তৈরি হচ্ছে...', 'Creating Account...', 'खाता बनाया जा रहा है...')
-                      : t('সাইন আপ করুন (Sign Up)', 'Sign Up', 'साइन अप करें')}
+                      : t('নতুন অ্যাকাউন্ট খুলুন (Sign Up)', 'Create Shop Account (Sign Up)', 'साइन अप करें')}
                   </span>
                 </button>
               </div>
 
-              {/* Switch to Login Link */}
-              <div className="text-center pt-0.5">
+              {/* Switch to Log In */}
+              <div className="text-center pt-1">
                 <button
                   type="button"
                   onClick={() => {
                     setActiveTab('login');
                     setError(null);
+                    setSuccessMsg(null);
                   }}
                   className="text-xs text-blue-600 hover:text-blue-800 font-bold cursor-pointer underline inline-flex items-center gap-1"
                 >
@@ -773,437 +702,13 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                   <span>
                     {t(
                       'আগে থেকেই অ্যাকাউন্ট আছে? লগইন করুন ➜',
-                      'Already have an account? Login here ➜',
+                      'Already have an account? Log In here ➜',
                       'पहले से खाता है? लॉगिन करें ➜'
                     )}
                   </span>
                 </button>
               </div>
             </form>
-          )}
-
-          {/* ========================================================================= */}
-          {/* TAB 2: EXISTING USER LOGIN & DATA RESTORE (EMAIL/PASS, OTP, OR 4-DIGIT PIN) */}
-          {/* ========================================================================= */}
-          {activeTab === 'login' && (
-            <div className="space-y-3.5">
-              {/* Clear Helpful Message Explaining the Difference between 4-Digit PIN & Account Password */}
-              <div className="bg-amber-50/90 border border-amber-200 rounded-2xl p-3 text-xs text-amber-950 space-y-1.5 shadow-2xs">
-                <div className="font-black text-amber-950 flex items-center gap-1.5">
-                  <Info className="w-4 h-4 text-amber-600 shrink-0" />
-                  <span>
-                    {t(
-                      '💡 ৪-ডিজিট অ্যাপ পিন বনাম অ্যাকাউন্ট পাসওয়ার্ড — পার্থক্য জানুন:',
-                      '💡 4-Digit App PIN vs. Account Password — Helpful Guide:',
-                      '💡 4-अंकीय ऐप पिन बनाम खाता पासवर्ड — अंतर जानें:'
-                    )}
-                  </span>
-                </div>
-                <ul className="space-y-1 text-[11px] text-amber-900/95 leading-snug pl-1">
-                  <li>
-                    • <strong>{t('অ্যাকাউন্ট পাসওয়ার্ড (৬+ অক্ষর):', 'Account Password (6+ Chars):', 'खाता पासवर्ड (6+ अक्षर):')}</strong>{' '}
-                    {t(
-                      'সাইন-আপের সময় দেওয়া কমপক্ষে ৬ অক্ষরের পাসওয়ার্ড শুধুমাত্র "Email / Password" ট্যাবে ব্যবহার করুন (এখানে ৪-সংখ্যার পিন দেবেন না)।',
-                      'Use your 6+ character password in the "Email / Password" tab below (do not enter your 4-digit PIN as your password).',
-                      'साइन-अप के समय बनाया गया कम से कम 6 अक्षरों का पासवर्ड "Email / Password" टैब में डालें।'
-                    )}
-                  </li>
-                  <li>
-                    • <strong>{t('৪-ডিজিট অ্যাপ পিন ও মোবাইল ওটিপি:', '4-Digit App PIN & Mobile OTP:', '4-अंकीय ऐप पिन व मोबाइल ओटीपी:')}</strong>{' '}
-                    {t(
-                      'শুধুমাত্র ৪ সংখ্যার পিন (যেমন 1234) দিয়ে ঢুকতে "4-Digit App PIN" ট্যাব অথবা সরাসরি ওটিপি কোড দিয়ে ঢুকতে "Mobile OTP" ট্যাবটি বেছে নিন।',
-                      'To log in with your 4-digit numeric PIN (e.g. 1234) or phone verification code, select "4-Digit App PIN" or "Mobile OTP" below.',
-                      '4-अंकीय पिन (जैसे 1234) या मोबाइल ओटीपी से लॉगिन करने के लिए नीचे संबंधित टैब चुनें।'
-                    )}
-                  </li>
-                </ul>
-              </div>
-
-              {/* 3-Way Login Method Selector: Email/Password | Mobile OTP | 4-Digit App PIN */}
-              <div className="grid grid-cols-3 gap-1 p-1 bg-stone-100 rounded-2xl border border-stone-200/90">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLoginMethod('email_password');
-                    setError(null);
-                    setSuccessMsg(null);
-                  }}
-                  className={`py-2 px-2 rounded-xl text-[11px] sm:text-xs font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
-                    loginMethod === 'email_password'
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : 'text-stone-600 hover:text-stone-900 hover:bg-white/60'
-                  }`}
-                >
-                  <Mail className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">{t('ইমেল ও পাসওয়ার্ড', 'Email / Pass', 'ईमेल / पासवर्ड')}</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLoginMethod('otp');
-                    setError(null);
-                    setSuccessMsg(null);
-                  }}
-                  className={`py-2 px-2 rounded-xl text-[11px] sm:text-xs font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
-                    loginMethod === 'otp'
-                      ? 'bg-emerald-600 text-white shadow-xs'
-                      : 'text-stone-600 hover:text-stone-900 hover:bg-white/60'
-                  }`}
-                >
-                  <Smartphone className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">{t('মোবাইল OTP', 'Mobile OTP', 'मोबाइल OTP')}</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLoginMethod('app_pin');
-                    setError(null);
-                    setSuccessMsg(null);
-                  }}
-                  className={`py-2 px-2 rounded-xl text-[11px] sm:text-xs font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
-                    loginMethod === 'app_pin'
-                      ? 'bg-amber-600 text-white shadow-xs'
-                      : 'text-stone-600 hover:text-stone-900 hover:bg-white/60'
-                  }`}
-                >
-                  <KeyRound className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">{t('৪-ডিজিট পিন', '4-Digit PIN', '4-अंकीय पिन')}</span>
-                </button>
-              </div>
-
-              {/* Saved Accounts Quick Selector (if available on device) */}
-              {savedAccounts.length > 0 && (
-                <div className="p-2.5 bg-blue-50/70 border border-blue-200/80 rounded-2xl space-y-1.5">
-                  <div className="flex items-center justify-between text-[11px] font-bold text-blue-950">
-                    <span className="flex items-center gap-1">
-                      <History className="w-3.5 h-3.5 text-blue-600" />
-                      <span>{t('এই ডিভাইসে সংরক্ষিত অ্যাকাউন্ট:', 'Saved Accounts on Device:', 'सहेजे गए खाते:')}</span>
-                    </span>
-                    <span className="text-[10px] text-blue-700">{savedAccounts.length}</span>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {savedAccounts.map((acc) => (
-                      <button
-                        key={acc.identifier}
-                        type="button"
-                        onClick={() => {
-                          if (acc.email) setLoginEmail(acc.email);
-                          if (acc.phone) setOtpPhone(acc.phone);
-                          setPinIdentifier(acc.phone || acc.email || acc.identifier);
-                          setError(null);
-                        }}
-                        className="px-2.5 py-1 rounded-xl bg-white hover:bg-blue-100/60 border border-blue-200 text-left text-[11px] font-bold text-stone-800 flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all"
-                      >
-                        <Store className="w-3 h-3 text-blue-600 shrink-0" />
-                        <span className="truncate max-w-[130px]">{acc.storeName || acc.name}</span>
-                        <span className="text-[10px] font-mono text-stone-500">
-                          ({acc.phone || acc.email})
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <form onSubmit={handleLoginSubmit} className="space-y-3.5">
-                {/* SUB-TAB 1: MOBILE OR EMAIL & PASSWORD */}
-                {loginMethod === 'email_password' && (
-                  <>
-                    <div className="space-y-1">
-                      <label className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
-                        <Phone className="w-3.5 h-3.5 text-blue-600" />
-                        <span>{t('মোবাইল নম্বর / ইমেল (Mobile or Email) *', 'Mobile Number or Email *', 'मोबाइल नंबर / ईमेल *')}</span>
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        autoFocus
-                        value={loginEmail}
-                        onChange={(e) => {
-                          setLoginEmail(e.target.value);
-                          if (error) setError(null);
-                        }}
-                        placeholder={t('মোবাইল নম্বর বা ইমেল লিখুন', 'Enter mobile number or email', 'मोबाइल नंबर या ईमेल दर्ज करें')}
-                        className="w-full px-3.5 py-2.5 text-sm bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-blue-500 focus:bg-white font-medium font-mono transition-all"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-xs font-bold text-stone-800 flex items-center justify-between">
-                        <span className="flex items-center gap-1">
-                          <Lock className="w-3.5 h-3.5 text-blue-600" />
-                          <span>
-                            {t(
-                              'অ্যাকাউন্ট পাসওয়ার্ড (কমপক্ষে ৬ অক্ষর) *',
-                              'Account Password (Min 6 Chars) *',
-                              'खाता पासवर्ड (कम से कम 6 अक्षर) *'
-                            )}
-                          </span>
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setShowLoginPassword(!showLoginPassword)}
-                          className="text-[10px] text-stone-500 hover:text-stone-800 flex items-center gap-0.5 cursor-pointer"
-                        >
-                          {showLoginPassword ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                          <span>{showLoginPassword ? 'Hide' : 'Show'}</span>
-                        </button>
-                      </label>
-                      <input
-                        type={showLoginPassword ? 'text' : 'password'}
-                        required
-                        value={loginPassword}
-                        onChange={(e) => {
-                          setLoginPassword(e.target.value);
-                          if (error) setError(null);
-                        }}
-                        placeholder={t('আপনার ৬+ অক্ষরের পাসওয়ার্ড দিন', 'Enter your 6+ character password', 'अपना 6+ अक्षरों का पासवर्ड डालें')}
-                        className="w-full px-3.5 py-2.5 text-sm bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-blue-500 focus:bg-white font-medium transition-all"
-                      />
-
-                      {/* Live helper if user accidentally types a 4-digit PIN here */}
-                      {isLoginPassFourDigitPin && (
-                        <div className="p-2 rounded-xl bg-amber-50 border border-amber-300 text-[11px] text-amber-950 flex items-center justify-between gap-2">
-                          <span>
-                            {t(
-                              '⚠️ এটি ৪-ডিজিটের অ্যাপ পিন মনে হচ্ছে! পিন দিয়ে লগইন করতে চান?',
-                              '⚠️ This looks like a 4-digit PIN! Want to log in with your App PIN instead?',
-                              '⚠️ यह 4-अंकीय पिन लग रहा है! क्या आप पिन से लॉगिन करना चाहते हैं?'
-                            )}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setPinIdentifier(loginEmail);
-                              setPinCode(loginPassword.trim());
-                              setLoginMethod('app_pin');
-                              setError(null);
-                            }}
-                            className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px] shrink-0 cursor-pointer"
-                          >
-                            {t('৪-ডিজিট পিন ট্যাবে যান ➜', 'Use 4-Digit PIN ➜', '4-अंकीय पिन चुनें ➜')}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </>
-                )}
-
-                {/* SUB-TAB 2: MOBILE OTP */}
-                {loginMethod === 'otp' && (
-                  <>
-                    <div className="space-y-1">
-                      <label className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
-                        <Smartphone className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>{t('মোবাইল নম্বর (Mobile Number for OTP) *', 'Mobile Number for OTP *', 'ओटीपी हेतु मोबाइल नंबर *')}</span>
-                      </label>
-                      <div className="flex gap-2">
-                        <input
-                          type="tel"
-                          required
-                          value={otpPhone}
-                          onChange={(e) => {
-                            setOtpPhone(e.target.value);
-                            setOtpStep('request');
-                            setOtpCode('');
-                            setGeneratedOtp(null);
-                            if (error) setError(null);
-                          }}
-                          placeholder={t('০১XXXXXXXXX / ৯৮XXXXXXXX', 'e.g. 01700000000', 'उदा: 9800000000')}
-                          className="flex-1 px-3.5 py-2.5 text-sm bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-emerald-600 focus:bg-white font-mono font-medium transition-all"
-                        />
-                        <button
-                          type="button"
-                          onClick={handleSendOtp}
-                          disabled={otpSending || (otpStep === 'verify' && otpCountdown > 30)}
-                          className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-stone-300 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer shrink-0 shadow-xs transition-all"
-                        >
-                          {otpSending ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                          <span>
-                            {otpStep === 'verify'
-                              ? t('পুনরায় পাঠান', 'Resend', 'पुनः भेजें')
-                              : t('ওটিপি পাঠান', 'Send OTP', 'ओटीपी भेजें')}
-                          </span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {generatedOtp && (
-                      <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl space-y-2 animate-in fade-in">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <MessageSquare className="w-4 h-4 text-emerald-600 shrink-0" />
-                            <span className="text-xs font-bold text-emerald-950">
-                              {t('আপনার ৪-ডিজিট ওটিপি কোড:', 'Your 4-Digit OTP Code:', 'आपका 4-अंकीय ओटीपी कोड:')}
-                            </span>
-                          </div>
-                          <span className="text-base font-mono font-black tracking-widest text-emerald-800 bg-white border border-emerald-300 px-2.5 py-0.5 rounded-lg">
-                            {generatedOtp}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <button
-                            type="button"
-                            onClick={handleAutoFillOtp}
-                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold cursor-pointer"
-                          >
-                            {t('✓ ১-ক্লিকে কোড বসান (Auto-Fill)', '✓ Auto-Fill Code', '✓ ऑटो-फिल कोड')}
-                          </button>
-                          {otpCountdown > 0 && (
-                            <span className="text-[11px] font-mono text-stone-500">{otpCountdown}s</span>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-bold text-stone-800">
-                          {t('৪-ডিজিট ওটিপি কোড লিখুন (4-Digit OTP) *', 'Enter 4-Digit OTP Code *', '4-अंकीय ओटीपी कोड दर्ज करें *')}
-                        </label>
-                        <span className="text-[10px] text-stone-400">
-                          {t('টেস্ট কোড: 1234 বা SMS কোড', 'Test Code: 1234 or SMS code', 'टेस्ट कोड: 1234')}
-                        </span>
-                      </div>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        maxLength={4}
-                        required
-                        value={otpCode}
-                        onChange={(e) => {
-                          setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 4));
-                          if (error) setError(null);
-                        }}
-                        placeholder="••••"
-                        className="w-full text-center tracking-[0.6em] font-mono font-bold text-lg py-2 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-emerald-600 focus:bg-white transition-all"
-                      />
-                    </div>
-                  </>
-                )}
-
-                {/* SUB-TAB 3: 4-DIGIT APP PIN */}
-                {loginMethod === 'app_pin' && (
-                  <>
-                    <div className="space-y-1">
-                      <label className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
-                        <Phone className="w-3.5 h-3.5 text-amber-600" />
-                        <span>
-                          {t(
-                            'নিবন্ধিত মোবাইল নম্বর অথবা ইমেল *',
-                            'Registered Mobile Number or Email *',
-                            'पंजीकृत मोबाइल नंबर या ईमेल *'
-                          )}
-                        </span>
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={pinIdentifier}
-                        onChange={(e) => {
-                          setPinIdentifier(e.target.value);
-                          if (error) setError(null);
-                        }}
-                        placeholder={t('০১XXXXXXXXX অথবা owner@example.com', 'Mobile number or email address', 'मोबाइल नंबर या ईमेल')}
-                        className="w-full px-3.5 py-2.5 text-sm bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-amber-600 focus:bg-white font-medium font-mono transition-all"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between">
-                        <label className="text-xs font-bold text-stone-800 flex items-center gap-1">
-                          <KeyRound className="w-3.5 h-3.5 text-amber-600" />
-                          <span>{t('৪-ডিজিট অ্যাপ পিন (4-Digit App PIN) *', '4-Digit App PIN *', '4-अंकीय ऐप पिन *')}</span>
-                        </label>
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-stone-400">
-                            {t('ডিফল্ট পিন: 1234', 'Default PIN: 1234', 'डिफ़ॉल्ट पिन: 1234')}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setShowLoginPin(!showLoginPin)}
-                            className="text-[10px] text-stone-500 hover:text-stone-800 flex items-center gap-0.5 cursor-pointer"
-                          >
-                            {showLoginPin ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                            <span>{showLoginPin ? 'Hide' : 'Show'}</span>
-                          </button>
-                        </div>
-                      </div>
-                      <input
-                        type={showLoginPin ? 'text' : 'password'}
-                        inputMode="numeric"
-                        maxLength={4}
-                        required
-                        value={pinCode}
-                        onChange={(e) => {
-                          setPinCode(e.target.value.replace(/\D/g, '').slice(0, 4));
-                          if (error) setError(null);
-                        }}
-                        placeholder="1234"
-                        className="w-full text-center tracking-[0.6em] font-mono font-bold text-lg py-2 bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-amber-600 focus:bg-white transition-all"
-                      />
-                    </div>
-                  </>
-                )}
-
-                {/* Submit Action Button */}
-                <div className="pt-1">
-                  <button
-                    type="submit"
-                    disabled={isLoading}
-                    className={`w-full py-3.5 px-4 rounded-2xl text-white font-black text-sm flex items-center justify-center gap-2 shadow-lg active:scale-[0.99] cursor-pointer transition-all disabled:opacity-50 ${
-                      loginMethod === 'otp'
-                        ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 shadow-emerald-500/20'
-                        : loginMethod === 'app_pin'
-                        ? 'bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 shadow-amber-500/20'
-                        : 'bg-gradient-to-r from-blue-600 via-indigo-600 to-indigo-700 hover:from-blue-500 hover:to-indigo-600 shadow-blue-500/20'
-                    }`}
-                  >
-                    {isLoading ? (
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                    ) : loginMethod === 'otp' ? (
-                      <Smartphone className="w-4 h-4" />
-                    ) : loginMethod === 'app_pin' ? (
-                      <KeyRound className="w-4 h-4" />
-                    ) : (
-                      <Cloud className="w-4 h-4" />
-                    )}
-                    <span>
-                      {isLoading
-                        ? t('লগইন ও ডেটা রিস্টোর হচ্ছে...', 'Logging in & Restoring Data...', 'लॉगिन और डेटा रिस्टोर हो रहा है...')
-                        : loginMethod === 'otp'
-                        ? t('📱 ওটিপি যাচাই ও ডেটা রিস্টোর করুন', '📱 Verify OTP & Restore Shop Data', '📱 ओटीपी सत्यापित करें व डेटा रिस्टोर करें')
-                        : loginMethod === 'app_pin'
-                        ? t('🔑 ৪-ডিজিট পিন দিয়ে লগইন ও রিস্টোর করুন', '🔑 Login with 4-Digit PIN & Restore Data', '🔑 4-अंकीय पिन से लॉगिन व डेटा रिस्टोर करें')
-                        : t('☁️ ইমেল ও পাসওয়ার্ড দিয়ে লগইন ও রিস্টোর', '☁️ Login with Email/Password & Restore', '☁️ ईमेल व पासवर्ड से लॉगिन करें')}
-                    </span>
-                  </button>
-                </div>
-
-                {/* Switch to Signup Link */}
-                <div className="text-center pt-0.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveTab('signup');
-                      setError(null);
-                    }}
-                    className="text-xs text-stone-600 hover:text-blue-600 font-bold cursor-pointer underline inline-flex items-center gap-1"
-                  >
-                    <UserPlus className="w-3.5 h-3.5" />
-                    <span>
-                      {t(
-                        'নতুন ইউজার? নতুন দোকান অ্যাকাউন্ট খুলতে এখানে চাপুন ➜',
-                        'New to POS? Click here to create a new shop account ➜',
-                        'नया खाता खोलना चाहते हैं? यहाँ क्लिक करें ➜'
-                      )}
-                    </span>
-                  </button>
-                </div>
-              </form>
-            </div>
           )}
 
           {/* ========================================================================= */}
@@ -1230,7 +735,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                 </div>
                 <p className="text-[11px] text-stone-400">
                   {t(
-                    'আপনার Supabase ড্যাশবোর্ডে গিয়ে SQL Editor এ গিয়ে এই পুরো স্ক্রিপ্টটি রান করলেই profiles, invoices, cash_entries, customer_dues টেবিল এবং RLS সিকিউরিটি তৈরি হয়ে যাবে।',
+                    'আপনার Supabase ড্যাশবোর্ডে গিয়ে SQL Editor এ গিয়ে এই পুরো স্ক্রিপ্টটি রান করলেই profiles, invoices, cash_entries, customer_dues, products টেবিল এবং RLS সিকিউরিটি তৈরি হয়ে যাবে।',
                     'Run this script inside Supabase Dashboard > SQL Editor > New Query to create all tables and RLS policies.',
                     'Supabase SQL Editor में यह स्क्रिप्ट चलाकर सभी टेबल और RLS सुरक्षा नीतियां बनाएं।'
                   )}
@@ -1295,19 +800,31 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                 )}
               </div>
 
-              <div className="text-center pt-2">
+              <div className="text-center pt-1">
                 <button
                   type="button"
-                  onClick={() => setActiveTab('signup')}
+                  onClick={() => setActiveTab('login')}
                   className="px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-800 font-bold text-xs rounded-xl cursor-pointer"
                 >
-                  ← {t('সাইন-আপ ফর্মে ফিরে যান', 'Back to Sign Up', 'वापस जाएं')}
+                  ← {t('লগইন ফর্মে ফিরে যান', 'Back to Log In', 'वापस जाएं')}
                 </button>
               </div>
             </div>
           )}
         </div>
       </div>
+
+      {/* Standalone Reset Password Modal if triggered directly */}
+      <ResetPasswordModal
+        isOpen={isResetModalOpen}
+        onClose={() => setIsResetModalOpen(false)}
+        language={language}
+        prefilledEmail={loginEmail}
+        initialMode="request_link"
+        onSuccess={() => {
+          // Keep reset modal open briefly to show success
+        }}
+      />
     </div>
   );
 };

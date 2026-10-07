@@ -282,6 +282,10 @@ class StorageService {
     }
   }
 
+  saveBills(bills: BillInvoice[]): void {
+    this.saveBillsList(bills);
+  }
+
   // Get next sequential invoice number based on current active bills count (e.g. 13 bills -> #14)
   getNextInvoiceNumber(): string {
     const settings = this.getSettings();
@@ -994,11 +998,24 @@ class StorageService {
     const finalEmail = cleanEmail || (isEmail ? raw : (current.email || ''));
     const finalPhone = cleanPhone || (!isEmail ? raw : (current.phone || ''));
 
-    const inferredName =
-      name?.trim() ||
-      current.name ||
-      (finalEmail ? finalEmail.split('@')[0] : '') ||
-      (finalPhone ? `User ${finalPhone.slice(-4)}` : 'Store Owner');
+    let inferredName = name?.trim();
+    if (!inferredName || inferredName.startsWith('User ')) {
+      const savedAccounts = this.getSavedAccounts();
+      const matched = savedAccounts.find(
+        (a) =>
+          (finalEmail && this.normalizeIdentifier(a.email) === this.normalizeIdentifier(finalEmail)) ||
+          (finalPhone && this.normalizeIdentifier(a.phone) === this.normalizeIdentifier(finalPhone))
+      );
+      if (matched?.name && !matched.name.startsWith('User ')) {
+        inferredName = matched.name;
+      } else if (current.name && !current.name.startsWith('User ') && current.name !== 'Store Owner') {
+        inferredName = current.name;
+      } else if (finalEmail && !finalEmail.endsWith('@posstore.com')) {
+        inferredName = finalEmail.split('@')[0];
+      } else {
+        inferredName = inferredName || current.name || 'Store Owner';
+      }
+    }
 
     // Sync storePhone if provided, while keeping storeName optional so it can be added later
     const currentSettings = this.getSettings();

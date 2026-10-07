@@ -197,6 +197,8 @@ export interface UserProfile {
   email: string;
   name: string;
   isLoggedIn: boolean;
+  shopId?: string;
+  ownerId?: string;
   loginTime?: number;
   phone?: string;
   role?: 'Owner' | 'Manager' | 'Cashier';
@@ -216,6 +218,8 @@ export interface SavedAccountItem {
   email: string;
   storeName: string;
   role: 'Owner' | 'Manager' | 'Cashier';
+  shopId?: string;
+  ownerId?: string;
   lastActive: number;
 }
 

@@ -447,6 +447,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
 
   // Track the product this barcode belongs to for automatic saving
   const [activeProductId, setActiveProductId] = useState<string | null>(() => selectedProduct?.id || null);
+  const lastSelectedProductIdRef = useRef<string | null>(selectedProduct?.id || null);
 
   // Cost-encoded SKU generator helper matching ProductStockModal:
   // [1-2 Alphabets] + [1st digit of Cost] + [6 Middle Digits] + [Remaining digits of Cost]
@@ -461,9 +462,10 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     return generateAutoSkuFromName(targetName, targetSeed, costVal, currentCode || labelConfig.barcodeValue);
   };
 
-  // Auto-sync whenever selectedProduct is provided or updated
+  // Auto-sync whenever selectedProduct is provided or updated (only when a new product is selected)
   useEffect(() => {
-    if (selectedProduct) {
+    if (selectedProduct && selectedProduct.id !== lastSelectedProductIdRef.current) {
+      lastSelectedProductIdRef.current = selectedProduct.id;
       setActiveProductId(selectedProduct.id);
       let extractedName = selectedProduct.name;
       let extractedSize = '';
@@ -494,6 +496,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
 
   // Select product from saved product stock list
   const handleSelectProduct = (prod: ProductStockItem) => {
+    lastSelectedProductIdRef.current = prod.id;
     setActiveProductId(prod.id);
     let extractedName = prod.name;
     let extractedSize = '';
@@ -538,9 +541,15 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     const name = (cfg.itemName || '').trim();
     if (!name && !activeProductId) return;
 
-    const price = cfg.salePrice || cfg.mrp || 0;
-    const cost = cfg.purchasePrice && cfg.purchasePrice > 0 ? cfg.purchasePrice : undefined;
-    const stock = cfg.productQuantity !== undefined ? cfg.productQuantity : 1;
+    const price = cfg.salePrice !== undefined && cfg.salePrice !== null ? Number(cfg.salePrice) || 0 : (cfg.mrp || 0);
+    const cost =
+      cfg.purchasePrice !== undefined && cfg.purchasePrice !== null && !isNaN(Number(cfg.purchasePrice))
+        ? Number(cfg.purchasePrice)
+        : 0;
+    const stock =
+      cfg.productQuantity !== undefined && cfg.productQuantity !== null && !isNaN(Number(cfg.productQuantity))
+        ? Number(cfg.productQuantity)
+        : 0;
     const fullName = cfg.sizeOrVariant ? `${name} (${cfg.sizeOrVariant})` : name;
 
     const savedProd = storageService.addOrUpdateProduct({
@@ -554,6 +563,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     });
 
     if (savedProd?.id) {
+      lastSelectedProductIdRef.current = savedProd.id;
       setActiveProductId(savedProd.id);
     }
 
@@ -572,16 +582,14 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
   };
 
   const handlePurchasePriceChange = (valStr: string) => {
-    const numVal = valStr === '' ? undefined : Number(valStr);
+    const raw = valStr.trim();
+    const numVal = raw === '' ? undefined : (isNaN(Number(raw)) ? undefined : Number(raw));
     const newSku = getEncodedSku(numVal, labelConfig.itemName, autoSkuSeed, labelConfig.barcodeValue);
     setLabelConfig((prev) => ({
       ...prev,
       purchasePrice: numVal,
       barcodeValue: newSku,
     }));
-    if (labelConfig.itemName?.trim() || activeProductId) {
-      autoSaveToProduct(newSku, { ...labelConfig, purchasePrice: numVal, barcodeValue: newSku }, false);
-    }
   };
 
   const handleItemNameChange = (nameStr: string) => {
@@ -2179,12 +2187,15 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                     <input
                       type="number"
                       min="0"
-                      value={labelConfig.productQuantity !== undefined ? labelConfig.productQuantity : 1}
+                      value={labelConfig.productQuantity !== undefined && labelConfig.productQuantity !== null ? labelConfig.productQuantity : ''}
                       onChange={(e) => {
-                        const val = e.target.value === '' ? undefined : Number(e.target.value) || 0;
+                        const raw = e.target.value;
+                        const val = raw === '' ? undefined : (isNaN(Number(raw)) ? undefined : Number(raw));
                         setLabelConfig((prev) => ({ ...prev, productQuantity: val }));
+                      }}
+                      onBlur={() => {
                         if (labelConfig.itemName?.trim() || activeProductId) {
-                          autoSaveToProduct(labelConfig.barcodeValue, { ...labelConfig, productQuantity: val }, false);
+                          autoSaveToProduct(labelConfig.barcodeValue, labelConfig, false);
                         }
                       }}
                       placeholder={isBn ? 'যেমন: 10' : 'e.g. 10'}
@@ -2260,14 +2271,20 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                         <input
                           type="number"
                           min="0"
-                          value={labelConfig.salePrice || labelConfig.mrp || ''}
+                          value={labelConfig.salePrice !== undefined && labelConfig.salePrice !== null ? labelConfig.salePrice : ''}
                           onChange={(e) => {
-                            const val = e.target.value === '' ? 0 : Number(e.target.value) || 0;
+                            const raw = e.target.value;
+                            const val = raw === '' ? undefined : (isNaN(Number(raw)) ? undefined : Number(raw));
                             setLabelConfig((prev) => ({
                               ...prev,
                               salePrice: val,
                               mrp: val,
                             }));
+                          }}
+                          onBlur={() => {
+                            if (labelConfig.itemName?.trim() || activeProductId) {
+                              autoSaveToProduct(labelConfig.barcodeValue, labelConfig, false);
+                            }
                           }}
                           placeholder={isBn ? 'যেমন: 850' : 'e.g. 850'}
                           className="w-full bg-white text-stone-950 font-bold border border-stone-300 rounded-lg pl-8 pr-2 py-1.5 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -2303,8 +2320,13 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                         <input
                           type="number"
                           min="0"
-                          value={labelConfig.purchasePrice || ''}
+                          value={labelConfig.purchasePrice !== undefined && labelConfig.purchasePrice !== null ? labelConfig.purchasePrice : ''}
                           onChange={(e) => handlePurchasePriceChange(e.target.value)}
+                          onBlur={() => {
+                            if (labelConfig.itemName?.trim() || activeProductId) {
+                              autoSaveToProduct(labelConfig.barcodeValue, labelConfig, false);
+                            }
+                          }}
                           placeholder={isBn ? 'যেমন: 500' : 'e.g. 500'}
                           className="w-full bg-white text-stone-950 font-bold border border-stone-300 rounded-lg pl-8 pr-2 py-1.5 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
                         />
@@ -2534,12 +2556,15 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                   <input
                     type="number"
                     min="0"
-                    value={labelConfig.productQuantity !== undefined ? labelConfig.productQuantity : 1}
+                    value={labelConfig.productQuantity !== undefined && labelConfig.productQuantity !== null ? labelConfig.productQuantity : ''}
                     onChange={(e) => {
-                      const val = e.target.value === '' ? undefined : Number(e.target.value) || 0;
+                      const raw = e.target.value;
+                      const val = raw === '' ? undefined : (isNaN(Number(raw)) ? undefined : Number(raw));
                       setLabelConfig((prev) => ({ ...prev, productQuantity: val }));
+                    }}
+                    onBlur={() => {
                       if (labelConfig.itemName?.trim() || activeProductId) {
-                        autoSaveToProduct(labelConfig.barcodeValue, { ...labelConfig, productQuantity: val }, false);
+                        autoSaveToProduct(labelConfig.barcodeValue, labelConfig, false);
                       }
                     }}
                     placeholder={isBn ? 'যেমন: 10' : 'e.g. 10'}
@@ -2573,10 +2598,17 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                     </span>
                     <input
                       type="number"
-                      value={labelConfig.mrp || ''}
-                      onChange={(e) =>
-                        setLabelConfig((prev) => ({ ...prev, mrp: Number(e.target.value) || 0 }))
-                      }
+                      value={labelConfig.mrp !== undefined && labelConfig.mrp !== null ? labelConfig.mrp : ''}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        const val = raw === '' ? undefined : (isNaN(Number(raw)) ? undefined : Number(raw));
+                        setLabelConfig((prev) => ({ ...prev, mrp: val }));
+                      }}
+                      onBlur={() => {
+                        if (labelConfig.itemName?.trim() || activeProductId) {
+                          autoSaveToProduct(labelConfig.barcodeValue, labelConfig, false);
+                        }
+                      }}
                       placeholder="1200"
                       className="w-full border border-stone-200 bg-white pl-8 pr-2 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold text-stone-600 line-through"
                     />
@@ -2609,15 +2641,18 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                     </span>
                     <input
                       type="number"
-                      value={labelConfig.salePrice || ''}
+                      value={labelConfig.salePrice !== undefined && labelConfig.salePrice !== null ? labelConfig.salePrice : ''}
                       onChange={(e) => {
-                        const val = Number(e.target.value) || 0;
+                        const raw = e.target.value;
+                        const val = raw === '' ? undefined : (isNaN(Number(raw)) ? undefined : Number(raw));
                         setLabelConfig((prev) => ({
                           ...prev,
                           salePrice: val,
                         }));
+                      }}
+                      onBlur={() => {
                         if (labelConfig.itemName?.trim() || activeProductId) {
-                          autoSaveToProduct(labelConfig.barcodeValue, { ...labelConfig, salePrice: val }, false);
+                          autoSaveToProduct(labelConfig.barcodeValue, labelConfig, false);
                         }
                       }}
                       placeholder={isBn ? 'ঐচ্ছিক (ফাঁকা রাখতে পারেন)' : 'Optional'}
@@ -2652,8 +2687,13 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                     </span>
                     <input
                       type="number"
-                      value={labelConfig.purchasePrice || ''}
+                      value={labelConfig.purchasePrice !== undefined && labelConfig.purchasePrice !== null ? labelConfig.purchasePrice : ''}
                       onChange={(e) => handlePurchasePriceChange(e.target.value)}
+                      onBlur={() => {
+                        if (labelConfig.itemName?.trim() || activeProductId) {
+                          autoSaveToProduct(labelConfig.barcodeValue, labelConfig, false);
+                        }
+                      }}
                       placeholder={isBn ? 'যেমন: 500' : 'e.g. 500'}
                       className="w-full border border-stone-200 bg-white pl-8 pr-2 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold text-emerald-700 focus:outline-none focus:border-emerald-500"
                     />
