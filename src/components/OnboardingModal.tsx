@@ -64,8 +64,8 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
   const isBn = language === 'bn';
   const isHi = language === 'hi';
 
-  // Navigation Tab: 'login' | 'signup' | 'sql_guide'
-  const [activeTab, setActiveTab] = useState<'login' | 'signup' | 'sql_guide'>('login');
+  // Navigation Tab: 'login' | 'signup'
+  const [activeTab, setActiveTab] = useState<'login' | 'signup'>('login');
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
 
   // Sign Up Form State
@@ -162,6 +162,22 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
     setIsLoading(true);
 
     try {
+      // 0. Prevent duplicate signup with the same email
+      const alreadyExists = await storageService.isEmailRegistered(cleanEmail);
+      if (alreadyExists) {
+        setError(
+          t(
+            'এই ইমেল দিয়ে ইতোমধ্যে অ্যাকাউন্ট তৈরি করা আছে! দয়া করে লগইন করুন।',
+            'An account already exists with this email address! Please log in instead.',
+            'इस ईमेल से पहले से खाता मौजूद है! कृपया लॉगिन करें।'
+          )
+        );
+        setActiveTab('login');
+        setLoginEmail(cleanEmail);
+        setIsLoading(false);
+        return;
+      }
+
       // 1. Attempt Supabase Auth Sign Up
       if (isSupabaseConfigured()) {
         const result = await supabaseService.signUp(cleanEmail, cleanPassword, {
@@ -326,17 +342,13 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
               <span className="text-[11px] truncate">
                 {configured
-                  ? t('Supabase ক্লাউড কানেক্টেড (RLS সুরক্ষিত)', 'Supabase Cloud Connected (RLS Secured)', 'Supabase क्लाउड कनेक्टेड (RLS सुरक्षित)')
+                  ? t('ক্লাউড সিঙ্ক সক্রিয় (রিয়েলটাইম ডেটা সুরক্ষিত)', 'Cloud Sync Active (Real-Time Secured)', 'क्लाउड सिंक सक्रिय (सुरक्षित)')
                   : t('ক্লাউড ও লোকাল ডেটাবেস প্রস্তুত', 'Cloud & Local Database Ready', 'क्लाउड व लोकल डेटाबेस तैयार')}
               </span>
             </div>
-            <button
-              type="button"
-              onClick={() => setActiveTab('sql_guide')}
-              className="text-[10px] underline hover:text-white shrink-0 font-bold cursor-pointer"
-            >
-              {t('SQL স্ক্রিপ্ট ➜', 'SQL Script ➜', 'SQL स्क्रिप्ट ➜')}
-            </button>
+            <span className="text-[10px] bg-emerald-400/20 text-emerald-200 border border-emerald-300/30 px-2 py-0.5 rounded-full font-bold">
+              ✓ Ready
+            </span>
           </div>
         </div>
 
@@ -709,107 +721,6 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                 </button>
               </div>
             </form>
-          )}
-
-          {/* ========================================================================= */}
-          {/* TAB 3: SUPABASE SQL SETUP & CREDENTIALS CONFIG */}
-          {/* ========================================================================= */}
-          {activeTab === 'sql_guide' && (
-            <div className="space-y-4">
-              <div className="bg-stone-900 text-stone-100 p-4 rounded-2xl space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Database className="w-4 h-4 text-emerald-400" />
-                    <span className="font-mono text-xs font-bold text-white">
-                      Supabase SQL Editor Setup
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleCopySql}
-                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs transition-all"
-                  >
-                    {isCopiedSql ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{isCopiedSql ? 'Copied!' : 'Copy SQL Script'}</span>
-                  </button>
-                </div>
-                <p className="text-[11px] text-stone-400">
-                  {t(
-                    'আপনার Supabase ড্যাশবোর্ডে গিয়ে SQL Editor এ গিয়ে এই পুরো স্ক্রিপ্টটি রান করলেই profiles, invoices, cash_entries, customer_dues, products টেবিল এবং RLS সিকিউরিটি তৈরি হয়ে যাবে।',
-                    'Run this script inside Supabase Dashboard > SQL Editor > New Query to create all tables and RLS policies.',
-                    'Supabase SQL Editor में यह स्क्रिप्ट चलाकर सभी टेबल और RLS सुरक्षा नीतियां बनाएं।'
-                  )}
-                </p>
-                <div className="max-h-48 overflow-y-auto bg-stone-950 p-3 rounded-xl border border-stone-800 font-mono text-[10px] text-emerald-300">
-                  <pre>{SUPABASE_SQL_SETUP_SCRIPT.slice(0, 1000)} ...\n-- [Click "Copy SQL Script" for complete code with RLS]</pre>
-                </div>
-              </div>
-
-              {/* Collapsible Supabase Project URL & Anon Key override */}
-              <div className="border border-stone-200 rounded-2xl p-3.5 bg-stone-50 space-y-3">
-                <button
-                  type="button"
-                  onClick={() => setShowSupabaseSettings(!showSupabaseSettings)}
-                  className="w-full flex items-center justify-between text-xs font-bold text-stone-800 cursor-pointer"
-                >
-                  <span className="flex items-center gap-1.5">
-                    <Cloud className="w-4 h-4 text-blue-600" />
-                    <span>{t('Supabase URL ও Anon Key পরিবর্তন / কাস্টমাইজ', 'Custom Supabase URL & Anon Key', 'कस्टम Supabase URL व कुंजी')}</span>
-                  </span>
-                  <span className="text-[11px] text-blue-600 underline">
-                    {showSupabaseSettings ? 'সংক্ষিপ্ত করুন' : 'বিস্তারিত দেখুন'}
-                  </span>
-                </button>
-
-                {showSupabaseSettings && (
-                  <form onSubmit={handleSaveCustomCredentials} className="space-y-3 pt-2 border-t border-stone-200">
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-bold text-stone-700">Project URL (https://xxxx.supabase.co):</label>
-                      <input
-                        type="url"
-                        value={customUrl}
-                        onChange={(e) => setCustomUrl(e.target.value)}
-                        placeholder="https://xyzproject.supabase.co"
-                        className="w-full px-3 py-1.5 text-xs bg-white border border-stone-300 rounded-lg font-mono"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-bold text-stone-700">Anon Public Key:</label>
-                      <input
-                        type="password"
-                        value={customKey}
-                        onChange={(e) => setCustomKey(e.target.value)}
-                        placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-                        className="w-full px-3 py-1.5 text-xs bg-white border border-stone-300 rounded-lg font-mono"
-                      />
-                    </div>
-                    <div className="flex items-center justify-between pt-1">
-                      <button
-                        type="submit"
-                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer"
-                      >
-                        {configSaved ? 'Saved!' : 'Save Credentials'}
-                      </button>
-                      {configured && (
-                        <span className="text-[10px] text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full font-bold">
-                          ✓ Connected
-                        </span>
-                      )}
-                    </div>
-                  </form>
-                )}
-              </div>
-
-              <div className="text-center pt-1">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('login')}
-                  className="px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-800 font-bold text-xs rounded-xl cursor-pointer"
-                >
-                  ← {t('লগইন ফর্মে ফিরে যান', 'Back to Log In', 'वापस जाएं')}
-                </button>
-              </div>
-            </div>
           )}
         </div>
       </div>

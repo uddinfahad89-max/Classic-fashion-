@@ -233,6 +233,21 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       return;
     }
 
+    // 0. Prevent duplicate signup with the same email
+    const alreadyExists = await storageService.isEmailRegistered(cleanEmail);
+    if (alreadyExists) {
+      setSignupError(
+        t(
+          'এই ইমেল দিয়ে ইতোমধ্যে অ্যাকাউন্ট তৈরি করা আছে! লগইন ট্যাবে গিয়ে লগইন করুন।',
+          'An account already exists with this email address! Please log in instead.',
+          'इस ईमेल से पहले से खाता मौजूद है! कृपया लॉगिन करें।'
+        )
+      );
+      setAuthTab('login');
+      setLoginEmail(cleanEmail);
+      return;
+    }
+
     if (onRegister) {
       setIsSubmitting(true);
       try {

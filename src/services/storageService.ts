@@ -716,6 +716,158 @@ class StorageService {
     }
   }
 
+  // Track local last active modification time for multi-device live sync
+  getLocalLastActive(): number {
+    try {
+      const v = localStorage.getItem('thermal_pos_last_active');
+      return v ? Number(v) || 0 : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  setLocalLastActive(ts: number = Date.now()): void {
+    try {
+      localStorage.setItem('thermal_pos_last_active', String(ts));
+    } catch {}
+  }
+
+  // Check if an email address is already registered on client or server
+  async isEmailRegistered(email: string): Promise<boolean> {
+    try {
+      const clean = email.trim().toLowerCase();
+      if (!clean) return false;
+      const norm = this.normalizeIdentifier(clean);
+
+      // 1. Local saved accounts check
+      const accounts = this.getSavedAccounts();
+      if (
+        accounts.some(
+          (a) =>
+            this.normalizeIdentifier(a.email) === norm ||
+            this.normalizeIdentifier(a.identifier) === norm
+        )
+      ) {
+        return true;
+      }
+
+      // 2. Local vault check
+      if (localStorage.getItem(`${VAULT_KEYS.ACCOUNT_PREFIX}${norm}`)) {
+        return true;
+      }
+
+      // 3. Server API check across all linked files and index
+      if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
+        const res = await fetch(`/api/auth/check-email/${encodeURIComponent(clean)}`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json && json.exists) return true;
+        }
+      }
+
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
+  // Authoritative server-side authentication (guarantees restore across all browsers/devices after clearing data)
+  async authenticateWithServerAsync(
+    identifier: string,
+    password?: string
+  ): Promise<{ success: boolean; vault?: AccountVaultData; error?: string }> {
+    try {
+      const cleanId = (identifier || '').trim();
+      const cleanPass = (password || '').trim();
+      if (!cleanId) return { success: false, error: 'Email or phone required' };
+
+      if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
+        try {
+          const res = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ identifier: cleanId, email: cleanId, password: cleanPass }),
+          });
+          const json = await res.json();
+          if (res.ok && json.success && json.vault) {
+            const serverVault: AccountVaultData = json.vault;
+
+            const serverBills = Array.isArray(serverVault.bills) ? serverVault.bills : [];
+            const prefix =
+              serverVault.settings?.invoicePrefix !== undefined
+                ? serverVault.settings.invoicePrefix
+                : '';
+            const { bills: mergedBills } = this.resequenceBillsInternal(serverBills, prefix);
+
+            if (serverVault.settings) {
+              serverVault.settings.nextInvoiceNumber = mergedBills.length + 1;
+              localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(serverVault.settings));
+            }
+            serverVault.bills = mergedBills;
+            this.saveToAccountVault(serverVault);
+            localStorage.setItem(STORAGE_KEYS.BILLS, JSON.stringify(mergedBills));
+            if (Array.isArray(serverVault.cashEntries)) {
+              localStorage.setItem(STORAGE_KEYS.CASHBOOK, JSON.stringify(serverVault.cashEntries));
+            }
+            if (Array.isArray(serverVault.customerDues)) {
+              localStorage.setItem(STORAGE_KEYS.DUES, JSON.stringify(serverVault.customerDues));
+            }
+            if (Array.isArray(serverVault.purchaseTrips)) {
+              localStorage.setItem(STORAGE_KEYS.PURCHASES, JSON.stringify(serverVault.purchaseTrips));
+            }
+            if (Array.isArray(serverVault.products)) {
+              localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(serverVault.products));
+            }
+
+            const restoredProfile: UserProfile = {
+              email: serverVault.email || (cleanId.includes('@') ? cleanId : ''),
+              name: serverVault.name || cleanId.split('@')[0] || 'Store Owner',
+              phone: serverVault.phone || (!cleanId.includes('@') ? cleanId : ''),
+              role: serverVault.role || 'Owner',
+              pin: serverVault.pin || '1234',
+              password: cleanPass || serverVault.password,
+              isLoggedIn: true,
+              isAppLockEnabled: Boolean(serverVault.isAppLockEnabled),
+              loginTime: Date.now(),
+              loginMethod: cleanPass ? 'email_password' : 'otp',
+              otpVerified: true,
+            };
+            localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(restoredProfile));
+            localStorage.setItem('thermal_pos_onboarding_completed', 'true');
+            this.setLocalLastActive(serverVault.lastActive || Date.now());
+
+            return { success: true, vault: serverVault };
+          } else if (json && json.error) {
+            return {
+              success: false,
+              error: json.error,
+            };
+          }
+        } catch (netErr) {
+          console.warn('Server auth net notice:', netErr);
+        }
+      }
+
+      // Offline fallback: check local vault
+      const localVault = this.getVaultForIdentifier(cleanId);
+      if (localVault) {
+        if (cleanPass && localVault.password && localVault.password !== cleanPass) {
+          return { success: false, error: 'পাসওয়ার্ড সঠিক নয়! সঠিক পাসওয়ার্ড লিখুন।' };
+        }
+        this.restoreFromAccountVault(cleanId);
+        localStorage.setItem('thermal_pos_onboarding_completed', 'true');
+        return { success: true, vault: localVault };
+      }
+
+      return {
+        success: false,
+        error: 'এই ইমেল দিয়ে কোনো অ্যাকাউন্ট পাওয়া যায়নি অথবা পাসওয়ার্ড সঠিক নয়।',
+      };
+    } catch (e: any) {
+      return { success: false, error: e.message || 'Authentication error' };
+    }
+  }
+
   saveToAccountVault(vaultData: AccountVaultData): void {
     try {
       const normId = this.normalizeIdentifier(vaultData.identifier || vaultData.phone || vaultData.email);
@@ -741,7 +893,7 @@ class StorageService {
       const indexRaw = localStorage.getItem(VAULT_KEYS.ACCOUNTS_INDEX);
       let list: SavedAccountItem[] = indexRaw ? JSON.parse(indexRaw) : [];
       const item: SavedAccountItem = {
-        identifier: vaultData.phone || vaultData.email || vaultData.identifier,
+        identifier: vaultData.email || vaultData.phone || vaultData.identifier,
         name: vaultData.name || 'Store Owner',
         phone: vaultData.phone || '',
         email: vaultData.email || '',
@@ -753,8 +905,8 @@ class StorageService {
       const existingIdx = list.findIndex(
         (a) =>
           this.normalizeIdentifier(a.identifier) === normId ||
-          (a.phone && this.normalizeIdentifier(a.phone) === this.normalizeIdentifier(vaultData.phone)) ||
-          (a.email && this.normalizeIdentifier(a.email) === this.normalizeIdentifier(vaultData.email))
+          (a.email && this.normalizeIdentifier(a.email) === this.normalizeIdentifier(vaultData.email)) ||
+          (a.phone && this.normalizeIdentifier(a.phone) === this.normalizeIdentifier(vaultData.phone))
       );
 
       if (existingIdx >= 0) {
@@ -777,6 +929,24 @@ class StorageService {
       }
     } catch (e) {
       console.warn('Failed to save account vault:', e);
+    }
+  }
+
+  // Awaited server vault sync for critical flows like signup and login
+  async saveToAccountVaultAsync(vaultData: AccountVaultData): Promise<boolean> {
+    try {
+      this.saveToAccountVault(vaultData);
+      if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
+        const res = await fetch('/api/vault/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(vaultData),
+        });
+        return res.ok;
+      }
+      return true;
+    } catch {
+      return false;
     }
   }
 
@@ -837,18 +1007,13 @@ class StorageService {
             if (json.success && json.vault) {
               const serverVault: AccountVaultData = json.vault;
 
-              // Prefer current local bills if already present so deleted bills are not resurrected
-              const hasLocalBillsKey = localStorage.getItem(STORAGE_KEYS.BILLS) !== null;
-              const localBills = this.getBills();
+              // The server vault is the authoritative cloud data across all devices
               const serverBills = Array.isArray(serverVault.bills) ? serverVault.bills : [];
-              const sourceBills =
-                hasLocalBillsKey && localBills.length > 0 ? localBills : serverBills;
-
               const prefix =
                 serverVault.settings?.invoicePrefix !== undefined
                   ? serverVault.settings.invoicePrefix
                   : '';
-              const { bills: mergedBills } = this.resequenceBillsInternal(sourceBills, prefix);
+              const { bills: mergedBills } = this.resequenceBillsInternal(serverBills, prefix);
 
               if (serverVault.settings) {
                 serverVault.settings.nextInvoiceNumber = mergedBills.length + 1;
@@ -880,7 +1045,7 @@ class StorageService {
                 isLoggedIn: true,
                 isAppLockEnabled: serverVault.isAppLockEnabled,
                 loginTime: Date.now(),
-                loginMethod: 'otp',
+                loginMethod: serverVault.password ? 'email_password' : 'otp',
                 otpVerified: true,
               };
               localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(restoredProfile));
@@ -1012,8 +1177,14 @@ class StorageService {
     const current = this.getUserProfile();
 
     const isEmail = raw.includes('@');
-    const finalEmail = cleanEmail || (isEmail ? raw : (current.email || ''));
-    const finalPhone = cleanPhone || (!isEmail ? raw : (current.phone || ''));
+    const isDifferentAccount = Boolean(
+      cleanEmail &&
+      current.email &&
+      this.normalizeIdentifier(cleanEmail) !== this.normalizeIdentifier(current.email)
+    );
+
+    const finalEmail = cleanEmail || (isEmail ? raw : (!isDifferentAccount ? (current.email || '') : ''));
+    const finalPhone = cleanPhone || (!isEmail ? raw : (!isDifferentAccount ? (current.phone || '') : ''));
 
     let inferredName = name?.trim();
     if (!inferredName || inferredName.startsWith('User ')) {
@@ -1025,12 +1196,12 @@ class StorageService {
       );
       if (matched?.name && !matched.name.startsWith('User ')) {
         inferredName = matched.name;
-      } else if (current.name && !current.name.startsWith('User ') && current.name !== 'Store Owner') {
+      } else if (!isDifferentAccount && current.name && !current.name.startsWith('User ') && current.name !== 'Store Owner') {
         inferredName = current.name;
       } else if (finalEmail && !finalEmail.endsWith('@posstore.com')) {
         inferredName = finalEmail.split('@')[0];
       } else {
-        inferredName = inferredName || current.name || 'Store Owner';
+        inferredName = inferredName || (!isDifferentAccount ? current.name : '') || 'Store Owner';
       }
     }
 
@@ -1050,17 +1221,19 @@ class StorageService {
     }
     localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(currentSettings));
 
+    const matchedVault = this.getVaultForIdentifier(finalEmail || finalPhone || raw);
+
     const updated: UserProfile = {
-      ...current,
+      ...(!isDifferentAccount ? current : DEFAULT_USER),
       email: finalEmail,
       name: inferredName,
       phone: finalPhone,
-      role: role || current.role || 'Owner',
-      pin: pin?.trim() || current.pin || '1234',
-      password: password || current.password,
+      role: role || (!isDifferentAccount ? current.role : undefined) || 'Owner',
+      pin: pin?.trim() || (!isDifferentAccount ? current.pin : undefined) || '1234',
+      password: password || matchedVault?.password || (!isDifferentAccount ? current.password : undefined),
       isLoggedIn: true,
       loginTime: Date.now(),
-      loginMethod: loginMethod || current.loginMethod || (finalPhone ? 'otp' : 'email_pin'),
+      loginMethod: loginMethod || (!isDifferentAccount ? current.loginMethod : undefined) || (finalPhone ? 'otp' : 'email_pin'),
       otpVerified: otpVerified !== undefined ? otpVerified : true,
     };
 
@@ -1080,69 +1253,55 @@ class StorageService {
     role?: 'Owner' | 'Manager' | 'Cashier';
   }): UserProfile {
     const cleanPhone = data.phone.trim();
-    const cleanEmail = (data.email || '').trim();
-    const cleanName = data.name.trim() || 'Store Owner';
+    const cleanEmail = (data.email || '').trim().toLowerCase();
+    const cleanName = data.name.trim() || cleanEmail.split('@')[0] || 'Store Owner';
     const cleanStore = (data.storeName || '').trim();
     const cleanPin = (data.pin || '1234').trim();
     const cleanPassword = data.password?.trim();
     const role = data.role || 'Owner';
 
-    // First save active session of any existing user before switching
-    this.syncActiveAccountVault();
-
-    // Check if an existing vault or data already exists for this phone or email
-    const normPhone = this.normalizeIdentifier(cleanPhone);
-    const normEmail = this.normalizeIdentifier(cleanEmail);
-    let existingVault: AccountVaultData | null = null;
-    try {
-      const rawV =
-        (normPhone && localStorage.getItem(`${VAULT_KEYS.ACCOUNT_PREFIX}${normPhone}`)) ||
-        (normEmail && localStorage.getItem(`${VAULT_KEYS.ACCOUNT_PREFIX}${normEmail}`));
-      if (rawV) {
-        existingVault = JSON.parse(rawV);
-      }
-    } catch {}
-
-    const existingBills = existingVault?.bills?.length ? existingVault.bills : [];
-    const existingCash = existingVault?.cashEntries?.length ? existingVault.cashEntries : [];
-    const existingDues = existingVault?.customerDues?.length ? existingVault.customerDues : [];
-    const existingPurchases = existingVault?.purchaseTrips?.length ? existingVault.purchaseTrips : [];
+    // Clear any previous active user session from local storage so new user gets an isolated fresh slate
+    localStorage.removeItem(STORAGE_KEYS.BILLS);
+    localStorage.removeItem(STORAGE_KEYS.CASHBOOK);
+    localStorage.removeItem(STORAGE_KEYS.DUES);
+    localStorage.removeItem(STORAGE_KEYS.PURCHASES);
 
     const baseSettings = this.getSettings();
     const newSettings: ThermalPrinterSettings = {
       ...baseSettings,
-      storeName: cleanStore || existingVault?.settings?.storeName || '',
+      storeName: cleanStore || 'My Store',
       storePhone: cleanPhone,
-      storeAddress: existingVault?.settings?.storeAddress || '',
+      storeAddress: '',
       footerNote: 'Thank you for shopping with us! Visit again.',
     };
 
     const newVault: AccountVaultData = {
-      identifier: cleanPhone || cleanEmail || `user_${Date.now()}`,
+      identifier: cleanEmail || cleanPhone || `user_${Date.now()}`,
       phone: cleanPhone,
       email: cleanEmail,
       name: cleanName,
       role: role,
       pin: cleanPin,
-      password: cleanPassword || existingVault?.password,
+      password: cleanPassword,
       isAppLockEnabled: false,
       settings: newSettings,
-      bills: existingBills,
-      cashEntries: existingCash,
-      customerDues: existingDues,
-      purchaseTrips: existingPurchases,
+      bills: [],
+      cashEntries: [],
+      customerDues: [],
+      purchaseTrips: [],
+      products: this.getProducts(),
       lastActive: Date.now(),
     };
 
-    // Save to account vault
+    // Save to account vault and sync
     this.saveToAccountVault(newVault);
 
     // Set this as the active session in localStorage
     localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(newSettings));
-    localStorage.setItem(STORAGE_KEYS.BILLS, JSON.stringify(existingBills));
-    localStorage.setItem(STORAGE_KEYS.CASHBOOK, JSON.stringify(existingCash));
-    localStorage.setItem(STORAGE_KEYS.DUES, JSON.stringify(existingDues));
-    localStorage.setItem(STORAGE_KEYS.PURCHASES, JSON.stringify(existingPurchases));
+    localStorage.setItem(STORAGE_KEYS.BILLS, JSON.stringify([]));
+    localStorage.setItem(STORAGE_KEYS.CASHBOOK, JSON.stringify([]));
+    localStorage.setItem(STORAGE_KEYS.DUES, JSON.stringify([]));
+    localStorage.setItem(STORAGE_KEYS.PURCHASES, JSON.stringify([]));
 
     const newProfile: UserProfile = {
       email: cleanEmail,
@@ -1150,7 +1309,7 @@ class StorageService {
       phone: cleanPhone,
       role: role,
       pin: cleanPin,
-      password: cleanPassword || existingVault?.password,
+      password: cleanPassword,
       isLoggedIn: true,
       loginTime: Date.now(),
       loginMethod: cleanEmail && cleanPassword ? 'email_password' : 'otp',

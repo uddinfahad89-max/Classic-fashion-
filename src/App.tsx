@@ -16,7 +16,7 @@ import {
   PurchaseExpenseItem,
   ProductStockItem,
 } from './types';
-import { storageService } from './services/storageService';
+import { storageService, AccountVaultData } from './services/storageService';
 import { thermalPrinterService } from './services/thermalPrinterService';
 import { otpService } from './services/otpService';
 import { Header, SortOption } from './components/Header';
@@ -160,7 +160,7 @@ export default function App() {
           }
         });
       } else if (prof.isLoggedIn && (prof.phone || prof.email)) {
-        const syncId = prof.phone || prof.email;
+        const syncId = prof.email || prof.phone;
         storageService.restoreFromAccountVaultAsync(syncId).then((restored) => {
           if (restored) {
             setBills(storageService.getBills());
@@ -174,6 +174,69 @@ export default function App() {
         });
       }
     });
+
+    // Multi-device real-time sync: poll and refresh on tab focus so both devices stay identical
+    const syncLiveVault = async () => {
+      const currentProf = storageService.getUserProfile();
+      if (!currentProf.isLoggedIn) return;
+      const syncId = currentProf.email || currentProf.phone;
+      if (!syncId) return;
+
+      try {
+        const norm = storageService.normalizeIdentifier(syncId);
+        const res = await fetch(`/api/vault/${encodeURIComponent(norm)}`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && json.vault) {
+            const serverVault = json.vault;
+            const currentBills = storageService.getBills();
+            const serverBills = Array.isArray(serverVault.bills) ? serverVault.bills : [];
+
+            // Compare timestamps and content to detect updates from other devices
+            const localActive = storageService.getLocalLastActive();
+            const serverActive = Number(serverVault.lastActive) || 0;
+            const countDiffers = serverBills.length !== currentBills.length;
+            const latestBillDiffers =
+              serverBills.length > 0 &&
+              currentBills.length > 0 &&
+              (serverBills[0].id !== currentBills[0].id || serverBills[0].invoiceNo !== currentBills[0].invoiceNo);
+
+            if (serverActive > localActive || countDiffers || latestBillDiffers) {
+              storageService.saveBillsList(serverBills, false);
+              setBills(serverBills);
+              if (Array.isArray(serverVault.cashEntries)) {
+                storageService.saveCashEntries(serverVault.cashEntries);
+                setCashEntries(serverVault.cashEntries);
+              }
+              if (Array.isArray(serverVault.customerDues)) {
+                storageService.saveCustomerDues(serverVault.customerDues);
+                setCustomerDues(serverVault.customerDues);
+              }
+              if (Array.isArray(serverVault.purchaseTrips)) {
+                storageService.savePurchaseTrips(serverVault.purchaseTrips);
+                setPurchaseTrips(serverVault.purchaseTrips);
+              }
+              if (Array.isArray(serverVault.products)) {
+                storageService.saveProducts(serverVault.products);
+                setProducts(serverVault.products);
+              }
+              if (serverVault.settings) {
+                storageService.saveSettings(serverVault.settings);
+                setSettings(serverVault.settings);
+              }
+              storageService.setLocalLastActive(serverActive);
+            }
+          }
+        }
+      } catch {}
+    };
+
+    const onFocusSync = () => {
+      syncLiveVault();
+    };
+    window.addEventListener('focus', onFocusSync);
+    document.addEventListener('visibilitychange', onFocusSync);
+    const liveSyncInterval = setInterval(syncLiveVault, 4000);
 
     thermalPrinterService.setStatusListener((status) => {
       setBluetoothStatus(status);
@@ -322,6 +385,19 @@ export default function App() {
     const cleanStore = data.storeName.trim() || 'My Store';
     const cleanName = data.ownerName?.trim() || cleanEmail.split('@')[0] || 'Store Owner';
 
+    // Prevent duplicate signup with same email
+    const alreadyRegistered = await storageService.isEmailRegistered(cleanEmail);
+    if (alreadyRegistered) {
+      showToast(
+        language === 'bn'
+          ? 'এই ইমেল দিয়ে ইতোমধ্যে অ্যাকাউন্ট তৈরি করা আছে! দয়া করে লগইন করুন।'
+          : 'An account already exists with this email! Please log in.',
+        'error'
+      );
+      setIsOnboardingOpen(true);
+      return;
+    }
+
     const updated: ThermalPrinterSettings = {
       ...settings,
       storeName: cleanStore,
@@ -332,8 +408,6 @@ export default function App() {
     setSettings(updated);
 
     if (cleanEmail) {
-      await storageService.restoreFromAccountVaultAsync(cleanEmail);
-
       const loggedIn = storageService.loginUser(
         cleanEmail,
         cleanName,
@@ -346,20 +420,30 @@ export default function App() {
       );
       setUserProfile(loggedIn);
 
-      // Check if existing data was recovered from server vault or local
-      const existingBills = storageService.getBills();
-      if (existingBills.length > 0) {
-        setBills(existingBills);
-        setCashEntries(storageService.getCashEntries());
-        setCustomerDues(storageService.getCustomerDues());
-        setPurchaseTrips(storageService.getPurchaseTrips());
-        setProducts(storageService.getProducts());
-      } else {
-        setBills([]);
-        setCashEntries([]);
-        setCustomerDues([]);
-        setPurchaseTrips([]);
-      }
+      // Create new clean isolated vault and await server sync
+      const freshVault: AccountVaultData = {
+        identifier: cleanEmail,
+        email: cleanEmail,
+        phone: data.storePhone || '',
+        name: cleanName,
+        role: 'Owner',
+        pin: '1234',
+        password: cleanPass,
+        isAppLockEnabled: false,
+        settings: updated,
+        bills: [],
+        cashEntries: [],
+        customerDues: [],
+        purchaseTrips: [],
+        products: storageService.getProducts(),
+        lastActive: Date.now(),
+      };
+      await storageService.saveToAccountVaultAsync(freshVault);
+
+      setBills([]);
+      setCashEntries([]);
+      setCustomerDues([]);
+      setPurchaseTrips([]);
 
       // Also sync profile to Supabase if session exists
       const activeUserId = await supabaseService.getActiveUserId();
@@ -373,6 +457,7 @@ export default function App() {
       setPurchaseTrips([]);
     }
 
+    localStorage.setItem('thermal_pos_onboarding_completed', 'true');
     setIsOnboardingOpen(false);
     showToast(
       language === 'bn'
@@ -412,8 +497,44 @@ export default function App() {
       };
     }
 
-    // 3. Supabase Auth signInWithPassword & Cloud Data Restore
-    let supabaseError: string | undefined;
+    // 3. Primary: Server Authoritative Authentication & Cloud Vault Restore
+    // Works across all devices, browsers, and after clearing browser storage/cookies
+    const serverAuth = await storageService.authenticateWithServerAsync(cleanEmail, cleanPassword);
+    if (serverAuth.success && serverAuth.vault) {
+      const loadedBills = storageService.getBills();
+      setBills(loadedBills);
+      setCashEntries(storageService.getCashEntries());
+      setCustomerDues(storageService.getCustomerDues());
+      setPurchaseTrips(storageService.getPurchaseTrips());
+      setProducts(storageService.getProducts());
+      setSettings(storageService.getSettings());
+      setUserProfile(storageService.getUserProfile());
+      localStorage.setItem('thermal_pos_onboarding_completed', 'true');
+      setIsOnboardingOpen(false);
+
+      // Attempt background Supabase login if configured
+      if (isSupabaseConfigured()) {
+        supabaseService.signIn(cleanEmail, cleanPassword).catch(() => {});
+      }
+
+      showToast(
+        language === 'bn'
+          ? `স্বাগতম! আপনার অ্যাকাউন্ট সফলভাবে লগইন হয়েছে (${loadedBills.length}টি ইনভয়েস)।`
+          : `Welcome back! Account logged in successfully (${loadedBills.length} invoices).`,
+        'success'
+      );
+      return { success: true };
+    } else if (serverAuth.error && serverAuth.error.includes('পাসওয়ার্ড')) {
+      return {
+        success: false,
+        error:
+          language === 'bn'
+            ? 'পাসওয়ার্ড সঠিক নয়! সঠিক পাসওয়ার্ড লিখুন।'
+            : 'Incorrect password! Please check and try again.',
+      };
+    }
+
+    // 4. Secondary fallback: Supabase Cloud Auth SignIn (for cloud-only users)
     if (isSupabaseConfigured()) {
       const sbRes = await supabaseService.signIn(cleanEmail, cleanPassword);
       if (sbRes.success && sbRes.restored) {
@@ -432,10 +553,26 @@ export default function App() {
         storageService.saveCustomerDues(sbRes.restored.customerDues);
         storageService.saveCashEntries(sbRes.restored.cashEntries);
         storageService.savePurchaseTrips(sbRes.restored.purchaseTrips);
-        storageService.syncActiveAccountVault(sbRes.restored.userProfile);
+        await storageService.saveToAccountVaultAsync({
+          identifier: cleanEmail,
+          email: cleanEmail,
+          name: sbRes.restored.userProfile.name,
+          phone: sbRes.restored.userProfile.phone || '',
+          role: sbRes.restored.userProfile.role || 'Owner',
+          pin: sbRes.restored.userProfile.pin || '1234',
+          password: cleanPassword,
+          isAppLockEnabled: false,
+          settings: sbRes.restored.settings,
+          bills: sbRes.restored.bills,
+          cashEntries: sbRes.restored.cashEntries,
+          customerDues: sbRes.restored.customerDues,
+          purchaseTrips: sbRes.restored.purchaseTrips,
+          products: sbRes.restored.products,
+          lastActive: Date.now(),
+        });
 
+        localStorage.setItem('thermal_pos_onboarding_completed', 'true');
         setIsOnboardingOpen(false);
-
         showToast(
           language === 'bn'
             ? `স্বাগতম! আপনার ক্লাউড ডেটা (${sbRes.restored.bills.length}টি বিল) সফলভাবে রিস্টোর হয়েছে।`
@@ -444,57 +581,24 @@ export default function App() {
         );
         return { success: true };
       } else if (sbRes.error) {
-        supabaseError = sbRes.error;
+        if (sbRes.error.toLowerCase().includes('email not confirmed')) {
+          return {
+            success: false,
+            error:
+              language === 'bn'
+                ? 'ইমেল ভেরিফিকেশন সম্পন্ন হয়নি অথবা পাসওয়ার্ড সঠিক নয়।'
+                : 'Email is not confirmed or password is incorrect.',
+          };
+        }
       }
-    }
-
-    // 4. Offline / Local Vault Fallback restore by email
-    const localRestore = await storageService.restoreFromAccountVaultAsync(cleanEmail);
-    if (localRestore) {
-      const vault = storageService.getVaultForIdentifier(cleanEmail);
-      if (vault?.password && vault.password !== cleanPassword) {
-        return {
-          success: false,
-          error:
-            language === 'bn'
-              ? 'পাসওয়ার্ড সঠিক নয়! সঠিক পাসওয়ার্ড দিন।'
-              : 'Invalid email or password',
-        };
-      }
-      const prof = storageService.loginUser(
-        cleanEmail,
-        vault?.name || cleanEmail.split('@')[0],
-        vault?.pin || '1234',
-        vault?.role || 'Owner',
-        vault?.phone,
-        'email_password',
-        true,
-        cleanPassword
-      );
-      setUserProfile(prof);
-      setBills(storageService.getBills());
-      setCashEntries(storageService.getCashEntries());
-      setCustomerDues(storageService.getCustomerDues());
-      setPurchaseTrips(storageService.getPurchaseTrips());
-      setProducts(storageService.getProducts());
-      setSettings(storageService.getSettings());
-      setIsOnboardingOpen(false);
-      showToast(
-        language === 'bn'
-          ? 'অ্যাকাউন্ট সফলভাবে রিস্টোর হয়েছে'
-          : 'Account restored successfully',
-        'success'
-      );
-      return { success: true };
     }
 
     return {
       success: false,
       error:
-        supabaseError ||
-        (language === 'bn'
-          ? 'ইমেল বা পাসওয়ার্ড সঠিক নয়।'
-          : 'Invalid email or password'),
+        language === 'bn'
+          ? 'এই ইমেল দিয়ে কোনো অ্যাকাউন্ট পাওয়া যায়নি অথবা পাসওয়ার্ড সঠিক নয়।'
+          : 'No account found with this email or password is incorrect.',
     };
   };
 
@@ -656,6 +760,18 @@ export default function App() {
     const cleanStore = data.storeName?.trim() || 'My Store';
     const cleanName = data.name.trim() || cleanEmail.split('@')[0];
 
+    // Prevent duplicate signup with same email
+    const already = await storageService.isEmailRegistered(cleanEmail);
+    if (already) {
+      showToast(
+        language === 'bn'
+          ? 'এই ইমেল দিয়ে ইতোমধ্যে অ্যাকাউন্ট খোলা আছে! লগইন করুন।'
+          : 'An account with this email already exists! Please log in.',
+        'error'
+      );
+      return false;
+    }
+
     if (isSupabaseConfigured()) {
       const sbResult = await supabaseService.signUp(cleanEmail, cleanPass, {
         storeName: cleanStore,
@@ -668,32 +784,49 @@ export default function App() {
       }
     }
 
-    if (cleanEmail) {
-      await storageService.restoreFromAccountVaultAsync(cleanEmail);
-    }
-
     const newProfile = storageService.registerNewUser({
       ...data,
       email: cleanEmail,
       storeName: cleanStore,
       name: cleanName,
       phone: data.phone || '',
+      password: cleanPass,
     });
     setUserProfile(newProfile);
 
+    // Persist new vault to server disk immediately
+    const freshVault: AccountVaultData = {
+      identifier: cleanEmail,
+      email: cleanEmail,
+      phone: data.phone || '',
+      name: cleanName,
+      role: data.role || 'Owner',
+      pin: data.pin || '1234',
+      password: cleanPass,
+      isAppLockEnabled: false,
+      settings: storageService.getSettings(),
+      bills: [],
+      cashEntries: [],
+      customerDues: [],
+      purchaseTrips: [],
+      products: storageService.getProducts(),
+      lastActive: Date.now(),
+    };
+    await storageService.saveToAccountVaultAsync(freshVault);
+
     // Refresh isolated states for the newly registered account
-    const restoredBills = storageService.getBills();
-    setBills(restoredBills);
-    setCashEntries(storageService.getCashEntries());
-    setCustomerDues(storageService.getCustomerDues());
-    setPurchaseTrips(storageService.getPurchaseTrips());
+    setBills([]);
+    setCashEntries([]);
+    setCustomerDues([]);
+    setPurchaseTrips([]);
     setSettings(storageService.getSettings());
+    localStorage.setItem('thermal_pos_onboarding_completed', 'true');
     setIsOnboardingOpen(false);
 
     const welcomeMsg =
       language === 'bn'
-        ? `অভিনন্দন ${newProfile.name}! "${cleanStore}" এর অ্যাকাউন্ট সক্রিয় হয়েছে (${restoredBills.length}টি ইনভয়েস পাওয়া গেছে)।`
-        : `Congratulations ${newProfile.name}! Account active for "${cleanStore}" (${restoredBills.length} invoices found).`;
+        ? `অভিনন্দন ${newProfile.name}! "${cleanStore}" এর অ্যাকাউন্ট তৈরি সম্পন্ন হয়েছে।`
+        : `Congratulations ${newProfile.name}! Account created for "${cleanStore}".`;
     showToast(welcomeMsg, 'success');
     return true;
   };

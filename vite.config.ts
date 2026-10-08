@@ -65,8 +65,15 @@ function aistudioMediaPlugin(): Plugin {
 // LINT.ThenChange(//depot/google3/java/com/google/alkali/boq/makersuite/applet_dev_service/templates/initializers/react_theme/vite.config.ts:aistudio_media_plugin)
 
 export default defineConfig(() => {
+  const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://tklqslizkqtispiyuder.supabase.co';
+  const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_9C6A0sMh9-KBoxhJnfBExA_wzMLOcnf';
+
   return {
     plugins: [react(), tailwindcss(), aistudioMediaPlugin()],
+    define: {
+      'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(supabaseUrl),
+      'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(supabaseAnonKey),
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

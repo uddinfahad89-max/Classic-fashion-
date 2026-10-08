@@ -465,12 +465,29 @@ class SupabaseService {
       });
 
       if (error) {
+        if (
+          error.message?.toLowerCase().includes('already registered') ||
+          error.message?.toLowerCase().includes('already in use')
+        ) {
+          return {
+            success: false,
+            error: 'এই ইমেল দিয়ে ইতোমধ্যে অ্যাকাউন্ট খোলা আছে! দয়া করে লগইন করুন।',
+          };
+        }
         return { success: false, error: error.message };
       }
 
       const user = data.user;
       if (!user) {
         return { success: false, error: 'Registration failed. No user returned.' };
+      }
+
+      // Supabase returns an empty identities array if the user already exists (when email confirmation is on)
+      if (Array.isArray(user.identities) && user.identities.length === 0) {
+        return {
+          success: false,
+          error: 'এই ইমেল দিয়ে ইতোমধ্যে অ্যাকাউন্ট খোলা আছে! দয়া করে লগইন করুন।',
+        };
       }
 
       const masterShopId = existingProfile?.shop_id || existingProfile?.id || user.id;
