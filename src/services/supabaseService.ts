@@ -930,6 +930,15 @@ class SupabaseService {
                 if (products.length === 0 && Array.isArray(sJson.vault.products) && sJson.vault.products.length > 0) {
                   products = sJson.vault.products;
                 }
+                if (cashEntries.length === 0 && Array.isArray(sJson.vault.cashEntries) && sJson.vault.cashEntries.length > 0) {
+                  cashEntries = sJson.vault.cashEntries;
+                }
+                if (customerDues.length === 0 && Array.isArray(sJson.vault.customerDues) && sJson.vault.customerDues.length > 0) {
+                  customerDues = sJson.vault.customerDues;
+                }
+                if (purchaseTrips.length === 0 && Array.isArray(sJson.vault.purchaseTrips) && sJson.vault.purchaseTrips.length > 0) {
+                  purchaseTrips = sJson.vault.purchaseTrips;
+                }
                 if (!settings.storeName && sJson.vault.settings?.storeName) {
                   settings = { ...settings, ...sJson.vault.settings };
                 }

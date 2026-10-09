@@ -11,18 +11,140 @@
     "storeName": "My Store",
     "storePhone": "",
     "storeAddress": "",
+    "signatoryName": "",
+    "upiId": "",
     "paperWidth": "58mm",
     "currencySymbol": "Rs.",
+    "currencyName": "Rupees",
+    "hideCurrencySymbol": false,
     "footerNote": "Thank you! Visit again.",
     "autoPrintOnCheckout": true,
     "defaultInvoiceFormat": "tax_invoice",
-    "nextInvoiceNumber": 1,
-    "invoicePrefix": ""
+    "isDataSaverEnabled": false,
+    "invoicePrefix": "",
+    "nextInvoiceNumber": 3,
+    "isLabelMode": false,
+    "autoCapitalizeItemNames": true,
+    "isTotalOnlySlip": false
   },
-  "bills": [],
+  "bills": [
+    {
+      "id": "bill-fahad-1002",
+      "invoiceNo": "2",
+      "date": "09/10/2026",
+      "time": "03:40 PM",
+      "customerName": "Customer 2",
+      "customerPhone": "",
+      "items": [
+        {
+          "name": "Product Item 2",
+          "price": 1000,
+          "qty": 1,
+          "total": 1000
+        }
+      ],
+      "subtotal": 1000,
+      "tax": 0,
+      "discount": 0,
+      "grandTotal": 1000,
+      "paidAmount": 0,
+      "changeAmount": 0,
+      "paymentMethod": "due",
+      "paymentStatus": "DUE",
+      "timestamp": 1791540600000
+    },
+    {
+      "id": "bill-fahad-1001",
+      "invoiceNo": "1",
+      "date": "09/10/2026",
+      "time": "03:38 PM",
+      "customerName": "Customer 1",
+      "customerPhone": "",
+      "items": [
+        {
+          "name": "Product Item 1",
+          "price": 1050,
+          "qty": 1,
+          "total": 1050
+        }
+      ],
+      "subtotal": 1050,
+      "tax": 0,
+      "discount": 0,
+      "grandTotal": 1050,
+      "paidAmount": 1050,
+      "changeAmount": 0,
+      "paymentMethod": "cash",
+      "paymentStatus": "PAID",
+      "timestamp": 1791540500000
+    }
+  ],
   "cashEntries": [],
-  "customerDues": [],
+  "customerDues": [
+    {
+      "id": "due-fahad-1",
+      "name": "Customer 2",
+      "phone": "",
+      "dueAmount": 1000,
+      "type": "receivable",
+      "transactions": [
+        {
+          "id": "tx-1",
+          "amount": 1000,
+          "type": "given",
+          "date": "09/10/2026",
+          "note": "Invoice #2 Due"
+        }
+      ],
+      "lastUpdated": 1791540600000
+    }
+  ],
   "purchaseTrips": [],
-  "products": [],
-  "lastActive": 1728471400000
+  "products": [
+    {
+      "id": "prod-1",
+      "name": "Shirt / Clothing Item",
+      "price": 1050,
+      "purchasePrice": 750,
+      "stock": 15,
+      "unit": "pcs",
+      "category": "Garments",
+      "barcode": "SHIRT1050",
+      "updatedAt": 1791540500000
+    },
+    {
+      "id": "prod-2",
+      "name": "Pant / Jeans",
+      "price": 1000,
+      "purchasePrice": 700,
+      "stock": 10,
+      "unit": "pcs",
+      "category": "Garments",
+      "barcode": "PANT1000",
+      "updatedAt": 1791540500000
+    },
+    {
+      "id": "prod-3",
+      "name": "Cotton T-Shirt",
+      "price": 450,
+      "purchasePrice": 280,
+      "stock": 25,
+      "unit": "pcs",
+      "category": "Garments",
+      "barcode": "TSHIRT450",
+      "updatedAt": 1791540500000
+    },
+    {
+      "id": "prod-4",
+      "name": "Accessories Item",
+      "price": 250,
+      "purchasePrice": 140,
+      "stock": 30,
+      "unit": "pcs",
+      "category": "Accessories",
+      "barcode": "ACC250",
+      "updatedAt": 1791540500000
+    }
+  ],
+  "lastActive": 1791541151658
 }

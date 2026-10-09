@@ -105,6 +105,11 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
+      storageService.fetchServerAccountsAsync().then((accs) => {
+        if (Array.isArray(accs) && accs.length > 0) {
+          setSavedAccounts(accs);
+        }
+      });
       const accounts = storageService.getSavedAccounts();
       setSavedAccounts(accounts);
       if (!loginEmail) {

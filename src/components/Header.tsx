@@ -77,6 +77,7 @@ interface HeaderProps {
   networkStatus?: NetworkStatusInfo;
   onOpenDataSaver?: () => void;
   onOpenBluetoothHelp?: () => void;
+  onManualSync?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -107,6 +108,7 @@ export const Header: React.FC<HeaderProps> = ({
   networkStatus,
   onOpenDataSaver,
   onOpenBluetoothHelp,
+  onManualSync,
 }) => {
   const isBn = language === 'bn';
   const isHi = language === 'hi';
@@ -620,9 +622,24 @@ export const Header: React.FC<HeaderProps> = ({
                     </p>
                   )}
                   {userProfile.email && (
-                    <p className="text-xs text-emerald-100 font-mono truncate">
-                      {userProfile.email}
-                    </p>
+                    <div className="flex items-center justify-between gap-1.5 mt-0.5">
+                      <p className="text-xs text-emerald-100 font-mono truncate">
+                        {userProfile.email}
+                      </p>
+                      {onManualSync && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onManualSync();
+                          }}
+                          className="text-[10px] font-bold bg-white/20 hover:bg-white/30 text-white px-2 py-0.5 rounded-md border border-white/25 flex items-center gap-1 cursor-pointer transition-colors shrink-0"
+                          title={isBn ? 'সব ডিভাইসের সাথে সিঙ্ক করুন' : 'Sync data across all devices'}
+                        >
+                          <RefreshCw className="w-2.5 h-2.5" />
+                          <span>{isBn ? 'সিঙ্ক' : 'Sync'}</span>
+                        </button>
+                      )}
+                    </div>
                   )}
                   {settings.storePhone && (
                     <p className="text-[11px] text-emerald-200 font-mono mt-0.5">

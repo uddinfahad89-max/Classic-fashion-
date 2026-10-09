@@ -85,7 +85,44 @@ const DEFAULT_SETTINGS: ThermalPrinterSettings = {
 class StorageService {
   constructor() {
     this.purgeLegacyDataOnce();
-    this.purgeAccountLocally('idddi4844@gmail.com');
+  }
+
+  // Fetch accounts from server disk to populate saved accounts on new devices/browsers
+  async fetchServerAccountsAsync(): Promise<SavedAccountItem[]> {
+    try {
+      if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
+        const res = await fetch('/api/accounts');
+        if (res.ok) {
+          const json = await res.json();
+          if (json && Array.isArray(json.accounts)) {
+            const current = this.getSavedAccounts();
+            const map = new Map<string, SavedAccountItem>();
+            for (const acc of current) {
+              const k = this.normalizeIdentifier(acc.email || acc.identifier || acc.phone);
+              if (k) map.set(k, acc);
+            }
+            for (const acc of json.accounts) {
+              const k = this.normalizeIdentifier(acc.email || acc.identifier || acc.phone);
+              if (k) {
+                map.set(k, {
+                  identifier: acc.identifier,
+                  name: acc.name || 'Store Owner',
+                  phone: acc.phone || '',
+                  email: acc.email || '',
+                  storeName: acc.storeName || 'My Store',
+                  role: acc.role || 'Owner',
+                  lastActive: acc.lastActive || Date.now(),
+                });
+              }
+            }
+            const merged = Array.from(map.values());
+            localStorage.setItem(VAULT_KEYS.ACCOUNTS_INDEX, JSON.stringify(merged));
+            return merged;
+          }
+        }
+      }
+    } catch {}
+    return this.getSavedAccounts();
   }
 
   // Purge a specific account from client localStorage index, vaults, and active profile
@@ -901,7 +938,36 @@ class StorageService {
     }
   }
 
-  saveToAccountVault(vaultData: AccountVaultData): void {
+  applyServerVaultSilently(serverVault: AccountVaultData): void {
+    try {
+      const serverBills = Array.isArray(serverVault.bills) ? serverVault.bills : [];
+      const prefix =
+        serverVault.settings?.invoicePrefix !== undefined ? serverVault.settings.invoicePrefix : '';
+      const { bills: resequenced } = this.resequenceBillsInternal(serverBills, prefix);
+
+      localStorage.setItem(STORAGE_KEYS.BILLS, JSON.stringify(resequenced));
+      if (Array.isArray(serverVault.cashEntries)) {
+        localStorage.setItem(STORAGE_KEYS.CASHBOOK, JSON.stringify(serverVault.cashEntries));
+      }
+      if (Array.isArray(serverVault.customerDues)) {
+        localStorage.setItem(STORAGE_KEYS.DUES, JSON.stringify(serverVault.customerDues));
+      }
+      if (Array.isArray(serverVault.purchaseTrips)) {
+        localStorage.setItem(STORAGE_KEYS.PURCHASES, JSON.stringify(serverVault.purchaseTrips));
+      }
+      if (Array.isArray(serverVault.products)) {
+        localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(serverVault.products));
+      }
+      if (serverVault.settings) {
+        localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(serverVault.settings));
+      }
+      this.saveToAccountVault(serverVault, false);
+    } catch (e) {
+      console.warn('applyServerVaultSilently error:', e);
+    }
+  }
+
+  saveToAccountVault(vaultData: AccountVaultData, shouldSyncServer: boolean = true): void {
     try {
       const normId = this.normalizeIdentifier(vaultData.identifier || vaultData.phone || vaultData.email);
       if (!normId) return;
@@ -951,7 +1017,7 @@ class StorageService {
       localStorage.setItem(VAULT_KEYS.ACCOUNTS_INDEX, JSON.stringify(list));
 
       // Asynchronously backup to server disk so clearing client app data/cache never loses bills
-      if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
+      if (shouldSyncServer && typeof window !== 'undefined' && typeof fetch !== 'undefined') {
         fetch('/api/vault/sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

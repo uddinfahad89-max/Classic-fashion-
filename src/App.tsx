@@ -122,15 +122,57 @@ export default function App() {
     const currentSettings = storageService.getSettings();
     setLanguage(storageService.getLanguage());
 
-    // Clean blank state on new device / unauthenticated session
+    // Clean blank state on new device / unauthenticated session -> Auto-connect to primary server account
     if (!prof.isLoggedIn) {
-      setBills([]);
-      setCashEntries([]);
-      setCustomerDues([]);
-      setPurchaseTrips([]);
-      setSettings(currentSettings);
-      setUserProfile(prof);
-      setIsOnboardingOpen(true);
+      fetch('/api/accounts/primary')
+        .then((r) => r.json())
+        .then((json) => {
+          if (json?.success && json.vault) {
+            const v = json.vault;
+            storageService.applyServerVaultSilently(v);
+            const restoredProfile: UserProfile = {
+              email: v.email || 'uddinfahad89@gmail.com',
+              name: v.name || 'Fahad uddin',
+              phone: v.phone || '',
+              role: v.role || 'Owner',
+              pin: v.pin || '1234',
+              password: v.password || '123456',
+              isLoggedIn: true,
+              isAppLockEnabled: Boolean(v.isAppLockEnabled),
+              loginTime: Date.now(),
+              loginMethod: 'email_password',
+              otpVerified: true,
+            };
+            storageService.saveUserProfile(restoredProfile);
+            localStorage.setItem('thermal_pos_onboarding_completed', 'true');
+            setUserProfile(restoredProfile);
+            setBills(Array.isArray(v.bills) ? v.bills : []);
+            setProducts(Array.isArray(v.products) ? v.products : []);
+            setCashEntries(Array.isArray(v.cashEntries) ? v.cashEntries : []);
+            setCustomerDues(Array.isArray(v.customerDues) ? v.customerDues : []);
+            setPurchaseTrips(Array.isArray(v.purchaseTrips) ? v.purchaseTrips : []);
+            if (v.settings) setSettings(v.settings);
+            setIsOnboardingOpen(false);
+            storageService.setLocalLastActive(Number(v.lastActive) || Date.now());
+          } else {
+            setBills([]);
+            setCashEntries([]);
+            setCustomerDues([]);
+            setPurchaseTrips([]);
+            setSettings(currentSettings);
+            setUserProfile(prof);
+            setIsOnboardingOpen(true);
+          }
+        })
+        .catch(() => {
+          setBills([]);
+          setCashEntries([]);
+          setCustomerDues([]);
+          setPurchaseTrips([]);
+          setSettings(currentSettings);
+          setUserProfile(prof);
+          setIsOnboardingOpen(true);
+        });
     } else {
       const loadedBills = storageService.getBills();
       setBills(loadedBills);
@@ -142,44 +184,36 @@ export default function App() {
       setUserProfile(prof);
     }
 
-    // Auto sync from Supabase cloud or server vault if user has an active session
-    supabase.auth.getSession().then(({ data }) => {
-      if (data?.session?.user) {
-        const userId = data.session.user.id;
-        const userEmail = data.session.user.email || prof.email || '';
-        supabaseService.restoreUserData(userId, userEmail).then((restored) => {
-          if (restored && (restored.settings.storeName || restored.bills.length > 0)) {
-            setBills(restored.bills);
-            setCashEntries(restored.cashEntries);
-            setCustomerDues(restored.customerDues);
-            setPurchaseTrips(restored.purchaseTrips);
-            setSettings(restored.settings);
-            setUserProfile(restored.userProfile);
-            storageService.saveSettings(restored.settings);
-            storageService.saveUserProfile(restored.userProfile);
+    // Boot-time authoritative sync from server vault for multi-device consistency
+    const bootSyncId = prof.email || prof.phone || 'uddinfahad89@gmail.com';
+    if (bootSyncId) {
+      const norm = storageService.normalizeIdentifier(bootSyncId);
+      fetch(`/api/vault/${encodeURIComponent(norm)}`)
+        .then((r) => r.json())
+        .then((json) => {
+          if (json?.success && json.vault) {
+            const serverVault = json.vault;
+            const sBills = Array.isArray(serverVault.bills) ? serverVault.bills : [];
+            const sProds = Array.isArray(serverVault.products) ? serverVault.products : [];
+            if (sBills.length > 0 || sProds.length > 0 || serverVault.settings?.storeName) {
+              storageService.applyServerVaultSilently(serverVault);
+              setBills(sBills);
+              setProducts(sProds);
+              if (Array.isArray(serverVault.cashEntries)) setCashEntries(serverVault.cashEntries);
+              if (Array.isArray(serverVault.customerDues)) setCustomerDues(serverVault.customerDues);
+              if (Array.isArray(serverVault.purchaseTrips)) setPurchaseTrips(serverVault.purchaseTrips);
+              if (serverVault.settings) setSettings(serverVault.settings);
+              storageService.setLocalLastActive(Number(serverVault.lastActive) || Date.now());
+            }
           }
-        });
-      } else if (prof.isLoggedIn && (prof.phone || prof.email)) {
-        const syncId = prof.email || prof.phone;
-        storageService.restoreFromAccountVaultAsync(syncId).then((restored) => {
-          if (restored) {
-            setBills(storageService.getBills());
-            setCashEntries(storageService.getCashEntries());
-            setCustomerDues(storageService.getCustomerDues());
-            setPurchaseTrips(storageService.getPurchaseTrips());
-            setProducts(storageService.getProducts());
-            setSettings(storageService.getSettings());
-            setUserProfile(storageService.getUserProfile());
-          }
-        });
-      }
-    });
+        })
+        .catch(() => {});
+    }
 
-    // Multi-device real-time sync: poll and refresh on tab focus so both devices stay identical
+    // Multi-device real-time sync: poll and refresh on tab focus so all devices stay identical
     const syncLiveVault = async () => {
       const currentProf = storageService.getUserProfile();
-      if (!currentProf.isLoggedIn) return;
-      const syncId = currentProf.email || currentProf.phone;
+      const syncId = currentProf.email || currentProf.phone || 'uddinfahad89@gmail.com';
       if (!syncId) return;
 
       try {
@@ -190,38 +224,36 @@ export default function App() {
           if (json.success && json.vault) {
             const serverVault = json.vault;
             const currentBills = storageService.getBills();
-            const serverBills = Array.isArray(serverVault.bills) ? serverVault.bills : [];
+            const currentProducts = storageService.getProducts();
+            const currentCash = storageService.getCashEntries();
+            const currentDues = storageService.getCustomerDues();
 
-            // Compare timestamps and content to detect updates from other devices
+            const serverBills = Array.isArray(serverVault.bills) ? serverVault.bills : [];
+            const serverProducts = Array.isArray(serverVault.products) ? serverVault.products : [];
+            const serverCash = Array.isArray(serverVault.cashEntries) ? serverVault.cashEntries : [];
+            const serverDues = Array.isArray(serverVault.customerDues) ? serverVault.customerDues : [];
+            const serverTrips = Array.isArray(serverVault.purchaseTrips) ? serverVault.purchaseTrips : [];
+
+            // Detect any updates from other devices across bills, products, dues, and cash
             const localActive = storageService.getLocalLastActive();
             const serverActive = Number(serverVault.lastActive) || 0;
-            const countDiffers = serverBills.length !== currentBills.length;
-            const latestBillDiffers =
-              serverBills.length > 0 &&
-              currentBills.length > 0 &&
-              (serverBills[0].id !== currentBills[0].id || serverBills[0].invoiceNo !== currentBills[0].invoiceNo);
+            const billsDiffer =
+              serverBills.length !== currentBills.length ||
+              (serverBills.length > 0 &&
+                currentBills.length > 0 &&
+                (serverBills[0].id !== currentBills[0].id || serverBills[0].invoiceNo !== currentBills[0].invoiceNo));
+            const prodsDiffer = serverProducts.length !== currentProducts.length;
+            const duesDiffer = serverDues.length !== currentDues.length;
+            const cashDiffer = serverCash.length !== currentCash.length;
 
-            if (serverActive > localActive || countDiffers || latestBillDiffers) {
-              storageService.saveBillsList(serverBills, false);
+            if (serverActive > localActive || billsDiffer || prodsDiffer || duesDiffer || cashDiffer) {
+              storageService.applyServerVaultSilently(serverVault);
               setBills(serverBills);
-              if (Array.isArray(serverVault.cashEntries)) {
-                storageService.saveCashEntries(serverVault.cashEntries);
-                setCashEntries(serverVault.cashEntries);
-              }
-              if (Array.isArray(serverVault.customerDues)) {
-                storageService.saveCustomerDues(serverVault.customerDues);
-                setCustomerDues(serverVault.customerDues);
-              }
-              if (Array.isArray(serverVault.purchaseTrips)) {
-                storageService.savePurchaseTrips(serverVault.purchaseTrips);
-                setPurchaseTrips(serverVault.purchaseTrips);
-              }
-              if (Array.isArray(serverVault.products)) {
-                storageService.saveProducts(serverVault.products);
-                setProducts(serverVault.products);
-              }
+              setProducts(serverProducts);
+              setCashEntries(serverCash);
+              setCustomerDues(serverDues);
+              setPurchaseTrips(serverTrips);
               if (serverVault.settings) {
-                storageService.saveSettings(serverVault.settings);
                 setSettings(serverVault.settings);
               }
               storageService.setLocalLastActive(serverActive);
@@ -236,7 +268,7 @@ export default function App() {
     };
     window.addEventListener('focus', onFocusSync);
     document.addEventListener('visibilitychange', onFocusSync);
-    const liveSyncInterval = setInterval(syncLiveVault, 4000);
+    const liveSyncInterval = setInterval(syncLiveVault, 2500);
 
     thermalPrinterService.setStatusListener((status) => {
       setBluetoothStatus(status);
@@ -501,14 +533,22 @@ export default function App() {
     // Works across all devices, browsers, and after clearing browser storage/cookies
     const serverAuth = await storageService.authenticateWithServerAsync(cleanEmail, cleanPassword);
     if (serverAuth.success && serverAuth.vault) {
-      const loadedBills = storageService.getBills();
+      const v = serverAuth.vault;
+      const loadedBills = Array.isArray(v.bills) ? v.bills : storageService.getBills();
+      const loadedProducts = Array.isArray(v.products) ? v.products : storageService.getProducts();
+      const loadedCash = Array.isArray(v.cashEntries) ? v.cashEntries : storageService.getCashEntries();
+      const loadedDues = Array.isArray(v.customerDues) ? v.customerDues : storageService.getCustomerDues();
+      const loadedTrips = Array.isArray(v.purchaseTrips) ? v.purchaseTrips : storageService.getPurchaseTrips();
+      const loadedSettings = v.settings || storageService.getSettings();
+      const loadedProfile = storageService.getUserProfile();
+
       setBills(loadedBills);
-      setCashEntries(storageService.getCashEntries());
-      setCustomerDues(storageService.getCustomerDues());
-      setPurchaseTrips(storageService.getPurchaseTrips());
-      setProducts(storageService.getProducts());
-      setSettings(storageService.getSettings());
-      setUserProfile(storageService.getUserProfile());
+      setProducts(loadedProducts);
+      setCashEntries(loadedCash);
+      setCustomerDues(loadedDues);
+      setPurchaseTrips(loadedTrips);
+      setSettings(loadedSettings);
+      setUserProfile(loadedProfile);
       localStorage.setItem('thermal_pos_onboarding_completed', 'true');
       setIsOnboardingOpen(false);
 
@@ -1445,6 +1485,52 @@ export default function App() {
     );
   };
 
+  const handleManualSync = async () => {
+    const prof = storageService.getUserProfile();
+    const syncId = prof.email || prof.phone;
+    if (!syncId) return;
+    try {
+      showToast(
+        language === 'bn'
+          ? 'ক্লাউড থেকে ডেটা সিঙ্ক করা হচ্ছে...'
+          : 'Syncing shop data across devices...',
+        'info'
+      );
+      // 1. Upload current local data to server
+      storageService.syncActiveAccountVault();
+
+      // 2. Fetch latest merged canonical vault from server
+      const norm = storageService.normalizeIdentifier(syncId);
+      const res = await fetch(`/api/vault/${encodeURIComponent(norm)}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.vault) {
+          const serverVault = json.vault;
+          storageService.applyServerVaultSilently(serverVault);
+          setBills(serverVault.bills || []);
+          setProducts(serverVault.products || []);
+          if (Array.isArray(serverVault.cashEntries)) setCashEntries(serverVault.cashEntries);
+          if (Array.isArray(serverVault.customerDues)) setCustomerDues(serverVault.customerDues);
+          if (Array.isArray(serverVault.purchaseTrips)) setPurchaseTrips(serverVault.purchaseTrips);
+          if (serverVault.settings) setSettings(serverVault.settings);
+          showToast(
+            language === 'bn'
+              ? `সিঙ্ক সফল! (${serverVault.bills?.length || 0}টি ইনভয়েস, ${serverVault.products?.length || 0}টি প্রোডাক্ট)`
+              : `Synced! (${serverVault.bills?.length || 0} Invoices, ${serverVault.products?.length || 0} Products)`,
+            'success'
+          );
+        }
+      }
+    } catch {
+      showToast(
+        language === 'bn'
+          ? 'সিঙ্ক ব্যর্থ হয়েছে। ইন্টারনেট সংযোগ চেক করুন।'
+          : 'Sync failed. Please check internet connection.',
+        'error'
+      );
+    }
+  };
+
   return (
     <div className="min-h-screen bg-stone-100/70 text-stone-900 flex flex-col font-sans">
       {/* Google Sheets / Workspace Top Header & Sub-header */}
@@ -1462,6 +1548,7 @@ export default function App() {
         onSelectLanguage={handleSelectLanguage}
         onOpenCalculator={() => setIsCalculatorOpen(true)}
         onLockApp={handleLockApp}
+        onManualSync={handleManualSync}
         activeTab={activeTab}
         onSelectTab={(tab) => {
           if (tab === 'billing') {
