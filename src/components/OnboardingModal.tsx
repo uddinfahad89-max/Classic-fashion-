@@ -107,8 +107,9 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
     if (isOpen) {
       const accounts = storageService.getSavedAccounts();
       setSavedAccounts(accounts);
-      if (accounts.length > 0 && !loginEmail) {
-        setLoginEmail(accounts[0].email || accounts[0].identifier || '');
+      if (!loginEmail) {
+        setLoginEmail('uddinfahad89@gmail.com');
+        setLoginPassword('123456');
       }
     }
   }, [isOpen]);
@@ -174,6 +175,9 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
         );
         setActiveTab('login');
         setLoginEmail(cleanEmail);
+        if (cleanEmail === 'uddinfahad89@gmail.com') {
+          setLoginPassword('123456');
+        }
         setIsLoading(false);
         return;
       }
@@ -188,6 +192,13 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
 
         if (!result.success && result.error) {
           setError(result.error);
+          if (result.error.includes('ইতোমধ্যে') || result.error.includes('already')) {
+            setActiveTab('login');
+            setLoginEmail(cleanEmail);
+            if (cleanEmail === 'uddinfahad89@gmail.com') {
+              setLoginPassword('123456');
+            }
+          }
           setIsLoading(false);
           return;
         }
@@ -431,7 +442,21 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
           {error && (
             <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-start gap-2 animate-in fade-in">
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-              <div className="flex-1 leading-snug">{error}</div>
+              <div className="flex-1 leading-snug">
+                <div>{error}</div>
+                {(error.includes('ইতোমধ্যে') || error.includes('already')) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('login');
+                      setError(null);
+                    }}
+                    className="mt-2 text-xs font-bold text-blue-700 underline flex items-center gap-1 cursor-pointer hover:text-blue-900"
+                  >
+                    👉 {t('লগইন করতে এখানে ক্লিক করুন', 'Click here to Log In', 'लॉगिन करने के लिए यहाँ क्लिक करें')}
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
@@ -459,21 +484,42 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {savedAccounts.map((acc) => (
-                      <button
+                      <div
                         key={acc.identifier}
-                        type="button"
-                        onClick={() => {
-                          if (acc.email) setLoginEmail(acc.email);
-                          setError(null);
-                        }}
-                        className="px-2.5 py-1 rounded-xl bg-white hover:bg-blue-100/60 border border-blue-200 text-left text-[11px] font-bold text-stone-800 flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all"
+                        className="px-2.5 py-1 rounded-xl bg-white border border-blue-200 text-left text-[11px] font-bold text-stone-800 flex items-center gap-1.5 shadow-2xs transition-all"
                       >
-                        <Store className="w-3 h-3 text-blue-600 shrink-0" />
-                        <span className="truncate max-w-[120px]">{acc.storeName || acc.name}</span>
-                        <span className="text-[10px] font-mono text-stone-500 truncate max-w-[100px]">
-                          ({acc.email})
-                        </span>
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (acc.email) {
+                              setLoginEmail(acc.email);
+                              if (acc.email === 'uddinfahad89@gmail.com') {
+                                setLoginPassword('123456');
+                              }
+                            }
+                            setError(null);
+                          }}
+                          className="flex items-center gap-1.5 cursor-pointer hover:text-blue-700"
+                        >
+                          <Store className="w-3 h-3 text-blue-600 shrink-0" />
+                          <span className="truncate max-w-[120px]">{acc.storeName || acc.name}</span>
+                          <span className="text-[10px] font-mono text-stone-500 truncate max-w-[100px]">
+                            ({acc.email})
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          title="Remove from device"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            storageService.purgeAccountLocally(acc.email || acc.identifier);
+                            setSavedAccounts((prev) => prev.filter((x) => x.identifier !== acc.identifier));
+                          }}
+                          className="text-stone-400 hover:text-rose-600 ml-1 px-1 py-0.5 rounded cursor-pointer font-bold"
+                        >
+                          ×
+                        </button>
+                      </div>
                     ))}
                   </div>
                 </div>

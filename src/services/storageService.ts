@@ -85,6 +85,39 @@ const DEFAULT_SETTINGS: ThermalPrinterSettings = {
 class StorageService {
   constructor() {
     this.purgeLegacyDataOnce();
+    this.purgeAccountLocally('idddi4844@gmail.com');
+  }
+
+  // Purge a specific account from client localStorage index, vaults, and active profile
+  purgeAccountLocally(identifier: string): void {
+    try {
+      if (typeof window === 'undefined') return;
+      const clean = (identifier || '').trim().toLowerCase();
+      if (!clean) return;
+      const norm = this.normalizeIdentifier(clean);
+
+      // 1. Remove from accounts index
+      const accounts = this.getSavedAccounts().filter(
+        (a) =>
+          this.normalizeIdentifier(a.email) !== norm &&
+          this.normalizeIdentifier(a.identifier) !== norm &&
+          this.normalizeIdentifier(a.phone) !== norm
+      );
+      localStorage.setItem(VAULT_KEYS.ACCOUNTS_INDEX, JSON.stringify(accounts));
+
+      // 2. Remove vault data
+      localStorage.removeItem(`${VAULT_KEYS.ACCOUNT_PREFIX}${norm}`);
+      localStorage.removeItem(`${VAULT_KEYS.ACCOUNT_PREFIX}${clean}`);
+
+      // 3. If active profile belongs to this identifier, reset profile
+      const prof = this.getUserProfile();
+      if (
+        this.normalizeIdentifier(prof.email) === norm ||
+        this.normalizeIdentifier(prof.phone) === norm
+      ) {
+        this.saveUserProfile({ ...DEFAULT_USER });
+      }
+    } catch {}
   }
 
   // Purge any legacy sample/demo invoices, daybook entries, dues, or trips so new users have a clean slate

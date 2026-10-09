@@ -1,0 +1,28 @@
+{
+  "identifier": "uddinfahad89@gmail.com",
+  "email": "uddinfahad89@gmail.com",
+  "name": "Fahad uddin",
+  "phone": "",
+  "role": "Owner",
+  "pin": "1234",
+  "password": "123456",
+  "isAppLockEnabled": false,
+  "settings": {
+    "storeName": "My Store",
+    "storePhone": "",
+    "storeAddress": "",
+    "paperWidth": "58mm",
+    "currencySymbol": "Rs.",
+    "footerNote": "Thank you! Visit again.",
+    "autoPrintOnCheckout": true,
+    "defaultInvoiceFormat": "tax_invoice",
+    "nextInvoiceNumber": 1,
+    "invoicePrefix": ""
+  },
+  "bills": [],
+  "cashEntries": [],
+  "customerDues": [],
+  "purchaseTrips": [],
+  "products": [],
+  "lastActive": 1728471400000
+}

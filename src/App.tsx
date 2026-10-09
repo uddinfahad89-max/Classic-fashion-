@@ -524,14 +524,6 @@ export default function App() {
         'success'
       );
       return { success: true };
-    } else if (serverAuth.error && serverAuth.error.includes('পাসওয়ার্ড')) {
-      return {
-        success: false,
-        error:
-          language === 'bn'
-            ? 'পাসওয়ার্ড সঠিক নয়! সঠিক পাসওয়ার্ড লিখুন।'
-            : 'Incorrect password! Please check and try again.',
-      };
     }
 
     // 4. Secondary fallback: Supabase Cloud Auth SignIn (for cloud-only users)
@@ -575,8 +567,8 @@ export default function App() {
         setIsOnboardingOpen(false);
         showToast(
           language === 'bn'
-            ? `স্বাগতম! আপনার ক্লাউড ডেটা (${sbRes.restored.bills.length}টি বিল) সফলভাবে রিস্টোর হয়েছে।`
-            : `Welcome back! Restored ${sbRes.restored.bills.length} bills from Supabase.`,
+            ? `স্বাগতম! আপনার ক্লাউড ডেটা সফলভাবে রিস্টোর হয়েছে।`
+            : `Welcome back! Restored data from cloud successfully.`,
           'success'
         );
         return { success: true };
@@ -591,6 +583,16 @@ export default function App() {
           };
         }
       }
+    }
+
+    if (serverAuth.error && serverAuth.error.includes('পাসওয়ার্ড')) {
+      return {
+        success: false,
+        error:
+          language === 'bn'
+            ? 'পাসওয়ার্ড সঠিক নয়! সঠিক পাসওয়ার্ড লিখুন।'
+            : 'Incorrect password! Please check and try again.',
+      };
     }
 
     return {
