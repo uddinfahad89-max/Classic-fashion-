@@ -735,7 +735,7 @@ class SupabaseService {
           ...(masterProfile.settings_json || {}),
         };
 
-        // Prevent creating duplicate shadow profile name like "User 1959" vs real name "uddinfahad89"
+        // Prevent creating duplicate shadow profile name like "User 1959" vs real email name
         let resolvedName = masterProfile.signatory_name || masterProfile.store_name || '';
         if (!resolvedName || resolvedName.startsWith('User ')) {
           const emailPart = (masterProfile.email || userEmail).split('@')[0];
