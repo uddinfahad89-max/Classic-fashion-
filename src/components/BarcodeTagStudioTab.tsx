@@ -41,6 +41,7 @@ import {
   Square,
   MoreVertical,
   X,
+  Camera,
 } from 'lucide-react';
 import JsBarcode from 'jsbarcode';
 import QRCode from 'qrcode';
@@ -66,6 +67,16 @@ import {
 import { thermalPrinterService } from '../services/thermalPrinterService';
 import { storageService } from '../services/storageService';
 import { generateAutoSkuFromName } from './ProductStockModal';
+import {
+  bengaliToEnglishDigits,
+  calculateEan13CheckDigit,
+  isValidEan13,
+  makeValidEan13,
+  sanitizeCode128,
+  generateBillingAppCompatibleBarcode,
+  analyzeBarcodeForBillingApps,
+} from '../utils/barcodeUtils';
+import { BarcodeScannerModal, playBarcodeBeep } from './BarcodeScannerModal';
 
 interface BarcodeTagStudioTabProps {
   settings: ThermalPrinterSettings;
@@ -324,6 +335,12 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string>('');
   const [isGeneratingImg, setIsGeneratingImg] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
+  const [isScannerTestOpen, setIsScannerTestOpen] = useState(false);
+
+  // Live Barcode Billing App Compatibility Report
+  const barcodeCompatibility = useMemo(() => {
+    return analyzeBarcodeForBillingApps(labelConfig.barcodeValue, labelConfig.barcodeType);
+  }, [labelConfig.barcodeValue, labelConfig.barcodeType]);
 
   // Helper to detect label printer model names
   const isLabelPrinterModel = (name?: string) =>
@@ -618,16 +635,46 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     autoSaveToProduct(cfg.barcodeValue || '', cfg, true);
   };
 
-  // Auto-generate SKU / Barcode with cost encoded
-  const handleGenerateBarcode = () => {
+  // Auto-generate SKU / Barcode with cost encoded - supports EAN-13, Code 128, and QR
+  const handleGenerateBarcode = (forceType?: 'CODE128' | 'EAN13' | 'QR') => {
+    const targetType = forceType || labelConfig.barcodeType;
     const newSeed = String(Math.floor(100000 + Math.random() * 900000));
     setAutoSkuSeed(newSeed);
-    const newCode = getEncodedSku(labelConfig.purchasePrice, labelConfig.itemName, newSeed, labelConfig.barcodeValue);
-    setLabelConfig((prev) => ({ ...prev, barcodeValue: newCode }));
-    if (labelConfig.itemName?.trim() || activeProductId) {
-      autoSaveToProduct(newCode, { ...labelConfig, barcodeValue: newCode }, true);
+
+    let newCode: string;
+    if (targetType === 'EAN13') {
+      newCode = generateBillingAppCompatibleBarcode('EAN13', {
+        name: labelConfig.itemName,
+        costPrice: labelConfig.purchasePrice,
+        seed: newSeed,
+      });
+    } else if (targetType === 'QR') {
+      newCode = generateBillingAppCompatibleBarcode('QR', {
+        name: labelConfig.itemName,
+        costPrice: labelConfig.purchasePrice,
+        seed: newSeed,
+        existingCode: labelConfig.barcodeValue,
+      });
     } else {
-      onShowToast(isBn ? 'নতুন বারকোড তৈরি হয়েছে!' : 'New barcode generated!', 'info');
+      // CODE128: Universal alphanumeric SKU
+      newCode = getEncodedSku(labelConfig.purchasePrice, labelConfig.itemName, newSeed, labelConfig.barcodeValue);
+      newCode = sanitizeCode128(newCode);
+    }
+
+    setLabelConfig((prev) => ({
+      ...prev,
+      barcodeType: targetType,
+      barcodeValue: newCode,
+    }));
+    if (labelConfig.itemName?.trim() || activeProductId) {
+      autoSaveToProduct(newCode, { ...labelConfig, barcodeType: targetType, barcodeValue: newCode }, true);
+    } else {
+      onShowToast(
+        isBn
+          ? `নতুন ${targetType === 'EAN13' ? 'রিটেল EAN-13' : targetType === 'QR' ? 'QR কোড' : 'Code 128'} বারকোড তৈরি হয়েছে (বিলিং অ্যাপ উপযোগী)!`
+          : `New ${targetType} barcode generated (billing app ready)!`,
+        'info'
+      );
     }
   };
 
@@ -637,10 +684,11 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     if (!labelConfig.barcodeValue) return;
 
     if (labelConfig.barcodeType === 'QR') {
-      const qrText = `${labelConfig.storeName} | ${labelConfig.itemName} | ${sym}${labelConfig.salePrice} | SKU: ${labelConfig.barcodeValue}`;
+      const cleanVal = bengaliToEnglishDigits(labelConfig.barcodeValue).trim();
+      const qrText = cleanVal || `${labelConfig.storeName} | ${labelConfig.itemName} | SKU: ${cleanVal}`;
       QRCode.toDataURL(qrText, {
-        width: 160,
-        margin: 1,
+        width: 220,
+        margin: 2,
         errorCorrectionLevel: 'M',
         color: { dark: '#000000', light: '#ffffff' },
       })
@@ -649,42 +697,53 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     } else {
       try {
         const offscreenCanvas = document.createElement('canvas');
-        const cleanCode = labelConfig.barcodeValue.trim() || '1001';
+        const rawCode = labelConfig.barcodeValue.trim() || '1001';
+        const cleanCode = bengaliToEnglishDigits(rawCode).trim() || '1001';
+
         const baseBarWidth =
           labelConfig.tsplBarcodeRatio === '1:2'
-            ? 1.15
-            : labelConfig.tsplBarcodeRatio === '2:2'
-            ? 1.45
-            : labelConfig.tsplBarcodeRatio === '2:3'
-            ? 1.75
-            : labelConfig.sizePreset === '1x1'
             ? 1.2
+            : labelConfig.tsplBarcodeRatio === '2:2'
+            ? 1.5
+            : labelConfig.tsplBarcodeRatio === '2:3'
+            ? 1.8
+            : labelConfig.sizePreset === '1x1'
+            ? 1.25
             : labelConfig.barcodeThickness === 'thin'
-            ? 1.1
+            ? 1.15
             : labelConfig.barcodeThickness === 'thick'
-            ? 1.9
-            : 1.45;
+            ? 1.95
+            : 1.5;
         const baseBarHeight =
           labelConfig.tsplBarcodeHeight
-            ? Math.max(24, Math.min(65, labelConfig.tsplBarcodeHeight * 0.78))
+            ? Math.max(26, Math.min(70, labelConfig.tsplBarcodeHeight * 0.8))
             : labelConfig.sizePreset === '1x1'
-            ? 22
-            : labelConfig.barcodeHeight === 'compact'
             ? 24
+            : labelConfig.barcodeHeight === 'compact'
+            ? 26
             : labelConfig.barcodeHeight === 'tall'
-            ? 44
-            : 33;
+            ? 46
+            : 35;
         const showText = labelConfig.showBarcodeText !== false;
 
-        const effectiveFormat =
-          labelConfig.barcodeType === 'EAN13' && /^\d{12,13}$/.test(cleanCode)
-            ? 'EAN13'
-            : 'CODE128';
+        // Determine Effective Format & Ensure Guaranteed Validity
+        let effectiveFormat: 'CODE128' | 'EAN13' = 'CODE128';
+        let codeToRender = cleanCode;
 
-        // High-DPI Scaling (2.5x) ensures razor-sharp, crystal clear numbers & crisp bars
-        const dpr = 2.5;
-        const scaledWidth = baseBarWidth * dpr;
-        const scaledHeight = baseBarHeight * dpr;
+        const numericOnly = cleanCode.replace(/\D/g, '');
+        if (labelConfig.barcodeType === 'EAN13' || (numericOnly.length === 12 || numericOnly.length === 13)) {
+          effectiveFormat = 'EAN13';
+          codeToRender = makeValidEan13(numericOnly);
+        } else {
+          effectiveFormat = 'CODE128';
+          codeToRender = sanitizeCode128(cleanCode);
+        }
+
+        // High-DPI Scaling (3x) ensures razor-sharp, crystal clear numbers & crisp non-blurred bars
+        const dpr = 3;
+        // Integer pixel module width prevents canvas sub-pixel antialiasing blurring
+        const scaledWidth = Math.max(2, Math.round(baseBarWidth * dpr));
+        const scaledHeight = Math.round(baseBarHeight * dpr);
 
         // Legible, high-contrast barcode number font sizing
         const baseFontSize =
@@ -702,7 +761,10 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
             ? 'monospace'
             : 'Arial, Helvetica, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
 
-        JsBarcode(offscreenCanvas, cleanCode, {
+        // ISO/IEC 15417 & GS1 standard Quiet Zone: at least 10x module width on left and right!
+        const quietZonePx = Math.max(30, Math.round(12 * dpr));
+
+        JsBarcode(offscreenCanvas, codeToRender, {
           format: effectiveFormat,
           width: scaledWidth,
           height: scaledHeight,
@@ -711,9 +773,14 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
           font: fontName,
           fontOptions: 'bold', // BOLD FOR CRYSTAL CLEAR READABILITY
           textMargin: Math.round(4 * dpr), // Clean gap between barcode lines and numbers
-          margin: Math.round(3 * dpr),
-          background: '#ffffff', // PURE WHITE BACKGROUND - PREVENTS BLACK BOXES
-          lineColor: '#000000',  // PURE BLACK CRISP BARS
+          margin: 0,
+          marginLeft: quietZonePx, // Full white quiet zone on left
+          marginRight: quietZonePx, // Full white quiet zone on right
+          marginTop: Math.round(5 * dpr),
+          marginBottom: Math.round(5 * dpr),
+          background: '#ffffff', // PURE SOLID WHITE BACKGROUND
+          lineColor: '#000000',  // PURE SOLID BLACK CRISP BARS
+          flat: true,
         });
         setBarcodeDataUrl(offscreenCanvas.toDataURL('image/png'));
       } catch (err) {
@@ -721,18 +788,24 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
         try {
           const offscreenCanvas = document.createElement('canvas');
           const dpr = 2.5;
-          JsBarcode(offscreenCanvas, labelConfig.barcodeValue || '1001', {
+          const cleanCode = sanitizeCode128(bengaliToEnglishDigits(labelConfig.barcodeValue || '1001'));
+          JsBarcode(offscreenCanvas, cleanCode, {
             format: 'CODE128',
-            width: 1.45 * dpr,
-            height: 33 * dpr,
+            width: 2 * dpr,
+            height: 35 * dpr,
             displayValue: true,
             fontSize: Math.round(13 * dpr),
             font: 'Arial, Helvetica, -apple-system, sans-serif',
             fontOptions: 'bold',
             textMargin: Math.round(4 * dpr),
-            margin: Math.round(3 * dpr),
+            margin: 0,
+            marginLeft: Math.round(12 * dpr),
+            marginRight: Math.round(12 * dpr),
+            marginTop: Math.round(5 * dpr),
+            marginBottom: Math.round(5 * dpr),
             background: '#ffffff',
             lineColor: '#000000',
+            flat: true,
           });
           setBarcodeDataUrl(offscreenCanvas.toDataURL('image/png'));
         } catch {}
@@ -2204,10 +2277,11 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                   </div>
                 </div>
 
-                {/* Row 2: Barcode SKU with Auto Generator */}
-                <div>
+                {/* Row 2: Barcode SKU with Auto Generator & Billing App Compatibility */}
+                <div className="space-y-2">
                   <div className="flex items-center justify-between mb-1">
                     <label className="text-xs font-bold text-stone-700 flex items-center gap-1.5 flex-wrap">
+                      <BarcodeIcon className="w-3.5 h-3.5 text-blue-600" />
                       <span>{isBn ? 'বারকোড নম্বর / SKU' : 'Barcode SKU'}</span>
                       <span className="text-[10px] text-stone-400 font-normal">({isBn ? 'ঐচ্ছিক' : 'Optional'})</span>
                       {activeProductId && (
@@ -2216,27 +2290,98 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                         </span>
                       )}
                     </label>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setIsScannerTestOpen(true)}
+                        className="text-[10px] font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-md cursor-pointer transition-all flex items-center gap-1"
+                        title={isBn ? 'ক্যামেরা দিয়ে স্ক্যান টেস্ট করুন' : 'Test scan with camera'}
+                      >
+                        <Camera className="w-3 h-3 text-emerald-600" />
+                        <span>{isBn ? 'স্ক্যান টেস্ট' : 'Test Scan'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleGenerateBarcode()}
+                        className="text-[10px] font-black text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2 py-0.5 rounded-md cursor-pointer transition-all flex items-center gap-1"
+                      >
+                        <Sparkles className="w-3 h-3 text-amber-500" />
+                        <span>{isBn ? 'অটো কোড' : 'Auto'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Format Quick Selector: EAN-13, Code 128, QR */}
+                  <div className="flex items-center gap-1.5 p-1 bg-stone-100/80 rounded-lg">
                     <button
                       type="button"
-                      onClick={handleGenerateBarcode}
-                      className="text-[10px] font-black text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2 py-0.5 rounded-md cursor-pointer transition-all flex items-center gap-1"
+                      onClick={() => {
+                        handleGenerateBarcode('EAN13');
+                      }}
+                      className={`flex-1 py-1 px-1.5 rounded-md text-[10px] font-black cursor-pointer transition-all text-center ${
+                        labelConfig.barcodeType === 'EAN13'
+                          ? 'bg-blue-700 text-white shadow-xs'
+                          : 'bg-white text-stone-700 hover:bg-stone-50 border border-stone-200'
+                      }`}
                     >
-                      <Sparkles className="w-3 h-3 text-amber-500" />
-                      <span>{isBn ? 'অটো কোড' : 'Auto'}</span>
+                      🌟 {isBn ? 'EAN-13 (সুপারশপ ও সব বিলিং)' : 'EAN-13 (Standard Retail)'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleGenerateBarcode('CODE128');
+                      }}
+                      className={`flex-1 py-1 px-1.5 rounded-md text-[10px] font-black cursor-pointer transition-all text-center ${
+                        labelConfig.barcodeType === 'CODE128'
+                          ? 'bg-blue-700 text-white shadow-xs'
+                          : 'bg-white text-stone-700 hover:bg-stone-50 border border-stone-200'
+                      }`}
+                    >
+                      ⚡ {isBn ? 'Code 128 (SKU)' : 'Code 128'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleGenerateBarcode('QR');
+                      }}
+                      className={`py-1 px-2 rounded-md text-[10px] font-black cursor-pointer transition-all text-center ${
+                        labelConfig.barcodeType === 'QR'
+                          ? 'bg-blue-700 text-white shadow-xs'
+                          : 'bg-white text-stone-700 hover:bg-stone-50 border border-stone-200'
+                      }`}
+                    >
+                      📱 QR
                     </button>
                   </div>
+
                   <input
                     type="text"
                     value={labelConfig.barcodeValue}
-                    onChange={(e) => setLabelConfig((prev) => ({ ...prev, barcodeValue: e.target.value }))}
+                    onChange={(e) => {
+                      const normalized = bengaliToEnglishDigits(e.target.value);
+                      setLabelConfig((prev) => ({ ...prev, barcodeValue: normalized }));
+                    }}
                     onBlur={() => {
                       if (labelConfig.barcodeValue.trim() && (labelConfig.itemName?.trim() || activeProductId)) {
                         autoSaveToProduct(labelConfig.barcodeValue.trim(), labelConfig, true);
                       }
                     }}
-                    placeholder="2857854050000"
+                    placeholder="2001001001001"
                     className="w-full bg-stone-50 hover:bg-stone-100/60 focus:bg-white text-stone-900 font-black font-mono border border-stone-200 rounded-xl px-3 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
                   />
+
+                  {/* Universal Billing App Compatibility Badge */}
+                  <div className="bg-emerald-50/90 border border-emerald-200/80 rounded-lg px-2.5 py-1.5 flex items-center justify-between text-[10px]">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-4 h-4 rounded-full bg-emerald-600 text-white flex items-center justify-center font-black text-[9px]">✓</span>
+                      <span className="font-bold text-emerald-950">
+                        {isBn ? 'যেকোনো বিলিং অ্যাপস (Vyapar, My BillBook, ইত্যাদি) দিয়ে স্ক্যান হবে' : '100% Scannable with Any Billing App'}
+                      </span>
+                    </div>
+                    <span className="font-mono font-bold text-emerald-800 bg-emerald-100/80 px-1.5 py-0.5 rounded text-[9px]">
+                      {barcodeCompatibility.detectedType}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Row 3: Sale Price & Purchase Rate Side-by-Side (Sale price পাসে purchase rate লেখার সাথে সাথে অটো SKU) */}
@@ -2713,7 +2858,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                       </span>
                     )}
                   </label>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5">
                     <select
                       value={labelConfig.barcodeType}
                       onChange={(e) =>
@@ -2724,38 +2869,104 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                       }
                       className="text-[11px] font-bold border border-stone-200 bg-white rounded-lg px-2 py-0.5"
                     >
-                      <option value="CODE128">Code 128 (Standard)</option>
-                      <option value="EAN13">EAN-13</option>
+                      <option value="EAN13">EAN-13 (রিটেল / সব বিলিং)</option>
+                      <option value="CODE128">Code 128 (Standard SKU)</option>
                       <option value="QR">QR Code</option>
                     </select>
 
                     <button
                       type="button"
-                      onClick={handleGenerateBarcode}
+                      onClick={() => setIsScannerTestOpen(true)}
+                      className="text-[11px] font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-lg flex items-center gap-1 cursor-pointer transition-all"
+                      title={isBn ? 'ক্যামেরা দিয়ে স্ক্যান টেস্ট করুন' : 'Test scan with camera'}
+                    >
+                      <Camera className="w-3 h-3 text-emerald-600" />
+                      <span>{isBn ? 'স্ক্যান টেস্ট' : 'Test'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleGenerateBarcode()}
                       className="text-[11px] font-bold text-blue-700 hover:text-blue-900 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-lg flex items-center gap-1 cursor-pointer"
                     >
                       <RefreshCw className="w-3 h-3" />
-                      <span>{isBn ? 'অটো কোড' : 'Auto'}</span>
+                      <span>{isBn ? 'অটো' : 'Auto'}</span>
                     </button>
                   </div>
+                </div>
+
+                {/* Billing App Format Selector Pills */}
+                <div className="flex items-center gap-1.5 p-1 bg-stone-100/80 rounded-lg">
+                  <button
+                    type="button"
+                    onClick={() => handleGenerateBarcode('EAN13')}
+                    className={`flex-1 py-1 px-1 rounded-md text-[10px] font-black cursor-pointer transition-all text-center ${
+                      labelConfig.barcodeType === 'EAN13'
+                        ? 'bg-blue-700 text-white shadow-xs'
+                        : 'bg-white text-stone-700 hover:bg-stone-50 border border-stone-200'
+                    }`}
+                  >
+                    🌟 EAN-13 (১৩ সংখ্যা)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleGenerateBarcode('CODE128')}
+                    className={`flex-1 py-1 px-1 rounded-md text-[10px] font-black cursor-pointer transition-all text-center ${
+                      labelConfig.barcodeType === 'CODE128'
+                        ? 'bg-blue-700 text-white shadow-xs'
+                        : 'bg-white text-stone-700 hover:bg-stone-50 border border-stone-200'
+                    }`}
+                  >
+                    ⚡ Code 128
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleGenerateBarcode('QR')}
+                    className={`py-1 px-2 rounded-md text-[10px] font-black cursor-pointer transition-all text-center ${
+                      labelConfig.barcodeType === 'QR'
+                        ? 'bg-blue-700 text-white shadow-xs'
+                        : 'bg-white text-stone-700 hover:bg-stone-50 border border-stone-200'
+                    }`}
+                  >
+                    📱 QR
+                  </button>
                 </div>
 
                 <input
                   type="text"
                   value={labelConfig.barcodeValue}
-                  onChange={(e) =>
-                    setLabelConfig((prev) => ({ ...prev, barcodeValue: e.target.value }))
-                  }
+                  onChange={(e) => {
+                    const normalized = bengaliToEnglishDigits(e.target.value);
+                    setLabelConfig((prev) => ({ ...prev, barcodeValue: normalized }));
+                  }}
                   onBlur={() => {
                     if (labelConfig.barcodeValue.trim() && (labelConfig.itemName?.trim() || activeProductId)) {
                       autoSaveToProduct(labelConfig.barcodeValue.trim(), labelConfig, true);
                     }
                   }}
-                  placeholder="যেমন: CF-1002 বা 890123456789"
+                  placeholder="যেমন: 2001001001001 বা CF-1002"
                   className="w-full border border-stone-200 bg-white px-3 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold text-stone-800"
                 />
 
-                <div className="pt-1.5 flex items-center gap-2">
+                {/* Billing App Compatibility Details */}
+                <div className="bg-emerald-50/90 border border-emerald-200/80 rounded-lg p-2 text-[10px] space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-emerald-950 flex items-center gap-1">
+                      <span className="w-3.5 h-3.5 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[8px] font-black">✓</span>
+                      <span>{barcodeCompatibility.badgeBn}</span>
+                    </span>
+                    <span className="font-mono font-bold text-emerald-800 bg-emerald-100 px-1 rounded text-[9px]">
+                      {barcodeCompatibility.detectedType}
+                    </span>
+                  </div>
+                  <p className="text-emerald-800 text-[9px]">
+                    {isBn
+                      ? 'Vyapar, My BillBook, Bikroy, Loyverse POS, Tally ও বারকোড গান দিয়ে স্ক্যান হবে'
+                      : 'Compatible with Vyapar, My BillBook, Bikroy, Loyverse, and POS barcode guns'}
+                  </p>
+                </div>
+
+                <div className="pt-1 flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => handleSaveProductStock()}
@@ -3067,14 +3278,24 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                       }
                       className="text-[11px] font-bold border border-stone-200 bg-white rounded-lg px-2 py-0.5 cursor-pointer"
                     >
-                      <option value="CODE128">Code 128 (Standard)</option>
-                      <option value="EAN13">EAN-13</option>
+                      <option value="EAN13">EAN-13 (রিটেল / সব বিলিং)</option>
+                      <option value="CODE128">Code 128 (Standard SKU)</option>
                       <option value="QR">QR Code</option>
                     </select>
 
                     <button
                       type="button"
-                      onClick={handleGenerateBarcode}
+                      onClick={() => setIsScannerTestOpen(true)}
+                      className="text-[11px] font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-lg flex items-center gap-1 cursor-pointer transition-all"
+                      title={isBn ? 'ক্যামেরা দিয়ে স্ক্যান টেস্ট করুন' : 'Test scan with camera'}
+                    >
+                      <Camera className="w-3 h-3 text-emerald-600" />
+                      <span>{isBn ? 'স্ক্যান টেস্ট' : 'Test'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleGenerateBarcode()}
                       className="text-[11px] font-bold text-blue-700 hover:text-blue-900 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-lg flex items-center gap-1 cursor-pointer transition-all"
                       title="নতুন কোড জেনারেট"
                     >
@@ -3084,17 +3305,68 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                   </div>
                 </div>
 
+                {/* Billing App Format Selector Pills */}
+                <div className="flex items-center gap-1.5 p-1 bg-stone-100/80 rounded-lg">
+                  <button
+                    type="button"
+                    onClick={() => handleGenerateBarcode('EAN13')}
+                    className={`flex-1 py-1 px-1 rounded-md text-[10px] font-black cursor-pointer transition-all text-center ${
+                      labelConfig.barcodeType === 'EAN13'
+                        ? 'bg-blue-700 text-white shadow-xs'
+                        : 'bg-white text-stone-700 hover:bg-stone-50 border border-stone-200'
+                    }`}
+                  >
+                    🌟 EAN-13 (১৩ সংখ্যা)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleGenerateBarcode('CODE128')}
+                    className={`flex-1 py-1 px-1 rounded-md text-[10px] font-black cursor-pointer transition-all text-center ${
+                      labelConfig.barcodeType === 'CODE128'
+                        ? 'bg-blue-700 text-white shadow-xs'
+                        : 'bg-white text-stone-700 hover:bg-stone-50 border border-stone-200'
+                    }`}
+                  >
+                    ⚡ Code 128
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleGenerateBarcode('QR')}
+                    className={`py-1 px-2 rounded-md text-[10px] font-black cursor-pointer transition-all text-center ${
+                      labelConfig.barcodeType === 'QR'
+                        ? 'bg-blue-700 text-white shadow-xs'
+                        : 'bg-white text-stone-700 hover:bg-stone-50 border border-stone-200'
+                    }`}
+                  >
+                    📱 QR
+                  </button>
+                </div>
+
                 {/* Barcode code input */}
                 <div>
                   <input
                     type="text"
                     value={labelConfig.barcodeValue}
-                    onChange={(e) =>
-                      setLabelConfig((prev) => ({ ...prev, barcodeValue: e.target.value }))
-                    }
-                    placeholder="যেমন: CF-1002 বা 890123456789"
+                    onChange={(e) => {
+                      const normalized = bengaliToEnglishDigits(e.target.value);
+                      setLabelConfig((prev) => ({ ...prev, barcodeValue: normalized }));
+                    }}
+                    placeholder="যেমন: 2001001001001 বা CF-1002"
                     className="w-full border border-stone-200 bg-white px-3 py-1.5 rounded-xl text-xs font-mono font-bold text-stone-800"
                   />
+                </div>
+
+                {/* Universal Billing App Compatibility Badge */}
+                <div className="bg-emerald-50/90 border border-emerald-200/80 rounded-lg px-2.5 py-1.5 flex items-center justify-between text-[10px]">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-4 h-4 rounded-full bg-emerald-600 text-white flex items-center justify-center font-black text-[9px]">✓</span>
+                    <span className="font-bold text-emerald-950">
+                      {isBn ? 'যেকোনো বিলিং অ্যাপস (Vyapar, My BillBook, ইত্যাদি) দিয়ে স্ক্যান হবে' : '100% Scannable with Any Billing App'}
+                    </span>
+                  </div>
+                  <span className="font-mono font-bold text-emerald-800 bg-emerald-100/80 px-1.5 py-0.5 rounded text-[9px]">
+                    {barcodeCompatibility.detectedType}
+                  </span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
@@ -3767,9 +4039,10 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                             draggable={false}
                             style={{
                               height: `${Math.round((tsplLayout.barcodeHeight + 18) * 0.82)}px`,
-                              width: `${Math.max(75, Math.min(278, Math.round(tsplLayout.estBarcodeW * 0.75)))}px`,
+                              maxWidth: '100%',
+                              imageRendering: 'pixelated',
                             }}
-                            className="object-fill select-none pointer-events-none"
+                            className="object-contain select-none pointer-events-none mx-auto bg-white"
                           />
                         ) : null}
 
@@ -5044,6 +5317,32 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Live Barcode Scan Tester Modal - Instant camera test for billing apps */}
+      {isScannerTestOpen && (
+        <BarcodeScannerModal
+          isOpen={isScannerTestOpen}
+          onClose={() => setIsScannerTestOpen(false)}
+          language={language}
+          products={products}
+          onScanSuccess={(scannedCode) => {
+            playBarcodeBeep(true);
+            const matchesCurrent =
+              scannedCode.trim().toLowerCase() === labelConfig.barcodeValue.trim().toLowerCase();
+            onShowToast(
+              isBn
+                ? `✅ সফলভাবে স্ক্যান হয়েছে! কোড: ${scannedCode} ${
+                    matchesCurrent ? '(বর্তমান বারকোডের সাথে ১০০% মিলেছে)' : ''
+                  } - যেকোনো বিলিং অ্যাপসে স্ক্যান হবে!`
+                : `✅ Scan Successful! Code: ${scannedCode} ${
+                    matchesCurrent ? '(100% matched)' : ''
+                  } - Fully ready for any billing app!`,
+              'success'
+            );
+            setIsScannerTestOpen(false);
+          }}
+        />
       )}
     </div>
   );

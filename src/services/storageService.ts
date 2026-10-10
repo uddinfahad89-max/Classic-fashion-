@@ -13,6 +13,7 @@ import {
   BarcodeLabelConfig,
   ProductStockItem,
 } from '../types';
+import { bengaliToEnglishDigits } from '../utils/barcodeUtils';
 
 const STORAGE_KEYS = {
   BILLS: 'simple_pos_bills',
@@ -1810,7 +1811,7 @@ class StorageService {
     const cleanName = data.name.trim();
     const now = Date.now();
 
-    const cleanBarcode = (data.barcode || '').trim();
+    const cleanBarcode = bengaliToEnglishDigits(data.barcode || '').trim();
     const autoGenBarcode = (costVal?: number) => {
       const upper = cleanName.toUpperCase();
       const firstWord = upper.split(/\s+/)[0].replace(/[^A-Z]/g, '');

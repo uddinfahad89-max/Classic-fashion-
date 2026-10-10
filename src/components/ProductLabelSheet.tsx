@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import JsBarcode from 'jsbarcode';
 import { BillInvoice, ThermalPrinterSettings, Language, BillItem } from '../types';
 import { Tag, Scissors } from 'lucide-react';
+import { bengaliToEnglishDigits, isValidEan13, makeValidEan13 } from '../utils/barcodeUtils';
 
 interface ProductLabelSheetProps {
   bill: BillInvoice;
@@ -25,32 +26,47 @@ const SingleLabelItem: React.FC<SingleLabelItemProps> = ({
   paperWidth,
 }) => {
   const barcodeSvgRef = useRef<SVGSVGElement>(null);
-  const barcodeValue = (
+  const rawBarcode = (
     item.barcode ||
     `${invoiceNo.replace(/[^A-Za-z0-9]/g, '') || '1'}-${index + 1}`
-  ).toUpperCase();
+  ).trim();
+  const normalizedBarcode = bengaliToEnglishDigits(rawBarcode).toUpperCase();
 
   useEffect(() => {
     if (barcodeSvgRef.current) {
       try {
-        JsBarcode(barcodeSvgRef.current, barcodeValue, {
-          format: 'CODE128',
-          width: paperWidth === '80mm' ? 2 : 1.8,
-          height: paperWidth === '80mm' ? 44 : 36,
+        const numericOnly = normalizedBarcode.replace(/\D/g, '');
+        const isEanCandidate = numericOnly.length === 12 || numericOnly.length === 13;
+        const effectiveFormat = isEanCandidate ? 'EAN13' : 'CODE128';
+        const effectiveCode = isEanCandidate ? makeValidEan13(numericOnly) : (normalizedBarcode || '1001');
+
+        JsBarcode(barcodeSvgRef.current, effectiveCode, {
+          format: effectiveFormat,
+          width: paperWidth === '80mm' ? 2 : 1.75,
+          height: paperWidth === '80mm' ? 46 : 38,
           displayValue: true,
           font: 'Arial, Helvetica, sans-serif',
           fontOptions: 'bold',
-          fontSize: 13.5,
-          textMargin: 4,
-          margin: 4,
+          fontSize: 13,
+          textMargin: 5,
+          margin: 10,
           background: '#ffffff',
           lineColor: '#000000',
         });
       } catch (e) {
         console.error('Barcode rendering error:', e);
+        try {
+          JsBarcode(barcodeSvgRef.current, '1001', {
+            format: 'CODE128',
+            width: 1.8,
+            height: 38,
+            displayValue: true,
+            margin: 10,
+          });
+        } catch {}
       }
     }
-  }, [barcodeValue, paperWidth]);
+  }, [normalizedBarcode, paperWidth]);
 
   const is80mm = paperWidth === '80mm';
 

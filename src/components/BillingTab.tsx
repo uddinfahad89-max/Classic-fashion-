@@ -43,6 +43,7 @@ import {
   TailoringMeasurements,
   TailoringOrderStatus,
 } from '../types';
+import { bengaliToEnglishDigits } from '../utils/barcodeUtils';
 import { storageService } from '../services/storageService';
 import { translations } from '../utils/i18n';
 import { useBackHandler } from '../utils/useBackHandler';
@@ -522,7 +523,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     cleanCode: string;
     matchedProd?: ProductStockItem;
   } => {
-    const rawTrimmed = (rawScannedCode || '').trim();
+    const rawTrimmed = bengaliToEnglishDigits(rawScannedCode || '').trim();
     if (!rawTrimmed) return { cleanCode: '' };
 
     // Extract SKU if QR format "STORE | ITEM | Rs. 850 | SKU: 10001234" was scanned

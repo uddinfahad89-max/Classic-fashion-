@@ -1218,6 +1218,38 @@ export class ThermalPrinterService {
         const qrWidthDots = 100;
         const qrX = barcodeX !== undefined ? Math.max(0, Math.round(barcodeX)) : calcAlignedX(1, qrWidthDots, alignment);
         elements += `QRCODE ${qrX}, ${bY}, L, 4, A, 0, "${cleanCode}"\r\n`;
+      } else if (barcodeType === 'EAN13' && /^\d{12,13}$/.test(cleanCode.replace(/\D/g, ''))) {
+        // EAN-13 has exactly 95 modules (3 start guard + 42 left + 5 center guard + 42 right + 3 end guard)
+        const digitsOnly = cleanCode.replace(/\D/g, '');
+        // Calculate standard check digit if only 12 digits provided
+        let ean13Code = digitsOnly;
+        if (ean13Code.length === 12) {
+          let sum = 0;
+          for (let i = 0; i < 12; i++) {
+            sum += parseInt(ean13Code[i], 10) * (i % 2 === 0 ? 1 : 3);
+          }
+          ean13Code += String((10 - (sum % 10)) % 10);
+        } else if (ean13Code.length === 13) {
+          let sum = 0;
+          for (let i = 0; i < 12; i++) {
+            sum += parseInt(ean13Code[i], 10) * (i % 2 === 0 ? 1 : 3);
+          }
+          ean13Code = ean13Code.slice(0, 12) + String((10 - (sum % 10)) % 10);
+        }
+        const narrow = barcodeRatio === '1:2' ? 1 : 2;
+        const wide = barcodeRatio === '1:2' ? 2 : barcodeRatio === '2:2' ? 2 : 3;
+        const estBarcodeWidth = 95 * narrow;
+        const bX =
+          barcodeX !== undefined
+            ? Math.max(0, Math.round(barcodeX))
+            : alignment === 'left'
+            ? 16
+            : alignment === 'right'
+            ? Math.max(10, labelWidthDots - 16 - estBarcodeWidth)
+            : Math.max(10, Math.round((labelWidthDots - estBarcodeWidth) / 2));
+
+        // TSPL EAN13 BARCODE command
+        elements += `BARCODE ${bX}, ${bY}, "EAN13", ${bHeight}, 1, 0, ${narrow}, ${wide}, "${ean13Code}"\r\n`;
       } else {
         const narrow = barcodeRatio === '1:2' ? 1 : 2;
         const wide = barcodeRatio === '1:2' ? 2 : barcodeRatio === '2:2' ? 2 : 3;

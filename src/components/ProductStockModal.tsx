@@ -21,8 +21,9 @@ import { ProductStockItem, ThermalPrinterSettings, Language } from '../types';
 import { useBackHandler } from '../utils/useBackHandler';
 import { thermalPrinterService } from '../services/thermalPrinterService';
 import { storageService } from '../services/storageService';
+import { bengaliToEnglishDigits, makeValidEan13 } from '../utils/barcodeUtils';
 
-// Reusable crisp CODE128 Barcode Canvas/Image renderer for any SKU
+// Reusable crisp CODE128 & EAN13 Barcode Canvas/Image renderer for any SKU
 const AutoBarcodeCanvas: React.FC<{
   value: string;
   height?: number;
@@ -33,24 +34,30 @@ const AutoBarcodeCanvas: React.FC<{
   const [dataUrl, setDataUrl] = useState<string>('');
 
   useEffect(() => {
-    const clean = (value || '').trim();
-    if (!clean) {
+    const rawClean = (value || '').trim();
+    if (!rawClean) {
       setDataUrl('');
       return;
     }
+    const clean = bengaliToEnglishDigits(rawClean);
     try {
       const canvas = document.createElement('canvas');
-      const dpr = 2;
-      JsBarcode(canvas, clean, {
-        format: 'CODE128',
-        width: width * dpr,
-        height: height * dpr,
+      const dpr = 2.5;
+      const numericOnly = clean.replace(/\D/g, '');
+      const isEan = numericOnly.length === 12 || numericOnly.length === 13;
+      const format = isEan ? 'EAN13' : 'CODE128';
+      const codeToRender = isEan ? makeValidEan13(numericOnly) : clean;
+
+      JsBarcode(canvas, codeToRender, {
+        format,
+        width: Math.max(2, Math.round(width * dpr)),
+        height: Math.round(height * dpr),
         displayValue: true,
         fontSize: Math.round(fontSize * dpr),
         font: 'monospace',
         fontOptions: 'bold',
         textMargin: Math.round(3 * dpr),
-        margin: Math.round(4 * dpr),
+        margin: Math.round(8 * dpr),
         background: '#ffffff',
         lineColor: '#000000',
       });
