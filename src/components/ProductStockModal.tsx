@@ -21,7 +21,8 @@ import { ProductStockItem, ThermalPrinterSettings, Language } from '../types';
 import { useBackHandler } from '../utils/useBackHandler';
 import { thermalPrinterService } from '../services/thermalPrinterService';
 import { storageService } from '../services/storageService';
-import { bengaliToEnglishDigits, makeValidEan13 } from '../utils/barcodeUtils';
+import { bengaliToEnglishDigits, makeValidEan13, exportProductsForVyaparExcel } from '../utils/barcodeUtils';
+import { VyaparGuideModal } from './VyaparGuideModal';
 
 // Reusable crisp CODE128 & EAN13 Barcode Canvas/Image renderer for any SKU
 const AutoBarcodeCanvas: React.FC<{
@@ -191,6 +192,7 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [quickAddStockId, setQuickAddStockId] = useState<string | null>(null);
   const [quickAddStockQty, setQuickAddStockQty] = useState('');
+  const [isVyaparGuideOpen, setIsVyaparGuideOpen] = useState(false);
 
   // Stable effective barcode so the previewed barcode and saved barcode are 100% identical
   const effectiveFormBarcode = useMemo(() => {
@@ -736,6 +738,36 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
             </button>
           </form>
 
+          {/* Vyapar Sync & Export Bar */}
+          <div className="bg-amber-50/80 border border-amber-200/80 rounded-2xl p-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-red-600 text-white flex items-center justify-center text-[10px] font-black shrink-0">
+                V
+              </span>
+              <span className="text-xs font-bold text-amber-950">
+                {isBn ? 'ব্যাপার (Vyapar) অ্যাপে প্রোডাক্ট ও বারকোড সিঙ্ক' : 'Sync Products with Vyapar App'}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsVyaparGuideOpen(true)}
+                className="py-1.5 px-2.5 rounded-xl bg-white hover:bg-amber-100/60 border border-amber-300 text-amber-900 font-bold text-xs flex items-center gap-1 cursor-pointer transition-all"
+              >
+                <span>💡</span>
+                <span>{isBn ? 'স্ক্যান সহায়িকা' : 'Scan Guide'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => exportProductsForVyaparExcel(products)}
+                className="py-1.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white font-bold text-xs flex items-center gap-1 cursor-pointer transition-all shadow-xs"
+              >
+                <span>📥</span>
+                <span>{isBn ? 'ব্যাপার এক্সেল' : 'Vyapar Excel'}</span>
+              </button>
+            </div>
+          </div>
+
           {/* Search Saved Products */}
           <div className="relative">
             <Search className="w-4 h-4 text-blue-600 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -972,6 +1004,16 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
           )}
         </div>
       </div>
+
+      {/* Vyapar App Guide Modal */}
+      {isVyaparGuideOpen && (
+        <VyaparGuideModal
+          isOpen={isVyaparGuideOpen}
+          onClose={() => setIsVyaparGuideOpen(false)}
+          language={language}
+          products={products}
+        />
+      )}
     </div>
   );
 };

@@ -11,6 +11,53 @@
  *   Tally, Honeywell, Zebra scanners, and Android/iOS camera billing apps.
  */
 
+import * as XLSX from 'xlsx';
+import { ProductStockItem } from '../types';
+
+/**
+ * Exports products as a Vyapar-compatible Microsoft Excel (.xlsx) file.
+ * The exported file has standard columns expected by Vyapar:
+ * - Item Name
+ * - Item Code (Barcode SKU)
+ * - Sale Price
+ * - Purchase Price
+ * - Opening Stock
+ * - Unit
+ * - Category
+ * - Item Type
+ */
+export const exportProductsForVyaparExcel = (products: ProductStockItem[]): void => {
+  if (!products || products.length === 0) return;
+
+  const rows = products.map((p) => ({
+    'Item Name': p.name || 'Product',
+    'Item Code': bengaliToEnglishDigits(p.barcode || '').trim(),
+    'Sale Price': p.price || 0,
+    'Purchase Price': p.purchasePrice || 0,
+    'Opening Stock': p.stock || 0,
+    'Unit': p.unit || 'Pcs',
+    'Category': p.category || '',
+    'Item Type': 'Product',
+  }));
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+  // Auto-fit column widths
+  ws['!cols'] = [
+    { wch: 28 }, // Item Name
+    { wch: 20 }, // Item Code
+    { wch: 14 }, // Sale Price
+    { wch: 14 }, // Purchase Price
+    { wch: 14 }, // Opening Stock
+    { wch: 10 }, // Unit
+    { wch: 18 }, // Category
+    { wch: 12 }, // Item Type
+  ];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Items');
+  XLSX.writeFile(wb, 'Vyapar_Items_Import.xlsx');
+};
+
 // Convert Bengali Numerals (০, ১, ২, ৩, ৪, ৫, ৬, ৭, ৮, ৯) to ASCII Digits (0-9)
 export const bengaliToEnglishDigits = (str: string): string => {
   if (!str) return '';
