@@ -75,10 +75,8 @@ import {
   sanitizeCode128,
   generateBillingAppCompatibleBarcode,
   analyzeBarcodeForBillingApps,
-  exportProductsForVyaparExcel,
 } from '../utils/barcodeUtils';
 import { BarcodeScannerModal, playBarcodeBeep } from './BarcodeScannerModal';
-import { VyaparGuideModal } from './VyaparGuideModal';
 
 interface BarcodeTagStudioTabProps {
   settings: ThermalPrinterSettings;
@@ -338,7 +336,6 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
   const [isGeneratingImg, setIsGeneratingImg] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
   const [isScannerTestOpen, setIsScannerTestOpen] = useState(false);
-  const [isVyaparHelpOpen, setIsVyaparHelpOpen] = useState(false);
 
   // Live Barcode Billing App Compatibility Report
   const barcodeCompatibility = useMemo(() => {
@@ -2372,53 +2369,17 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                     className="w-full bg-stone-50 hover:bg-stone-100/60 focus:bg-white text-stone-900 font-black font-mono border border-stone-200 rounded-xl px-3 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
                   />
 
-                  {/* Universal Billing App Compatibility Badge & Vyapar Guide Buttons */}
-                  <div className="bg-emerald-50/90 border border-emerald-200/80 rounded-xl p-2.5 space-y-1.5 text-[10px]">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5">
-                        <span className="w-4 h-4 rounded-full bg-emerald-600 text-white flex items-center justify-center font-black text-[9px]">✓</span>
-                        <span className="font-bold text-emerald-950">
-                          {isBn ? 'যেকোনো বিলিং অ্যাপস (Vyapar, My BillBook, ইত্যাদি) দিয়ে স্ক্যান হবে' : '100% Scannable with Any Billing App'}
-                        </span>
-                      </div>
-                      <span className="font-mono font-bold text-emerald-800 bg-emerald-100/80 px-1.5 py-0.5 rounded text-[9px]">
-                        {barcodeCompatibility.detectedType}
+                  {/* Universal Billing App Compatibility Badge */}
+                  <div className="bg-emerald-50/90 border border-emerald-200/80 rounded-xl p-2.5 flex items-center justify-between text-[10px]">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-4 h-4 rounded-full bg-emerald-600 text-white flex items-center justify-center font-black text-[9px]">✓</span>
+                      <span className="font-bold text-emerald-950">
+                        {isBn ? 'যেকোনো বিলিং অ্যাপস (POS / Scanner) দিয়ে স্ক্যান হবে' : '100% Scannable with Any Billing App'}
                       </span>
                     </div>
-
-                    <div className="flex items-center gap-1.5 pt-0.5">
-                      <button
-                        type="button"
-                        onClick={() => setIsVyaparHelpOpen(true)}
-                        className="flex-1 py-1 px-2 rounded-lg bg-amber-100/80 hover:bg-amber-200/90 text-amber-900 font-bold border border-amber-300/80 flex items-center justify-center gap-1 cursor-pointer transition-all"
-                      >
-                        <span>💡</span>
-                        <span>{isBn ? 'ব্যাপার অ্যাপে স্ক্যান ও এড করার নিয়ম' : 'How to use in Vyapar'}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const prods = products && products.length > 0 ? products : storageService.getProducts();
-                          if (prods.length === 0) {
-                            onShowToast(isBn ? 'কোনো প্রোডাক্ট তালিকা নেই' : 'No products found', 'error');
-                            return;
-                          }
-                          exportProductsForVyaparExcel(prods);
-                          onShowToast(
-                            isBn
-                              ? '✅ "Vyapar_Items_Import.xlsx" ডাউনলোড হয়েছে!'
-                              : '✅ "Vyapar_Items_Import.xlsx" downloaded!',
-                            'success'
-                          );
-                        }}
-                        className="py-1 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center justify-center gap-1 cursor-pointer transition-all shadow-xs"
-                        title={isBn ? 'ব্যাপার অ্যাপে ইমপোর্ট করার জন্য এক্সেল ডাউনলোড' : 'Download Excel for Vyapar'}
-                      >
-                        <span>📥</span>
-                        <span>{isBn ? 'ব্যাপার এক্সেল' : 'Vyapar Excel'}</span>
-                      </button>
-                    </div>
+                    <span className="font-mono font-bold text-emerald-800 bg-emerald-100/80 px-1.5 py-0.5 rounded text-[9px]">
+                      {barcodeCompatibility.detectedType}
+                    </span>
                   </div>
                 </div>
 
@@ -2999,42 +2960,9 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                   </div>
                   <p className="text-emerald-800 text-[9px]">
                     {isBn
-                      ? 'Vyapar, My BillBook, Bikroy, Loyverse POS, Tally ও বারকোড গান দিয়ে স্ক্যান হবে'
-                      : 'Compatible with Vyapar, My BillBook, Bikroy, Loyverse, and POS barcode guns'}
+                      ? 'যেকোনো বিলিং অ্যাপস (POS / বারকোড স্ক্যানার গান) দিয়ে সরাসরি স্ক্যান হবে'
+                      : '100% scannable by any POS scanner, camera app, or barcode reader'}
                   </p>
-
-                  <div className="flex items-center gap-1.5 pt-1 border-t border-emerald-200/60">
-                    <button
-                      type="button"
-                      onClick={() => setIsVyaparHelpOpen(true)}
-                      className="flex-1 py-1 px-2 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold border border-amber-300 flex items-center justify-center gap-1 cursor-pointer transition-all"
-                    >
-                      <span>💡</span>
-                      <span>{isBn ? 'ব্যাপার অ্যাপে স্ক্যান ও এড করার নিয়ম' : 'Vyapar Scan Guide'}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const prods = products && products.length > 0 ? products : storageService.getProducts();
-                        if (prods.length === 0) {
-                          onShowToast(isBn ? 'কোনো প্রোডাক্ট তালিকা নেই' : 'No products found', 'error');
-                          return;
-                        }
-                        exportProductsForVyaparExcel(prods);
-                        onShowToast(
-                          isBn
-                            ? '✅ "Vyapar_Items_Import.xlsx" ডাউনলোড হয়েছে!'
-                            : '✅ "Vyapar_Items_Import.xlsx" downloaded!',
-                          'success'
-                        );
-                      }}
-                      className="py-1 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center justify-center gap-1 cursor-pointer transition-all shadow-xs"
-                      title={isBn ? 'ব্যাপার অ্যাপে ইমপোর্ট করার জন্য এক্সেল ডাউনলোড' : 'Download Excel for Vyapar'}
-                    >
-                      <span>📥</span>
-                      <span>{isBn ? 'ব্যাপার এক্সেল' : 'Vyapar Excel'}</span>
-                    </button>
-                  </div>
                 </div>
 
                 <div className="pt-1 flex items-center gap-2">
@@ -3432,7 +3360,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                   <div className="flex items-center gap-1.5">
                     <span className="w-4 h-4 rounded-full bg-emerald-600 text-white flex items-center justify-center font-black text-[9px]">✓</span>
                     <span className="font-bold text-emerald-950">
-                      {isBn ? 'যেকোনো বিলিং অ্যাপস (Vyapar, My BillBook, ইত্যাদি) দিয়ে স্ক্যান হবে' : '100% Scannable with Any Billing App'}
+                      {isBn ? 'যেকোনো বিলিং অ্যাপস (POS / Scanner) দিয়ে ১০০% স্ক্যান হবে' : '100% Scannable with Any Billing App'}
                     </span>
                   </div>
                   <span className="font-mono font-bold text-emerald-800 bg-emerald-100/80 px-1.5 py-0.5 rounded text-[9px]">
@@ -5413,17 +5341,6 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
             );
             setIsScannerTestOpen(false);
           }}
-        />
-      )}
-
-      {/* Vyapar App Barcode Scan & Add Guide Modal */}
-      {isVyaparHelpOpen && (
-        <VyaparGuideModal
-          isOpen={isVyaparHelpOpen}
-          onClose={() => setIsVyaparHelpOpen(false)}
-          language={language}
-          products={products}
-          onShowToast={onShowToast}
         />
       )}
     </div>

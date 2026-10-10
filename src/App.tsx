@@ -529,44 +529,8 @@ export default function App() {
       };
     }
 
-    // 3. Primary: Server Authoritative Authentication & Cloud Vault Restore
-    // Works across all devices, browsers, and after clearing browser storage/cookies
-    const serverAuth = await storageService.authenticateWithServerAsync(cleanEmail, cleanPassword);
-    if (serverAuth.success && serverAuth.vault) {
-      const v = serverAuth.vault;
-      const loadedBills = Array.isArray(v.bills) ? v.bills : storageService.getBills();
-      const loadedProducts = Array.isArray(v.products) ? v.products : storageService.getProducts();
-      const loadedCash = Array.isArray(v.cashEntries) ? v.cashEntries : storageService.getCashEntries();
-      const loadedDues = Array.isArray(v.customerDues) ? v.customerDues : storageService.getCustomerDues();
-      const loadedTrips = Array.isArray(v.purchaseTrips) ? v.purchaseTrips : storageService.getPurchaseTrips();
-      const loadedSettings = v.settings || storageService.getSettings();
-      const loadedProfile = storageService.getUserProfile();
-
-      setBills(loadedBills);
-      setProducts(loadedProducts);
-      setCashEntries(loadedCash);
-      setCustomerDues(loadedDues);
-      setPurchaseTrips(loadedTrips);
-      setSettings(loadedSettings);
-      setUserProfile(loadedProfile);
-      localStorage.setItem('thermal_pos_onboarding_completed', 'true');
-      setIsOnboardingOpen(false);
-
-      // Attempt background Supabase login if configured
-      if (isSupabaseConfigured()) {
-        supabaseService.signIn(cleanEmail, cleanPassword).catch(() => {});
-      }
-
-      showToast(
-        language === 'bn'
-          ? `স্বাগতম! আপনার অ্যাকাউন্ট সফলভাবে লগইন হয়েছে (${loadedBills.length}টি ইনভয়েস)।`
-          : `Welcome back! Account logged in successfully (${loadedBills.length} invoices).`,
-        'success'
-      );
-      return { success: true };
-    }
-
-    // 4. Secondary fallback: Supabase Cloud Auth SignIn (for cloud-only users)
+    // 3. Primary: If Supabase Cloud Auth is configured, authenticate directly with Supabase
+    // This queries the invoices or transactions tables using auth.uid() directly
     if (isSupabaseConfigured()) {
       const sbRes = await supabaseService.signIn(cleanEmail, cleanPassword);
       if (sbRes.success && sbRes.restored) {
@@ -605,10 +569,11 @@ export default function App() {
 
         localStorage.setItem('thermal_pos_onboarding_completed', 'true');
         setIsOnboardingOpen(false);
+        setIsLoginModalOpen(false);
         showToast(
           language === 'bn'
-            ? `স্বাগতম! আপনার ক্লাউড ডেটা সফলভাবে রিস্টোর হয়েছে।`
-            : `Welcome back! Restored data from cloud successfully.`,
+            ? `স্বাগতম! আপনার অ্যাকাউন্ট সফলভাবে লগইন হয়েছে (${sbRes.restored.bills.length}টি ইনভয়েস/ট্রানজ্যাকশন)।`
+            : `Welcome back! Account logged in successfully (${sbRes.restored.bills.length} invoices/transactions).`,
           'success'
         );
         return { success: true };
@@ -623,6 +588,39 @@ export default function App() {
           };
         }
       }
+    }
+
+    // 4. Fallback: Server Authoritative Authentication & Cloud Vault Restore (for offline / local users)
+    // Works across all devices, browsers, and after clearing browser storage/cookies
+    const serverAuth = await storageService.authenticateWithServerAsync(cleanEmail, cleanPassword);
+    if (serverAuth.success && serverAuth.vault) {
+      const v = serverAuth.vault;
+      const loadedBills = Array.isArray(v.bills) ? v.bills : storageService.getBills();
+      const loadedProducts = Array.isArray(v.products) ? v.products : storageService.getProducts();
+      const loadedCash = Array.isArray(v.cashEntries) ? v.cashEntries : storageService.getCashEntries();
+      const loadedDues = Array.isArray(v.customerDues) ? v.customerDues : storageService.getCustomerDues();
+      const loadedTrips = Array.isArray(v.purchaseTrips) ? v.purchaseTrips : storageService.getPurchaseTrips();
+      const loadedSettings = v.settings || storageService.getSettings();
+      const loadedProfile = storageService.getUserProfile();
+
+      setBills(loadedBills);
+      setProducts(loadedProducts);
+      setCashEntries(loadedCash);
+      setCustomerDues(loadedDues);
+      setPurchaseTrips(loadedTrips);
+      setSettings(loadedSettings);
+      setUserProfile(loadedProfile);
+      localStorage.setItem('thermal_pos_onboarding_completed', 'true');
+      setIsOnboardingOpen(false);
+      setIsLoginModalOpen(false);
+
+      showToast(
+        language === 'bn'
+          ? `স্বাগতম! আপনার অ্যাকাউন্ট সফলভাবে লগইন হয়েছে (${loadedBills.length}টি ইনভয়েস)।`
+          : `Welcome back! Account logged in successfully (${loadedBills.length} invoices).`,
+        'success'
+      );
+      return { success: true };
     }
 
     if (serverAuth.error && serverAuth.error.includes('পাসওয়ার্ড')) {
@@ -1496,10 +1494,36 @@ export default function App() {
           : 'Syncing shop data across devices...',
         'info'
       );
-      // 1. Upload current local data to server
+
+      // 1. If Supabase is configured, fetch directly from Supabase using authenticated auth.uid()
+      if (isSupabaseConfigured()) {
+        const uid = await supabaseService.getActiveUserId();
+        if (uid) {
+          const cloudData = await supabaseService.restoreUserData(uid, prof.email, prof.phone);
+          if (cloudData) {
+            setBills(cloudData.bills);
+            setProducts(cloudData.products);
+            if (Array.isArray(cloudData.cashEntries)) setCashEntries(cloudData.cashEntries);
+            if (Array.isArray(cloudData.customerDues)) setCustomerDues(cloudData.customerDues);
+            if (Array.isArray(cloudData.purchaseTrips)) setPurchaseTrips(cloudData.purchaseTrips);
+            if (cloudData.settings?.storeName) setSettings(cloudData.settings);
+            storageService.saveBills(cloudData.bills);
+            storageService.saveProducts(cloudData.products);
+            showToast(
+              language === 'bn'
+                ? `ক্লাউড সিঙ্ক সফল! (${cloudData.bills.length}টি ইনভয়েস/ট্রানজ্যাকশন, ${cloudData.products.length}টি প্রোডাক্ট)`
+                : `Cloud Synced! (${cloudData.bills.length} Invoices/Transactions, ${cloudData.products.length} Products)`,
+              'success'
+            );
+            return;
+          }
+        }
+      }
+
+      // 2. Upload current local data to server
       storageService.syncActiveAccountVault();
 
-      // 2. Fetch latest merged canonical vault from server
+      // 3. Fetch latest merged canonical vault from server
       const norm = storageService.normalizeIdentifier(syncId);
       const res = await fetch(`/api/vault/${encodeURIComponent(norm)}`);
       if (res.ok) {

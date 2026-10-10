@@ -753,30 +753,83 @@ class SupabaseService {
         userProfile.ownerId = masterUserId;
       }
 
-      // 2. Fetch Invoices using master owner ID or shop_id
-      const { data: invoiceRows, error: invErr } = await supabase
-        .from('invoices')
-        .select('*')
-        .eq('user_id', masterUserId)
-        .order('timestamp', { ascending: false });
+      // 2. Fetch Invoices and/or Transactions using authenticated user's ID (auth.uid())
+      // Query 'invoices' table using user_id = masterUserId
+      try {
+        const { data: invoiceRows, error: invErr } = await supabase
+          .from('invoices')
+          .select('*')
+          .eq('user_id', masterUserId)
+          .order('timestamp', { ascending: false });
 
-      if (Array.isArray(invoiceRows)) {
-        bills = invoiceRows.map((row) => ({
-          id: row.id,
-          invoiceNo: row.invoice_no,
-          date: row.date,
-          time: row.time,
-          customerName: row.customer_name || '',
-          customerPhone: row.customer_phone || '',
-          items: Array.isArray(row.items) ? row.items : [],
-          subtotal: Number(row.subtotal) || 0,
-          discount: Number(row.discount) || 0,
-          grandTotal: Number(row.grand_total) || 0,
-          paymentMethod: row.payment_method || 'cash',
-          paidAmount: Number(row.grand_total) || 0,
-          changeAmount: 0,
-          timestamp: Number(row.timestamp) || Date.now(),
-        }));
+        if (!invErr && Array.isArray(invoiceRows) && invoiceRows.length > 0) {
+          bills = invoiceRows.map((row) => ({
+            id: row.id,
+            invoiceNo: row.invoice_no,
+            date: row.date,
+            time: row.time,
+            customerName: row.customer_name || '',
+            customerPhone: row.customer_phone || '',
+            items: Array.isArray(row.items) ? row.items : [],
+            subtotal: Number(row.subtotal) || 0,
+            discount: Number(row.discount) || 0,
+            grandTotal: Number(row.grand_total) || 0,
+            paymentMethod: row.payment_method || 'cash',
+            paidAmount: Number(row.grand_total) || 0,
+            changeAmount: 0,
+            timestamp: Number(row.timestamp) || Date.now(),
+          }));
+        }
+      } catch (invEx) {
+        console.warn('Invoices table query notice:', invEx);
+      }
+
+      // Query 'transactions' table using authenticated user_id (auth.uid())
+      try {
+        const { data: txRows, error: txErr } = await supabase
+          .from('transactions')
+          .select('*')
+          .eq('user_id', masterUserId)
+          .order('created_at', { ascending: false });
+
+        if (!txErr && Array.isArray(txRows) && txRows.length > 0) {
+          const existingIds = new Set(bills.map((b) => b.id));
+          for (let i = 0; i < txRows.length; i++) {
+            const row = txRows[i];
+            if (!existingIds.has(row.id)) {
+              const dt = row.created_at ? new Date(row.created_at) : new Date();
+              const amt = Number(row.amount) || 0;
+              bills.push({
+                id: row.id,
+                invoiceNo: String(row.invoice_no || row.id?.slice(-4) || i + 1),
+                date: dt.toLocaleDateString(),
+                time: dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                customerName: row.customer_name || 'Customer',
+                customerPhone: row.customer_phone || '',
+                items: Array.isArray(row.items) && row.items.length > 0
+                  ? row.items
+                  : [
+                      {
+                        name: row.title || (row.type === 'EXPENSE' ? 'Expense' : 'Sale Item'),
+                        price: amt,
+                        qty: 1,
+                        total: amt,
+                      },
+                    ],
+                subtotal: amt,
+                discount: 0,
+                grandTotal: amt,
+                paymentMethod: row.type === 'EXPENSE' ? 'expense' : 'cash',
+                paidAmount: amt,
+                changeAmount: 0,
+                timestamp: dt.getTime(),
+              });
+              existingIds.add(row.id);
+            }
+          }
+        }
+      } catch (txEx) {
+        console.warn('Transactions table query notice:', txEx);
       }
 
       // If masterShopId is different from masterUserId, query and merge shop invoices
@@ -914,39 +967,7 @@ class SupabaseService {
           }
         }
       }
-      // Fallback to persistent server vault if Supabase returned 0 bills or products
-      if (bills.length === 0 || products.length === 0) {
-        try {
-          const serverLookup = userEmail || userPhone || targetIdOrIdentifier;
-          if (serverLookup && typeof fetch !== 'undefined') {
-            const norm = (serverLookup || '').trim().toLowerCase().replace(/[\s+()_-]/g, '');
-            const sRes = await fetch(`/api/vault/${encodeURIComponent(norm)}`);
-            if (sRes.ok) {
-              const sJson = await sRes.json();
-              if (sJson.success && sJson.vault) {
-                if (bills.length === 0 && Array.isArray(sJson.vault.bills) && sJson.vault.bills.length > 0) {
-                  bills = sJson.vault.bills;
-                }
-                if (products.length === 0 && Array.isArray(sJson.vault.products) && sJson.vault.products.length > 0) {
-                  products = sJson.vault.products;
-                }
-                if (cashEntries.length === 0 && Array.isArray(sJson.vault.cashEntries) && sJson.vault.cashEntries.length > 0) {
-                  cashEntries = sJson.vault.cashEntries;
-                }
-                if (customerDues.length === 0 && Array.isArray(sJson.vault.customerDues) && sJson.vault.customerDues.length > 0) {
-                  customerDues = sJson.vault.customerDues;
-                }
-                if (purchaseTrips.length === 0 && Array.isArray(sJson.vault.purchaseTrips) && sJson.vault.purchaseTrips.length > 0) {
-                  purchaseTrips = sJson.vault.purchaseTrips;
-                }
-                if (!settings.storeName && sJson.vault.settings?.storeName) {
-                  settings = { ...settings, ...sJson.vault.settings };
-                }
-              }
-            }
-          }
-        } catch {}
-      }
+      // Real Supabase data only — never overwrite with fake mock data
     } catch (fetchErr) {
       console.error('Supabase cloud restore error:', fetchErr);
     }
@@ -962,9 +983,12 @@ class SupabaseService {
     };
   }
 
-  // Sync a single invoice to Supabase cloud
+  // Sync a single invoice to Supabase cloud (supports both invoices and transactions tables)
   async syncInvoice(invoice: BillInvoice, userId: string, shopId?: string): Promise<boolean> {
     if (!userId || !this.isConfigured()) return false;
+    let anySuccess = false;
+
+    // 1. Attempt sync to invoices table
     try {
       const payload: any = {
         id: invoice.id,
@@ -987,26 +1011,52 @@ class SupabaseService {
         payload.shop_id = shopId;
       }
       const { error } = await supabase.from('invoices').upsert(payload, { onConflict: 'id' });
-      if (error) {
-        console.warn('Sync invoice error:', error);
-        return false;
+      if (!error) anySuccess = true;
+    } catch {}
+
+    // 2. Also sync to transactions table using authenticated user's ID (auth.uid())
+    try {
+      const isUuid = (s: string) =>
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+      const txPayload: any = {
+        user_id: userId,
+        title:
+          invoice.items?.[0]?.name
+            ? `${invoice.items[0].name}${invoice.items.length > 1 ? ` (+${invoice.items.length - 1})` : ''}`
+            : `Bill #${invoice.invoiceNo}`,
+        amount: invoice.grandTotal || 0,
+        type: invoice.paymentMethod === 'due' ? 'EXPENSE' : 'INCOME',
+        customer_name: invoice.customerName || 'Cash Sale',
+        created_at: new Date(invoice.timestamp || Date.now()).toISOString(),
+      };
+      if (isUuid(invoice.id)) {
+        txPayload.id = invoice.id;
       }
-      return true;
-    } catch (e) {
-      console.warn('Sync invoice exception:', e);
-      return false;
+      const { error: txErr } = await supabase.from('transactions').upsert(txPayload);
+      if (!txErr) anySuccess = true;
+    } catch (txEx) {
+      console.warn('transactions table sync notice:', txEx);
     }
+
+    return anySuccess;
   }
 
-  // Delete invoice from Supabase cloud
-  async deleteInvoice(invoiceId: string, _userId?: string): Promise<boolean> {
+  // Delete invoice from Supabase cloud (removes from both invoices and transactions tables)
+  async deleteInvoice(invoiceId: string, userId?: string): Promise<boolean> {
     if (!this.isConfigured()) return false;
     try {
-      const { error } = await supabase
+      await supabase
         .from('invoices')
         .delete()
         .or(`id.eq.${invoiceId},invoice_no.eq.${invoiceId}`);
-      return !error;
+      if (userId) {
+        await supabase
+          .from('transactions')
+          .delete()
+          .eq('id', invoiceId)
+          .eq('user_id', userId);
+      }
+      return true;
     } catch {
       return false;
     }

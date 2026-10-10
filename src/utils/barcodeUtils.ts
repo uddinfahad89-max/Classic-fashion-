@@ -26,7 +26,7 @@ import { ProductStockItem } from '../types';
  * - Category
  * - Item Type
  */
-export const exportProductsForVyaparExcel = (products: ProductStockItem[]): void => {
+export const exportProductsToExcel = (products: ProductStockItem[], filename = 'Products_Inventory_Export.xlsx'): void => {
   if (!products || products.length === 0) return;
 
   const rows = products.map((p) => ({
@@ -41,7 +41,6 @@ export const exportProductsForVyaparExcel = (products: ProductStockItem[]): void
   }));
 
   const ws = XLSX.utils.json_to_sheet(rows);
-  // Auto-fit column widths
   ws['!cols'] = [
     { wch: 28 }, // Item Name
     { wch: 20 }, // Item Code
@@ -55,7 +54,11 @@ export const exportProductsForVyaparExcel = (products: ProductStockItem[]): void
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Items');
-  XLSX.writeFile(wb, 'Vyapar_Items_Import.xlsx');
+  XLSX.writeFile(wb, filename);
+};
+
+export const exportProductsForVyaparExcel = (products: ProductStockItem[]): void => {
+  exportProductsToExcel(products, 'Vyapar_Items_Import.xlsx');
 };
 
 // Convert Bengali Numerals (০, ১, ২, ৩, ৪, ৫, ৬, ৭, ৮, ৯) to ASCII Digits (0-9)
