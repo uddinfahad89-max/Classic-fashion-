@@ -756,29 +756,43 @@ class SupabaseService {
       // 2. Fetch Invoices and/or Transactions using authenticated user's ID (auth.uid())
       // Query 'invoices' table using user_id = masterUserId
       try {
-        const { data: invoiceRows, error: invErr } = await supabase
+        let invRes = await supabase
           .from('invoices')
           .select('*')
-          .eq('user_id', masterUserId)
-          .order('timestamp', { ascending: false });
+          .eq('user_id', masterUserId);
 
-        if (!invErr && Array.isArray(invoiceRows) && invoiceRows.length > 0) {
-          bills = invoiceRows.map((row) => ({
-            id: row.id,
-            invoiceNo: row.invoice_no,
-            date: row.date,
-            time: row.time,
-            customerName: row.customer_name || '',
-            customerPhone: row.customer_phone || '',
-            items: Array.isArray(row.items) ? row.items : [],
-            subtotal: Number(row.subtotal) || 0,
-            discount: Number(row.discount) || 0,
-            grandTotal: Number(row.grand_total) || 0,
-            paymentMethod: row.payment_method || 'cash',
-            paidAmount: Number(row.grand_total) || 0,
-            changeAmount: 0,
-            timestamp: Number(row.timestamp) || Date.now(),
-          }));
+        const invoiceRows = invRes.data;
+        if (!invRes.error && Array.isArray(invoiceRows) && invoiceRows.length > 0) {
+          bills = invoiceRows.map((row, idx) => {
+            const rawTs = Number(row.timestamp) || (row.created_at ? new Date(row.created_at).getTime() : Date.now());
+            const dt = new Date(rawTs);
+            const total = Number(row.grand_total ?? row.subtotal ?? row.amount ?? 0);
+            return {
+              id: String(row.id || `inv-${idx}`),
+              invoiceNo: String(row.invoice_no || row.id?.slice(-4) || idx + 1),
+              date: row.date || dt.toLocaleDateString(),
+              time: row.time || dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              customerName: row.customer_name || 'Cash Sale',
+              customerPhone: row.customer_phone || '',
+              items: Array.isArray(row.items) && row.items.length > 0
+                ? row.items
+                : [
+                    {
+                      name: row.title || 'Invoice Item',
+                      price: total,
+                      qty: 1,
+                      total: total,
+                    },
+                  ],
+              subtotal: Number(row.subtotal ?? total) || 0,
+              discount: Number(row.discount) || 0,
+              grandTotal: total,
+              paymentMethod: row.payment_method || 'cash',
+              paidAmount: Number(row.paid_amount ?? total) || 0,
+              changeAmount: Number(row.change_amount) || 0,
+              timestamp: rawTs,
+            };
+          });
         }
       } catch (invEx) {
         console.warn('Invoices table query notice:', invEx);
@@ -804,7 +818,7 @@ class SupabaseService {
                 invoiceNo: String(row.invoice_no || row.id?.slice(-4) || i + 1),
                 date: dt.toLocaleDateString(),
                 time: dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                customerName: row.customer_name || 'Customer',
+                customerName: row.customer_name || 'Cash Sale',
                 customerPhone: row.customer_phone || '',
                 items: Array.isArray(row.items) && row.items.length > 0
                   ? row.items
@@ -819,7 +833,7 @@ class SupabaseService {
                 subtotal: amt,
                 discount: 0,
                 grandTotal: amt,
-                paymentMethod: row.type === 'EXPENSE' ? 'expense' : 'cash',
+                paymentMethod: row.type === 'EXPENSE' ? 'due' : 'cash',
                 paidAmount: amt,
                 changeAmount: 0,
                 timestamp: dt.getTime(),
@@ -831,6 +845,9 @@ class SupabaseService {
       } catch (txEx) {
         console.warn('Transactions table query notice:', txEx);
       }
+
+      // Sort all combined invoices by timestamp descending
+      bills.sort((a, b) => b.timestamp - a.timestamp);
 
       // If masterShopId is different from masterUserId, query and merge shop invoices
       if (masterShopId && masterShopId !== masterUserId) {

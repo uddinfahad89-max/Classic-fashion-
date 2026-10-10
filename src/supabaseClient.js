@@ -24,19 +24,22 @@ const getLocalConfig = (key) => {
 };
 
 // Default or configured credentials
-const configuredUrl = getLocalConfig('pos_supabase_url') || getEnvVar('VITE_SUPABASE_URL') || '';
-const configuredAnonKey = getLocalConfig('pos_supabase_anon_key') || getEnvVar('VITE_SUPABASE_ANON_KEY') || '';
+const CANONICAL_SUPABASE_URL = 'https://tklqslizkqtispiyuder.supabase.co';
+const CANONICAL_SUPABASE_KEY = 'sb_publishable_9C6A0sMh9-KBoxhJnfBExA_wzMLOcnf';
+
+const configuredUrl = getLocalConfig('pos_supabase_url') || getEnvVar('VITE_SUPABASE_URL') || CANONICAL_SUPABASE_URL;
+const configuredAnonKey = getLocalConfig('pos_supabase_anon_key') || getEnvVar('VITE_SUPABASE_ANON_KEY') || CANONICAL_SUPABASE_KEY;
 
 // Fallback dummy credentials to prevent createClient throwing on unconfigured start
-const defaultUrl = configuredUrl && configuredUrl.startsWith('http')
+const defaultUrl = (configuredUrl && configuredUrl.startsWith('http'))
   ? configuredUrl
-  : 'https://placeholder-project.supabase.co';
+  : CANONICAL_SUPABASE_URL;
 
-const defaultAnonKey = configuredAnonKey || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.placeholder';
+const defaultAnonKey = configuredAnonKey || CANONICAL_SUPABASE_KEY;
 
 export const isSupabaseConfigured = () => {
-  const currentUrl = getLocalConfig('pos_supabase_url') || getEnvVar('VITE_SUPABASE_URL') || '';
-  const currentKey = getLocalConfig('pos_supabase_anon_key') || getEnvVar('VITE_SUPABASE_ANON_KEY') || '';
+  const currentUrl = getLocalConfig('pos_supabase_url') || getEnvVar('VITE_SUPABASE_URL') || CANONICAL_SUPABASE_URL;
+  const currentKey = getLocalConfig('pos_supabase_anon_key') || getEnvVar('VITE_SUPABASE_ANON_KEY') || CANONICAL_SUPABASE_KEY;
   return Boolean(
     currentUrl &&
     currentKey &&
@@ -47,8 +50,8 @@ export const isSupabaseConfigured = () => {
 };
 
 export const getSupabaseConfig = () => {
-  const currentUrl = getLocalConfig('pos_supabase_url') || getEnvVar('VITE_SUPABASE_URL') || '';
-  const currentKey = getLocalConfig('pos_supabase_anon_key') || getEnvVar('VITE_SUPABASE_ANON_KEY') || '';
+  const currentUrl = getLocalConfig('pos_supabase_url') || getEnvVar('VITE_SUPABASE_URL') || CANONICAL_SUPABASE_URL;
+  const currentKey = getLocalConfig('pos_supabase_anon_key') || getEnvVar('VITE_SUPABASE_ANON_KEY') || CANONICAL_SUPABASE_KEY;
   return {
     url: currentUrl,
     key: currentKey,

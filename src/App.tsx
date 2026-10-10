@@ -184,6 +184,27 @@ export default function App() {
       setUserProfile(prof);
     }
 
+    // Boot-time authoritative sync from Supabase Cloud using auth.uid()
+    if (isSupabaseConfigured()) {
+      supabase.auth.getSession().then(({ data }) => {
+        const authUser = data?.session?.user;
+        if (authUser) {
+          supabaseService.restoreUserData(authUser.id, authUser.email || prof.email || '').then((restored) => {
+            if (restored && Array.isArray(restored.bills)) {
+              setBills(restored.bills);
+              setProducts(restored.products);
+              setCashEntries(restored.cashEntries);
+              setCustomerDues(restored.customerDues);
+              setPurchaseTrips(restored.purchaseTrips);
+              setSettings(restored.settings);
+              storageService.saveBills(restored.bills);
+              storageService.saveProducts(restored.products);
+            }
+          }).catch((err) => console.warn('Supabase boot restore notice:', err));
+        }
+      });
+    }
+
     // Boot-time authoritative sync from server vault for multi-device consistency
     const bootSyncId = prof.email || prof.phone || 'uddinfahad89@gmail.com';
     if (bootSyncId) {
@@ -570,6 +591,7 @@ export default function App() {
         localStorage.setItem('thermal_pos_onboarding_completed', 'true');
         setIsOnboardingOpen(false);
         setIsLoginModalOpen(false);
+        setActiveTab('invoices');
         showToast(
           language === 'bn'
             ? `স্বাগতম! আপনার অ্যাকাউন্ট সফলভাবে লগইন হয়েছে (${sbRes.restored.bills.length}টি ইনভয়েস/ট্রানজ্যাকশন)।`

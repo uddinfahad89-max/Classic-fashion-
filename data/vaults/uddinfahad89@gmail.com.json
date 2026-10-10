@@ -22,7 +22,7 @@
     "defaultInvoiceFormat": "tax_invoice",
     "isDataSaverEnabled": false,
     "invoicePrefix": "",
-    "nextInvoiceNumber": 3,
+    "nextInvoiceNumber": 1,
     "isLabelMode": false,
     "autoCapitalizeItemNames": true,
     "isTotalOnlySlip": false
@@ -32,5 +32,5 @@
   "customerDues": [],
   "purchaseTrips": [],
   "products": [],
-  "lastActive": 1791541151658
+  "lastActive": 1791650484396
 }
