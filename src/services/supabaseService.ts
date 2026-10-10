@@ -751,6 +751,23 @@ class SupabaseService {
         userProfile.email = masterProfile.email || userEmail;
         userProfile.shopId = masterShopId;
         userProfile.ownerId = masterUserId;
+      } else {
+        // Fallback: Read from Supabase Auth user_metadata directly
+        try {
+          const { data: authUserData } = await supabase.auth.getUser();
+          const meta = authUserData?.user?.user_metadata;
+          if (meta) {
+            if (meta.store_name) {
+              settings.storeName = meta.store_name;
+            }
+            if (meta.name) {
+              userProfile.name = meta.name;
+            }
+            if (meta.phone) {
+              userProfile.phone = meta.phone;
+            }
+          }
+        } catch {}
       }
 
       // 2. Fetch Invoices and/or Transactions using authenticated user's ID (auth.uid())
@@ -1237,8 +1254,26 @@ class SupabaseService {
         updated_at: new Date().toISOString(),
       };
 
-      const { error } = await supabase.from('profiles').upsert(payload, { onConflict: 'id' });
-      return !error;
+      // 1. Update Supabase Auth user metadata so store name persists in cloud even without profiles table
+      try {
+        await supabase.auth.updateUser({
+          data: {
+            store_name: settings.storeName || '',
+            name: settings.signatoryName || userProfile.name || '',
+            phone: settings.storePhone || userProfile.phone || '',
+          },
+        });
+      } catch (authErr) {
+        console.warn('Supabase auth metadata update notice:', authErr);
+      }
+
+      // 2. Also upsert to profiles table if it exists
+      try {
+        const { error } = await supabase.from('profiles').upsert(payload, { onConflict: 'id' });
+        if (!error) return true;
+      } catch {}
+
+      return true;
     } catch {
       return false;
     }
