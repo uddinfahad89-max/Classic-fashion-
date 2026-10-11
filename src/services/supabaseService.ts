@@ -127,6 +127,25 @@ CREATE TABLE IF NOT EXISTS public.products (
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- 8. Barcodes & Product Tags Table
+CREATE TABLE IF NOT EXISTS public.barcodes (
+  id TEXT PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  shop_id TEXT,
+  barcode TEXT NOT NULL,
+  product_id TEXT,
+  product_name TEXT NOT NULL,
+  price NUMERIC(12, 2) DEFAULT 0,
+  purchase_price NUMERIC(12, 2) DEFAULT 0,
+  sku TEXT,
+  category TEXT DEFAULT '',
+  unit TEXT DEFAULT 'pcs',
+  design_config JSONB DEFAULT '{}'::jsonb,
+  printed_count INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- Migrations for existing tables: Add shop_id column if missing
 DO $$
 BEGIN
@@ -148,6 +167,28 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'purchase_trips' AND column_name = 'shop_id') THEN
     ALTER TABLE public.purchase_trips ADD COLUMN shop_id TEXT;
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'barcodes') THEN
+    CREATE TABLE public.barcodes (
+      id TEXT PRIMARY KEY,
+      user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+      shop_id TEXT,
+      barcode TEXT NOT NULL,
+      product_id TEXT,
+      product_name TEXT NOT NULL,
+      price NUMERIC(12, 2) DEFAULT 0,
+      purchase_price NUMERIC(12, 2) DEFAULT 0,
+      sku TEXT,
+      category TEXT DEFAULT '',
+      unit TEXT DEFAULT 'pcs',
+      design_config JSONB DEFAULT '{}'::jsonb,
+      printed_count INTEGER DEFAULT 0,
+      created_at TIMESTAMPTZ DEFAULT now(),
+      updated_at TIMESTAMPTZ DEFAULT now()
+    );
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'barcodes' AND column_name = 'shop_id') THEN
+    ALTER TABLE public.barcodes ADD COLUMN shop_id TEXT;
+  END IF;
 END $$;
 
 -- ==============================================================================
@@ -160,6 +201,7 @@ ALTER TABLE public.cash_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.customer_dues ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.purchase_trips ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.barcodes ENABLE ROW LEVEL SECURITY;
 
 -- Profiles Policies: allow read & upsert for account linking
 DROP POLICY IF EXISTS "profiles_select_policy" ON public.profiles;
@@ -286,7 +328,30 @@ CREATE POLICY "products_delete_policy" ON public.products FOR DELETE USING (
   auth.uid() = user_id OR (shop_id IS NOT NULL AND shop_id = auth.uid()::text) OR auth.role() = 'anon'
 );
 
--- 8. Trigger to automatically handle new auth user signups
+-- Barcodes Policies
+DROP POLICY IF EXISTS "barcodes_select_policy" ON public.barcodes;
+CREATE POLICY "barcodes_select_policy" ON public.barcodes FOR SELECT USING (
+  auth.uid() = user_id OR (shop_id IS NOT NULL AND shop_id = auth.uid()::text) OR auth.role() = 'anon'
+);
+
+DROP POLICY IF EXISTS "barcodes_insert_policy" ON public.barcodes;
+CREATE POLICY "barcodes_insert_policy" ON public.barcodes FOR INSERT WITH CHECK (
+  auth.uid() = user_id OR (shop_id IS NOT NULL AND shop_id = auth.uid()::text) OR auth.role() = 'anon'
+);
+
+DROP POLICY IF EXISTS "barcodes_update_policy" ON public.barcodes;
+CREATE POLICY "barcodes_update_policy" ON public.barcodes FOR UPDATE USING (
+  auth.uid() = user_id OR (shop_id IS NOT NULL AND shop_id = auth.uid()::text) OR auth.role() = 'anon'
+) WITH CHECK (
+  auth.uid() = user_id OR (shop_id IS NOT NULL AND shop_id = auth.uid()::text) OR auth.role() = 'anon'
+);
+
+DROP POLICY IF EXISTS "barcodes_delete_policy" ON public.barcodes;
+CREATE POLICY "barcodes_delete_policy" ON public.barcodes FOR DELETE USING (
+  auth.uid() = user_id OR (shop_id IS NOT NULL AND shop_id = auth.uid()::text) OR auth.role() = 'anon'
+);
+
+-- 9. Trigger to automatically handle new auth user signups
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -1210,6 +1275,62 @@ class SupabaseService {
         .from('products')
         .delete()
         .eq('id', productId);
+      return !error;
+    } catch {
+      return false;
+    }
+  }
+
+  // ==========================================
+  // BARCODES TABLE SYNC & QUERIES
+  // ==========================================
+  async syncBarcode(item: any, userId: string, shopId?: string): Promise<boolean> {
+    if (!userId || !this.isConfigured()) return false;
+    try {
+      const payload: any = {
+        id: item.id || `bc_${item.barcode || Date.now()}`,
+        user_id: userId,
+        shop_id: shopId || userId,
+        barcode: String(item.barcode || '').trim(),
+        product_id: item.productId || '',
+        product_name: item.productName || item.name || '',
+        price: Number(item.price) || 0,
+        purchase_price: Number(item.purchasePrice) || 0,
+        sku: item.sku || '',
+        category: item.category || '',
+        unit: item.unit || 'pcs',
+        design_config: item.designConfig || {},
+        printed_count: Number(item.printedCount) || 0,
+        updated_at: new Date().toISOString()
+      };
+      const { error } = await supabase.from('barcodes').upsert(payload, { onConflict: 'id' });
+      return !error;
+    } catch {
+      return false;
+    }
+  }
+
+  async fetchBarcodes(userId?: string, shopId?: string): Promise<any[]> {
+    if (!this.isConfigured()) return [];
+    try {
+      let query = supabase.from('barcodes').select('*');
+      if (userId) {
+        query = query.or(`user_id.eq.${userId},shop_id.eq.${userId}${shopId ? `,shop_id.eq.${shopId}` : ''}`);
+      }
+      const { data, error } = await query;
+      if (error) return [];
+      return data || [];
+    } catch {
+      return [];
+    }
+  }
+
+  async deleteBarcode(id: string, userId?: string): Promise<boolean> {
+    if (!this.isConfigured() || !id) return false;
+    try {
+      let query = supabase.from('barcodes').delete().eq('id', id);
+      if (userId) query = query.eq('user_id', userId);
+      const { error } = await query;
       return !error;
     } catch {
       return false;

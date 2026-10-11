@@ -45,6 +45,7 @@ import { backHandler } from './utils/backHandler';
 import { useBackHandler } from './utils/useBackHandler';
 import { supabaseService } from './services/supabaseService';
 import { supabase, isSupabaseConfigured } from './supabaseClient.js';
+import { firebaseService } from './services/firebaseService';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('billing');
@@ -910,12 +911,13 @@ export default function App() {
       isTotalOnlySlip !== undefined ? isTotalOnlySlip : Boolean(settings.isTotalOnlySlip);
     setReceiptInitialTotalOnly(effectiveTotalOnly);
 
-    // Sync to Supabase cloud in background
+    // Sync to Supabase & Firebase cloud in background
     supabaseService.getActiveUserId().then((userId) => {
       if (userId) {
         supabaseService.syncInvoice(bill, userId);
       }
     });
+    firebaseService.syncInvoice(bill);
 
     // 2. If paid via Cash or UPI, automatically record as Income in Cashbook
     if (bill.paymentMethod === 'cash' || bill.paymentMethod === 'upi' || bill.paymentMethod === 'card') {
@@ -1093,12 +1095,13 @@ export default function App() {
       }
     }
 
-    // Sync update to Supabase cloud
+    // Sync update to Supabase & Firebase cloud
     supabaseService.getActiveUserId().then((userId) => {
       if (userId) {
         supabaseService.syncInvoice(updatedBill, userId);
       }
     });
+    firebaseService.syncInvoice(updatedBill);
 
     // Show the updated receipt immediately so user sees the updated Due / Paid status
     setReceiptBill(updatedBill);
@@ -1435,6 +1438,15 @@ export default function App() {
   const handleSaveSettings = (newSettings: ThermalPrinterSettings) => {
     storageService.saveSettings(newSettings);
     setSettings(newSettings);
+
+    // Sync store settings/profile to Supabase & Firebase
+    const prof = storageService.getUserProfile();
+    supabaseService.getActiveUserId().then((userId) => {
+      if (userId) {
+        supabaseService.syncProfile(newSettings, prof, userId, products);
+      }
+    });
+    firebaseService.syncProfile(newSettings, undefined, undefined, prof.phone, prof.email);
   };
 
   const handleUpdatePaperWidth = (paperWidth: PaperWidth) => {
@@ -1469,6 +1481,40 @@ export default function App() {
   }) => {
     const saved = storageService.addOrUpdateProduct(data);
     setProducts(storageService.getProducts());
+
+    // Sync product & barcode to Supabase & Firebase
+    supabaseService.getActiveUserId().then((userId) => {
+      if (userId) {
+        supabaseService.syncProduct(saved, userId);
+        if (saved.barcode) {
+          supabaseService.syncBarcode({
+            id: `bc_${saved.id}`,
+            barcode: saved.barcode,
+            productName: saved.name,
+            productId: saved.id,
+            price: saved.price,
+            purchasePrice: saved.purchasePrice,
+            category: saved.category,
+            unit: saved.unit,
+          }, userId);
+        }
+      }
+    });
+
+    firebaseService.syncProduct(saved);
+    if (saved.barcode) {
+      firebaseService.syncBarcode({
+        id: `bc_${saved.id}`,
+        barcode: saved.barcode,
+        productName: saved.name,
+        productId: saved.id,
+        price: saved.price,
+        purchasePrice: saved.purchasePrice,
+        category: saved.category,
+        unit: saved.unit,
+      });
+    }
+
     showToast(
       language === 'bn'
         ? `"${saved.name}" স্টকে সেভ হয়েছে (দর: ${settings.currencySymbol}${saved.price}, স্টক: ${saved.stock})`
@@ -1494,10 +1540,12 @@ export default function App() {
     storageService.deleteProduct(productId);
     setProducts(storageService.getProducts());
 
-    // Sync product deletion to Supabase cloud if connected
+    // Sync product & barcode deletion to Supabase and Firebase
     supabaseService.getActiveUserId().then((userId) => {
       supabaseService.deleteProduct(productId, userId || undefined);
+      supabaseService.deleteBarcode(`bc_${productId}`, userId || undefined);
     });
+    firebaseService.deleteBarcode(`bc_${productId}`);
 
     showToast(
       language === 'bn' ? 'প্রোডাক্ট তালিকা থেকে মুছে ফেলা হয়েছে' : 'Product removed from stock',
@@ -1720,6 +1768,40 @@ export default function App() {
               setProducts(fresh);
               if (savedProd) {
                 setBarcodeTargetProduct(savedProd);
+
+                // Sync to Supabase Barcode table and Product table
+                supabaseService.getActiveUserId().then((userId) => {
+                  if (userId) {
+                    supabaseService.syncProduct(savedProd, userId);
+                    if (savedProd.barcode) {
+                      supabaseService.syncBarcode({
+                        id: `bc_${savedProd.id}`,
+                        barcode: savedProd.barcode,
+                        productName: savedProd.name,
+                        productId: savedProd.id,
+                        price: savedProd.price,
+                        purchasePrice: savedProd.purchasePrice,
+                        category: savedProd.category,
+                        unit: savedProd.unit,
+                      }, userId);
+                    }
+                  }
+                });
+
+                // Sync to Firebase Barcode collection and Product collection
+                firebaseService.syncProduct(savedProd);
+                if (savedProd.barcode) {
+                  firebaseService.syncBarcode({
+                    id: `bc_${savedProd.id}`,
+                    barcode: savedProd.barcode,
+                    productName: savedProd.name,
+                    productId: savedProd.id,
+                    price: savedProd.price,
+                    purchasePrice: savedProd.purchasePrice,
+                    category: savedProd.category,
+                    unit: savedProd.unit,
+                  });
+                }
               }
             }}
             onShowToast={showToast}

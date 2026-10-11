@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, X, Save, Check, Bluetooth, Power, Trash2, FileText, CheckCircle2, Zap, HelpCircle, Download, Upload, Database, Tag, Copy, Cloud, ShieldCheck, Receipt } from 'lucide-react';
+import { Settings, X, Save, Check, Bluetooth, Power, Trash2, FileText, CheckCircle2, Zap, HelpCircle, Download, Upload, Database, Tag, Copy, Cloud, ShieldCheck, Receipt, Flame, Barcode } from 'lucide-react';
 import { ThermalPrinterSettings, BluetoothDeviceInfo, Language } from '../types';
 import { translations } from '../utils/i18n';
 import { storageService } from '../services/storageService';
 import { SUPABASE_SQL_SETUP_SCRIPT } from '../services/supabaseService';
 import { isSupabaseConfigured, getSupabaseConfig, setCustomSupabaseCredentials } from '../supabaseClient.js';
+import { firebaseService } from '../services/firebaseService';
+import { firebaseConfig } from '../firebase';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -44,6 +46,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [customSbUrl, setCustomSbUrl] = useState(sbConfig.url || '');
   const [customSbKey, setCustomSbKey] = useState(sbConfig.key || '');
   const [sbSavedMsg, setSbSavedMsg] = useState(false);
+  const [fbTesting, setFbTesting] = useState(false);
+  const [fbTestMsg, setFbTestMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [showFbDetails, setShowFbDetails] = useState(false);
 
   useEffect(() => {
     setForm(settings);
@@ -729,6 +734,101 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   >
                     {sbSavedMsg ? 'Saved!' : 'Save Credentials'}
                   </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Firebase Cloud Firestore & Auth Section */}
+          <div className="p-3.5 bg-amber-50/70 rounded-2xl border border-amber-200 space-y-2.5">
+            <div className="font-bold text-stone-900 text-xs flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <Flame className="w-4 h-4 text-amber-500 fill-amber-500" />
+                <span>{isBn ? 'Firebase ক্লাউড ডাটাবেস (Firestore & Auth)' : 'Firebase Cloud Database (Firestore & Auth)'}</span>
+              </span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-800 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse"></span>
+                <span>{isBn ? 'কানেক্টেড (classic-fashion-pos)' : 'Connected'}</span>
+              </span>
+            </div>
+
+            <p className="text-[11px] text-stone-600 leading-tight">
+              {isBn
+                ? 'আপনার Firebase প্রোজেক্ট (classic-fashion-pos) সক্রিয় রয়েছে। ইনভয়েস, স্টক এবং Barcode Table সরাসরি Firestore ক্লাউডে সুরক্ষিত রয়েছে।'
+                : 'Your Firebase project (classic-fashion-pos) is active. Invoices, Stock and Barcode Table sync directly to Firestore.'}
+            </p>
+
+            <div className="bg-white/90 p-2.5 rounded-xl border border-amber-200/80 text-[11px] space-y-1.5">
+              <div className="flex items-center justify-between text-stone-600">
+                <span className="font-medium">Project ID:</span>
+                <span className="font-mono font-bold text-stone-900">{firebaseConfig.projectId}</span>
+              </div>
+              <div className="flex items-center justify-between text-stone-600">
+                <span className="font-medium">Active Collections:</span>
+                <span className="text-stone-800 font-semibold flex items-center gap-1">
+                  <Barcode className="w-3 h-3 text-indigo-600" /> barcodes, invoices, products, profiles
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                disabled={fbTesting}
+                onClick={async () => {
+                  setFbTesting(true);
+                  setFbTestMsg(null);
+                  try {
+                    const res = await firebaseService.testConnection();
+                    setFbTestMsg({
+                      type: res.success ? 'success' : 'error',
+                      text: res.message
+                    });
+                  } catch (err: any) {
+                    setFbTestMsg({
+                      type: 'error',
+                      text: err?.message || 'Connection test failed'
+                    });
+                  } finally {
+                    setFbTesting(false);
+                  }
+                }}
+                className="flex-1 bg-amber-500 hover:bg-amber-600 text-stone-950 font-bold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer transition-all disabled:opacity-50"
+              >
+                <Flame className="w-3.5 h-3.5 fill-current" />
+                <span>
+                  {fbTesting
+                    ? (isBn ? 'পরীক্ষা করা হচ্ছে...' : 'Testing...')
+                    : (isBn ? 'Firebase সংযোগ টেস্ট করুন' : 'Test Firebase Connection')}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowFbDetails(!showFbDetails)}
+                className="px-3 py-2 bg-white hover:bg-stone-100 border border-stone-300 text-stone-700 font-bold text-xs rounded-xl cursor-pointer"
+              >
+                {showFbDetails ? (isBn ? 'সংক্ষিপ্ত' : 'Hide') : (isBn ? 'বিস্তারিত' : 'Details')}
+              </button>
+            </div>
+
+            {fbTestMsg && (
+              <p
+                className={`text-[11px] font-bold p-2 rounded-lg ${
+                  fbTestMsg.type === 'success' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                }`}
+              >
+                {fbTestMsg.text}
+              </p>
+            )}
+
+            {showFbDetails && (
+              <div className="p-2.5 bg-stone-900 text-stone-200 rounded-xl font-mono text-[10px] space-y-1">
+                <div>authDomain: {firebaseConfig.authDomain}</div>
+                <div>storageBucket: {firebaseConfig.storageBucket}</div>
+                <div>appId: {firebaseConfig.appId}</div>
+                <div className="text-amber-400 font-sans font-bold pt-1">
+                  ✓ Barcode Table (Collection 'barcodes') is synced with Firestore
                 </div>
               </div>
             )}

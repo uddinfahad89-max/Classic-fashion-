@@ -2,7 +2,7 @@
   "identifier": "uddinfahad89@gmail.com",
   "email": "uddinfahad89@gmail.com",
   "name": "Fahad uddin",
-  "phone": "",
+  "phone": "uddinfahad89@gmail.com",
   "role": "Owner",
   "pin": "1234",
   "password": "123456",
@@ -32,5 +32,5 @@
   "customerDues": [],
   "purchaseTrips": [],
   "products": [],
-  "lastActive": 1791650484396
+  "lastActive": 1791710523762
 }
