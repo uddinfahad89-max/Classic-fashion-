@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, X, Save, Check, Bluetooth, Power, Trash2, FileText, CheckCircle2, Zap, HelpCircle, Download, Upload, Database, Tag, Copy, Cloud, ShieldCheck, Receipt, Flame, Barcode } from 'lucide-react';
+import { Settings, X, Save, Check, Bluetooth, Power, Trash2, FileText, CheckCircle2, Zap, HelpCircle, Download, Upload, Database, Tag, Copy, Cloud, ShieldCheck, Receipt, Flame, Barcode, RefreshCw } from 'lucide-react';
 import { ThermalPrinterSettings, BluetoothDeviceInfo, Language } from '../types';
 import { translations } from '../utils/i18n';
 import { storageService } from '../services/storageService';
@@ -48,6 +48,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [sbSavedMsg, setSbSavedMsg] = useState(false);
   const [fbTesting, setFbTesting] = useState(false);
   const [fbTestMsg, setFbTestMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [fbSyncing, setFbSyncing] = useState(false);
+  const [fbSyncMsg, setFbSyncMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [fbRestoring, setFbRestoring] = useState(false);
+  const [fbRestoreMsg, setFbRestoreMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [showFbDetails, setShowFbDetails] = useState(false);
 
   useEffect(() => {
@@ -771,7 +775,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center gap-2 pt-1">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
               <button
                 type="button"
                 disabled={fbTesting}
@@ -793,22 +797,124 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     setFbTesting(false);
                   }
                 }}
-                className="flex-1 bg-amber-500 hover:bg-amber-600 text-stone-950 font-bold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer transition-all disabled:opacity-50"
+                className="bg-amber-500 hover:bg-amber-600 text-stone-950 font-bold py-2 px-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer transition-all disabled:opacity-50"
               >
-                <Flame className="w-3.5 h-3.5 fill-current" />
-                <span>
+                <Flame className="w-3.5 h-3.5 fill-current shrink-0" />
+                <span className="truncate">
                   {fbTesting
-                    ? (isBn ? 'পরীক্ষা করা হচ্ছে...' : 'Testing...')
-                    : (isBn ? 'Firebase সংযোগ টেস্ট করুন' : 'Test Firebase Connection')}
+                    ? (isBn ? 'পরীক্ষা...' : 'Testing...')
+                    : (isBn ? 'সংযোগ টেস্ট' : 'Test Connection')}
                 </span>
               </button>
 
               <button
                 type="button"
-                onClick={() => setShowFbDetails(!showFbDetails)}
-                className="px-3 py-2 bg-white hover:bg-stone-100 border border-stone-300 text-stone-700 font-bold text-xs rounded-xl cursor-pointer"
+                disabled={fbSyncing}
+                onClick={async () => {
+                  setFbSyncing(true);
+                  setFbSyncMsg(null);
+                  try {
+                    const res = await firebaseService.syncAllPOSData({
+                      bills: storageService.getBills(),
+                      products: storageService.getProducts(),
+                      cashEntries: storageService.getCashEntries(),
+                      customerDues: storageService.getCustomerDues(),
+                      purchaseTrips: storageService.getPurchaseTrips(),
+                      settings: form,
+                      userProfile: storageService.getUserProfile()
+                    });
+                    if (res.success) {
+                      setFbSyncMsg({
+                        type: 'success',
+                        text: isBn
+                          ? `✓ সফলভাবে ${res.count}টি POS রেকর্ড Firestore এ সেভ হয়েছে!`
+                          : `✓ Successfully saved ${res.count} POS records to Firebase Firestore!`
+                      });
+                    } else {
+                      setFbSyncMsg({
+                        type: 'error',
+                        text: res.error || 'Firestore sync failed'
+                      });
+                    }
+                  } catch (err: any) {
+                    setFbSyncMsg({
+                      type: 'error',
+                      text: err?.message || 'Sync failed'
+                    });
+                  } finally {
+                    setFbSyncing(false);
+                  }
+                }}
+                className="bg-stone-900 hover:bg-stone-800 text-amber-300 font-bold py-2 px-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer transition-all disabled:opacity-50"
               >
-                {showFbDetails ? (isBn ? 'সংক্ষিপ্ত' : 'Hide') : (isBn ? 'বিস্তারিত' : 'Details')}
+                <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${fbSyncing ? 'animate-spin text-amber-400' : ''}`} />
+                <span className="truncate">
+                  {fbSyncing
+                    ? (isBn ? 'সেভ হচ্ছে...' : 'Saving...')
+                    : (isBn ? 'Firestore এ সেভ' : 'Save to Firestore')}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                disabled={fbRestoring}
+                onClick={async () => {
+                  setFbRestoring(true);
+                  setFbRestoreMsg(null);
+                  try {
+                    const res = await firebaseService.restorePOSData();
+                    if (res && res.success) {
+                      if (res.bills.length > 0) storageService.saveBills(res.bills);
+                      if (res.products.length > 0) storageService.saveProducts(res.products);
+                      if (res.cashEntries.length > 0) storageService.saveCashEntries(res.cashEntries);
+                      if (res.customerDues.length > 0) storageService.saveCustomerDues(res.customerDues);
+                      if (res.purchaseTrips.length > 0) storageService.savePurchaseTrips(res.purchaseTrips);
+                      if (res.settings) {
+                        storageService.saveSettings(res.settings);
+                        setForm(res.settings);
+                      }
+                      setFbRestoreMsg({
+                        type: 'success',
+                        text: isBn
+                          ? `✓ সফলভাবে ফায়ারবেস থেকে ${res.bills.length}টি ইনভয়েস ও ${res.products.length}টি পণ্য রিস্টোর হয়েছে!`
+                          : `✓ Successfully restored ${res.bills.length} invoices & ${res.products.length} products from Firebase!`
+                      });
+                      setTimeout(() => {
+                        window.location.reload();
+                      }, 1500);
+                    } else {
+                      setFbRestoreMsg({
+                        type: 'error',
+                        text: isBn ? 'ফায়ারবেস থেকে ডাটা পাওয়া যায়নি।' : 'No data found in Firebase.'
+                      });
+                    }
+                  } catch (err: any) {
+                    setFbRestoreMsg({
+                      type: 'error',
+                      text: err?.message || 'Restore failed'
+                    });
+                  } finally {
+                    setFbRestoring(false);
+                  }
+                }}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer transition-all disabled:opacity-50"
+              >
+                <Download className={`w-3.5 h-3.5 shrink-0 ${fbRestoring ? 'animate-bounce' : ''}`} />
+                <span className="truncate">
+                  {fbRestoring
+                    ? (isBn ? 'লোড হচ্ছে...' : 'Restoring...')
+                    : (isBn ? 'Firebase থেকে রিস্টোর' : 'Restore from Firebase')}
+                </span>
+              </button>
+            </div>
+
+            <div className="flex items-center justify-end">
+              <button
+                type="button"
+                onClick={() => setShowFbDetails(!showFbDetails)}
+                className="text-[11px] text-stone-600 hover:text-stone-900 underline font-medium cursor-pointer"
+              >
+                {showFbDetails ? (isBn ? 'কনফিগ লুকান' : 'Hide details') : (isBn ? 'Firebase কনফিগারেশন দেখুন' : 'View Firebase config details')}
               </button>
             </div>
 
@@ -819,6 +925,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 }`}
               >
                 {fbTestMsg.text}
+              </p>
+            )}
+
+            {fbSyncMsg && (
+              <p
+                className={`text-[11px] font-bold p-2 rounded-lg ${
+                  fbSyncMsg.type === 'success' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                }`}
+              >
+                {fbSyncMsg.text}
+              </p>
+            )}
+
+            {fbRestoreMsg && (
+              <p
+                className={`text-[11px] font-bold p-2 rounded-lg ${
+                  fbRestoreMsg.type === 'success' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                }`}
+              >
+                {fbRestoreMsg.text}
               </p>
             )}
 

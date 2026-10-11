@@ -15,6 +15,7 @@ import {
 import { Language } from '../types';
 import { supabaseService } from '../services/supabaseService';
 import { supabase } from '../supabaseClient.js';
+import { firebaseService } from '../services/firebaseService';
 
 interface ResetPasswordModalProps {
   isOpen: boolean;
@@ -92,7 +93,10 @@ export const ResetPasswordModal: React.FC<ResetPasswordModalProps> = ({
     setIsLoading(true);
     try {
       const res = await supabaseService.resetPasswordForEmail(cleanEmail);
-      if (!res.success) {
+      if (firebaseService.isConfigured()) {
+        await firebaseService.sendPasswordResetLink(cleanEmail);
+      }
+      if (!res.success && !firebaseService.isConfigured()) {
         setError(res.error || t('পাসওয়ার্ড রিসেট লিংক পাঠাতে সমস্যা হয়েছে', 'Failed to send password reset link', 'पासवर्ड रीसेट लिंक भेजने में त्रुटि'));
       } else {
         const msg = t(
@@ -145,7 +149,10 @@ export const ResetPasswordModal: React.FC<ResetPasswordModalProps> = ({
     setIsLoading(true);
     try {
       const res = await supabaseService.updateUserPassword(cleanPass);
-      if (!res.success) {
+      if (email && firebaseService.isConfigured()) {
+        await firebaseService.updateUserPassword(email.trim().toLowerCase(), cleanPass);
+      }
+      if (!res.success && !firebaseService.isConfigured()) {
         setError(res.error || t('পাসওয়ার্ড আপডেট করতে সমস্যা হয়েছে', 'Failed to update password', 'पासवर्ड अपडेट करने में त्रुटि'));
       } else {
         const msg = t(

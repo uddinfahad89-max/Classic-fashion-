@@ -8,7 +8,7 @@
   "password": "123456",
   "isAppLockEnabled": false,
   "settings": {
-    "storeName": "My Store",
+    "storeName": "Classic fashion Kotamoni",
     "storePhone": "",
     "storeAddress": "",
     "signatoryName": "",
@@ -22,15 +22,112 @@
     "defaultInvoiceFormat": "tax_invoice",
     "isDataSaverEnabled": false,
     "invoicePrefix": "",
-    "nextInvoiceNumber": 1,
+    "nextInvoiceNumber": 5,
     "isLabelMode": false,
     "autoCapitalizeItemNames": true,
     "isTotalOnlySlip": false
   },
-  "bills": [],
+  "bills": [
+    {
+      "id": "inv-1791711915224",
+      "invoiceNo": "4",
+      "date": "11-10-2026",
+      "time": "03:15 pm",
+      "customerName": "UDDIN",
+      "customerPhone": "",
+      "items": [
+        {
+          "id": "item-1791711913190-k0h3",
+          "qty": 1,
+          "name": "SAREE",
+          "unit": "Pcs",
+          "price": 5000,
+          "total": 5000
+        }
+      ],
+      "subtotal": 5000,
+      "discount": 0,
+      "grandTotal": 5000,
+      "paymentMethod": "estimate",
+      "paidAmount": 5000,
+      "changeAmount": 0,
+      "timestamp": 1791711915224
+    },
+    {
+      "id": "5fcc2bcb-c301-402e-8cd8-b990db48fc5f",
+      "invoiceNo": "3",
+      "date": "11/10/2026",
+      "time": "15:15",
+      "customerName": "UDDIN",
+      "customerPhone": "",
+      "items": [
+        {
+          "name": "SAREE",
+          "price": 5000,
+          "qty": 1,
+          "total": 5000
+        }
+      ],
+      "subtotal": 5000,
+      "discount": 0,
+      "grandTotal": 5000,
+      "paymentMethod": "cash",
+      "paidAmount": 5000,
+      "changeAmount": 0,
+      "timestamp": 1791711915224
+    },
+    {
+      "id": "inv-1791711899350",
+      "invoiceNo": "2",
+      "date": "11-10-2026",
+      "time": "03:14 pm",
+      "customerName": "FAHAD UDDIN",
+      "customerPhone": "",
+      "items": [
+        {
+          "id": "item-1791711896512-xc5l",
+          "qty": 1,
+          "name": "T SHIRT",
+          "unit": "Pcs",
+          "price": 500,
+          "total": 500
+        }
+      ],
+      "subtotal": 500,
+      "discount": 0,
+      "grandTotal": 500,
+      "paymentMethod": "estimate",
+      "paidAmount": 500,
+      "changeAmount": 0,
+      "timestamp": 1791711899350
+    },
+    {
+      "id": "355e546b-0f11-44f1-8f9d-17bb305c5e8e",
+      "invoiceNo": "1",
+      "date": "11/10/2026",
+      "time": "15:14",
+      "customerName": "FAHAD UDDIN",
+      "customerPhone": "",
+      "items": [
+        {
+          "name": "T SHIRT",
+          "price": 500,
+          "qty": 1,
+          "total": 500
+        }
+      ],
+      "subtotal": 500,
+      "discount": 0,
+      "grandTotal": 500,
+      "paymentMethod": "cash",
+      "paidAmount": 500,
+      "changeAmount": 0,
+      "timestamp": 1791711899350
+    }
+  ],
   "cashEntries": [],
   "customerDues": [],
   "purchaseTrips": [],
   "products": [],
-  "lastActive": 1791710523762
+  "lastActive": 1791716193089
 }

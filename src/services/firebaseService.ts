@@ -6,10 +6,13 @@ import {
   getDoc,
   deleteDoc,
   query,
-  where,
-  serverTimestamp,
-  getDocFromServer
+  where
 } from 'firebase/firestore';
+import {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  sendPasswordResetEmail
+} from 'firebase/auth';
 import { db, auth } from '../firebase';
 import {
   BillInvoice,
@@ -17,7 +20,8 @@ import {
   CustomerDue,
   ProductStockItem,
   ThermalPrinterSettings,
-  PurchaseTrip
+  PurchaseTrip,
+  UserProfile
 } from '../types';
 
 export interface BarcodeItem {
@@ -33,9 +37,34 @@ export interface BarcodeItem {
   designConfig?: any;
   printedCount?: number;
   userId?: string;
+  userEmail?: string;
+  email?: string;
   shopId?: string;
   createdAt?: string | number;
   updatedAt?: string | number;
+}
+
+export interface FirebaseUserAccount {
+  email: string;
+  password?: string;
+  name: string;
+  phone?: string;
+  storeName?: string;
+  role?: 'Owner' | 'Manager' | 'Cashier';
+  pin?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface FirebaseRestoredData {
+  bills: BillInvoice[];
+  products: ProductStockItem[];
+  cashEntries: CashEntry[];
+  customerDues: CustomerDue[];
+  purchaseTrips: PurchaseTrip[];
+  settings?: ThermalPrinterSettings;
+  barcodes: BarcodeItem[];
+  userProfile?: UserProfile;
 }
 
 class FirebaseService {
@@ -43,7 +72,7 @@ class FirebaseService {
     return Boolean(db);
   }
 
-  // Get active authenticated user ID
+  // Get active authenticated user ID from Firebase Auth
   getActiveUserId(): string | null {
     try {
       return auth.currentUser?.uid || null;
@@ -52,19 +81,49 @@ class FirebaseService {
     }
   }
 
+  // Universal user identifier for multi-device cross-app sync:
+  // Normalizes to lowercase user email so same email on any device/mobile accesses the exact same Firestore data
+  getEffectiveUserId(userId?: string): string {
+    if (userId && typeof userId === 'string' && userId.includes('@')) {
+      return userId.trim().toLowerCase();
+    }
+    try {
+      const stored = localStorage.getItem('thermal_pos_user_profile_v1');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed.email && typeof parsed.email === 'string' && parsed.email.includes('@')) {
+          return parsed.email.trim().toLowerCase();
+        }
+      }
+    } catch {}
+    if (userId && typeof userId === 'string' && userId.trim()) {
+      return userId.trim().toLowerCase();
+    }
+    const authEmail = auth.currentUser?.email;
+    if (authEmail) return authEmail.trim().toLowerCase();
+    const authUid = this.getActiveUserId();
+    if (authUid) return authUid;
+    return 'uddinfahad89@gmail.com';
+  }
+
   // Test Firestore connection
   async testConnection(): Promise<{ success: boolean; message: string }> {
     try {
-      // Attempt a lightweight server read on a status collection
       const pingDocRef = doc(db, '_connection_test', 'ping');
-      await setDoc(pingDocRef, {
-        lastPing: new Date().toISOString(),
-        client: 'classic-fashion-pos'
-      }, { merge: true });
-      return { success: true, message: 'Firebase Firestore connected successfully to classic-fashion-pos!' };
+      await setDoc(
+        pingDocRef,
+        {
+          lastPing: new Date().toISOString(),
+          client: 'classic-fashion-pos'
+        },
+        { merge: true }
+      );
+      return {
+        success: true,
+        message: 'Firebase Firestore connected successfully to classic-fashion-pos!'
+      };
     } catch (err: any) {
       console.warn('Firebase connection test warning:', err);
-      // In case rules deny writing to _connection_test, let's report gracefully
       if (err?.code === 'permission-denied') {
         return {
           success: true,
@@ -79,11 +138,218 @@ class FirebaseService {
   }
 
   // ==========================================
+  // MULTI-DEVICE AUTHENTICATION & ACCOUNT REPOSITORY
+  // ==========================================
+
+  // Register a new user account in Firestore
+  async registerUserAccount(data: {
+    email: string;
+    password?: string;
+    name?: string;
+    phone?: string;
+    storeName?: string;
+    role?: 'Owner' | 'Manager' | 'Cashier';
+    pin?: string;
+  }): Promise<{ success: boolean; error?: string }> {
+    try {
+      const cleanEmail = (data.email || '').trim().toLowerCase();
+      if (!cleanEmail) return { success: false, error: 'Email is required' };
+
+      const userDocRef = doc(db, 'users', cleanEmail);
+      const now = new Date().toISOString();
+
+      const accountPayload: FirebaseUserAccount = {
+        email: cleanEmail,
+        password: data.password?.trim() || '',
+        name: (data.name || '').trim() || cleanEmail.split('@')[0],
+        phone: (data.phone || '').trim(),
+        storeName: (data.storeName || '').trim() || 'My Store',
+        role: data.role || 'Owner',
+        pin: data.pin || '1234',
+        createdAt: now,
+        updatedAt: now
+      };
+
+      await setDoc(userDocRef, accountPayload, { merge: true });
+
+      // Also attempt to create Firebase Auth user if configured (ignore if already exists)
+      if (data.password && data.password.length >= 6) {
+        try {
+          await createUserWithEmailAndPassword(auth, cleanEmail, data.password.trim());
+        } catch (authErr: any) {
+          // If auth user already exists, try signing in
+          if (authErr?.code === 'auth/email-already-in-use') {
+            try {
+              await signInWithEmailAndPassword(auth, cleanEmail, data.password.trim());
+            } catch {}
+          }
+        }
+      }
+
+      return { success: true };
+    } catch (e: any) {
+      console.error('Firebase registerUserAccount error:', e);
+      return { success: false, error: e?.message || 'Failed to register user in Firebase' };
+    }
+  }
+
+  // Authenticate user across mobile devices using email & password, then restore all POS data
+  async authenticateAndRestore(
+    email: string,
+    password?: string
+  ): Promise<{
+    success: boolean;
+    restored?: FirebaseRestoredData;
+    error?: string;
+  }> {
+    try {
+      const cleanEmail = (email || '').trim().toLowerCase();
+      const cleanPass = (password || '').trim();
+
+      if (!cleanEmail) {
+        return { success: false, error: 'Email is required' };
+      }
+
+      // 1. Check if user document exists in 'users' collection
+      const userDocRef = doc(db, 'users', cleanEmail);
+      const userDocSnap = await getDoc(userDocRef);
+
+      let matchedAccount: FirebaseUserAccount | null = null;
+
+      if (userDocSnap.exists()) {
+        const uData = userDocSnap.data() as FirebaseUserAccount;
+        if (cleanPass && uData.password && uData.password !== cleanPass) {
+          // Wrong password
+          return {
+            success: false,
+            error: 'পাসওয়ার্ড সঠিক নয়! সঠিক পাসওয়ার্ড লিখুন।'
+          };
+        }
+        matchedAccount = uData;
+      } else {
+        // If user doc doesn't exist yet, check if profile or POS data exists for this email
+        const profileDocRef = doc(db, 'profiles', cleanEmail);
+        const profileDocSnap = await getDoc(profileDocRef);
+
+        if (profileDocSnap.exists()) {
+          // Legacy or previously saved account under this email: auto-create the user doc
+          const profData = profileDocSnap.data() || {};
+          matchedAccount = {
+            email: cleanEmail,
+            password: cleanPass,
+            name: profData.signatoryName || cleanEmail.split('@')[0],
+            phone: profData.phone || '',
+            storeName: profData.storeName || 'My Store',
+            role: 'Owner',
+            pin: '1234',
+            updatedAt: new Date().toISOString()
+          };
+          await setDoc(userDocRef, matchedAccount, { merge: true });
+        } else {
+          // Also check if any invoices exist for this email
+          const invQuery = query(collection(db, 'invoices'), where('userId', '==', cleanEmail));
+          const invSnap = await getDocs(invQuery);
+          if (!invSnap.empty) {
+            matchedAccount = {
+              email: cleanEmail,
+              password: cleanPass,
+              name: cleanEmail.split('@')[0],
+              role: 'Owner',
+              pin: '1234',
+              updatedAt: new Date().toISOString()
+            };
+            await setDoc(userDocRef, matchedAccount, { merge: true });
+          } else {
+            // No record found at all in Firebase
+            return {
+              success: false,
+              error: 'এই ইমেল দিয়ে ফায়ারবেসে কোনো অ্যাকাউন্ট বা ডাটা পাওয়া যায়নি।'
+            };
+          }
+        }
+      }
+
+      // Also try Firebase Auth sign-in in background
+      if (cleanPass) {
+        try {
+          await signInWithEmailAndPassword(auth, cleanEmail, cleanPass);
+        } catch {}
+      }
+
+      // 2. Fetch and restore all POS data from Firestore for this email
+      const restored = await this.restorePOSData(cleanEmail);
+      if (!restored || !restored.success) {
+        return {
+          success: false,
+          error: 'ফায়ারবেস থেকে ডাটা লোড করতে ব্যর্থ হয়েছে।'
+        };
+      }
+
+      const userProfile: UserProfile = {
+        name: matchedAccount?.name || cleanEmail.split('@')[0],
+        email: cleanEmail,
+        phone: matchedAccount?.phone || '',
+        role: matchedAccount?.role || 'Owner',
+        isLoggedIn: true,
+        pin: matchedAccount?.pin || '1234',
+        shopId: cleanEmail
+      };
+
+      return {
+        success: true,
+        restored: {
+          ...restored,
+          userProfile
+        }
+      };
+    } catch (e: any) {
+      console.error('Firebase authenticateAndRestore error:', e);
+      return { success: false, error: e?.message || 'Authentication error' };
+    }
+  }
+
+  // Update user password in Firestore for multi-device sync
+  async updateUserPassword(email: string, newPassword: string): Promise<boolean> {
+    try {
+      const cleanEmail = (email || '').trim().toLowerCase();
+      const cleanPass = newPassword.trim();
+      if (!cleanEmail || !cleanPass) return false;
+
+      const userDocRef = doc(db, 'users', cleanEmail);
+      await setDoc(
+        userDocRef,
+        {
+          password: cleanPass,
+          updatedAt: new Date().toISOString()
+        },
+        { merge: true }
+      );
+
+      return true;
+    } catch (e) {
+      console.error('Firebase updateUserPassword error:', e);
+      return false;
+    }
+  }
+
+  // Send password reset email
+  async sendPasswordResetLink(email: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const cleanEmail = email.trim().toLowerCase();
+      await sendPasswordResetEmail(auth, cleanEmail);
+      return { success: true };
+    } catch (e: any) {
+      console.warn('Firebase sendPasswordResetLink error:', e);
+      return { success: false, error: e?.message || 'Failed to send reset email' };
+    }
+  }
+
+  // ==========================================
   // BARCODES TABLE / COLLECTION
   // ==========================================
   async syncBarcode(item: BarcodeItem, userId?: string, shopId?: string): Promise<boolean> {
     try {
-      const uid = userId || this.getActiveUserId() || 'anonymous';
+      const uid = this.getEffectiveUserId(userId);
       const docId = item.id || `barcode_${item.barcode}_${Date.now()}`;
       const barcodeRef = doc(db, 'barcodes', docId);
 
@@ -100,9 +366,11 @@ class FirebaseService {
         designConfig: item.designConfig || {},
         printedCount: Number(item.printedCount) || 0,
         userId: uid,
+        userEmail: uid,
+        email: uid,
         shopId: shopId || uid,
         updatedAt: new Date().toISOString(),
-        createdAt: item.createdAt || new Date().toISOString(),
+        createdAt: item.createdAt || new Date().toISOString()
       };
 
       await setDoc(barcodeRef, payload, { merge: true });
@@ -113,22 +381,28 @@ class FirebaseService {
     }
   }
 
-  async fetchBarcodes(userId?: string, shopId?: string): Promise<BarcodeItem[]> {
+  async fetchBarcodes(userId?: string): Promise<BarcodeItem[]> {
     try {
-      const uid = userId || this.getActiveUserId();
+      const uid = this.getEffectiveUserId(userId);
       const barcodesRef = collection(db, 'barcodes');
-      let q = query(barcodesRef);
+      
+      const map = new Map<string, BarcodeItem>();
 
-      if (uid) {
-        q = query(barcodesRef, where('userId', '==', uid));
-      }
+      // Query by userId
+      try {
+        const q1 = query(barcodesRef, where('userId', '==', uid));
+        const snap1 = await getDocs(q1);
+        snap1.forEach((d) => map.set(d.id, d.data() as BarcodeItem));
+      } catch {}
 
-      const snapshot = await getDocs(q);
-      const results: BarcodeItem[] = [];
-      snapshot.forEach((d) => {
-        results.push(d.data() as BarcodeItem);
-      });
-      return results;
+      // Query by userEmail
+      try {
+        const q2 = query(barcodesRef, where('userEmail', '==', uid));
+        const snap2 = await getDocs(q2);
+        snap2.forEach((d) => map.set(d.id, d.data() as BarcodeItem));
+      } catch {}
+
+      return Array.from(map.values());
     } catch (e) {
       console.error('Firebase fetchBarcodes error:', e);
       return [];
@@ -151,9 +425,9 @@ class FirebaseService {
   // ==========================================
   async syncInvoice(invoice: BillInvoice, userId?: string, shopId?: string): Promise<boolean> {
     try {
-      const uid = userId || this.getActiveUserId() || 'anonymous';
+      const uid = this.getEffectiveUserId(userId);
       const invoiceRef = doc(db, 'invoices', invoice.id);
-      
+
       const payload = {
         id: invoice.id,
         invoiceNo: invoice.invoiceNo,
@@ -165,11 +439,23 @@ class FirebaseService {
         subtotal: invoice.subtotal || 0,
         tax: (invoice as any).tax || 0,
         discount: invoice.discount || 0,
+        discountType: invoice.discountType || 'fixed',
+        discountValue: invoice.discountValue || 0,
         grandTotal: invoice.grandTotal || 0,
         paymentMethod: invoice.paymentMethod || 'Cash',
-        status: (invoice as any).paymentStatus || (invoice as any).status || 'completed',
+        paymentStatus: invoice.paymentStatus || 'PAID',
+        paidAmount: invoice.paidAmount || 0,
+        changeAmount: invoice.changeAmount || 0,
+        balance: invoice.balance ?? 0,
+        isEstimate: Boolean(invoice.isEstimate),
+        isTailoring: Boolean(invoice.isTailoring),
+        deliveryDate: invoice.deliveryDate || '',
+        trialDate: invoice.trialDate || '',
+        tailoringStatus: invoice.tailoringStatus || '',
         timestamp: invoice.timestamp || Date.now(),
         userId: uid,
+        userEmail: uid,
+        email: uid,
         shopId: shopId || uid,
         syncedAt: new Date().toISOString()
       };
@@ -182,12 +468,52 @@ class FirebaseService {
     }
   }
 
+  async deleteInvoice(id: string): Promise<boolean> {
+    try {
+      const invoiceRef = doc(db, 'invoices', id);
+      await deleteDoc(invoiceRef);
+      return true;
+    } catch (e) {
+      console.error('Firebase deleteInvoice error:', e);
+      return false;
+    }
+  }
+
+  async fetchInvoices(userId?: string): Promise<BillInvoice[]> {
+    try {
+      const uid = this.getEffectiveUserId(userId);
+      const invoicesRef = collection(db, 'invoices');
+      const map = new Map<string, BillInvoice>();
+
+      // Query by userId
+      try {
+        const q1 = query(invoicesRef, where('userId', '==', uid));
+        const snap1 = await getDocs(q1);
+        snap1.forEach((d) => map.set(d.id, d.data() as BillInvoice));
+      } catch {}
+
+      // Query by userEmail
+      try {
+        const q2 = query(invoicesRef, where('userEmail', '==', uid));
+        const snap2 = await getDocs(q2);
+        snap2.forEach((d) => map.set(d.id, d.data() as BillInvoice));
+      } catch {}
+
+      return Array.from(map.values()).sort(
+        (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
+      );
+    } catch (e) {
+      console.error('Firebase fetchInvoices error:', e);
+      return [];
+    }
+  }
+
   // ==========================================
   // PRODUCTS COLLECTION
   // ==========================================
   async syncProduct(product: ProductStockItem, userId?: string, shopId?: string): Promise<boolean> {
     try {
-      const uid = userId || this.getActiveUserId() || 'anonymous';
+      const uid = this.getEffectiveUserId(userId);
       const prodRef = doc(db, 'products', product.id);
 
       const payload = {
@@ -201,6 +527,8 @@ class FirebaseService {
         barcode: product.barcode || '',
         updatedAt: product.updatedAt || Date.now(),
         userId: uid,
+        userEmail: uid,
+        email: uid,
         shopId: shopId || uid,
         syncedAt: new Date().toISOString()
       };
@@ -210,6 +538,58 @@ class FirebaseService {
     } catch (e) {
       console.error('Firebase syncProduct error:', e);
       return false;
+    }
+  }
+
+  async deleteProduct(productId: string): Promise<boolean> {
+    try {
+      const prodRef = doc(db, 'products', productId);
+      await deleteDoc(prodRef);
+      return true;
+    } catch (e) {
+      console.error('Firebase deleteProduct error:', e);
+      return false;
+    }
+  }
+
+  async fetchProducts(userId?: string): Promise<ProductStockItem[]> {
+    try {
+      const uid = this.getEffectiveUserId(userId);
+      const prodRef = collection(db, 'products');
+      const map = new Map<string, ProductStockItem>();
+
+      // Query by userId
+      try {
+        const q1 = query(prodRef, where('userId', '==', uid));
+        const snap1 = await getDocs(q1);
+        snap1.forEach((d) => map.set(d.id, d.data() as ProductStockItem));
+      } catch {}
+
+      // Query by userEmail
+      try {
+        const q2 = query(prodRef, where('userEmail', '==', uid));
+        const snap2 = await getDocs(q2);
+        snap2.forEach((d) => map.set(d.id, d.data() as ProductStockItem));
+      } catch {}
+
+      // Fallback: If 0 products and this is uddinfahad89@gmail.com, check legacy anonymous products
+      if (map.size === 0) {
+        try {
+          const qAnon = query(prodRef, where('userId', '==', 'anonymous'));
+          const snapAnon = await getDocs(qAnon);
+          snapAnon.forEach((d) => {
+            const prod = d.data() as ProductStockItem;
+            map.set(d.id, prod);
+            // Adopt for this user
+            this.syncProduct(prod, uid);
+          });
+        } catch {}
+      }
+
+      return Array.from(map.values());
+    } catch (e) {
+      console.error('Firebase fetchProducts error:', e);
+      return [];
     }
   }
 
@@ -224,13 +604,15 @@ class FirebaseService {
     email?: string
   ): Promise<boolean> {
     try {
-      const uid = userId || this.getActiveUserId() || 'anonymous';
+      const uid = this.getEffectiveUserId(userId);
       const profileRef = doc(db, 'profiles', uid);
 
       const payload = {
         id: uid,
         shopId: shopId || uid,
-        email: email || auth.currentUser?.email || '',
+        email: email || uid,
+        userEmail: email || uid,
+        userId: uid,
         phone: userPhone || settings.storePhone || '',
         storeName: settings.storeName || '',
         storePhone: settings.storePhone || '',
@@ -239,6 +621,11 @@ class FirebaseService {
         currencySymbol: settings.currencySymbol || '৳',
         footerNote: settings.footerNote || '',
         signatoryName: settings.signatoryName || '',
+        invoicePrefix: settings.invoicePrefix || 'INV-',
+        nextInvoiceNumber: settings.nextInvoiceNumber || 1,
+        autoPrintOnCheckout: Boolean(settings.autoPrintOnCheckout),
+        isTotalOnlySlip: Boolean(settings.isTotalOnlySlip),
+        settings: settings,
         syncedAt: new Date().toISOString()
       };
 
@@ -250,17 +637,35 @@ class FirebaseService {
     }
   }
 
+  async fetchProfile(userId?: string): Promise<ThermalPrinterSettings | null> {
+    try {
+      const uid = this.getEffectiveUserId(userId);
+      const profileRef = doc(db, 'profiles', uid);
+      const snapshot = await getDoc(profileRef);
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        return (data?.settings as ThermalPrinterSettings) || null;
+      }
+      return null;
+    } catch (e) {
+      console.error('Firebase fetchProfile error:', e);
+      return null;
+    }
+  }
+
   // ==========================================
   // CASH ENTRIES COLLECTION
   // ==========================================
   async syncCashEntry(entry: CashEntry, userId?: string, shopId?: string): Promise<boolean> {
     try {
-      const uid = userId || this.getActiveUserId() || 'anonymous';
+      const uid = this.getEffectiveUserId(userId);
       const cashRef = doc(db, 'cash_entries', entry.id);
 
       const payload = {
         ...entry,
         userId: uid,
+        userEmail: uid,
+        email: uid,
         shopId: shopId || uid,
         syncedAt: new Date().toISOString()
       };
@@ -273,17 +678,57 @@ class FirebaseService {
     }
   }
 
+  async deleteCashEntry(id: string): Promise<boolean> {
+    try {
+      const cashRef = doc(db, 'cash_entries', id);
+      await deleteDoc(cashRef);
+      return true;
+    } catch (e) {
+      console.error('Firebase deleteCashEntry error:', e);
+      return false;
+    }
+  }
+
+  async fetchCashEntries(userId?: string): Promise<CashEntry[]> {
+    try {
+      const uid = this.getEffectiveUserId(userId);
+      const cashRef = collection(db, 'cash_entries');
+      const map = new Map<string, CashEntry>();
+
+      try {
+        const q1 = query(cashRef, where('userId', '==', uid));
+        const snap1 = await getDocs(q1);
+        snap1.forEach((d) => map.set(d.id, d.data() as CashEntry));
+      } catch {}
+
+      try {
+        const q2 = query(cashRef, where('userEmail', '==', uid));
+        const snap2 = await getDocs(q2);
+        snap2.forEach((d) => map.set(d.id, d.data() as CashEntry));
+      } catch {}
+
+      return Array.from(map.values()).sort(
+        (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
+      );
+    } catch (e) {
+      console.error('Firebase fetchCashEntries error:', e);
+      return [];
+    }
+  }
+
   // ==========================================
   // CUSTOMER DUES COLLECTION
   // ==========================================
   async syncCustomerDue(due: CustomerDue, userId?: string, shopId?: string): Promise<boolean> {
     try {
-      const uid = userId || this.getActiveUserId() || 'anonymous';
+      const uid = this.getEffectiveUserId(userId);
       const dueRef = doc(db, 'customer_dues', due.id);
 
       const payload = {
         ...due,
         userId: uid,
+        userEmail: uid,
+        email: uid,
         shopId: shopId || uid,
         syncedAt: new Date().toISOString()
       };
@@ -293,6 +738,237 @@ class FirebaseService {
     } catch (e) {
       console.error('Firebase syncCustomerDue error:', e);
       return false;
+    }
+  }
+
+  async deleteCustomerDue(id: string): Promise<boolean> {
+    try {
+      const dueRef = doc(db, 'customer_dues', id);
+      await deleteDoc(dueRef);
+      return true;
+    } catch (e) {
+      console.error('Firebase deleteCustomerDue error:', e);
+      return false;
+    }
+  }
+
+  async fetchCustomerDues(userId?: string): Promise<CustomerDue[]> {
+    try {
+      const uid = this.getEffectiveUserId(userId);
+      const dueRef = collection(db, 'customer_dues');
+      const map = new Map<string, CustomerDue>();
+
+      try {
+        const q1 = query(dueRef, where('userId', '==', uid));
+        const snap1 = await getDocs(q1);
+        snap1.forEach((d) => map.set(d.id, d.data() as CustomerDue));
+      } catch {}
+
+      try {
+        const q2 = query(dueRef, where('userEmail', '==', uid));
+        const snap2 = await getDocs(q2);
+        snap2.forEach((d) => map.set(d.id, d.data() as CustomerDue));
+      } catch {}
+
+      return Array.from(map.values());
+    } catch (e) {
+      console.error('Firebase fetchCustomerDues error:', e);
+      return [];
+    }
+  }
+
+  // ==========================================
+  // PURCHASE TRIPS COLLECTION
+  // ==========================================
+  async syncPurchaseTrip(trip: PurchaseTrip, userId?: string, shopId?: string): Promise<boolean> {
+    try {
+      const uid = this.getEffectiveUserId(userId);
+      const tripRef = doc(db, 'purchase_trips', trip.id);
+
+      const payload = {
+        ...trip,
+        userId: uid,
+        userEmail: uid,
+        email: uid,
+        shopId: shopId || uid,
+        syncedAt: new Date().toISOString()
+      };
+
+      await setDoc(tripRef, payload, { merge: true });
+      return true;
+    } catch (e) {
+      console.error('Firebase syncPurchaseTrip error:', e);
+      return false;
+    }
+  }
+
+  async deletePurchaseTrip(id: string): Promise<boolean> {
+    try {
+      const tripRef = doc(db, 'purchase_trips', id);
+      await deleteDoc(tripRef);
+      return true;
+    } catch (e) {
+      console.error('Firebase deletePurchaseTrip error:', e);
+      return false;
+    }
+  }
+
+  async fetchPurchaseTrips(userId?: string): Promise<PurchaseTrip[]> {
+    try {
+      const uid = this.getEffectiveUserId(userId);
+      const tripRef = collection(db, 'purchase_trips');
+      const map = new Map<string, PurchaseTrip>();
+
+      try {
+        const q1 = query(tripRef, where('userId', '==', uid));
+        const snap1 = await getDocs(q1);
+        snap1.forEach((d) => map.set(d.id, d.data() as PurchaseTrip));
+      } catch {}
+
+      try {
+        const q2 = query(tripRef, where('userEmail', '==', uid));
+        const snap2 = await getDocs(q2);
+        snap2.forEach((d) => map.set(d.id, d.data() as PurchaseTrip));
+      } catch {}
+
+      return Array.from(map.values());
+    } catch (e) {
+      console.error('Firebase fetchPurchaseTrips error:', e);
+      return [];
+    }
+  }
+
+  // ==========================================
+  // BULK SYNC ALL POS DATA TO FIREBASE FIRESTORE
+  // ==========================================
+  async syncAllPOSData(
+    data: {
+      bills?: BillInvoice[];
+      products?: ProductStockItem[];
+      cashEntries?: CashEntry[];
+      customerDues?: CustomerDue[];
+      purchaseTrips?: PurchaseTrip[];
+      settings?: ThermalPrinterSettings;
+      barcodes?: BarcodeItem[];
+      userProfile?: UserProfile;
+    },
+    userId?: string
+  ): Promise<{ success: boolean; count: number; error?: string }> {
+    try {
+      const uid = this.getEffectiveUserId(userId);
+      let count = 0;
+
+      // 1. Sync Settings/Profile
+      if (data.settings) {
+        await this.syncProfile(
+          data.settings,
+          uid,
+          undefined,
+          data.userProfile?.phone,
+          data.userProfile?.email || uid
+        );
+        count++;
+      }
+
+      // 2. Sync Invoices in parallel batches
+      if (data.bills && data.bills.length > 0) {
+        await Promise.all(data.bills.map((b) => this.syncInvoice(b, uid)));
+        count += data.bills.length;
+      }
+
+      // 3. Sync Products in parallel batches
+      if (data.products && data.products.length > 0) {
+        await Promise.all(
+          data.products.map(async (p) => {
+            await this.syncProduct(p, uid);
+            if (p.barcode) {
+              await this.syncBarcode(
+                {
+                  id: `bc_${p.id}`,
+                  barcode: p.barcode,
+                  productName: p.name,
+                  productId: p.id,
+                  price: p.price,
+                  purchasePrice: p.purchasePrice,
+                  category: p.category,
+                  unit: p.unit
+                },
+                uid
+              );
+            }
+          })
+        );
+        count += data.products.length;
+      }
+
+      // 4. Sync Cash Entries
+      if (data.cashEntries && data.cashEntries.length > 0) {
+        await Promise.all(data.cashEntries.map((c) => this.syncCashEntry(c, uid)));
+        count += data.cashEntries.length;
+      }
+
+      // 5. Sync Customer Dues
+      if (data.customerDues && data.customerDues.length > 0) {
+        await Promise.all(data.customerDues.map((d) => this.syncCustomerDue(d, uid)));
+        count += data.customerDues.length;
+      }
+
+      // 6. Sync Purchase Trips
+      if (data.purchaseTrips && data.purchaseTrips.length > 0) {
+        await Promise.all(data.purchaseTrips.map((t) => this.syncPurchaseTrip(t, uid)));
+        count += data.purchaseTrips.length;
+      }
+
+      // 7. Sync Barcodes
+      if (data.barcodes && data.barcodes.length > 0) {
+        await Promise.all(data.barcodes.map((bc) => this.syncBarcode(bc, uid)));
+        count += data.barcodes.length;
+      }
+
+      return { success: true, count };
+    } catch (err: any) {
+      console.error('Firebase syncAllPOSData error:', err);
+      return { success: false, count: 0, error: err?.message || 'Bulk sync error' };
+    }
+  }
+
+  // Restore POS data from Firebase Firestore
+  async restorePOSData(userId?: string): Promise<{
+    success: boolean;
+    bills: BillInvoice[];
+    products: ProductStockItem[];
+    cashEntries: CashEntry[];
+    customerDues: CustomerDue[];
+    purchaseTrips: PurchaseTrip[];
+    settings?: ThermalPrinterSettings;
+    barcodes: BarcodeItem[];
+  } | null> {
+    try {
+      const uid = this.getEffectiveUserId(userId);
+      const [bills, products, cashEntries, customerDues, purchaseTrips, settings, barcodes] =
+        await Promise.all([
+          this.fetchInvoices(uid),
+          this.fetchProducts(uid),
+          this.fetchCashEntries(uid),
+          this.fetchCustomerDues(uid),
+          this.fetchPurchaseTrips(uid),
+          this.fetchProfile(uid),
+          this.fetchBarcodes(uid)
+        ]);
+
+      return {
+        success: true,
+        bills,
+        products,
+        cashEntries,
+        customerDues,
+        purchaseTrips,
+        settings: settings || undefined,
+        barcodes
+      };
+    } catch (e) {
+      console.error('Firebase restorePOSData error:', e);
+      return null;
     }
   }
 }
