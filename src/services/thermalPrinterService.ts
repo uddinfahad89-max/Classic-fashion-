@@ -538,20 +538,45 @@ export class ThermalPrinterService {
     lines.push(padCenter(settings.storeName.trim().toUpperCase()));
     if (settings.storeAddress) lines.push(padCenter(settings.storeAddress.trim().toUpperCase()));
     if (settings.storePhone) lines.push(padCenter(`Tel: ${settings.storePhone.trim()}`));
-    const isEstimate =
-      bill.isEstimate !== undefined
-        ? Boolean(bill.isEstimate)
-        : bill.paymentMethod === 'estimate' ||
-          (!bill.isTailoring && settings.defaultInvoiceFormat !== 'tax_invoice');
-    if (bill.isTailoring) {
-      lines.push(padCenter('*** TAILORING ORDER SLIP ***'));
-    } else if (isEstimate) {
-      lines.push(padCenter('*** ESTIMATE BILL ***'));
+    const isTailoring = Boolean(bill.isTailoring);
+    const method = String(bill.paymentMethod || 'cash').toLowerCase();
+    const isEstimate = method === 'estimate' || (Boolean(bill.isEstimate) && method === 'estimate');
+
+    // Dynamic Bill Title, Prefix, and Payment Label based on user selection
+    let billTitle = '*** CASH BILL ***';
+    let billDocPrefix = 'Bill:';
+    let payLabel = 'CASH';
+
+    if (isTailoring) {
+      billTitle = '*** TAILORING ORDER SLIP ***';
+      billDocPrefix = 'Order:';
+      payLabel = method === 'due' ? 'CREDIT' : method === 'estimate' ? 'ESTIMATE' : method.toUpperCase();
+    } else if (method === 'estimate' || isEstimate) {
+      billTitle = '*** ESTIMATE BILL ***';
+      billDocPrefix = 'Est:';
+      payLabel = 'ESTIMATE';
+    } else if (method === 'upi') {
+      billTitle = '*** UPI BILL ***';
+      billDocPrefix = 'Bill:';
+      payLabel = 'UPI';
+    } else if (method === 'due') {
+      billTitle = '*** CREDIT BILL ***';
+      billDocPrefix = 'Bill:';
+      payLabel = 'CREDIT';
+    } else if (method === 'card') {
+      billTitle = '*** CARD BILL ***';
+      billDocPrefix = 'Bill:';
+      payLabel = 'CARD';
+    } else {
+      billTitle = '*** CASH BILL ***';
+      billDocPrefix = 'Bill:';
+      payLabel = 'CASH';
     }
+
+    lines.push(padCenter(billTitle));
     lines.push(doubleDiv);
 
     // Bill Meta - Compact & Side-by-Side to save paper
-    const billDocPrefix = isEstimate ? 'Est:' : 'Bill:';
     const cleanCustName = bill.customerName?.trim()
       ? ` (${bill.customerName.trim().slice(0, width === 48 ? 16 : 9)})`
       : '';
@@ -623,10 +648,6 @@ export class ThermalPrinterService {
     // (Slash 4 removed): No double divider above Grand Total
 
     // Grand Total & Payment Method: Side-by-Side on 1 single line!
-    const isThermalEstimateFull =
-      isEstimate || bill.paymentMethod === 'estimate' || bill.paymentStatus === 'ESTIMATE';
-    const payLabel = isThermalEstimateFull ? 'ESTIMATE' : bill.paymentMethod.toUpperCase();
-
     lines.push(
       padBetween(
         `GRAND TOTAL: ${sym}${bill.grandTotal.toFixed(2)}`,

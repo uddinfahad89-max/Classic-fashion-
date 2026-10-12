@@ -108,23 +108,21 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
 
   const [estimateMode, setEstimateMode] = useState<boolean>(() =>
     bill
-      ? bill.isEstimate !== undefined
-        ? Boolean(bill.isEstimate)
-        : bill.paymentMethod === 'estimate' ||
-          (!bill.isTailoring && effectiveSettings.defaultInvoiceFormat !== 'tax_invoice')
-      : true
+      ? bill.paymentMethod === 'estimate' ||
+        bill.paymentStatus === 'ESTIMATE' ||
+        (Boolean(bill.isEstimate) && bill.paymentMethod === 'estimate')
+      : false
   );
 
   useEffect(() => {
     if (bill) {
       setEstimateMode(
-        bill.isEstimate !== undefined
-          ? Boolean(bill.isEstimate)
-          : bill.paymentMethod === 'estimate' ||
-            (!bill.isTailoring && effectiveSettings.defaultInvoiceFormat !== 'tax_invoice')
+        bill.paymentMethod === 'estimate' ||
+          bill.paymentStatus === 'ESTIMATE' ||
+          (Boolean(bill.isEstimate) && bill.paymentMethod === 'estimate')
       );
     }
-  }, [bill, effectiveSettings.defaultInvoiceFormat]);
+  }, [bill]);
 
   useEffect(() => {
     if (autoPrint && bill) {
@@ -333,12 +331,18 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
         .join('\n');
 
       const isTailoring = Boolean(bill.isTailoring);
-      const isEstimateBill = Boolean(bill.isEstimate || bill.paymentMethod === 'estimate');
+      const isEstimateBill = Boolean(estimateMode || bill.paymentMethod === 'estimate' || bill.paymentStatus === 'ESTIMATE' || bill.isEstimate);
       const headerLine = isTailoring
         ? `*✂️ ${store} - Tailoring Order #${bill.invoiceNo}*\n`
         : isEstimateBill
         ? `*${store} - Estimate Bill #${bill.invoiceNo}*\n`
-        : `*${store} - Tax Invoice #${bill.invoiceNo}*\n`;
+        : bill.paymentMethod === 'cash'
+        ? `*${store} - Cash Memo #${bill.invoiceNo}*\n`
+        : bill.paymentMethod === 'upi'
+        ? `*${store} - UPI Bill #${bill.invoiceNo}*\n`
+        : bill.paymentMethod === 'due'
+        ? `*${store} - Credit Bill #${bill.invoiceNo}*\n`
+        : `*${store} - Cash Memo #${bill.invoiceNo}*\n`;
 
       let tailoringMeta = '';
       if (isTailoring) {
@@ -382,18 +386,30 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
         (tailoringMeta ? `${tailoringMeta}\n` : '\n') +
         `*Items:*\n${itemsList}\n\n` +
         `*Total Amount:* ${currency}${bill.grandTotal}\n` +
-        (isEstimate
+        (isEstimateBill
           ? `*Payment Mode:* ESTIMATE (এস্টিমেট)\n` +
             (bill.paidAmount > 0
               ? `*Advance Paid:* ${currency}${bill.paidAmount}\n*Est. Balance:* ${currency}${
                   bill.balance !== undefined ? bill.balance : bill.grandTotal - (bill.paidAmount || 0)
                 }\n\n`
               : `*Status:* Estimate / Quotation (Not Finalized)\n\n`)
+          : bill.paymentMethod === 'cash'
+          ? `*Payment Mode:* CASH (ক্যাশ)\n` +
+            `*Paid (পরিশোধ):* ${currency}${bill.paidAmount !== undefined ? bill.paidAmount : bill.grandTotal}\n` +
+            (bill.balance && bill.balance > 0 ? `*Due (বাকি):* ${currency}${bill.balance}\n\n` : `\n`)
+          : bill.paymentMethod === 'upi'
+          ? `*Payment Mode:* UPI (ইউপিআই)\n` +
+            `*Paid (পরিশোধ):* ${currency}${bill.paidAmount !== undefined ? bill.paidAmount : bill.grandTotal}\n` +
+            (bill.balance && bill.balance > 0 ? `*Due (বাকি):* ${currency}${bill.balance}\n\n` : `\n`)
+          : bill.paymentMethod === 'due'
+          ? `*Payment Mode:* CREDIT / DUE (বাকী / ক্রেডিট)\n` +
+            `*Paid (পরিশোধ):* ${currency}${bill.paidAmount || 0}\n` +
+            `*Due (বাকি):* ${currency}${bill.balance !== undefined ? bill.balance : bill.grandTotal - (bill.paidAmount || 0)}\n\n`
           : `*${isTailoring ? 'Advance Paid' : 'Paid'}:* ${currency}${bill.paidAmount || 0}\n` +
             `*${isTailoring ? 'Balance Due' : 'Balance'}:* ${currency}${
               bill.balance !== undefined ? bill.balance : bill.grandTotal - (bill.paidAmount || 0)
             }\n\n`) +
-        (!isEstimate &&
+        (!isEstimateBill &&
         settings.upiId &&
         (bill.balance !== undefined ? bill.balance : bill.grandTotal - (bill.paidAmount || 0)) > 0
           ? `📲 *Scan / Pay Due via UPI (${settings.upiId}):*\nupi://pay?pa=${settings.upiId.trim()}&pn=${encodeURIComponent(

@@ -375,21 +375,44 @@ app.post('/api/vault/sync', (req, res) => {
       lastActive: Date.now(),
     };
 
-    // 1. Smart Merge Bills: Never lose bills when a blank/empty device syncs
-    const existingBills = Array.isArray(existingCanonical?.bills) ? existingCanonical.bills : [];
-    const incomingBills = Array.isArray(incomingVault.bills) ? incomingVault.bills : [];
+    // 1. Smart Merge Bills: Strictly honor deleted bills and tombstones
+    const incomingDeletedBills = Array.isArray(incomingVault.deletedBillIds) ? incomingVault.deletedBillIds : [];
+    const existingDeletedBills = Array.isArray(existingCanonical?.deletedBillIds) ? existingCanonical.deletedBillIds : [];
+    const deletedBills = new Set([...incomingDeletedBills, ...existingDeletedBills]);
+
+    const incomingDeletedProds = Array.isArray(incomingVault.deletedProductIds) ? incomingVault.deletedProductIds : [];
+    const existingDeletedProds = Array.isArray(existingCanonical?.deletedProductIds) ? existingCanonical.deletedProductIds : [];
+    const deletedProds = new Set([...incomingDeletedProds, ...existingDeletedProds]);
+
+    mergedVault.deletedBillIds = Array.from(deletedBills);
+    mergedVault.deletedProductIds = Array.from(deletedProds);
+
+    const existingBills = (Array.isArray(existingCanonical?.bills) ? existingCanonical.bills : []).filter(
+      (b: any) => !deletedBills.has(b.id) && !deletedBills.has(b.invoiceNo)
+    );
+    const incomingBills = (Array.isArray(incomingVault.bills) ? incomingVault.bills : []).filter(
+      (b: any) => !deletedBills.has(b.id) && !deletedBills.has(b.invoiceNo)
+    );
     const billsMap = new Map<string, any>();
-    for (const b of existingBills) {
-      if (b && (b.id || b.invoiceNo)) {
-        billsMap.set(b.id || b.invoiceNo, b);
+    if (incomingVault.isAuthoritativeBills && Array.isArray(incomingVault.bills)) {
+      for (const b of incomingBills) {
+        if (b && (b.id || b.invoiceNo)) {
+          billsMap.set(b.id || b.invoiceNo, b);
+        }
       }
-    }
-    for (const b of incomingBills) {
-      if (b && (b.id || b.invoiceNo)) {
-        const key = b.id || b.invoiceNo;
-        const prev = billsMap.get(key);
-        if (!prev || (b.timestamp || 0) >= (prev.timestamp || 0)) {
-          billsMap.set(key, { ...prev, ...b });
+    } else {
+      for (const b of existingBills) {
+        if (b && (b.id || b.invoiceNo)) {
+          billsMap.set(b.id || b.invoiceNo, b);
+        }
+      }
+      for (const b of incomingBills) {
+        if (b && (b.id || b.invoiceNo)) {
+          const key = b.id || b.invoiceNo;
+          const prev = billsMap.get(key);
+          if (!prev || (b.timestamp || 0) >= (prev.timestamp || 0)) {
+            billsMap.set(key, { ...prev, ...b });
+          }
         }
       }
     }
@@ -397,9 +420,13 @@ app.post('/api/vault/sync', (req, res) => {
       (a: any, b: any) => (b.timestamp || 0) - (a.timestamp || 0)
     );
 
-    // 2. Smart Merge Products: Never lose products when a blank/empty device syncs
-    const existingProducts = Array.isArray(existingCanonical?.products) ? existingCanonical.products : [];
-    const incomingProducts = Array.isArray(incomingVault.products) ? incomingVault.products : [];
+    // 2. Smart Merge Products: Strictly honor deleted products
+    const existingProducts = (Array.isArray(existingCanonical?.products) ? existingCanonical.products : []).filter(
+      (p: any) => !deletedProds.has(p.id)
+    );
+    const incomingProducts = (Array.isArray(incomingVault.products) ? incomingVault.products : []).filter(
+      (p: any) => !deletedProds.has(p.id)
+    );
     const productsMap = new Map<string, any>();
     for (const p of existingProducts) {
       if (p && (p.id || p.name)) {
@@ -555,14 +582,25 @@ app.post('/api/bills/save', (req, res) => {
 // Delete a bill from the server vault across all linked devices
 app.post('/api/bills/delete', (req, res) => {
   try {
-    const { identifier, billId } = req.body;
+    const { identifier, billId, invoiceNo } = req.body;
     if (!identifier || !billId) {
       return res.status(400).json({ error: 'Missing identifier or billId' });
     }
 
     const { vault, linkedIds } = findCanonicalAccountVault(identifier);
-    if (vault && Array.isArray(vault.bills)) {
-      vault.bills = vault.bills.filter((b: any) => b.id !== billId && b.invoiceNo !== billId);
+    if (vault) {
+      if (!Array.isArray(vault.deletedBillIds)) vault.deletedBillIds = [];
+      if (billId && !vault.deletedBillIds.includes(billId)) vault.deletedBillIds.push(billId);
+      if (invoiceNo && !vault.deletedBillIds.includes(invoiceNo)) vault.deletedBillIds.push(invoiceNo);
+
+      if (Array.isArray(vault.bills)) {
+        vault.bills = vault.bills.filter(
+          (b: any) =>
+            b.id !== billId &&
+            b.invoiceNo !== billId &&
+            (!invoiceNo || b.invoiceNo !== invoiceNo)
+        );
+      }
       vault.lastActive = Date.now();
       broadcastVault(vault, linkedIds);
       return res.json({ success: true, deleted: true });
@@ -626,10 +664,16 @@ app.post('/api/products/delete', (req, res) => {
     }
 
     const { vault, linkedIds } = findCanonicalAccountVault(identifier);
-    if (vault && Array.isArray(vault.products)) {
-      vault.products = vault.products.filter((p: any) => p.id !== productId);
+    if (vault) {
+      if (!Array.isArray(vault.deletedProductIds)) vault.deletedProductIds = [];
+      if (productId && !vault.deletedProductIds.includes(productId)) vault.deletedProductIds.push(productId);
+
+      if (Array.isArray(vault.products)) {
+        vault.products = vault.products.filter((p: any) => p.id !== productId);
+      }
       vault.lastActive = Date.now();
       broadcastVault(vault, linkedIds);
+      return res.json({ success: true });
     }
 
     return res.json({ success: true });

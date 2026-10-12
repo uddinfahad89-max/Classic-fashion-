@@ -74,7 +74,7 @@ const DEFAULT_SETTINGS: ThermalPrinterSettings = {
   hideCurrencySymbol: false,
   footerNote: '(Thank you! Visit again)',
   autoPrintOnCheckout: true,
-  defaultInvoiceFormat: 'estimate',
+  defaultInvoiceFormat: 'tax_invoice',
   isDataSaverEnabled: false,
   invoicePrefix: '',
   nextInvoiceNumber: 1,
@@ -324,10 +324,18 @@ class StorageService {
             localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
           }
 
-          if (needsResave) {
-            localStorage.setItem(STORAGE_KEYS.BILLS, JSON.stringify(finalBills));
+          const deletedSet = this.getDeletedBillIds();
+          const activeBills = finalBills.filter(
+            (b) => !deletedSet.has(b.id) && !deletedSet.has(b.invoiceNo)
+          );
+          if (activeBills.length !== finalBills.length) {
+            needsResave = true;
           }
-          return finalBills;
+
+          if (needsResave) {
+            localStorage.setItem(STORAGE_KEYS.BILLS, JSON.stringify(activeBills));
+          }
+          return activeBills;
         }
       }
       return [];
@@ -420,19 +428,70 @@ class StorageService {
     }
   }
 
-  deleteBill(id: string): void {
-    const bills = this.getBills().filter((b) => b.id !== id && b.invoiceNo !== id);
+  getDeletedBillIds(): Set<string> {
+    try {
+      const stored = localStorage.getItem('thermal_pos_deleted_bill_ids_v1');
+      if (stored) {
+        const arr = JSON.parse(stored);
+        if (Array.isArray(arr)) return new Set(arr);
+      }
+    } catch {}
+    return new Set();
+  }
+
+  markBillAsDeleted(id: string, invoiceNo?: string): void {
+    try {
+      const set = this.getDeletedBillIds();
+      if (id) set.add(id);
+      if (invoiceNo) set.add(invoiceNo);
+      localStorage.setItem('thermal_pos_deleted_bill_ids_v1', JSON.stringify(Array.from(set)));
+    } catch {}
+  }
+
+  getDeletedProductIds(): Set<string> {
+    try {
+      const stored = localStorage.getItem('thermal_pos_deleted_prod_ids_v1');
+      if (stored) {
+        const arr = JSON.parse(stored);
+        if (Array.isArray(arr)) return new Set(arr);
+      }
+    } catch {}
+    return new Set();
+  }
+
+  markProductAsDeleted(productId: string): void {
+    try {
+      const set = this.getDeletedProductIds();
+      if (productId) set.add(productId);
+      localStorage.setItem('thermal_pos_deleted_prod_ids_v1', JSON.stringify(Array.from(set)));
+    } catch {}
+  }
+
+  deleteBill(id: string, invoiceNo?: string): void {
+    const bill = this.getBillById(id);
+    const invNo = invoiceNo || bill?.invoiceNo;
+    this.markBillAsDeleted(id, invNo);
+
+    const deletedSet = this.getDeletedBillIds();
+    const bills = this.getBills().filter(
+      (b) =>
+        b.id !== id &&
+        b.invoiceNo !== id &&
+        (!invNo || b.invoiceNo !== invNo) &&
+        !deletedSet.has(b.id) &&
+        !deletedSet.has(b.invoiceNo)
+    );
     this.saveBillsList(bills, false);
 
     // Call server disk deletion endpoint so this bill is permanently deleted from server vault
     try {
       const profile = this.getUserProfile();
-      const identifier = profile.email || profile.phone || profile.shopId;
+      const identifier = profile.email || profile.phone || profile.shopId || 'uddinfahad89@gmail.com';
       if (identifier && typeof window !== 'undefined' && typeof fetch !== 'undefined') {
         fetch('/api/bills/delete', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ identifier, billId: id }),
+          body: JSON.stringify({ identifier, billId: id, invoiceNo: invNo }),
         }).catch((e) => console.warn('Server bill delete notice:', e));
       }
     } catch {}
@@ -941,7 +1000,20 @@ class StorageService {
 
   applyServerVaultSilently(serverVault: AccountVaultData): void {
     try {
-      const serverBills = Array.isArray(serverVault.bills) ? serverVault.bills : [];
+      if (Array.isArray((serverVault as any).deletedBillIds)) {
+        (serverVault as any).deletedBillIds.forEach((id: string) => this.markBillAsDeleted(id));
+      }
+      if (Array.isArray((serverVault as any).deletedProductIds)) {
+        (serverVault as any).deletedProductIds.forEach((id: string) => this.markProductAsDeleted(id));
+      }
+
+      const deletedBills = this.getDeletedBillIds();
+      const deletedProds = this.getDeletedProductIds();
+
+      const rawBills = Array.isArray(serverVault.bills) ? serverVault.bills : [];
+      const serverBills = rawBills.filter(
+        (b) => !deletedBills.has(b.id) && !deletedBills.has(b.invoiceNo)
+      );
       const prefix =
         serverVault.settings?.invoicePrefix !== undefined ? serverVault.settings.invoicePrefix : '';
       const { bills: resequenced } = this.resequenceBillsInternal(serverBills, prefix);
@@ -957,12 +1029,13 @@ class StorageService {
         localStorage.setItem(STORAGE_KEYS.PURCHASES, JSON.stringify(serverVault.purchaseTrips));
       }
       if (Array.isArray(serverVault.products)) {
-        localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(serverVault.products));
+        const activeProds = serverVault.products.filter((p) => !deletedProds.has(p.id));
+        localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(activeProds));
       }
       if (serverVault.settings) {
         localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(serverVault.settings));
       }
-      this.saveToAccountVault(serverVault, false);
+      this.saveToAccountVault({ ...serverVault, bills: resequenced }, false);
     } catch (e) {
       console.warn('applyServerVaultSilently error:', e);
     }
@@ -1781,7 +1854,8 @@ class StorageService {
           }
         }
       }
-      return list;
+      const deletedProds = this.getDeletedProductIds();
+      return list.filter((p) => !deletedProds.has(p.id));
     } catch {
       return [];
     }
@@ -1942,12 +2016,14 @@ class StorageService {
 
   deleteProduct(productId: string): void {
     localStorage.setItem('pos_products_initialized', 'true');
-    const products = this.getProducts().filter((p) => p.id !== productId);
+    this.markProductAsDeleted(productId);
+    const deletedSet = this.getDeletedProductIds();
+    const products = this.getProducts().filter((p) => p.id !== productId && !deletedSet.has(p.id));
     this.saveProducts(products);
 
     try {
       const profile = this.getUserProfile();
-      const identifier = profile.email || profile.phone || profile.shopId;
+      const identifier = profile.email || profile.phone || profile.shopId || 'uddinfahad89@gmail.com';
       if (identifier && typeof window !== 'undefined' && typeof fetch !== 'undefined') {
         fetch('/api/products/delete', {
           method: 'POST',

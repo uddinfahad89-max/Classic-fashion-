@@ -185,53 +185,61 @@ export default function App() {
       setUserProfile(prof);
     }
 
-    // Boot-time authoritative sync from Supabase Cloud using auth.uid()
-    if (isSupabaseConfigured()) {
-      supabase.auth.getSession().then(({ data }) => {
-        const authUser = data?.session?.user;
-        if (authUser) {
-          supabaseService.restoreUserData(authUser.id, authUser.email || prof.email || '').then((restored) => {
-            if (restored && Array.isArray(restored.bills)) {
-              setBills(restored.bills);
-              setProducts(restored.products);
-              setCashEntries(restored.cashEntries);
-              setCustomerDues(restored.customerDues);
-              setPurchaseTrips(restored.purchaseTrips);
-              setSettings(restored.settings);
-              storageService.saveBills(restored.bills);
-              storageService.saveProducts(restored.products);
-            }
-          }).catch((err) => console.warn('Supabase boot restore notice:', err));
-        }
-      });
-    }
-
     // Boot-time multi-device restore & sync with Firebase Firestore
     const targetEmail = prof.email || 'uddinfahad89@gmail.com';
     if (firebaseService.isConfigured()) {
       firebaseService.restorePOSData(targetEmail).then((fbRes) => {
         if (fbRes && fbRes.success) {
+          const deletedBillIds = storageService.getDeletedBillIds();
+          const deletedProdIds = storageService.getDeletedProductIds();
+
+          const activeFbBills = (fbRes.bills || []).filter(
+            (b) => !deletedBillIds.has(b.id) && !deletedBillIds.has(b.invoiceNo)
+          );
+          const activeFbProducts = (fbRes.products || []).filter(
+            (p) => !deletedProdIds.has(p.id)
+          );
+
           const localBills = storageService.getBills();
           const localProducts = storageService.getProducts();
 
-          // If Firebase has more bills/products than local, hydrate them (e.g. from another mobile)
-          if (fbRes.bills.length > localBills.length) {
-            setBills(fbRes.bills);
-            storageService.saveBills(fbRes.bills);
+          if (localBills.length === 0 && activeFbBills.length > 0) {
+            setBills(activeFbBills);
+            storageService.saveBills(activeFbBills);
+          } else if (activeFbBills.length > 0) {
+            const localBillIds = new Set(localBills.map((b) => b.id));
+            const newBills = activeFbBills.filter((b) => !localBillIds.has(b.id));
+            if (newBills.length > 0) {
+              const combined = [...localBills, ...newBills].sort(
+                (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
+              );
+              setBills(combined);
+              storageService.saveBills(combined);
+            }
           }
-          if (fbRes.products.length > localProducts.length) {
-            setProducts(fbRes.products);
-            storageService.saveProducts(fbRes.products);
+
+          if (localProducts.length === 0 && activeFbProducts.length > 0) {
+            setProducts(activeFbProducts);
+            storageService.saveProducts(activeFbProducts);
+          } else if (activeFbProducts.length > 0) {
+            const localProdIds = new Set(localProducts.map((p) => p.id));
+            const newProds = activeFbProducts.filter((p) => !localProdIds.has(p.id));
+            if (newProds.length > 0) {
+              const combined = [...localProducts, ...newProds];
+              setProducts(combined);
+              storageService.saveProducts(combined);
+            }
           }
-          if (fbRes.cashEntries.length > 0 && storageService.getCashEntries().length === 0) {
+
+          if (fbRes.cashEntries && fbRes.cashEntries.length > 0 && storageService.getCashEntries().length === 0) {
             setCashEntries(fbRes.cashEntries);
             storageService.saveCashEntries(fbRes.cashEntries);
           }
-          if (fbRes.customerDues.length > 0 && storageService.getCustomerDues().length === 0) {
+          if (fbRes.customerDues && fbRes.customerDues.length > 0 && storageService.getCustomerDues().length === 0) {
             setCustomerDues(fbRes.customerDues);
             storageService.saveCustomerDues(fbRes.customerDues);
           }
-          if (fbRes.purchaseTrips.length > 0 && storageService.getPurchaseTrips().length === 0) {
+          if (fbRes.purchaseTrips && fbRes.purchaseTrips.length > 0 && storageService.getPurchaseTrips().length === 0) {
             setPurchaseTrips(fbRes.purchaseTrips);
             storageService.savePurchaseTrips(fbRes.purchaseTrips);
           }
@@ -375,22 +383,10 @@ export default function App() {
     };
     checkPasswordResetLink();
 
-    // Supabase auth state change listener for PASSWORD_RECOVERY
-    const { data: authSub } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'PASSWORD_RECOVERY') {
-        setIsResetPasswordOpen(true);
-        setResetPasswordMode('update_password');
-        setIsLoginModalOpen(false);
-        setIsOnboardingOpen(false);
-      }
-    });
-
     // Initialize native Android & browser back button handler
     backHandler.init();
 
-    return () => {
-      authSub?.subscription?.unsubscribe();
-    };
+    return () => {};
   }, []);
 
   // Priority 60: If exit confirmation dialog is open, pressing Back again immediately exits
@@ -599,84 +595,32 @@ export default function App() {
       };
     }
 
-    // 3. Primary: If Supabase Cloud Auth is configured, authenticate directly with Supabase
-    // This queries the invoices or transactions tables using auth.uid() directly
-    if (isSupabaseConfigured()) {
-      const sbRes = await supabaseService.signIn(cleanEmail, cleanPassword);
-      if (sbRes.success && sbRes.restored) {
-        setBills(sbRes.restored.bills);
-        setCashEntries(sbRes.restored.cashEntries);
-        setCustomerDues(sbRes.restored.customerDues);
-        setPurchaseTrips(sbRes.restored.purchaseTrips);
-        setProducts(sbRes.restored.products);
-        setSettings(sbRes.restored.settings);
-        setUserProfile(sbRes.restored.userProfile);
-
-        storageService.saveSettings(sbRes.restored.settings);
-        storageService.saveUserProfile(sbRes.restored.userProfile);
-        storageService.saveBills(sbRes.restored.bills);
-        storageService.saveProducts(sbRes.restored.products);
-        storageService.saveCustomerDues(sbRes.restored.customerDues);
-        storageService.saveCashEntries(sbRes.restored.cashEntries);
-        storageService.savePurchaseTrips(sbRes.restored.purchaseTrips);
-        await storageService.saveToAccountVaultAsync({
-          identifier: cleanEmail,
-          email: cleanEmail,
-          name: sbRes.restored.userProfile.name,
-          phone: sbRes.restored.userProfile.phone || '',
-          role: sbRes.restored.userProfile.role || 'Owner',
-          pin: sbRes.restored.userProfile.pin || '1234',
-          password: cleanPassword,
-          isAppLockEnabled: false,
-          settings: sbRes.restored.settings,
-          bills: sbRes.restored.bills,
-          cashEntries: sbRes.restored.cashEntries,
-          customerDues: sbRes.restored.customerDues,
-          purchaseTrips: sbRes.restored.purchaseTrips,
-          products: sbRes.restored.products,
-          lastActive: Date.now(),
-        });
-
-        localStorage.setItem('thermal_pos_onboarding_completed', 'true');
-        setIsOnboardingOpen(false);
-        setIsLoginModalOpen(false);
-        setActiveTab('invoices');
-        showToast(
-          language === 'bn'
-            ? `স্বাগতম! আপনার অ্যাকাউন্ট সফলভাবে লগইন হয়েছে (${sbRes.restored.bills.length}টি ইনভয়েস/ট্রানজ্যাকশন)।`
-            : `Welcome back! Account logged in successfully (${sbRes.restored.bills.length} invoices/transactions).`,
-          'success'
-        );
-        return { success: true };
-      } else if (sbRes.error) {
-        if (sbRes.error.toLowerCase().includes('email not confirmed')) {
-          return {
-            success: false,
-            error:
-              language === 'bn'
-                ? 'ইমেল ভেরিফিকেশন সম্পন্ন হয়নি অথবা পাসওয়ার্ড সঠিক নয়।'
-                : 'Email is not confirmed or password is incorrect.',
-          };
-        }
-      }
-    }
-
-    // 4. Firebase Firestore Multi-Device Sync & Cloud Restore:
-    // When logging in with the same email on any other mobile or app, restore all POS data from Firestore
+    // 3. Primary: Firebase Firestore Multi-Device Sync & Cloud Restore:
+    // When logging in with the same email on any other mobile or app, authenticate & restore all POS data from Firestore
     if (firebaseService.isConfigured()) {
       const fbRes = await firebaseService.authenticateAndRestore(cleanEmail, cleanPassword);
       if (fbRes.success && fbRes.restored) {
         const r = fbRes.restored;
-        setBills(r.bills);
-        setProducts(r.products);
+        const deletedBillIds = storageService.getDeletedBillIds();
+        const deletedProdIds = storageService.getDeletedProductIds();
+
+        const activeBills = (r.bills || []).filter(
+          (b) => !deletedBillIds.has(b.id) && !deletedBillIds.has(b.invoiceNo)
+        );
+        const activeProducts = (r.products || []).filter(
+          (p) => !deletedProdIds.has(p.id)
+        );
+
+        setBills(activeBills);
+        setProducts(activeProducts);
         setCashEntries(r.cashEntries);
         setCustomerDues(r.customerDues);
         setPurchaseTrips(r.purchaseTrips);
         if (r.settings) setSettings(r.settings);
         if (r.userProfile) setUserProfile(r.userProfile);
 
-        storageService.saveBills(r.bills);
-        storageService.saveProducts(r.products);
+        storageService.saveBills(activeBills);
+        storageService.saveProducts(activeProducts);
         storageService.saveCashEntries(r.cashEntries);
         storageService.saveCustomerDues(r.customerDues);
         storageService.savePurchaseTrips(r.purchaseTrips);
@@ -693,11 +637,11 @@ export default function App() {
           password: cleanPassword,
           isAppLockEnabled: false,
           settings: r.settings || storageService.getSettings(),
-          bills: r.bills,
+          bills: activeBills,
           cashEntries: r.cashEntries,
           customerDues: r.customerDues,
           purchaseTrips: r.purchaseTrips,
-          products: r.products,
+          products: activeProducts,
           lastActive: Date.now(),
         });
 
@@ -708,8 +652,8 @@ export default function App() {
 
         showToast(
           language === 'bn'
-            ? `স্বাগতম! ফায়ারবেস ক্লাউড থেকে আপনার সমস্ত ডাটা সফলভাবে রিস্টোর হয়েছে (${r.bills.length}টি ইনভয়েস, ${r.products.length}টি পণ্য)।`
-            : `Welcome back! All POS data restored from Firebase Cloud (${r.bills.length} invoices, ${r.products.length} products).`,
+            ? `স্বাগতম! ফায়ারবেস ক্লাউড থেকে আপনার সমস্ত ডাটা সফলভাবে রিস্টোর হয়েছে (${activeBills.length}টি ইনভয়েস, ${activeProducts.length}টি পণ্য)।`
+            : `Welcome back! All POS data restored from Firebase Cloud (${activeBills.length} invoices, ${activeProducts.length} products).`,
           'success'
         );
         return { success: true };
@@ -940,7 +884,6 @@ export default function App() {
   };
 
   const handleLogoutUser = () => {
-    supabaseService.signOut();
     const updated = storageService.logoutUser();
     setUserProfile(updated);
     setBills([]);
@@ -976,18 +919,6 @@ export default function App() {
         'error'
       );
       return false;
-    }
-
-    if (isSupabaseConfigured()) {
-      const sbResult = await supabaseService.signUp(cleanEmail, cleanPass, {
-        storeName: cleanStore,
-        phone: data.phone || '',
-        name: cleanName,
-      });
-      if (!sbResult.success && sbResult.error) {
-        showToast(sbResult.error, 'error');
-        return false;
-      }
     }
 
     // Register user account and initial profile in Firebase Firestore
@@ -1079,23 +1010,15 @@ export default function App() {
       isTotalOnlySlip !== undefined ? isTotalOnlySlip : Boolean(settings.isTotalOnlySlip);
     setReceiptInitialTotalOnly(effectiveTotalOnly);
 
-    // Sync invoice to Supabase & Firebase Firestore
-    supabaseService.getActiveUserId().then((userId) => {
-      if (userId) {
-        supabaseService.syncInvoice(bill, userId);
-      }
-    });
+    // Strictly sync invoice to Firebase Firestore
     firebaseService.syncInvoice(bill);
 
-    // Sync updated stock for sold items to Firebase & Supabase
+    // Sync updated stock for sold items to Firebase Firestore
     for (const item of bill.items) {
       if (item.productId) {
         const prod = updatedProds.find((p) => p.id === item.productId);
         if (prod) {
           firebaseService.syncProduct(prod);
-          supabaseService.getActiveUserId().then((userId) => {
-            if (userId) supabaseService.syncProduct(prod, userId);
-          });
         }
       }
     }
@@ -1211,19 +1134,17 @@ export default function App() {
     }
   };
 
-  const handleDeleteBill = (id: string) => {
-    storageService.deleteBill(id);
+  const handleDeleteBill = async (id: string) => {
+    const bill = bills.find((b) => b.id === id) || storageService.getBillById(id);
+    const invoiceNo = bill?.invoiceNo;
+
+    // Hard delete directly in Firebase Firestore immediately
+    await firebaseService.deleteInvoice(id, invoiceNo);
+
+    storageService.deleteBill(id, invoiceNo);
     const updatedBills = storageService.getBills();
     setBills(updatedBills);
     setSettings(storageService.getSettings());
-
-    // Sync deletion to Supabase cloud and Firebase Firestore
-    supabaseService.getActiveUserId().then((userId) => {
-      if (userId) {
-        supabaseService.deleteInvoice(id, userId);
-      }
-    });
-    firebaseService.deleteInvoice(id);
 
     if (receiptBill && (receiptBill.id === id || receiptBill.invoiceNo === id)) {
       setReceiptBill(null);
@@ -1290,12 +1211,7 @@ export default function App() {
       }
     }
 
-    // Sync update to Supabase & Firebase cloud
-    supabaseService.getActiveUserId().then((userId) => {
-      if (userId) {
-        supabaseService.syncInvoice(updatedBill, userId);
-      }
-    });
+    // Strictly sync update to Firebase Firestore
     firebaseService.syncInvoice(updatedBill);
 
     // Show the updated receipt immediately so user sees the updated Due / Paid status
@@ -1326,28 +1242,16 @@ export default function App() {
     const updated = storageService.getCashEntries();
     setCashEntries(updated);
 
-    // Sync to Supabase & Firebase Firestore
-    supabaseService.getActiveUserId().then((userId) => {
-      if (userId && updated[0]) {
-        supabaseService.syncCashEntry(updated[0], userId);
-      }
-    });
+    // Strictly sync to Firebase Firestore
     if (updated[0]) {
       firebaseService.syncCashEntry(updated[0]);
     }
   };
 
-  const handleDeleteCashEntry = (id: string) => {
+  const handleDeleteCashEntry = async (id: string) => {
+    await firebaseService.deleteCashEntry(id);
     storageService.deleteCashEntry(id);
     setCashEntries(storageService.getCashEntries());
-
-    // Sync deletion to Supabase & Firebase Firestore
-    supabaseService.getActiveUserId().then((userId) => {
-      if (userId) {
-        supabaseService.deleteCashEntry(id, userId);
-      }
-    });
-    firebaseService.deleteCashEntry(id);
   };
 
   // 3. CUSTOMER DUE & PAYABLE HANDLERS
@@ -1366,12 +1270,6 @@ export default function App() {
     if (found) {
       firebaseService.syncCustomerDue(found);
     }
-    // Sync to Supabase
-    supabaseService.getActiveUserId().then((userId) => {
-      if (userId && found) {
-        supabaseService.syncCustomerDue(found, userId);
-      }
-    });
 
     if (type === 'payable') {
       showToast(`কাস্টমার পাওনাদার হিসেবে ${settings.currencySymbol}${amount.toFixed(2)} যুক্ত করা হয়েছে`, 'info');
@@ -1392,17 +1290,10 @@ export default function App() {
     const updatedDues = storageService.batchAddOrUpdateCustomerDues(rows);
     setCustomerDues(updatedDues);
 
-    // Sync to Firebase Firestore & Supabase
+    // Strictly sync to Firebase Firestore
     for (const due of updatedDues) {
       firebaseService.syncCustomerDue(due);
     }
-    supabaseService.getActiveUserId().then((userId) => {
-      if (userId) {
-        for (const due of updatedDues) {
-          supabaseService.syncCustomerDue(due, userId);
-        }
-      }
-    });
 
     showToast(
       language === 'bn'
@@ -1424,12 +1315,6 @@ export default function App() {
     if (updatedTarget) {
       firebaseService.syncCustomerDue(updatedTarget);
     }
-    // Sync updated due to Supabase
-    supabaseService.getActiveUserId().then((userId) => {
-      if (userId && updatedTarget) {
-        supabaseService.syncCustomerDue(updatedTarget, userId);
-      }
-    });
 
     // Cashbook sync:
     // If receiving money for due -> Cashbook Income
@@ -1454,24 +1339,12 @@ export default function App() {
     if (freshCash[0]) {
       firebaseService.syncCashEntry(freshCash[0]);
     }
-    supabaseService.getActiveUserId().then((userId) => {
-      if (userId && freshCash[0]) {
-        supabaseService.syncCashEntry(freshCash[0], userId);
-      }
-    });
   };
 
-  const handleDeleteCustomerDue = (id: string) => {
+  const handleDeleteCustomerDue = async (id: string) => {
+    await firebaseService.deleteCustomerDue(id);
     storageService.deleteCustomerDue(id);
     setCustomerDues(storageService.getCustomerDues());
-
-    // Sync deletion to Supabase & Firebase Firestore
-    supabaseService.getActiveUserId().then((userId) => {
-      if (userId) {
-        supabaseService.deleteCustomerDue(id, userId);
-      }
-    });
-    firebaseService.deleteCustomerDue(id);
   };
 
   const handleUpdateCustomerDue = (
@@ -1489,11 +1362,6 @@ export default function App() {
 
     if (updated) {
       firebaseService.syncCustomerDue(updated);
-      supabaseService.getActiveUserId().then((userId) => {
-        if (userId) {
-          supabaseService.syncCustomerDue(updated, userId);
-        }
-      });
       showToast(
         language === 'bn'
           ? 'কাস্টমারের তথ্য সফলভাবে আপডেট হয়েছে'

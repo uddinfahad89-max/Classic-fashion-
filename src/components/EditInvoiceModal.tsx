@@ -318,7 +318,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
       changeAmount: finalPaymentMethod === 'due' ? 0 : changeAmount,
       balance: finalBalance,
       currentBalance: finalBalance,
-      isEstimate: finalPaymentMethod === 'estimate' || bill.isEstimate,
+      isEstimate: finalPaymentMethod === 'estimate',
       isTailoring,
       deliveryDate: isTailoring && deliveryDate.trim() ? deliveryDate.trim() : undefined,
       tailoringStatus: isTailoring ? tailoringStatus : undefined,

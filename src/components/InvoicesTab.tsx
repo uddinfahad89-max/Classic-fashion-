@@ -528,9 +528,17 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
                     <span className="text-[11px] font-mono font-bold text-stone-500 bg-stone-100 px-1.5 py-0.5 rounded">
                       #{bill.invoiceNo}
                     </span>
-                    {bill.paymentMethod === 'estimate' || bill.isEstimate || bill.paymentStatus === 'ESTIMATE' ? (
+                    {bill.paymentMethod === 'estimate' || bill.paymentStatus === 'ESTIMATE' ? (
                       <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-700 text-[10px] font-bold border border-blue-200">
                         {isBn ? 'এস্টিমেট (Estimate)' : 'ESTIMATE'}
+                      </span>
+                    ) : bill.paymentMethod === 'cash' && !isDue ? (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200">
+                        {isBn ? 'ক্যাশ (Cash)' : 'CASH'}
+                      </span>
+                    ) : bill.paymentMethod === 'upi' && !isDue ? (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-purple-50 text-purple-700 text-[10px] font-bold border border-purple-200">
+                        {isBn ? 'ইউপিআই (UPI)' : 'UPI'}
                       </span>
                     ) : isDue ? (
                       <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-700 text-[10px] font-bold border border-rose-200">

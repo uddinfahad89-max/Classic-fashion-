@@ -285,18 +285,10 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0);
   const suggestionContainerRef = useRef<HTMLDivElement>(null);
 
-  // Checkout meta (hydrated from auto-saved draft if present)
+  // Customer Details & Tailoring State
   const [customerName, setCustomerName] = useState(() => initialDraft?.customerName || '');
   const [customerPhone, setCustomerPhone] = useState(() => initialDraft?.customerPhone || '');
-  // Tailoring Invoice State
   const [isTailoring, setIsTailoring] = useState(() => Boolean(initialDraft?.isTailoring));
-  // Estimate Bill State (Defaults to true for retail POS / Estimate billing)
-  const [isEstimateBill, setIsEstimateBill] = useState<boolean>(
-    () =>
-      initialDraft?.isEstimate !== undefined
-        ? Boolean(initialDraft.isEstimate)
-        : settings.defaultInvoiceFormat !== 'tax_invoice'
-  );
   const [deliveryDate, setDeliveryDate] = useState(() => initialDraft?.deliveryDate || '');
   const [trialDate, setTrialDate] = useState(() => initialDraft?.trialDate || '');
   const [tailoringStatus, setTailoringStatus] = useState<TailoringOrderStatus>(
@@ -324,7 +316,10 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   );
   const [discountValue, setDiscountValue] = useState(() => initialDraft?.discountValue || '');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(
-    () => initialDraft?.paymentMethod || 'estimate'
+    () => initialDraft?.paymentMethod || 'cash'
+  );
+  const [isEstimateBill, setIsEstimateBill] = useState<boolean>(
+    () => initialDraft?.paymentMethod === 'estimate' || Boolean(initialDraft?.isEstimate)
   );
   const [paidAmount, setPaidAmount] = useState(() => initialDraft?.paidAmount || '');
 
@@ -1233,7 +1228,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       finalInvoiceNo = storageService.getNextInvoiceNumber();
     }
 
-    const isThisAnEstimate = paymentMethod === 'estimate' || isEstimateBill;
+    const isThisAnEstimate = paymentMethod === 'estimate';
 
     const actualPaid =
       paymentMethod === 'estimate'
@@ -1271,12 +1266,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       discountType,
       discountValue: rawDiscount,
       grandTotal: finalGrandTotal,
-      paymentMethod:
-        paymentMethod === 'estimate'
-          ? 'estimate'
-          : balanceAmount > 0 && actualPaid < finalGrandTotal
-          ? 'due'
-          : paymentMethod,
+      paymentMethod: paymentMethod,
       paymentStatus:
         paymentMethod === 'estimate'
           ? actualPaid >= finalGrandTotal && finalGrandTotal > 0
@@ -1318,7 +1308,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     setCustomerPhone('');
     setDiscountValue('');
     setPaidAmount('');
-    setPaymentMethod('estimate');
+    setPaymentMethod('cash');
+    setIsEstimateBill(false);
     setDeliveryDate('');
     setTrialDate('');
     setMeasurements({
@@ -1382,7 +1373,13 @@ export const BillingTab: React.FC<BillingTabProps> = ({
               <button
                 type="button"
                 id="btn-toggle-estimate-bill"
-                onClick={() => setIsEstimateBill((prev) => !prev)}
+                onClick={() => {
+                  setIsEstimateBill((prev) => {
+                    const next = !prev;
+                    setPaymentMethod(next ? 'estimate' : 'cash');
+                    return next;
+                  });
+                }}
                 className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs ${
                   isEstimateBill
                     ? 'bg-blue-600 text-white border-blue-600 ring-2 ring-blue-200'
@@ -1740,7 +1737,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                     setCustomerPhone('');
                     setDiscountValue('');
                     setPaidAmount('');
-                    setPaymentMethod('estimate');
+                    setPaymentMethod('cash');
+                    setIsEstimateBill(false);
                   }
                 }}
                 className="text-[11px] text-stone-500 hover:text-red-600 flex items-center gap-1 transition-colors cursor-pointer shrink-0"
@@ -2582,8 +2580,13 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                       if (paidAmount === grandTotal.toFixed(2)) {
                         setPaidAmount('');
                       }
-                    } else if (nextMode === 'due' && paidNum >= grandTotal) {
-                      setPaidAmount('');
+                    } else {
+                      setIsEstimateBill(false);
+                      if (nextMode === 'due' && paidNum >= grandTotal) {
+                        setPaidAmount('');
+                      } else if ((nextMode === 'cash' || nextMode === 'upi') && (!paidAmount || paidAmount === '0.00' || paidAmount === '')) {
+                        setPaidAmount(grandTotal > 0 ? grandTotal.toFixed(2) : '');
+                      }
                     }
                   }}
                   className={`py-2.5 px-1.5 sm:px-2 rounded-xl text-[11px] sm:text-xs font-bold text-center border transition-all cursor-pointer flex items-center justify-center gap-1 shadow-2xs ${

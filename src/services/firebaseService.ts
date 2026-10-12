@@ -468,10 +468,35 @@ class FirebaseService {
     }
   }
 
-  async deleteInvoice(id: string): Promise<boolean> {
+  async deleteInvoice(id: string, invoiceNo?: string): Promise<boolean> {
     try {
+      // 1. Direct doc delete by ID
       const invoiceRef = doc(db, 'invoices', id);
-      await deleteDoc(invoiceRef);
+      try {
+        await deleteDoc(invoiceRef);
+      } catch {}
+
+      // 2. Also query any docs matching id or invoiceNo and hard delete
+      try {
+        const invoicesRef = collection(db, 'invoices');
+        const q1 = query(invoicesRef, where('id', '==', id));
+        const snap1 = await getDocs(q1);
+        for (const d of snap1.docs) {
+          await deleteDoc(d.ref);
+        }
+
+        const targetInv = invoiceNo || (id.startsWith('inv-') ? undefined : id);
+        if (targetInv) {
+          const q2 = query(invoicesRef, where('invoiceNo', '==', targetInv));
+          const snap2 = await getDocs(q2);
+          for (const d of snap2.docs) {
+            await deleteDoc(d.ref);
+          }
+        }
+      } catch (err) {
+        console.warn('Firebase query delete invoice error:', err);
+      }
+
       return true;
     } catch (e) {
       console.error('Firebase deleteInvoice error:', e);
@@ -499,9 +524,18 @@ class FirebaseService {
         snap2.forEach((d) => map.set(d.id, d.data() as BillInvoice));
       } catch {}
 
-      return Array.from(map.values()).sort(
-        (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
-      );
+      // Filter out deleted bills from local tombstones
+      let deletedSet: Set<string>;
+      try {
+        const raw = typeof window !== 'undefined' ? localStorage.getItem('thermal_pos_deleted_bill_ids_v1') : null;
+        deletedSet = raw ? new Set(JSON.parse(raw)) : new Set();
+      } catch {
+        deletedSet = new Set();
+      }
+
+      return Array.from(map.values())
+        .filter((b) => !deletedSet.has(b.id) && !deletedSet.has(b.invoiceNo))
+        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
     } catch (e) {
       console.error('Firebase fetchInvoices error:', e);
       return [];
@@ -543,8 +577,28 @@ class FirebaseService {
 
   async deleteProduct(productId: string): Promise<boolean> {
     try {
+      // 1. Direct doc delete
       const prodRef = doc(db, 'products', productId);
-      await deleteDoc(prodRef);
+      try {
+        await deleteDoc(prodRef);
+      } catch {}
+
+      // 2. Query any docs matching id and hard delete
+      try {
+        const prodsRef = collection(db, 'products');
+        const q = query(prodsRef, where('id', '==', productId));
+        const snap = await getDocs(q);
+        for (const d of snap.docs) {
+          await deleteDoc(d.ref);
+        }
+      } catch {}
+
+      // 3. Delete associated barcode doc
+      try {
+        const bcRef = doc(db, 'barcodes', `bc_${productId}`);
+        await deleteDoc(bcRef);
+      } catch {}
+
       return true;
     } catch (e) {
       console.error('Firebase deleteProduct error:', e);
@@ -586,7 +640,16 @@ class FirebaseService {
         } catch {}
       }
 
-      return Array.from(map.values());
+      // Filter out deleted products from local tombstones
+      let deletedProdSet: Set<string>;
+      try {
+        const raw = typeof window !== 'undefined' ? localStorage.getItem('thermal_pos_deleted_prod_ids_v1') : null;
+        deletedProdSet = raw ? new Set(JSON.parse(raw)) : new Set();
+      } catch {
+        deletedProdSet = new Set();
+      }
+
+      return Array.from(map.values()).filter((p) => !deletedProdSet.has(p.id));
     } catch (e) {
       console.error('Firebase fetchProducts error:', e);
       return [];
