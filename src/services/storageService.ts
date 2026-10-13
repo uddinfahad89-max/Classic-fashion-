@@ -2235,6 +2235,58 @@ class StorageService {
     }
     return defaults;
   }
+
+  // --- BARCODE SCANNING & DUPLICATE PROTECTION PREFERENCES ---
+  getBarcodeScanPreferences(): BarcodeScanPreferences {
+    const defaults: BarcodeScanPreferences = {
+      duplicateMode: 'ask', // 'ask' | 'prevent' | 'cooldown'
+      cooldownSeconds: 3.5,
+      beepOnDuplicate: true,
+    };
+    try {
+      const raw = localStorage.getItem('pos_barcode_scan_preferences_v1');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        return {
+          duplicateMode:
+            parsed.duplicateMode === 'prevent' ||
+            parsed.duplicateMode === 'cooldown' ||
+            parsed.duplicateMode === 'ask'
+              ? parsed.duplicateMode
+              : defaults.duplicateMode,
+          cooldownSeconds:
+            typeof parsed.cooldownSeconds === 'number' && parsed.cooldownSeconds >= 1
+              ? parsed.cooldownSeconds
+              : defaults.cooldownSeconds,
+          beepOnDuplicate:
+            typeof parsed.beepOnDuplicate === 'boolean'
+              ? parsed.beepOnDuplicate
+              : defaults.beepOnDuplicate,
+        };
+      }
+    } catch (e) {
+      console.warn('Failed to read barcode scan preferences:', e);
+    }
+    return defaults;
+  }
+
+  saveBarcodeScanPreferences(prefs: Partial<BarcodeScanPreferences>): void {
+    try {
+      const current = this.getBarcodeScanPreferences();
+      const updated: BarcodeScanPreferences = { ...current, ...prefs };
+      localStorage.setItem('pos_barcode_scan_preferences_v1', JSON.stringify(updated));
+    } catch (e) {
+      console.warn('Failed to save barcode scan preferences:', e);
+    }
+  }
+}
+
+export type BarcodeScanDuplicateMode = 'ask' | 'prevent' | 'cooldown';
+
+export interface BarcodeScanPreferences {
+  duplicateMode: BarcodeScanDuplicateMode;
+  cooldownSeconds: number;
+  beepOnDuplicate: boolean;
 }
 
 export interface BarcodePrinterPreferences {
@@ -2245,3 +2297,4 @@ export interface BarcodePrinterPreferences {
 }
 
 export const storageService = new StorageService();
+

@@ -22,7 +22,7 @@
     "defaultInvoiceFormat": "tax_invoice",
     "isDataSaverEnabled": false,
     "invoicePrefix": "",
-    "nextInvoiceNumber": 7,
+    "nextInvoiceNumber": 2,
     "isLabelMode": false,
     "autoCapitalizeItemNames": true,
     "isTotalOnlySlip": false
@@ -436,7 +436,41 @@
       "userId": "uddinfahad89@gmail.com",
       "shopId": "uddinfahad89@gmail.com",
       "userEmail": "uddinfahad89@gmail.com"
+    },
+    {
+      "name": "SHIRT",
+      "barcode": "",
+      "id": "prod-1791810773759-69a5",
+      "email": "uddinfahad89@gmail.com",
+      "purchasePrice": 0,
+      "userId": "uddinfahad89@gmail.com",
+      "syncedAt": "2026-10-13T09:07:11.104Z",
+      "shopId": "uddinfahad89@gmail.com",
+      "price": 300,
+      "stock": 0,
+      "unit": "Pcs",
+      "userEmail": "uddinfahad89@gmail.com",
+      "category": "",
+      "updatedAt": 1791810773759
+    },
+    {
+      "id": "prod-1791810773759-ev74",
+      "shopId": "uddinfahad89@gmail.com",
+      "userEmail": "uddinfahad89@gmail.com",
+      "stock": 0,
+      "category": "",
+      "name": "TSHIRT",
+      "price": 500,
+      "updatedAt": 1791810773759,
+      "email": "uddinfahad89@gmail.com",
+      "purchasePrice": 0,
+      "barcode": "",
+      "unit": "Pcs",
+      "userId": "uddinfahad89@gmail.com",
+      "syncedAt": "2026-10-13T09:07:11.105Z"
     }
   ],
-  "lastActive": 1791792804226
+  "lastActive": 1791885511108,
+  "deletedBillIds": [],
+  "deletedProductIds": []
 }

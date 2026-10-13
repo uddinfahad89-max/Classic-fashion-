@@ -21,9 +21,54 @@ export const POS_SERVICES = [
   '000018f1-0000-1000-8000-00805f9b34fb',
   '0000fef5-0000-1000-8000-00805f9b34fb',
   'd8c30001-9f93-4a6a-a238-d65e23631988',
-  '00001101-0000-1000-8000-00805f9b34fb', // Serial Port Profile
-  '00001800-0000-1000-8000-00805f9b34fb', // Generic Access
-  '0000180a-0000-1000-8000-00805f9b34fb', // Device Info
+];
+
+// Targeted thermal printer filters for instant, clutter-free discovery in browser dialog
+export const POS_PRINTER_FILTERS = [
+  // Primary BLE POS Print Services
+  { services: ['000018f0-0000-1000-8000-00805f9b34fb'] },
+  { services: ['0000ffe0-0000-1000-8000-00805f9b34fb'] },
+  { services: ['0000ff00-0000-1000-8000-00805f9b34fb'] },
+  { services: ['49535343-fe7d-4ae5-8fa9-9fafd205e455'] },
+  { services: ['e7810a71-73ae-499d-8c15-faa9aef0c3f2'] },
+  { services: ['6e400001-b5a3-f393-e0a9-e50e24dcca9e'] },
+  { services: ['0000fee7-0000-1000-8000-00805f9b34fb'] },
+  { services: ['0000fff0-0000-1000-8000-00805f9b34fb'] },
+  // Common Thermal Printer Name Prefixes (fast matching in Chrome without scanning non-printer devices)
+  { namePrefix: 'POS' },
+  { namePrefix: 'pos' },
+  { namePrefix: 'Print' },
+  { namePrefix: 'print' },
+  { namePrefix: 'MPT' },
+  { namePrefix: 'mpt' },
+  { namePrefix: 'MTP' },
+  { namePrefix: 'XP' },
+  { namePrefix: 'xp' },
+  { namePrefix: 'RP' },
+  { namePrefix: 'rp' },
+  { namePrefix: 'GP' },
+  { namePrefix: 'gp' },
+  { namePrefix: '58' },
+  { namePrefix: '80' },
+  { namePrefix: 'BT' },
+  { namePrefix: 'bt' },
+  { namePrefix: 'Thermal' },
+  { namePrefix: 'thermal' },
+  { namePrefix: 'Receipt' },
+  { namePrefix: 'Inner' },
+  { namePrefix: 'Blue' },
+  { namePrefix: 'HM' },
+  { namePrefix: 'Netum' },
+  { namePrefix: 'ZJ' },
+  { namePrefix: 'PT' },
+  { namePrefix: 'RPP' },
+  { namePrefix: 'Mobi' },
+  { namePrefix: 'Goojprt' },
+  { namePrefix: 'Milestone' },
+  { namePrefix: 'Zebra' },
+  { namePrefix: 'Epson' },
+  { namePrefix: 'Star' },
+  { namePrefix: 'Bixolon' },
 ];
 
 export class ThermalPrinterService {
@@ -172,10 +217,25 @@ export class ThermalPrinterService {
         }
       }
 
-      // Second pass: specifically query each known POS UUID
-      for (const uuid of POS_SERVICES) {
+      // Second pass: query top priority POS UUIDs with fast timeouts (max 900ms per probe)
+      const topPriorityServices = [
+        '000018f0-0000-1000-8000-00805f9b34fb', // Standard POS
+        '0000ffe0-0000-1000-8000-00805f9b34fb', // HM-10 / MPT-II / POS-58
+        '0000ff00-0000-1000-8000-00805f9b34fb', // Zjiang / Xprinter
+        '49535343-fe7d-4ae5-8fa9-9fafd205e455', // ISSC
+        'e7810a71-73ae-499d-8c15-faa9aef0c3f2', // Rongta / Goojprt
+        '6e400001-b5a3-f393-e0a9-e50e24dcca9e', // Nordic NUS
+        '0000fee7-0000-1000-8000-00805f9b34fb', // Tencent BLE
+        '0000fff0-0000-1000-8000-00805f9b34fb', // Generic POS
+      ];
+
+      for (const uuid of topPriorityServices) {
         try {
-          const service = await server.getPrimaryService(uuid);
+          const servicePromise = server.getPrimaryService(uuid);
+          const timeoutPromise = new Promise<null>((_, reject) =>
+            setTimeout(() => reject(new Error('timeout')), 900)
+          );
+          const service: any = await Promise.race([servicePromise, timeoutPromise]);
           if (!service) continue;
           const characteristics = await service.getCharacteristics();
           for (const char of characteristics) {
@@ -195,7 +255,7 @@ export class ThermalPrinterService {
             }
           }
         } catch {
-          // Service not present on this device
+          // Service not present on this device, proceed quickly
         }
       }
 
@@ -269,7 +329,10 @@ export class ThermalPrinterService {
   }
 
   // Direct Web Bluetooth Connection (invoked directly from user gesture / Connect button)
-  async connectBluetooth(): Promise<{ success: boolean; message: string; deviceName?: string; isUnsupported?: boolean }> {
+  async connectBluetooth(options?: {
+    forceScan?: boolean;
+    scanAll?: boolean;
+  }): Promise<{ success: boolean; message: string; deviceName?: string; isUnsupported?: boolean }> {
     this.manualDisconnect = false;
 
     if (!this.isBluetoothSupported()) {
@@ -281,15 +344,52 @@ export class ThermalPrinterService {
       };
     }
 
+    // 1. Instant Auto-Reconnect Check (Skips scan dialog completely if already paired!)
+    if (!options?.forceScan) {
+      const saved = storageService.getSavedPrinter();
+      if (saved) {
+        console.log('Attempting instant auto-reconnect to saved printer:', saved.name);
+        const autoSuccess = await this.autoReconnect();
+        if (autoSuccess) {
+          return {
+            success: true,
+            deviceName: saved.name,
+            message: `Connected instantly to ${saved.name}! Ready for printing.`,
+          };
+        }
+      }
+    }
+
     this.isConnecting = true;
     this.notifyStatus();
 
     try {
-      // Direct call to navigator.bluetooth.requestDevice within the user gesture tick
-      const device = await (navigator as any).bluetooth.requestDevice({
-        acceptAllDevices: true,
-        optionalServices: POS_SERVICES,
-      });
+      let device: any = null;
+
+      // 2. High-speed targeted printer filter scan or full scan
+      if (options?.scanAll) {
+        device = await (navigator as any).bluetooth.requestDevice({
+          acceptAllDevices: true,
+          optionalServices: POS_SERVICES,
+        });
+      } else {
+        try {
+          // Direct call with POS_PRINTER_FILTERS for instant discovery without loading non-printer devices
+          device = await (navigator as any).bluetooth.requestDevice({
+            filters: POS_PRINTER_FILTERS,
+            optionalServices: POS_SERVICES,
+          });
+        } catch (filterErr: any) {
+          if (filterErr?.name === 'NotFoundError' || filterErr?.message?.includes('cancelled')) {
+            throw filterErr;
+          }
+          console.warn('Printer filter request failed, falling back to all devices:', filterErr);
+          device = await (navigator as any).bluetooth.requestDevice({
+            acceptAllDevices: true,
+            optionalServices: POS_SERVICES,
+          });
+        }
+      }
 
       if (!device) {
         this.isConnecting = false;

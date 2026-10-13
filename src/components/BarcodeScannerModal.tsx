@@ -10,8 +10,11 @@ import {
   CheckCircle2,
   AlertCircle,
   ZoomIn,
+  ShieldCheck,
+  AlertTriangle,
 } from 'lucide-react';
 import { Language, ProductStockItem } from '../types';
+import { BarcodeScanDuplicateMode } from '../services/storageService';
 import { useBackHandler } from '../utils/useBackHandler';
 
 // Web Audio API POS Laser Barcode Beep Sound (Zero external assets, works 100% offline)
@@ -48,16 +51,59 @@ export const playBarcodeBeep = (enabled = true): void => {
   }
 };
 
+// Web Audio API POS Duplicate Warning Buzzer (Distinct lower-pitch buzz for duplicate scan)
+export const playBarcodeWarningBeep = (enabled = true): void => {
+  if (!enabled || typeof window === 'undefined') return;
+  try {
+    const AudioCtx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    // Distinct supermarket warning double-buzz (360Hz -> 260Hz)
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(360, ctx.currentTime);
+    osc.frequency.setValueAtTime(260, ctx.currentTime + 0.08);
+
+    gain.gain.setValueAtTime(0.001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.26, ctx.currentTime + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.2);
+    setTimeout(() => {
+      ctx.close().catch(() => {});
+    }, 250);
+  } catch (e) {
+    console.warn('Warning beep notice:', e);
+  }
+};
+
+export interface ScanResult {
+  matched: boolean;
+  itemName?: string;
+  price?: number;
+  isDuplicate?: boolean;
+  currentQty?: number;
+  prevented?: boolean;
+  requiresConfirmation?: boolean;
+}
+
 export interface BarcodeScannerModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onScanSuccess: (barcodeCode: string) => {
-    matched: boolean;
-    itemName?: string;
-    price?: number;
-  } | void;
+  onScanSuccess: (barcodeCode: string) => ScanResult | void;
   language?: Language;
   products?: ProductStockItem[];
+  isDuplicatePromptOpen?: boolean;
+  duplicateMode?: BarcodeScanDuplicateMode;
+  onChangeDuplicateMode?: (mode: BarcodeScanDuplicateMode) => void;
 }
 
 export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
@@ -65,6 +111,9 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   onClose,
   onScanSuccess,
   language = 'bn',
+  isDuplicatePromptOpen = false,
+  duplicateMode = 'ask',
+  onChangeDuplicateMode,
 }) => {
   const isBn = language === 'bn';
   const scannerRegionId = 'pos-html5-fast-barcode-reader';
@@ -85,6 +134,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     price?: number;
     matched: boolean;
     count: number;
+    status?: 'added' | 'prevented' | 'confirming';
   } | null>(null);
 
   useBackHandler(
@@ -116,34 +166,70 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     }
   }, []);
 
-  // FAST ACTION Scan Handler: Beep + Haptic + Instant Add to Bill
+  // FAST ACTION Scan Handler: Beep + Haptic + Duplicate Protection + Add to Bill
   const handleDecodedCode = useCallback(
     (decodedText: string) => {
+      // Pause scanner while duplicate confirmation prompt is open
+      if (isDuplicatePromptOpen) return;
+
       const cleanCode = (decodedText || '').trim();
       if (!cleanCode) return;
 
       const now = Date.now();
-      // 1.1s debounce for the same barcode to prevent duplicate multi-adds while pointing at label
+      // Cooldown for the same barcode (3.5s) to prevent camera jitter multi-scans
+      const cooldownMs = 3500;
       if (
         lastScannedRef.current.code === cleanCode &&
-        now - lastScannedRef.current.time < 1100
+        now - lastScannedRef.current.time < cooldownMs
       ) {
         return;
       }
       lastScannedRef.current = { code: cleanCode, time: now };
 
-      // 1. Play crisp POS laser beep sound
-      playBarcodeBeep(soundEnabled);
+      // Process scan in BillingTab
+      const result = onScanSuccess(cleanCode);
 
-      // 2. Vibrate on mobile device
+      // 1. Single scan duplicate prevention active: do not increment, sound distinct warning buzz
+      if (result && result.prevented) {
+        playBarcodeWarningBeep(soundEnabled);
+        try {
+          if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+        } catch {}
+        setLastScanFeedback({
+          code: cleanCode,
+          itemName: result.itemName,
+          price: result.price,
+          matched: true,
+          count: result.currentQty || 1,
+          status: 'prevented',
+        });
+        return;
+      }
+
+      // 2. Duplicate prompt requested: sound warning buzz and show prompt
+      if (result && result.requiresConfirmation) {
+        playBarcodeWarningBeep(soundEnabled);
+        try {
+          if (navigator.vibrate) navigator.vibrate(80);
+        } catch {}
+        setLastScanFeedback({
+          code: cleanCode,
+          itemName: result.itemName,
+          price: result.price,
+          matched: true,
+          count: result.currentQty || 1,
+          status: 'confirming',
+        });
+        return;
+      }
+
+      // 3. Normal fresh addition: Crisp POS laser beep + haptic vibrate
+      playBarcodeBeep(soundEnabled);
       try {
         if (navigator.vibrate) {
           navigator.vibrate(60);
         }
       } catch {}
-
-      // 3. Immediately add item to bill in BillingTab
-      const result = onScanSuccess(cleanCode);
 
       setLastScanFeedback((prev) => ({
         code: cleanCode,
@@ -151,9 +237,10 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         price: result && typeof result === 'object' ? result.price : undefined,
         matched: result && typeof result === 'object' ? result.matched : true,
         count: (prev?.count || 0) + 1,
+        status: 'added',
       }));
     },
-    [onScanSuccess, soundEnabled]
+    [onScanSuccess, soundEnabled, isDuplicatePromptOpen]
   );
 
   // Parallel Turbo Native BarcodeDetector loop for <50ms hardware detection
@@ -405,6 +492,66 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
           </div>
         </div>
 
+        {/* Duplicate Protection Mode Toolbar */}
+        <div className="px-3.5 py-2 bg-stone-900 border-b border-stone-800 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-stone-300 min-w-0">
+            <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span className="text-[11px] font-bold truncate">
+              {isBn ? 'ডুপ্লিকেট স্ক্যান সুরক্ষা:' : 'Duplicate Scan Guard:'}
+            </span>
+          </div>
+          <div className="flex items-center gap-1 bg-stone-950 p-0.5 rounded-xl border border-stone-800 shrink-0">
+            <button
+              type="button"
+              onClick={() => onChangeDuplicateMode?.('ask')}
+              className={`px-2 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
+                duplicateMode === 'ask'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-stone-400 hover:text-stone-200'
+              }`}
+              title={
+                isBn
+                  ? 'একই প্রোডাক্ট আবার স্ক্যান হলে জিজ্ঞাসা করবে: "আপনি কি আবার এড করতে চান?"'
+                  : 'Ask confirmation before adding duplicate'
+              }
+            >
+              {isBn ? 'জিজ্ঞাসা করবে' : 'Ask'}
+            </button>
+            <button
+              type="button"
+              onClick={() => onChangeDuplicateMode?.('prevent')}
+              className={`px-2 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
+                duplicateMode === 'prevent'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'text-stone-400 hover:text-stone-200'
+              }`}
+              title={
+                isBn
+                  ? 'একবার ১টি যোগ হলে আর বাড়বে না (ডুপ্লিকেট স্ক্যান পুরোপুরি বন্ধ)'
+                  : 'Single scan only (prevent duplicate)'
+              }
+            >
+              {isBn ? 'একবারই যোগ' : '1 Qty Only'}
+            </button>
+            <button
+              type="button"
+              onClick={() => onChangeDuplicateMode?.('cooldown')}
+              className={`px-2 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer ${
+                duplicateMode === 'cooldown'
+                  ? 'bg-purple-600 text-white shadow-xs'
+                  : 'text-stone-400 hover:text-stone-200'
+              }`}
+              title={
+                isBn
+                  ? '৩.৫ সেকেন্ড ব্যবধান পর পর স্বয়ংক্রিয়ভাবে সংখ্যা বৃদ্ধি'
+                  : 'Auto increment with cooldown'
+              }
+            >
+              {isBn ? 'অটো বৃদ্ধি' : 'Auto'}
+            </button>
+          </div>
+        </div>
+
         {/* Live Camera Viewport (PURE FAST ACTION) */}
         <div className="relative bg-black min-h-[260px] sm:min-h-[300px] overflow-hidden flex items-center justify-center">
           <div id={scannerRegionId} className="w-full overflow-hidden" />
@@ -465,23 +612,70 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
         {/* Instant Scanned Item Feedback Bar (Auto-adds to bill immediately) */}
         {lastScanFeedback && (
-          <div className="p-3 bg-emerald-950 border-t border-emerald-800 flex items-center justify-between gap-2 animate-in fade-in duration-100">
+          <div
+            className={`p-3 border-t flex items-center justify-between gap-2 animate-in fade-in duration-100 ${
+              lastScanFeedback.status === 'prevented'
+                ? 'bg-amber-950/90 border-amber-800'
+                : lastScanFeedback.status === 'confirming'
+                ? 'bg-blue-950/90 border-blue-800'
+                : 'bg-emerald-950 border-emerald-800'
+            }`}
+          >
             <div className="flex items-center gap-2 min-w-0">
-              <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+              {lastScanFeedback.status === 'prevented' ? (
+                <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0" />
+              ) : lastScanFeedback.status === 'confirming' ? (
+                <ShieldCheck className="w-5 h-5 text-blue-400 shrink-0 animate-pulse" />
+              ) : (
+                <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+              )}
               <div className="min-w-0">
                 <div className="text-xs font-extrabold text-white truncate">
                   {lastScanFeedback.itemName || `Barcode: ${lastScanFeedback.code}`}
                 </div>
-                <div className="text-[10px] font-mono text-emerald-300">
-                  {lastScanFeedback.code}
-                  {lastScanFeedback.price !== undefined && lastScanFeedback.price > 0
-                    ? ` • Rs ${lastScanFeedback.price}`
-                    : ''}
+                <div
+                  className={`text-[10px] font-mono ${
+                    lastScanFeedback.status === 'prevented'
+                      ? 'text-amber-300'
+                      : lastScanFeedback.status === 'confirming'
+                      ? 'text-blue-300'
+                      : 'text-emerald-300'
+                  }`}
+                >
+                  {lastScanFeedback.status === 'prevented'
+                    ? isBn
+                      ? '⚠️ ইতিমধ্যে ১টি যোগ আছে — ডুপ্লিকেট স্ক্যান রোধ করা হয়েছে'
+                      : '⚠️ Already in bill — duplicate addition blocked'
+                    : lastScanFeedback.status === 'confirming'
+                    ? isBn
+                      ? '⚠️ ইতিমধ্যে বিলে আছে — যোগ করতে নিচের প্রম্পট নিশ্চিত করুন'
+                      : '⚠️ Already in bill — please confirm in prompt'
+                    : `${lastScanFeedback.code}${
+                        lastScanFeedback.price !== undefined && lastScanFeedback.price > 0
+                          ? ` • Rs ${lastScanFeedback.price}`
+                          : ''
+                      }`}
                 </div>
               </div>
             </div>
-            <span className="px-2.5 py-1 rounded-full bg-emerald-500 text-stone-950 text-[10px] font-black shrink-0 shadow-sm animate-pulse">
-              +{lastScanFeedback.count} {isBn ? 'যোগ হয়েছে' : 'Added'}
+            <span
+              className={`px-2.5 py-1 rounded-full text-[10px] font-black shrink-0 shadow-sm ${
+                lastScanFeedback.status === 'prevented'
+                  ? 'bg-amber-500 text-stone-950'
+                  : lastScanFeedback.status === 'confirming'
+                  ? 'bg-blue-500 text-white animate-pulse'
+                  : 'bg-emerald-500 text-stone-950 animate-pulse'
+              }`}
+            >
+              {lastScanFeedback.status === 'prevented'
+                ? isBn
+                  ? '১টিতে বহাল'
+                  : 'Held at 1'
+                : lastScanFeedback.status === 'confirming'
+                ? isBn
+                  ? 'যাচাই হচ্ছে'
+                  : 'Confirm'
+                : `+${lastScanFeedback.count} ${isBn ? 'যোগ হয়েছে' : 'Added'}`}
             </span>
           </div>
         )}

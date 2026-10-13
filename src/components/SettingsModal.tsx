@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Settings, X, Save, Check, Bluetooth, Power, Trash2, FileText, CheckCircle2, Zap, HelpCircle, Download, Upload, Database, Tag, Copy, Cloud, ShieldCheck, Receipt, Flame, Barcode, RefreshCw } from 'lucide-react';
 import { ThermalPrinterSettings, BluetoothDeviceInfo, Language } from '../types';
 import { translations } from '../utils/i18n';
-import { storageService } from '../services/storageService';
+import { storageService, BarcodeScanPreferences } from '../services/storageService';
 import { firebaseService } from '../services/firebaseService';
 import { firebaseConfig } from '../firebase';
 
@@ -12,7 +12,7 @@ interface SettingsModalProps {
   settings: ThermalPrinterSettings;
   onSaveSettings: (settings: ThermalPrinterSettings) => void;
   bluetoothStatus?: BluetoothDeviceInfo;
-  onConnectBluetooth?: () => void;
+  onConnectBluetooth?: (forceScan?: boolean) => void;
   onDisconnectBluetooth?: (forget?: boolean) => void;
   onTestPrint?: () => void;
   onOpenBluetoothHelp?: () => void;
@@ -39,6 +39,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [saved, setSaved] = useState(false);
   const [backupMsg, setBackupMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  const [scanPrefs, setScanPrefs] = useState<BarcodeScanPreferences>(() =>
+    storageService.getBarcodeScanPreferences()
+  );
+
   const [fbTesting, setFbTesting] = useState(false);
   const [fbTestMsg, setFbTestMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [fbSyncing, setFbSyncing] = useState(false);
@@ -50,7 +54,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   useEffect(() => {
     setForm(settings);
     setBackupMsg(null);
+    if (isOpen) {
+      setScanPrefs(storageService.getBarcodeScanPreferences());
+    }
   }, [settings, isOpen]);
+
+  const handleUpdateScanPrefs = (partial: Partial<BarcodeScanPreferences>) => {
+    const updated = { ...scanPrefs, ...partial };
+    setScanPrefs(updated);
+    storageService.saveBarcodeScanPreferences(updated);
+  };
 
   const handleImportBackupFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -164,12 +177,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <>
                   <button
                     type="button"
-                    onClick={onConnectBluetooth}
+                    onClick={() => onConnectBluetooth?.(false)}
                     className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
                   >
                     <Bluetooth className="w-3.5 h-3.5" />
-                    <span>{isBn ? 'প্রিন্টার কানেক্ট করুন' : 'Connect / Pair Printer'}</span>
+                    <span>
+                      {bluetoothStatus?.savedPrinter
+                        ? isBn
+                          ? 'সংরক্ষিত প্রিন্টার কানেক্ট'
+                          : 'Connect Saved Printer'
+                        : isBn
+                        ? 'প্রিন্টার কানেক্ট করুন'
+                        : 'Connect / Pair Printer'}
+                    </span>
                   </button>
+
+                  {bluetoothStatus?.savedPrinter && (
+                    <button
+                      type="button"
+                      onClick={() => onConnectBluetooth?.(true)}
+                      className="px-2.5 py-1.5 rounded-xl bg-white border border-stone-200 hover:bg-stone-50 text-stone-700 font-bold text-[11px] flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                      title="Pair a different device"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5 text-blue-600" />
+                      <span>{isBn ? 'নতুন ডিভাইস স্ক্যান' : 'Scan New'}</span>
+                    </button>
+                  )}
 
                   {onOpenBluetoothHelp && (
                     <button
@@ -567,6 +600,144 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               onChange={(e) => setForm({ ...form, isDataSaverEnabled: e.target.checked })}
               className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
             />
+          </div>
+
+          {/* Barcode Scanner & Duplicate Protection Settings */}
+          <div className="p-3.5 bg-gradient-to-r from-blue-50/80 to-indigo-50/70 rounded-2xl border border-blue-200 space-y-3 shadow-2xs">
+            <div className="flex items-center justify-between">
+              <div className="font-bold text-blue-950 text-xs flex items-center gap-1.5">
+                <Barcode className="w-4 h-4 text-blue-600" />
+                <span>
+                  {isBn
+                    ? 'বারকোড স্ক্যানার ও ডুপ্লিকেট সুরক্ষা (Barcode Guard)'
+                    : 'Barcode Duplicate Scan Guard'}
+                </span>
+              </div>
+              <span className="text-[10px] bg-blue-200/80 text-blue-900 font-bold px-2 py-0.5 rounded-full">
+                {scanPrefs.duplicateMode === 'ask'
+                  ? isBn
+                    ? 'জিজ্ঞাসা করবে'
+                    : 'Ask Confirm'
+                  : scanPrefs.duplicateMode === 'prevent'
+                  ? isBn
+                    ? 'একবারই যোগ'
+                    : '1 Qty Only'
+                  : isBn
+                  ? 'অটো বৃদ্ধি'
+                  : 'Auto'}
+              </span>
+            </div>
+
+            <p className="text-[11px] text-blue-900/80 leading-relaxed">
+              {isBn
+                ? 'ক্যামেরা বা বারকোড গান দ্রুত স্ক্যান করার ফলে একসাথে একাধিক সংখ্যা যোগ হওয়া রোধ করতে পছন্দমতো নিয়ম সেট করুন:'
+                : 'Control what happens when an item is scanned multiple times rapidly:'}
+            </p>
+
+            {/* 3 Modes Radio Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => handleUpdateScanPrefs({ duplicateMode: 'ask' })}
+                className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                  scanPrefs.duplicateMode === 'ask'
+                    ? 'bg-white border-blue-500 shadow-xs ring-1 ring-blue-500'
+                    : 'bg-white/60 border-blue-100 hover:bg-white text-stone-600'
+                }`}
+              >
+                <div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-blue-950">
+                      {isBn ? '১. জিজ্ঞাসা করবে' : '1. Ask Confirm'}
+                    </span>
+                    {scanPrefs.duplicateMode === 'ask' && (
+                      <Check className="w-3.5 h-3.5 text-blue-600" />
+                    )}
+                  </div>
+                  <p className="text-[10px] text-stone-500 mt-1 leading-snug">
+                    {isBn
+                      ? 'আবার স্ক্যান হলে নিশ্চিত হওয়ার জন্য জিজ্ঞাসা করবে (+১ বাড়াবেন কিনা)'
+                      : 'Prompts to confirm if you want to add this item again'}
+                  </p>
+                </div>
+                <span className="mt-2 text-[9px] font-black text-blue-600 uppercase tracking-wider">
+                  {isBn ? 'রিকমেন্ডেড' : 'Recommended'}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleUpdateScanPrefs({ duplicateMode: 'prevent' })}
+                className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                  scanPrefs.duplicateMode === 'prevent'
+                    ? 'bg-white border-emerald-500 shadow-xs ring-1 ring-emerald-500'
+                    : 'bg-white/60 border-blue-100 hover:bg-white text-stone-600'
+                }`}
+              >
+                <div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-emerald-950">
+                      {isBn ? '২. একবারই যোগ হবে' : '2. 1 Qty Only'}
+                    </span>
+                    {scanPrefs.duplicateMode === 'prevent' && (
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                    )}
+                  </div>
+                  <p className="text-[10px] text-stone-500 mt-1 leading-snug">
+                    {isBn
+                      ? 'একবার ১টি যোগ হলে আর বাড়বে না, ভুল স্ক্যান পুরোপুরি বন্ধ থাকবে'
+                      : 'Strictly 1 qty per item; never increases on duplicate scan'}
+                  </p>
+                </div>
+                <span className="mt-2 text-[9px] font-black text-emerald-600 uppercase tracking-wider">
+                  {isBn ? 'কড়া নিরাপত্তা' : 'Strict Mode'}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleUpdateScanPrefs({ duplicateMode: 'cooldown' })}
+                className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                  scanPrefs.duplicateMode === 'cooldown'
+                    ? 'bg-white border-purple-500 shadow-xs ring-1 ring-purple-500'
+                    : 'bg-white/60 border-blue-100 hover:bg-white text-stone-600'
+                }`}
+              >
+                <div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-purple-950">
+                      {isBn ? '৩. অটো বৃদ্ধি' : '3. Auto Increment'}
+                    </span>
+                    {scanPrefs.duplicateMode === 'cooldown' && (
+                      <Check className="w-3.5 h-3.5 text-purple-600" />
+                    )}
+                  </div>
+                  <p className="text-[10px] text-stone-500 mt-1 leading-snug">
+                    {isBn
+                      ? '৩.৫ সেকেন্ড ব্যবধান পর পর স্বয়ংক্রিয়ভাবে সংখ্যা ১টি বাড়বে'
+                      : 'Auto increases quantity only after 3.5s cooldown'}
+                  </p>
+                </div>
+                <span className="mt-2 text-[9px] font-black text-purple-600 uppercase tracking-wider">
+                  {isBn ? 'কুলডাউন মোড' : 'Cooldown'}
+                </span>
+              </button>
+            </div>
+
+            {/* Toggle Warning Beep */}
+            <div className="flex items-center justify-between pt-1 border-t border-blue-200/60">
+              <span className="text-[11px] text-blue-900 font-semibold">
+                {isBn
+                  ? 'ডুপ্লিকেট স্ক্যানে সতর্কতামূলক সাউন্ড (Warning Beep)'
+                  : 'Play warning sound on duplicate scan'}
+              </span>
+              <input
+                type="checkbox"
+                checked={scanPrefs.beepOnDuplicate}
+                onChange={(e) => handleUpdateScanPrefs({ beepOnDuplicate: e.target.checked })}
+                className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+              />
+            </div>
           </div>
 
           <div>

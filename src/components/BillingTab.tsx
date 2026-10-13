@@ -31,6 +31,7 @@ import {
   Zap,
   Pin,
   BookUser,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   BillItem,
@@ -44,11 +45,20 @@ import {
   TailoringOrderStatus,
 } from '../types';
 import { bengaliToEnglishDigits } from '../utils/barcodeUtils';
-import { storageService } from '../services/storageService';
+import {
+  storageService,
+  BarcodeScanDuplicateMode,
+  BarcodeScanPreferences,
+} from '../services/storageService';
 import { translations } from '../utils/i18n';
 import { useBackHandler } from '../utils/useBackHandler';
 import { KhatabookEntryModal, KhatabookEntryPayload } from './KhatabookEntryModal';
-import { BarcodeScannerModal, playBarcodeBeep } from './BarcodeScannerModal';
+import {
+  BarcodeScannerModal,
+  playBarcodeBeep,
+  playBarcodeWarningBeep,
+  ScanResult,
+} from './BarcodeScannerModal';
 
 interface BillingTabProps {
   billItems: BillItem[];
@@ -428,6 +438,28 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     type: 'success' | 'warning';
   } | null>(null);
 
+  // Barcode Duplicate Scan Protection State
+  const [scanPrefs, setScanPrefs] = useState<BarcodeScanPreferences>(() =>
+    storageService.getBarcodeScanPreferences()
+  );
+  const [duplicateConfirmItem, setDuplicateConfirmItem] = useState<{
+    item: BillItem;
+    barcode: string;
+    nextQty: number;
+    matchedProd?: ProductStockItem;
+  } | null>(null);
+  const lastScanBarcodeTimeRef = useRef<Map<string, number>>(new Map());
+
+  useBackHandler(
+    'billingDuplicateConfirmModal',
+    Boolean(duplicateConfirmItem),
+    () => {
+      setDuplicateConfirmItem(null);
+      return true;
+    },
+    50
+  );
+
   useBackHandler(
     'billingCalculatorModal',
     isCalculatorModalOpen,
@@ -738,8 +770,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     }
   }, [billItems, allSavedProducts]);
 
-  // Barcode Auto-Lookup in Inventory + Add 1 Item to Billing Cart + Refresh Input
-  const handleBarcodeScanned = (rawScannedCode: string) => {
+  // Barcode Auto-Lookup in Inventory + Add 1 Item to Billing Cart + Refresh Input (With Duplicate Guard)
+  const handleBarcodeScanned = (rawScannedCode: string): ScanResult => {
     const { cleanCode, matchedProd } = resolveProductByBarcodeCode(rawScannedCode);
     if (!cleanCode) return { matched: false };
 
@@ -755,23 +787,110 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     const resolvedUnit = matchedProd?.unit || itemUnit.trim() || 'Pcs';
     const newItemId = 'item-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6);
 
-    // Add 1 item to the billing cart (or increment qty by +1 if already in cart)
-    setBillItems((prev) => {
-      const existingIndex = prev.findIndex(
-        (it) =>
-          (it.barcode && it.barcode.trim().toLowerCase() === lowerCode) ||
-          (matchedProd && it.productId && it.productId === matchedProd.id) ||
-          (it.name.trim().toLowerCase() === resolvedName.toLowerCase() &&
-            (it.price === resolvedPrice || it.price === 0))
-      );
+    // Check if this item is already present in current bill
+    const existingIndex = billItems.findIndex(
+      (it) =>
+        (it.barcode && it.barcode.trim().toLowerCase() === lowerCode) ||
+        (matchedProd && it.productId && it.productId === matchedProd.id) ||
+        (it.name.trim().toLowerCase() === resolvedName.toLowerCase() &&
+          (it.price === resolvedPrice || it.price === 0))
+    );
 
-      if (existingIndex >= 0) {
-        return prev.map((it, idx) => {
+    const existingItem = existingIndex >= 0 ? billItems[existingIndex] : null;
+
+    if (existingItem) {
+      const now = Date.now();
+      const lastScanTime = lastScanBarcodeTimeRef.current.get(lowerCode) || 0;
+      const cooldownMs = (scanPrefs.cooldownSeconds || 3.5) * 1000;
+
+      // MODE 1: Prevent duplicate addition (একবার ১টি যোগ হলে আর বাড়বে না)
+      if (scanPrefs.duplicateMode === 'prevent') {
+        playBarcodeWarningBeep(true);
+        try {
+          if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+        } catch {}
+
+        setScanStatusBanner({
+          message: isBn
+            ? `⚠️ "${existingItem.name}" ইতিমধ্যে বিলে ১টি রয়েছে! (ডুপ্লিকেট স্ক্যান প্রতিরোধ)`
+            : `⚠️ "${existingItem.name}" is already in bill! (Duplicate addition blocked)`,
+          type: 'warning',
+        });
+        setTimeout(() => setScanStatusBanner(null), 3500);
+
+        return {
+          matched: true,
+          itemName: existingItem.name,
+          price: existingItem.price,
+          isDuplicate: true,
+          currentQty: existingItem.qty,
+          prevented: true,
+        };
+      }
+
+      // MODE 2: Ask user confirmation before adding again (জিজ্ঞাসা করবে)
+      if (scanPrefs.duplicateMode === 'ask') {
+        playBarcodeWarningBeep(true);
+        try {
+          if (navigator.vibrate) navigator.vibrate(80);
+        } catch {}
+
+        setDuplicateConfirmItem({
+          item: existingItem,
+          barcode: cleanCode,
+          nextQty: existingItem.qty + 1,
+          matchedProd,
+        });
+
+        setScanStatusBanner({
+          message: isBn
+            ? `⚠️ "${existingItem.name}" ইতিমধ্যে বিলে আছে — যোগ করতে নিশ্চিত করুন`
+            : `⚠️ "${existingItem.name}" is already in bill — please confirm`,
+          type: 'warning',
+        });
+        setTimeout(() => setScanStatusBanner(null), 3500);
+
+        return {
+          matched: true,
+          itemName: existingItem.name,
+          price: existingItem.price,
+          isDuplicate: true,
+          currentQty: existingItem.qty,
+          requiresConfirmation: true,
+        };
+      }
+
+      // MODE 3: Cooldown-based auto increment (কুলডাউন সহ বৃদ্ধি)
+      if (now - lastScanTime < cooldownMs) {
+        playBarcodeWarningBeep(true);
+        setScanStatusBanner({
+          message: isBn
+            ? `⏳ "${existingItem.name}" ইতিমধ্যে স্ক্যান হয়েছে — পুনরায় যোগ করতে একটু অপেক্ষা করুন`
+            : `⏳ "${existingItem.name}" scanned — wait cooldown before adding again`,
+          type: 'warning',
+        });
+        setTimeout(() => setScanStatusBanner(null), 2500);
+
+        return {
+          matched: true,
+          itemName: existingItem.name,
+          price: existingItem.price,
+          isDuplicate: true,
+          currentQty: existingItem.qty,
+          prevented: true,
+        };
+      }
+
+      // Cooldown elapsed in Mode 3: increment by 1
+      lastScanBarcodeTimeRef.current.set(lowerCode, now);
+      const nextQty = existingItem.qty + 1;
+      const effectivePrice = resolvedPrice > 0 ? resolvedPrice : existingItem.price;
+      const effectiveName =
+        matchedProd && existingItem.name.startsWith('Item (') ? matchedProd.name : existingItem.name;
+
+      setBillItems((prev) =>
+        prev.map((it, idx) => {
           if (idx !== existingIndex) return it;
-          const nextQty = it.qty + 1;
-          const effectivePrice = resolvedPrice > 0 ? resolvedPrice : it.price;
-          const effectiveName =
-            matchedProd && it.name.startsWith('Item (') ? matchedProd.name : it.name;
           return {
             ...it,
             name: effectiveName,
@@ -781,21 +900,40 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             productId: it.productId || matchedProd?.id,
             total: Math.round(effectivePrice * nextQty * 100) / 100,
           };
-        });
-      }
+        })
+      );
 
-      const newCartItem: BillItem = {
-        id: newItemId,
-        name: resolvedName,
-        price: resolvedPrice,
-        qty: 1,
-        unit: resolvedUnit,
-        total: Math.round(resolvedPrice * 100) / 100,
-        barcode: cleanCode,
-        productId: matchedProd?.id,
+      setScanStatusBanner({
+        message: isBn
+          ? `✅ "${effectiveName}" (+1) কোয়ান্টিটি বৃদ্ধি পেয়েছে (${nextQty} টি)`
+          : `✅ "${effectiveName}" (+1) quantity increased to ${nextQty}`,
+        type: 'success',
+      });
+      setTimeout(() => setScanStatusBanner(null), 3500);
+
+      return {
+        matched: true,
+        itemName: effectiveName,
+        price: effectivePrice,
+        isDuplicate: true,
+        currentQty: nextQty,
       };
-      return [...prev, newCartItem];
-    });
+    }
+
+    // Fresh item addition (First time scanned)
+    lastScanBarcodeTimeRef.current.set(lowerCode, Date.now());
+
+    const newCartItem: BillItem = {
+      id: newItemId,
+      name: resolvedName,
+      price: resolvedPrice,
+      qty: 1,
+      unit: resolvedUnit,
+      total: Math.round(resolvedPrice * 100) / 100,
+      barcode: cleanCode,
+      productId: matchedProd?.id,
+    };
+    setBillItems((prev) => [...prev, newCartItem]);
 
     // If an unlisted barcode still has 0 price, open inline rate editor automatically so user can type rate immediately
     if (resolvedPrice <= 0) {
@@ -838,7 +976,57 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       matched: Boolean(matchedProd && resolvedPrice > 0),
       itemName: resolvedName,
       price: resolvedPrice,
+      isDuplicate: false,
+      currentQty: 1,
     };
+  };
+
+  // Duplicate Increment / Cancel Handlers
+  const handleConfirmDuplicate = (addQty = 1) => {
+    if (!duplicateConfirmItem) return;
+    const targetId = duplicateConfirmItem.item.id;
+    const targetBarcode = (duplicateConfirmItem.barcode || '').trim().toLowerCase();
+    const newQty = duplicateConfirmItem.item.qty + addQty;
+    const effectivePrice = duplicateConfirmItem.item.price;
+
+    setBillItems((prev) =>
+      prev.map((it) => {
+        const itBarcode = (it.barcode || '').trim().toLowerCase();
+        if (it.id === targetId || (itBarcode && itBarcode === targetBarcode)) {
+          return {
+            ...it,
+            qty: newQty,
+            total: Math.round(effectivePrice * newQty * 100) / 100,
+          };
+        }
+        return it;
+      })
+    );
+
+    playBarcodeBeep(true);
+    try {
+      if (navigator.vibrate) navigator.vibrate(60);
+    } catch {}
+
+    setScanStatusBanner({
+      message: isBn
+        ? `✅ "${duplicateConfirmItem.item.name}" এর সংখ্যা বাড়িয়ে ${newQty} করা হয়েছে`
+        : `✅ "${duplicateConfirmItem.item.name}" quantity updated to ${newQty}`,
+      type: 'success',
+    });
+    setTimeout(() => setScanStatusBanner(null), 3500);
+
+    setDuplicateConfirmItem(null);
+  };
+
+  const handleCancelDuplicate = () => {
+    setDuplicateConfirmItem(null);
+  };
+
+  const handleUpdateScanDuplicateMode = (mode: BarcodeScanDuplicateMode) => {
+    const updated = { ...scanPrefs, duplicateMode: mode };
+    setScanPrefs(updated);
+    storageService.saveBarcodeScanPreferences(updated);
   };
 
   // Reset active suggestion index when query changes
@@ -900,6 +1088,19 @@ export const BillingTab: React.FC<BillingTabProps> = ({
 
   useEffect(() => {
     const onGlobalKeyDown = (e: KeyboardEvent) => {
+      // Handle Duplicate Confirmation prompt with Enter (Yes) or Escape (Cancel)
+      if (duplicateConfirmItem) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          handleConfirmDuplicate(1);
+          return;
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          handleCancelDuplicate();
+          return;
+        }
+      }
+
       if (isCalculatorModalOpen) return;
 
       const activeEl = document.activeElement as HTMLElement | null;
@@ -925,7 +1126,6 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         // If no input is focused and Bluetooth scanner sent a barcode (3+ chars), process it immediately
         if (!isInputFocused && buffered.length >= 3) {
           e.preventDefault();
-          playBarcodeBeep(true);
           handleBarcodeScannedRef.current(buffered);
           return;
         }
@@ -942,7 +1142,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
 
     window.addEventListener('keydown', onGlobalKeyDown);
     return () => window.removeEventListener('keydown', onGlobalKeyDown);
-  }, [isCalculatorModalOpen]);
+  }, [isCalculatorModalOpen, duplicateConfirmItem]);
 
   // Keyboard navigation for first-letter autocomplete & Bluetooth/Hardware barcode scanner Enter lookup
   const handleNameKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -956,7 +1156,6 @@ export const BillingTab: React.FC<BillingTabProps> = ({
 
       if (looksLikeBarcodeSku) {
         e.preventDefault();
-        playBarcodeBeep(true);
         handleBarcodeScanned(candidate);
         return;
       }
@@ -2729,14 +2928,141 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         language={language}
       />
 
-      {/* MOBILE CAMERA BARCODE SCANNER MODAL (Fast Action Only) */}
+      {/* MOBILE CAMERA BARCODE SCANNER MODAL (Fast Action with Duplicate Protection) */}
       <BarcodeScannerModal
         isOpen={isBarcodeScannerOpen}
         onClose={() => setIsBarcodeScannerOpen(false)}
         onScanSuccess={handleBarcodeScanned}
         language={language}
         products={allSavedProducts}
+        isDuplicatePromptOpen={Boolean(duplicateConfirmItem)}
+        duplicateMode={scanPrefs.duplicateMode}
+        onChangeDuplicateMode={handleUpdateScanDuplicateMode}
       />
+
+      {/* DUPLICATE PRODUCT SCAN CONFIRMATION MODAL */}
+      {duplicateConfirmItem && (
+        <div className="fixed inset-0 z-[80] bg-black/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl shadow-2xl border border-stone-200 w-full max-w-sm overflow-hidden flex flex-col animate-in zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="px-4 py-3 bg-amber-500 text-stone-950 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-stone-950/15 flex items-center justify-center">
+                  <ShieldCheck className="w-5 h-5 text-stone-950" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black tracking-tight leading-tight">
+                    {isBn ? '⚠️ ইতিমধ্যে বিলে যোগ করা আছে!' : '⚠️ Already in Bill!'}
+                  </h3>
+                  <p className="text-[10px] font-semibold text-stone-800">
+                    {isBn ? 'ডুপ্লিকেট স্ক্যান সুরক্ষা' : 'Duplicate Scan Protection'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleCancelDuplicate}
+                className="w-7 h-7 rounded-full bg-stone-950/10 hover:bg-stone-950/25 text-stone-900 flex items-center justify-center cursor-pointer transition-colors"
+                title={isBn ? 'বাতিল করুন' : 'Cancel'}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-4 space-y-3.5">
+              <div className="p-3 bg-amber-50/60 border border-amber-200 rounded-2xl space-y-1.5">
+                <div className="text-sm font-black text-stone-900 truncate">
+                  {duplicateConfirmItem.item.name}
+                </div>
+                <div className="flex items-center justify-between text-xs text-stone-600">
+                  <span>
+                    {isBn ? 'বর্তমান সংখ্যা:' : 'Current Qty:'}{' '}
+                    <strong className="text-blue-700 font-bold">
+                      {duplicateConfirmItem.item.qty} {duplicateConfirmItem.item.unit || 'Pcs'}
+                    </strong>
+                  </span>
+                  <span>
+                    {isBn ? 'দর:' : 'Rate:'}{' '}
+                    <strong className="text-stone-900 font-bold">
+                      {sym}{duplicateConfirmItem.item.price}
+                    </strong>
+                  </span>
+                </div>
+                {duplicateConfirmItem.barcode && (
+                  <div className="text-[10px] font-mono text-stone-400">
+                    SKU / Barcode: {duplicateConfirmItem.barcode}
+                  </div>
+                )}
+              </div>
+
+              <div className="text-center px-1">
+                <p className="text-xs font-bold text-stone-800 leading-snug">
+                  {isBn
+                    ? 'আপনি কি আবার এই প্রোডাক্টের সংখ্যা ১টি বাড়াতে চান?'
+                    : 'Do you want to increase this product quantity by 1?'}
+                </p>
+                <p className="text-[10px] text-stone-500 mt-0.5">
+                  {isBn
+                    ? 'দ্রুত স্ক্যান করার কারণে অতিরিক্ত সংখ্যা যাতে ভুল করে যোগ না হয়'
+                    : 'Protects from accidental double-scanning'}
+                </p>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleCancelDuplicate}
+                  className="py-2.5 px-3 rounded-2xl bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold text-xs cursor-pointer transition-colors flex items-center justify-center gap-1.5"
+                >
+                  <X className="w-4 h-4 text-stone-500" />
+                  <span>{isBn ? 'না, দরকার নেই' : 'No, Keep Qty'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleConfirmDuplicate(1)}
+                  className="py-2.5 px-3 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white font-black text-xs cursor-pointer transition-colors shadow-md flex items-center justify-center gap-1.5"
+                >
+                  <Plus className="w-4 h-4 text-white" />
+                  <span>{isBn ? 'হ্যাঁ, +১ বাড়ান' : 'Yes, Add +1'}</span>
+                </button>
+              </div>
+
+              {/* Quick Preferences Toggle */}
+              <div className="pt-2 border-t border-stone-100 flex items-center justify-between text-[11px] text-stone-500">
+                <span className="text-[10px] text-stone-500 font-semibold">
+                  {isBn ? 'ভবিষ্যতে স্ক্যান নিয়ম:' : 'Future rule:'}
+                </span>
+                <div className="flex items-center gap-1 bg-stone-100 p-0.5 rounded-lg border border-stone-200">
+                  <button
+                    type="button"
+                    onClick={() => handleUpdateScanDuplicateMode('ask')}
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer transition-all ${
+                      scanPrefs.duplicateMode === 'ask'
+                        ? 'bg-blue-600 text-white font-black shadow-xs'
+                        : 'text-stone-500 hover:text-stone-800'
+                    }`}
+                  >
+                    {isBn ? 'জিজ্ঞাসা' : 'Ask'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleUpdateScanDuplicateMode('prevent')}
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer transition-all ${
+                      scanPrefs.duplicateMode === 'prevent'
+                        ? 'bg-emerald-600 text-white font-black shadow-xs'
+                        : 'text-stone-500 hover:text-stone-800'
+                    }`}
+                  >
+                    {isBn ? 'একবারই যোগ' : '1 Qty'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* UNIT SELECTOR MODAL / SHEET (Choose from added units or add new unit) */}
       {showUnitSelectorModal && (

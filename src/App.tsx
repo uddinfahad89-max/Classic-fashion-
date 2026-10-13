@@ -723,8 +723,8 @@ export default function App() {
   };
 
   // Connect Bluetooth Thermal Printer
-  const handleConnectBluetooth = async () => {
-    const res = await thermalPrinterService.connectBluetooth();
+  const handleConnectBluetooth = async (forceScan = false) => {
+    const res = await thermalPrinterService.connectBluetooth({ forceScan });
     if (res.success) {
       showToast(`Connected to ${res.deviceName || 'Thermal Printer'}! Silent print ready.`, 'success');
     } else if (res.isUnsupported) {
