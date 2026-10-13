@@ -27,6 +27,7 @@ import { CashbookTab } from './components/CashbookTab';
 import { CustomerDueTab } from './components/CustomerDueTab';
 import { PurchaseTripTab } from './components/PurchaseTripTab';
 import { BarcodeTagStudioTab } from './components/BarcodeTagStudioTab';
+import { StaffManagementTab } from './components/StaffManagementTab';
 import { ProductStockModal } from './components/ProductStockModal';
 import { PrintReceiptModal } from './components/PrintReceiptModal';
 import { EditInvoiceModal } from './components/EditInvoiceModal';
@@ -1880,6 +1881,15 @@ export default function App() {
               }
             }}
             onShowToast={showToast}
+          />
+        )}
+
+        {activeTab === 'staff' && (
+          <StaffManagementTab
+            language={language}
+            onShowToast={showToast}
+            printerSettings={settings}
+            bluetoothDevice={bluetoothStatus}
           />
         )}
       </main>

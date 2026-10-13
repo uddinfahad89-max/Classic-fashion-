@@ -6,7 +6,7 @@ export type PaymentMethod = 'estimate' | 'cash' | 'upi' | 'card' | 'due';
 
 export type PaymentStatus = 'PAID' | 'DUE' | 'PARTIAL' | 'ESTIMATE';
 
-export type ActiveTab = 'billing' | 'invoices' | 'cashbook' | 'due' | 'purchases' | 'barcode';
+export type ActiveTab = 'billing' | 'invoices' | 'cashbook' | 'due' | 'purchases' | 'barcode' | 'staff';
 
 export type LabelSizePreset = '2x1' | '50x25' | '2x1.2' | '1.5x1' | '1x1' | '2x2' | 'custom';
 
@@ -302,3 +302,74 @@ export interface PurchaseTrip {
   note?: string;
   syncedCashEntryId?: string; // If synced to cashbook as expense
 }
+
+// ----------------------------------------------------
+// Staff Management & Biometric Attendance Types
+// ----------------------------------------------------
+export type StaffRole =
+  | 'manager'
+  | 'cashier'
+  | 'salesperson'
+  | 'helper'
+  | 'tailor'
+  | 'accountant'
+  | 'delivery'
+  | 'other';
+
+export type AttendanceStatus = 'present' | 'absent' | 'leave' | 'half_day';
+
+export interface StaffMember {
+  id: string;
+  name: string;
+  phone: string;
+  designation: string; // e.g. 'ক্যাশিয়ার', 'সিনিয়র সেলসম্যান'
+  role: StaffRole;
+  joiningDate: string; // YYYY-MM-DD
+  monthlySalary: number; // বেসিক মাসিক বেতন (e.g. 15,000 ৳)
+  monthlyAllowedLeaves: number; // প্রতি মাসে ৪ দিন ছুটি (ডিফল্ট ৪ দিন)
+  workingShift?: string; // e.g. '09:00 AM - 08:00 PM'
+  fingerprintEnrolled: boolean;
+  fingerprintId?: string; // বায়োমেট্রিক ক্রেডেনশিয়াল টোকেন বা আইডি
+  fingerprintName?: string; // e.g. 'ডান হাতের বৃদ্ধাঙ্গুলি'
+  avatarColor?: string;
+  notes?: string;
+  isActive: boolean;
+  createdAt: number;
+}
+
+export interface AttendanceRecord {
+  id: string;
+  staffId: string;
+  staffName: string;
+  date: string; // YYYY-MM-DD
+  status: AttendanceStatus;
+  checkInTime?: string; // e.g. '09:12 AM'
+  checkOutTime?: string; // e.g. '08:05 PM'
+  verificationMethod: 'fingerprint' | 'biometric_device' | 'webauthn' | 'manual';
+  note?: string;
+  timestamp: number;
+}
+
+export interface StaffSalaryCalculation {
+  staffId: string;
+  staffName: string;
+  month: string; // YYYY-MM
+  totalDaysInMonth: number;
+  baseMonthlySalary: number;
+  dailyRate: number; // baseMonthlySalary / totalDaysInMonth
+  allowedLeaves: number; // ডিফল্ট ৪ দিন ছুটি
+  presentDays: number;
+  absentDays: number; // অনুপস্থিত দিন
+  paidLeaveDays: number; // অনুমোদিত ছুটি
+  halfDays: number; // অর্ধ দিবস (০.৫ দিন হিসাব)
+  unpaidDeductionDays: number; // মোট কর্তনযোগ্য দিন
+  absentDeductionAmount: number; // স্বয়ংক্রিয় অনুপস্থিতি কর্তন
+  overtimeHours?: number;
+  overtimeAmount?: number;
+  bonusAmount?: number;
+  advanceDeduction?: number;
+  netPayableSalary: number; // চূড়ান্ত প্রদেয় বেতন
+  isPaid?: boolean;
+  paidDate?: string;
+}
+

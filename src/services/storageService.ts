@@ -12,6 +12,9 @@ import {
   SavedAccountItem,
   BarcodeLabelConfig,
   ProductStockItem,
+  StaffMember,
+  AttendanceRecord,
+  StaffSalaryCalculation,
 } from '../types';
 import { bengaliToEnglishDigits } from '../utils/barcodeUtils';
 
@@ -26,6 +29,8 @@ const STORAGE_KEYS = {
   PURCHASES: 'simple_pos_purchase_trips',
   PRODUCTS: 'simple_pos_products_stock',
   LANG: 'simple_pos_language',
+  STAFF: 'simple_pos_staff_members',
+  ATTENDANCE: 'simple_pos_attendance_records',
 };
 
 const VAULT_KEYS = {
@@ -2278,6 +2283,261 @@ class StorageService {
     } catch (e) {
       console.warn('Failed to save barcode scan preferences:', e);
     }
+  }
+
+  // ====================================================
+  // STAFF MANAGEMENT & BIOMETRIC ATTENDANCE
+  // ====================================================
+  getStaffMembers(): StaffMember[] {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.STAFF);
+      if (raw) {
+        return JSON.parse(raw);
+      }
+    } catch (e) {
+      console.warn('Failed to load staff members:', e);
+    }
+    // Default initial staff if none exists
+    const defaultStaff: StaffMember[] = [
+      {
+        id: 'staff-1',
+        name: 'মো: রহিম মিয়া',
+        phone: '01712-345678',
+        designation: 'প্রধান ক্যাশিয়ার ও ম্যানেজার',
+        role: 'cashier',
+        joiningDate: '2024-01-01',
+        monthlySalary: 15000,
+        monthlyAllowedLeaves: 4,
+        workingShift: '09:00 AM - 08:30 PM',
+        fingerprintEnrolled: true,
+        fingerprintId: 'bio-fp-001',
+        fingerprintName: 'ডান হাতের বৃদ্ধাঙ্গুল',
+        avatarColor: 'from-blue-500 to-indigo-600',
+        isActive: true,
+        createdAt: Date.now() - 90 * 86400000,
+      },
+      {
+        id: 'staff-2',
+        name: 'আল-আমিন হোসেন',
+        phone: '01823-456789',
+        designation: 'সিনিয়র সেলসম্যান',
+        role: 'salesperson',
+        joiningDate: '2024-02-15',
+        monthlySalary: 14000,
+        monthlyAllowedLeaves: 4,
+        workingShift: '09:30 AM - 09:00 PM',
+        fingerprintEnrolled: true,
+        fingerprintId: 'bio-fp-002',
+        fingerprintName: 'বাম হাতের তর্জনী',
+        avatarColor: 'from-emerald-500 to-teal-600',
+        isActive: true,
+        createdAt: Date.now() - 60 * 86400000,
+      },
+      {
+        id: 'staff-3',
+        name: 'শামীম রেজা',
+        phone: '01934-567890',
+        designation: 'দোকান সহকারী ও ডেলিভারি',
+        role: 'helper',
+        joiningDate: '2024-03-01',
+        monthlySalary: 12000,
+        monthlyAllowedLeaves: 4,
+        workingShift: '10:00 AM - 09:00 PM',
+        fingerprintEnrolled: false,
+        avatarColor: 'from-amber-500 to-orange-600',
+        isActive: true,
+        createdAt: Date.now() - 30 * 86400000,
+      },
+    ];
+    this.saveStaffMembersList(defaultStaff);
+    return defaultStaff;
+  }
+
+  saveStaffMembersList(list: StaffMember[]): void {
+    try {
+      localStorage.setItem(STORAGE_KEYS.STAFF, JSON.stringify(list));
+    } catch (e) {
+      console.warn('Failed to save staff members:', e);
+    }
+  }
+
+  saveStaffMember(staff: StaffMember): void {
+    const list = this.getStaffMembers();
+    const idx = list.findIndex((s) => s.id === staff.id);
+    if (idx >= 0) {
+      list[idx] = staff;
+    } else {
+      list.push(staff);
+    }
+    this.saveStaffMembersList(list);
+  }
+
+  deleteStaffMember(id: string): void {
+    const list = this.getStaffMembers().filter((s) => s.id !== id);
+    this.saveStaffMembersList(list);
+  }
+
+  getAttendanceRecords(filter?: { date?: string; month?: string; staffId?: string }): AttendanceRecord[] {
+    let records: AttendanceRecord[] = [];
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.ATTENDANCE);
+      if (raw) {
+        records = JSON.parse(raw);
+      }
+    } catch (e) {
+      console.warn('Failed to load attendance records:', e);
+    }
+
+    if (records.length === 0) {
+      // Seed sample attendance for today & recent days
+      const now = new Date();
+      const todayStr = now.toISOString().slice(0, 10);
+      records = [
+        {
+          id: 'att-seed-1',
+          staffId: 'staff-1',
+          staffName: 'মো: রহিম মিয়া',
+          date: todayStr,
+          status: 'present',
+          checkInTime: '08:55 AM',
+          checkOutTime: '08:30 PM',
+          verificationMethod: 'fingerprint',
+          timestamp: Date.now() - 3600000,
+        },
+        {
+          id: 'att-seed-2',
+          staffId: 'staff-2',
+          staffName: 'আল-আমিন হোসেন',
+          date: todayStr,
+          status: 'present',
+          checkInTime: '09:15 AM',
+          verificationMethod: 'biometric_device',
+          timestamp: Date.now() - 1800000,
+        },
+      ];
+      this.saveAttendanceRecordsList(records);
+    }
+
+    if (filter) {
+      if (filter.date) {
+        records = records.filter((r) => r.date === filter.date);
+      }
+      if (filter.month) {
+        records = records.filter((r) => r.date.startsWith(filter.month!));
+      }
+      if (filter.staffId) {
+        records = records.filter((r) => r.staffId === filter.staffId);
+      }
+    }
+
+    return records.sort((a, b) => b.timestamp - a.timestamp);
+  }
+
+  saveAttendanceRecordsList(records: AttendanceRecord[]): void {
+    try {
+      localStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(records));
+    } catch (e) {
+      console.warn('Failed to save attendance records:', e);
+    }
+  }
+
+  recordAttendance(record: AttendanceRecord): AttendanceRecord {
+    const records = this.getAttendanceRecords();
+    const existingIdx = records.findIndex(
+      (r) => r.staffId === record.staffId && r.date === record.date
+    );
+    if (existingIdx >= 0) {
+      records[existingIdx] = {
+        ...records[existingIdx],
+        ...record,
+        id: records[existingIdx].id,
+      };
+    } else {
+      records.unshift(record);
+    }
+    this.saveAttendanceRecordsList(records);
+    return record;
+  }
+
+  deleteAttendanceRecord(id: string): void {
+    const records = this.getAttendanceRecords().filter((r) => r.id !== id);
+    this.saveAttendanceRecordsList(records);
+  }
+
+  calculateStaffSalary(
+    staffId: string,
+    monthStr: string, // YYYY-MM
+    options?: {
+      bonus?: number;
+      advance?: number;
+      overtimeHours?: number;
+      overtimeRatePerHour?: number;
+    }
+  ): StaffSalaryCalculation {
+    const staff = this.getStaffMembers().find((s) => s.id === staffId);
+    const staffName = staff ? staff.name : 'Unknown Staff';
+    const baseSalary = staff ? staff.monthlySalary : 0;
+    const allowedLeaves = staff ? (staff.monthlyAllowedLeaves ?? 4) : 4;
+
+    const [year, month] = monthStr.split('-').map(Number);
+    const daysInMonth = new Date(year, month, 0).getDate(); // Days in month (28..31)
+
+    // Daily salary rate
+    const dailyRate = Math.round(baseSalary / daysInMonth);
+
+    // Get attendance records for this month
+    const monthRecords = this.getAttendanceRecords({ month: monthStr, staffId });
+
+    let presentDays = 0;
+    let absentDays = 0;
+    let paidLeaveDays = 0;
+    let halfDays = 0;
+
+    monthRecords.forEach((r) => {
+      if (r.status === 'present') presentDays++;
+      else if (r.status === 'absent') absentDays++;
+      else if (r.status === 'leave') paidLeaveDays++;
+      else if (r.status === 'half_day') halfDays++;
+    });
+
+    // Unpaid deduction:
+    // If absent 1 day -> automatically deducts 1 day's daily rate
+    // If half-day -> deducts 0.5 day's daily rate
+    // The 4 allowed leaves per month are paid
+    const unpaidDeductionDays = absentDays + halfDays * 0.5;
+    const absentDeductionAmount = Math.round(unpaidDeductionDays * dailyRate);
+
+    const overtimeHours = options?.overtimeHours || 0;
+    const overtimeRate = options?.overtimeRatePerHour || Math.round(dailyRate / 9);
+    const overtimeAmount = Math.round(overtimeHours * overtimeRate);
+    const bonusAmount = options?.bonus || 0;
+    const advanceDeduction = options?.advance || 0;
+
+    const netPayableSalary = Math.max(
+      0,
+      baseSalary - absentDeductionAmount + overtimeAmount + bonusAmount - advanceDeduction
+    );
+
+    return {
+      staffId,
+      staffName,
+      month: monthStr,
+      totalDaysInMonth: daysInMonth,
+      baseMonthlySalary: baseSalary,
+      dailyRate,
+      allowedLeaves,
+      presentDays,
+      absentDays,
+      paidLeaveDays,
+      halfDays,
+      unpaidDeductionDays,
+      absentDeductionAmount,
+      overtimeHours,
+      overtimeAmount,
+      bonusAmount,
+      advanceDeduction,
+      netPayableSalary,
+    };
   }
 }
 

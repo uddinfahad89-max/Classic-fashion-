@@ -6,6 +6,7 @@ import {
   Receipt,
   Truck,
   Barcode,
+  UserCheck,
 } from 'lucide-react';
 import { ActiveTab, Language } from '../types';
 
@@ -30,7 +31,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
 }) => {
   const isBn = language === 'bn';
 
-  // Strict 6-tab sequence: Billing -> Dues -> Daybook -> Invoices -> Purchases -> Barcode
+  // Strict 7-tab sequence: Billing -> Dues -> Daybook -> Invoices -> Purchases -> Barcode -> Staff
   const navItems: {
     id: ActiveTab;
     label: string;
@@ -76,6 +77,11 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       label: isBn ? 'বারকোড' : 'Barcode',
       icon: Barcode,
     },
+    {
+      id: 'staff',
+      label: isBn ? 'স্টাফ' : 'Staff',
+      icon: UserCheck,
+    },
   ];
 
   return (
@@ -84,8 +90,8 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       aria-label="Bottom Navigation"
       className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-stone-200/90 shadow-[0_-4px_20px_rgba(0,0,0,0.06)]"
     >
-      <div className="max-w-xl mx-auto px-1.5 py-1.5 sm:py-2">
-        <div className="grid grid-cols-6 gap-0.5 sm:gap-1">
+      <div className="max-w-xl mx-auto px-1 sm:px-1.5 py-1.5 sm:py-2">
+        <div className="grid grid-cols-7 gap-0.5 sm:gap-1">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;

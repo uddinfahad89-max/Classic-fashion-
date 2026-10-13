@@ -27,6 +27,7 @@ import {
   BookOpen,
   Truck,
   Barcode,
+  UserCheck,
   Plus,
   ShoppingBag,
   Clock,
@@ -362,6 +363,22 @@ export const Header: React.FC<HeaderProps> = ({
                       >
                         <Barcode className="w-4 h-4 text-indigo-600" />
                         <span>{isBn ? 'বারকোড ও প্রাইস ট্যাগ (4Barcode)' : 'Barcode & Tags'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onSelectTab('staff');
+                          setIsFolderMenuOpen(false);
+                        }}
+                        className={`w-full text-left px-3 py-2 text-xs font-semibold flex items-center gap-2 transition-colors ${
+                          activeTab === 'staff'
+                            ? 'bg-blue-50 text-blue-700'
+                            : 'text-stone-700 hover:bg-stone-50'
+                        }`}
+                      >
+                        <UserCheck className="w-4 h-4 text-blue-600" />
+                        <span>{isBn ? 'স্টাফ ম্যানেজমেন্ট ও হাজিরা' : 'Staff Management'}</span>
                       </button>
                     </div>
                   </div>
@@ -778,6 +795,23 @@ export const Header: React.FC<HeaderProps> = ({
                 >
                   <Barcode className="w-5 h-5 text-indigo-600" />
                   <span>{isBn ? 'বারকোড ও প্রাইস ট্যাগ (4Barcode)' : 'Barcode & Price Tags'}</span>
+                </button>
+
+                {/* 7. Staff Management & Attendance */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSelectTab('staff');
+                    setIsDrawerOpen(false);
+                  }}
+                  className={`w-full text-left px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-bold flex items-center gap-3 transition-colors cursor-pointer ${
+                    activeTab === 'staff'
+                      ? 'bg-blue-50 text-blue-800'
+                      : 'text-stone-700 hover:bg-stone-100'
+                  }`}
+                >
+                  <UserCheck className="w-5 h-5 text-blue-600" />
+                  <span>{isBn ? 'স্টাফ ম্যানেজমেন্ট ও বায়োমেট্রিক হাজিরা' : 'Staff Management & Attendance'}</span>
                 </button>
 
                 <div className="h-px bg-stone-200 my-2" />
