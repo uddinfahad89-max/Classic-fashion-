@@ -11,7 +11,8 @@ import {
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
-  sendPasswordResetEmail
+  sendPasswordResetEmail,
+  updatePassword
 } from 'firebase/auth';
 import { db, auth } from '../firebase';
 import {
@@ -319,15 +320,49 @@ class FirebaseService {
       await setDoc(
         userDocRef,
         {
+          email: cleanEmail,
           password: cleanPass,
           updatedAt: new Date().toISOString()
         },
         { merge: true }
       );
 
+      // Also sync Firebase Auth if currently logged in or user exists
+      try {
+        if (auth.currentUser && auth.currentUser.email?.toLowerCase() === cleanEmail) {
+          await updatePassword(auth.currentUser, cleanPass);
+        }
+      } catch (authErr) {
+        console.warn('Firebase Auth updatePassword notice:', authErr);
+      }
+
       return true;
     } catch (e) {
       console.error('Firebase updateUserPassword error:', e);
+      return false;
+    }
+  }
+
+  // Check if an email exists in Firestore (users, profiles, or invoices)
+  async checkUserExists(email: string): Promise<boolean> {
+    try {
+      const cleanEmail = (email || '').trim().toLowerCase();
+      if (!cleanEmail) return false;
+
+      // 1. Check users collection
+      const userDocSnap = await getDoc(doc(db, 'users', cleanEmail));
+      if (userDocSnap.exists()) return true;
+
+      // 2. Check profiles collection
+      const profDocSnap = await getDoc(doc(db, 'profiles', cleanEmail));
+      if (profDocSnap.exists()) return true;
+
+      // 3. Check if any invoices exist
+      const invQuery = query(collection(db, 'invoices'), where('userId', '==', cleanEmail));
+      const invSnap = await getDocs(invQuery);
+      return !invSnap.empty;
+    } catch (e) {
+      console.warn('Firebase checkUserExists notice:', e);
       return false;
     }
   }
@@ -340,7 +375,11 @@ class FirebaseService {
       return { success: true };
     } catch (e: any) {
       console.warn('Firebase sendPasswordResetLink error:', e);
-      return { success: false, error: e?.message || 'Failed to send reset email' };
+      let errMsg = e?.message || 'Failed to send reset email';
+      if (e?.code === 'auth/user-not-found') {
+        errMsg = 'auth/user-not-found';
+      }
+      return { success: false, error: errMsg };
     }
   }
 

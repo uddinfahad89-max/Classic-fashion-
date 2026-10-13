@@ -730,7 +730,11 @@ export const LoginModal: React.FC<LoginModalProps> = ({
         onClose={() => setIsResetModalOpen(false)}
         language={language}
         prefilledEmail={loginEmail}
-        initialMode="request_link"
+        initialMode="update_password"
+        onSwitchToLogin={(em) => {
+          setIsResetModalOpen(false);
+          if (em) setLoginEmail(em);
+        }}
         onSuccess={() => {
           // Keep reset modal open briefly to show success, user can then return to login
         }}

@@ -542,10 +542,11 @@ export default function App() {
       setPurchaseTrips([]);
 
       // Strictly sync profile to Firebase Firestore
+      const userIdent = loggedIn.email || loggedIn.phone || loggedIn.shopId || 'owner';
       firebaseService.syncProfile(
         updated,
-        loggedIn.id || loggedIn.email,
-        loggedIn.id || loggedIn.email,
+        userIdent,
+        loggedIn.shopId || userIdent,
         loggedIn.phone,
         loggedIn.email
       ).catch((e) => console.warn('Firebase onboarding profile sync notice:', e));
@@ -2073,33 +2074,33 @@ export default function App() {
         }}
       />
 
-      {/* Supabase Password Reset Modal (Request link & Update password view) */}
+      {/* Firebase Password Reset Modal (Instant reset & Email link options) */}
       <ResetPasswordModal
         isOpen={isResetPasswordOpen}
         onClose={() => setIsResetPasswordOpen(false)}
         language={language}
         initialMode={resetPasswordMode}
         prefilledEmail={resetPasswordEmail}
+        onSwitchToLogin={(em) => {
+          setIsResetPasswordOpen(false);
+          setIsLoginModalOpen(true);
+        }}
         onSuccess={(msg) => {
-          if (resetPasswordMode === 'update_password') {
-            try {
-              const cleanPath = window.location.pathname.replace('/reset-password', '') || '/';
-              window.history.replaceState(null, document.title, cleanPath);
-            } catch (e) {
-              console.warn('URL clean notice:', e);
-            }
-            setIsResetPasswordOpen(false);
-            setIsLoginModalOpen(true);
-            showToast(
-              msg ||
-                (language === 'bn'
-                  ? 'পাসওয়ার্ড সফলভাবে পরিবর্তন করা হয়েছে! নতুন পাসওয়ার্ড দিয়ে লগইন করুন।'
-                  : 'Password updated successfully! Please log in with your new password.'),
-              'success'
-            );
-          } else {
-            showToast(msg, 'success');
+          try {
+            const cleanPath = window.location.pathname.replace('/reset-password', '') || '/';
+            window.history.replaceState(null, document.title, cleanPath);
+          } catch (e) {
+            console.warn('URL clean notice:', e);
           }
+          setIsResetPasswordOpen(false);
+          setIsLoginModalOpen(true);
+          showToast(
+            msg ||
+              (language === 'bn'
+                ? 'পাসওয়ার্ড সফলভাবে পরিবর্তন করা হয়েছে! নতুন পাসওয়ার্ড দিয়ে লগইন করুন।'
+                : 'Password updated successfully! Please log in with your new password.'),
+            'success'
+          );
         }}
       />
 

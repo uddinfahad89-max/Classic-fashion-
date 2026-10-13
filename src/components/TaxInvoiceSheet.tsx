@@ -15,11 +15,10 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
   isTotalOnlySlip = false,
 }) => {
   const isTotalOnly = isTotalOnlySlip || Boolean(settings.isTotalOnlySlip);
-  const isEstimate =
+  const isBillEstimate =
     bill.paymentMethod === 'estimate' ||
-    bill.paymentStatus === 'ESTIMATE' ||
-    Boolean(bill.isEstimate);
-  const isBillEstimate = isEstimate;
+    (!bill.paymentMethod && (bill.paymentStatus === 'ESTIMATE' || Boolean(bill.isEstimate)));
+  const isEstimate = isBillEstimate;
   const rawSym = (settings.currencySymbol || '').replace(/\?/g, '').trim();
   const isCurrencyHidden = settings.hideCurrencySymbol || !rawSym;
   const currencyPrefix = isCurrencyHidden ? '' : `${rawSym} `;

@@ -147,7 +147,17 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
 
   const isEstimate = estimateMode;
   const formattedDateForFile = bill.date.replace(/[\/\s:]/g, '-');
-  const prefix = isTotalOnlySlip ? 'TotalSlip' : isLabelMode ? 'Labels' : isEstimate ? 'EstimateBill' : 'Sale';
+  const prefix = isTotalOnlySlip
+    ? 'TotalSlip'
+    : isLabelMode
+    ? 'Labels'
+    : isEstimate
+    ? 'EstimateBill'
+    : bill.paymentMethod === 'upi'
+    ? 'UPI_Bill'
+    : bill.paymentMethod === 'due'
+    ? 'Credit_Bill'
+    : 'Cash_Memo';
   const pdfFilename = `${prefix}_${bill.invoiceNo}_${formattedDateForFile}.pdf`;
   const imageFilename = `${prefix}_${bill.invoiceNo}_${formattedDateForFile}.png`;
 
@@ -297,7 +307,9 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
     } else if (isTotalOnlySlip) {
       const store = settings.storeName || 'CLASSIC FASHION';
       const totalQty = bill.items.reduce((sum, it) => sum + (it.qty || 1), 0);
-      const isMsgEstimate = estimateMode || bill.paymentMethod === 'estimate' || bill.paymentStatus === 'ESTIMATE';
+      const isMsgEstimate =
+        bill.paymentMethod === 'estimate' ||
+        (!bill.paymentMethod && (estimateMode || bill.paymentStatus === 'ESTIMATE'));
       const isDue = !isMsgEstimate && ((bill.balance && bill.balance > 0) || (bill.paymentStatus !== 'PAID' && bill.grandTotal > (bill.paidAmount || 0)));
       const dueAmt = bill.balance !== undefined ? bill.balance : Math.max(0, bill.grandTotal - (bill.paidAmount || 0));
 
@@ -331,7 +343,10 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
         .join('\n');
 
       const isTailoring = Boolean(bill.isTailoring);
-      const isEstimateBill = Boolean(estimateMode || bill.paymentMethod === 'estimate' || bill.paymentStatus === 'ESTIMATE' || bill.isEstimate);
+      const isEstimateBill = Boolean(
+        bill.paymentMethod === 'estimate' ||
+        (!bill.paymentMethod && (estimateMode || bill.paymentStatus === 'ESTIMATE'))
+      );
       const headerLine = isTailoring
         ? `*✂️ ${store} - Tailoring Order #${bill.invoiceNo}*\n`
         : isEstimateBill
