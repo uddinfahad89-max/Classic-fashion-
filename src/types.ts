@@ -364,6 +364,7 @@ export interface StaffSalaryCalculation {
   halfDays: number; // অর্ধ দিবস (০.৫ দিন হিসাব)
   unpaidDeductionDays: number; // মোট কর্তনযোগ্য দিন
   absentDeductionAmount: number; // স্বয়ংক্রিয় অনুপস্থিতি কর্তন
+  absentDates?: string[]; // অনুপস্থিত তারিখসমূহ (YYYY-MM-DD)
   overtimeHours?: number;
   overtimeAmount?: number;
   bonusAmount?: number;

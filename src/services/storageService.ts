@@ -2488,6 +2488,7 @@ class StorageService {
     // Get attendance records for this month
     const monthRecords = this.getAttendanceRecords({ month: monthStr, staffId });
 
+    const absentDates: string[] = [];
     let presentDays = 0;
     let absentDays = 0;
     let paidLeaveDays = 0;
@@ -2495,7 +2496,10 @@ class StorageService {
 
     monthRecords.forEach((r) => {
       if (r.status === 'present') presentDays++;
-      else if (r.status === 'absent') absentDays++;
+      else if (r.status === 'absent') {
+        absentDays++;
+        if (!absentDates.includes(r.date)) absentDates.push(r.date);
+      }
       else if (r.status === 'leave') paidLeaveDays++;
       else if (r.status === 'half_day') halfDays++;
     });
@@ -2532,6 +2536,7 @@ class StorageService {
       halfDays,
       unpaidDeductionDays,
       absentDeductionAmount,
+      absentDates: absentDates.sort(),
       overtimeHours,
       overtimeAmount,
       bonusAmount,

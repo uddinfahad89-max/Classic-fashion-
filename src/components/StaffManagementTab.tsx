@@ -129,6 +129,16 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
   // Staff Add/Edit Modal
   const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
   const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null);
+  const [modalFingerprintEnrolled, setModalFingerprintEnrolled] = useState(false);
+  const [modalFingerprintId, setModalFingerprintId] = useState<string | null>(null);
+  const [modalFingerprintName, setModalFingerprintName] = useState<string>('ডান হাতের বৃদ্ধাঙ্গুল');
+  const [isModalScanning, setIsModalScanning] = useState(false);
+
+  // Staff Attendance History Modal
+  const [viewingHistoryStaff, setViewingHistoryStaff] = useState<StaffMember | null>(null);
+  const [historySelectedMonth, setHistorySelectedMonth] = useState<string>(() => {
+    return new Date().toISOString().slice(0, 7);
+  });
 
   // Fingerprint Enrollment Modal
   const [enrollingStaff, setEnrollingStaff] = useState<StaffMember | null>(null);
@@ -393,6 +403,86 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
     }, 1500);
   };
 
+  // Open Add Staff Modal
+  const handleOpenAddStaffModal = () => {
+    setEditingStaff(null);
+    setModalFingerprintEnrolled(false);
+    setModalFingerprintId(null);
+    setModalFingerprintName(isBn ? 'ডান হাতের বৃদ্ধাঙ্গুল' : 'Right Thumb');
+    setIsModalScanning(false);
+    setIsStaffModalOpen(true);
+  };
+
+  // Open Edit Staff Modal
+  const handleOpenEditStaffModal = (staff: StaffMember) => {
+    setEditingStaff(staff);
+    setModalFingerprintEnrolled(!!staff.fingerprintEnrolled);
+    setModalFingerprintId(staff.fingerprintId || null);
+    setModalFingerprintName(staff.fingerprintName || (isBn ? 'ডান হাতের বৃদ্ধাঙ্গুল' : 'Right Thumb'));
+    setIsModalScanning(false);
+    setIsStaffModalOpen(true);
+  };
+
+  // Fingerprint Scan inside Add/Edit Staff Modal (Enrolling during admission)
+  const handleModalScanFingerprint = async () => {
+    setIsModalScanning(true);
+    playBiometricSound('scan');
+    if (navigator.vibrate) navigator.vibrate([80]);
+
+    await new Promise((r) => setTimeout(r, 1400));
+
+    const generatedFpId = `bio-fp-${Date.now().toString(36).toUpperCase()}`;
+    setModalFingerprintEnrolled(true);
+    setModalFingerprintId(generatedFpId);
+    setModalFingerprintName(isBn ? 'ডান হাতের বৃদ্ধাঙ্গুল (ডিভাইস সেন্সর)' : 'Right Thumb (Device Sensor)');
+    setIsModalScanning(false);
+    playBiometricSound('success');
+    if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+
+    onShowToast?.(
+      isBn
+        ? '✅ আঙুলের ছাপ সফলভাবে স্ক্যান হয়েছে! নতুন স্টাফ সংরক্ষণের সাথে ডাটা যুক্ত হবে।'
+        : 'Fingerprint captured successfully! Will be saved with staff record.',
+      'success'
+    );
+  };
+
+  // Update attendance for any past/custom date (e.g. from history modal)
+  const handleUpdatePastAttendance = (staffId: string, date: string, status: AttendanceStatus) => {
+    const staff = staffList.find((s) => s.id === staffId);
+    if (!staff) return;
+
+    const existing = attendanceRecords.find((r) => r.staffId === staffId && r.date === date);
+    const newRecord: AttendanceRecord = {
+      id: existing ? existing.id : `att-${staffId}-${date}-${Date.now()}`,
+      staffId,
+      staffName: staff.name,
+      date,
+      status,
+      verificationMethod: 'manual',
+      timestamp: Date.now(),
+    };
+
+    storageService.recordAttendance(newRecord);
+    loadData();
+
+    const statusLabel =
+      status === 'leave'
+        ? isBn ? 'ছুটি (অনুমোদিত)' : 'Leave (Approved)'
+        : status === 'present'
+        ? isBn ? 'উপস্থিত' : 'Present'
+        : status === 'half_day'
+        ? isBn ? 'অর্ধ দিবস' : 'Half Day'
+        : isBn ? 'অনুপস্থিত' : 'Absent';
+
+    onShowToast?.(
+      isBn
+        ? `✅ ${date} তারিখের হাজিরা "${statusLabel}" হিসেবে সংরক্ষিত হয়েছে`
+        : `Attendance for ${date} updated to ${statusLabel}`,
+      'success'
+    );
+  };
+
   // Save Staff (Add or Edit)
   const handleSaveStaffForm = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -420,6 +510,7 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
     ];
     const randomColor = colors[Math.floor(Math.random() * colors.length)];
 
+    const isNew = !editingStaff;
     const staffObj: StaffMember = {
       id: editingStaff ? editingStaff.id : `staff-${Date.now()}`,
       name,
@@ -430,9 +521,13 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
       monthlySalary,
       monthlyAllowedLeaves,
       workingShift,
-      fingerprintEnrolled: editingStaff ? editingStaff.fingerprintEnrolled : false,
-      fingerprintId: editingStaff?.fingerprintId,
-      fingerprintName: editingStaff?.fingerprintName,
+      fingerprintEnrolled: modalFingerprintEnrolled,
+      fingerprintId: modalFingerprintEnrolled
+        ? modalFingerprintId || `bio-fp-${Date.now().toString(36)}`
+        : undefined,
+      fingerprintName: modalFingerprintEnrolled
+        ? modalFingerprintName || (isBn ? 'ডান হাতের বৃদ্ধাঙ্গুল' : 'Right Thumb')
+        : undefined,
       avatarColor: editingStaff?.avatarColor || randomColor,
       isActive: true,
       createdAt: editingStaff?.createdAt || Date.now(),
@@ -442,10 +537,20 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
     loadData();
     setIsStaffModalOpen(false);
     setEditingStaff(null);
-    onShowToast?.(
-      isBn ? `✅ স্টাফ "${name}" সফলভাবে সংরক্ষিত হয়েছে!` : `Staff "${name}" saved successfully!`,
-      'success'
-    );
+
+    if (isNew && modalFingerprintEnrolled) {
+      onShowToast?.(
+        isBn
+          ? `🎉 নতুন স্টাফ "${name}" সফলভাবে ভর্তি ও আঙুলের ছাপ ডাটা সংরক্ষিত হয়েছে!`
+          : `🎉 New staff "${name}" registered with fingerprint enrolled!`,
+        'success'
+      );
+    } else {
+      onShowToast?.(
+        isBn ? `✅ স্টাফ "${name}" সফলভাবে সংরক্ষিত হয়েছে!` : `Staff "${name}" saved successfully!`,
+        'success'
+      );
+    }
   };
 
   // Delete Staff
@@ -504,6 +609,181 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
     window.print();
   };
 
+  // Staff History & Absence Data Computation
+  const staffHistoryData = useMemo(() => {
+    if (!viewingHistoryStaff) return null;
+    const calc = storageService.calculateStaffSalary(viewingHistoryStaff.id, historySelectedMonth);
+    const records = storageService.getAttendanceRecords({
+      month: historySelectedMonth,
+      staffId: viewingHistoryStaff.id,
+    });
+
+    const [year, month] = historySelectedMonth.split('-').map(Number);
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const todayStr = new Date().toISOString().slice(0, 10);
+
+    const dayRows = [];
+    const absentList: {
+      date: string;
+      dayOfWeek: string;
+      status: AttendanceStatus;
+      isAuto: boolean;
+      deductionAmount: number;
+      note?: string;
+    }[] = [];
+
+    let presentCount = 0;
+    let leaveCount = 0;
+    let halfCount = 0;
+
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dateStr = `${historySelectedMonth}-${String(day).padStart(2, '0')}`;
+      const dayDate = new Date(year, month - 1, day);
+      const dayOfWeekNum = dayDate.getDay(); // 5 = Friday
+      const dayNamesBn = ['রবিবার', 'সোমবার', 'মঙ্গলবার', 'বুধবার', 'বৃহস্পতিবার', 'শুক্রবার', 'শনিবার'];
+      const dayNamesEn = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      const dayName = isBn ? dayNamesBn[dayOfWeekNum] : dayNamesEn[dayOfWeekNum];
+
+      const record = records.find((r) => r.date === dateStr);
+      const isPast = dateStr < todayStr;
+      const isToday = dateStr === todayStr;
+      const isFriday = dayOfWeekNum === 5;
+
+      let effectiveStatus: AttendanceStatus | 'weekly_off' | 'future' | 'unmarked' = 'future';
+      let isAuto = false;
+      let deduction = 0;
+
+      if (record) {
+        effectiveStatus = record.status;
+        if (record.status === 'present') {
+          presentCount++;
+        } else if (record.status === 'leave') {
+          leaveCount++;
+        } else if (record.status === 'half_day') {
+          halfCount++;
+          deduction = Math.round(calc.dailyRate * 0.5);
+          absentList.push({
+            date: dateStr,
+            dayOfWeek: dayName,
+            status: 'half_day',
+            isAuto: false,
+            deductionAmount: deduction,
+            note: isBn ? 'হাফ-ডে (০.৫ দিন কর্তন)' : 'Half-day deduction',
+          });
+        } else if (record.status === 'absent') {
+          deduction = calc.dailyRate;
+          absentList.push({
+            date: dateStr,
+            dayOfWeek: dayName,
+            status: 'absent',
+            isAuto: false,
+            deductionAmount: calc.dailyRate,
+            note: record.note || (isBn ? 'অনুপস্থিত মার্ক করা হয়েছে' : 'Marked absent'),
+          });
+        }
+      } else if (isPast) {
+        if (isFriday) {
+          effectiveStatus = 'weekly_off';
+        } else {
+          effectiveStatus = 'absent';
+          isAuto = true;
+          deduction = calc.dailyRate;
+          absentList.push({
+            date: dateStr,
+            dayOfWeek: dayName,
+            status: 'absent',
+            isAuto: true,
+            deductionAmount: calc.dailyRate,
+            note: isBn ? 'পাঞ্চ বা হাজিরা নেই (স্বয়ংক্রিয় অনুপস্থিত)' : 'No punch recorded (Auto-absent)',
+          });
+        }
+      } else if (isToday) {
+        effectiveStatus = isFriday ? 'weekly_off' : 'unmarked';
+      } else {
+        effectiveStatus = 'future';
+      }
+
+      dayRows.push({
+        day,
+        date: dateStr,
+        dayName,
+        status: effectiveStatus,
+        isAuto,
+        deduction,
+        record,
+      });
+    }
+
+    const totalAbsent = absentList.filter((a) => a.status === 'absent').length;
+    const totalHalf = absentList.filter((a) => a.status === 'half_day').length;
+    const totalAbsentDeduction = absentList.reduce((acc, curr) => acc + curr.deductionAmount, 0);
+
+    return {
+      calc,
+      records,
+      dayRows,
+      absentList,
+      totalAbsent,
+      totalHalf,
+      totalAbsentDeduction,
+      presentCount,
+      leaveCount,
+      daysInMonth,
+    };
+  }, [viewingHistoryStaff, historySelectedMonth, attendanceRecords, isBn]);
+
+  // Thermal Print Attendance & Absence History
+  const handlePrintStaffHistoryThermal = async (staff: StaffMember) => {
+    if (!staffHistoryData) return;
+    const shopName = storageService.getSettings()?.storeName || (isBn ? 'মেসার্স ফ্যাশন কালেকশন' : 'Fashion POS');
+    const shopPhone = storageService.getSettings()?.storePhone || '';
+
+    let absentLines = '';
+    staffHistoryData.absentList.forEach((a) => {
+      absentLines += `\n• ${a.date} (${a.dayOfWeek}): -${a.deductionAmount} Tk`;
+    });
+    if (!absentLines) absentLines = '\n(কোনো অনুপস্থিতি নেই - শতভাগ উপস্থিত)';
+
+    const escText = `
+--------------------------------
+      ${shopName}
+      ${shopPhone}
+--------------------------------
+   হাজিরা ও অনুপস্থিতি বিবরণী
+      ATTENDANCE & ABSENCE
+--------------------------------
+স্টাফ: ${staff.name}
+পদবী: ${staff.designation}
+মাস: ${historySelectedMonth}
+মূল বেতন: ${staff.monthlySalary.toLocaleString()} ৳
+দৈনিক রেট: ${staffHistoryData.calc.dailyRate} ৳
+--------------------------------
+মোট উপস্থিত: ${staffHistoryData.presentCount} দিন
+মোট অনুপস্থিত: ${staffHistoryData.totalAbsent} দিন
+ছুটি ভোগ: ${staffHistoryData.leaveCount} দিন
+অর্ধ দিবস: ${staffHistoryData.totalHalf} দিন
+--------------------------------
+অনুপস্থিতির তারিখসমূহ:
+${absentLines}
+--------------------------------
+অনুপস্থিতি মোট কর্তন: -${staffHistoryData.totalAbsentDeduction.toLocaleString()} ৳
+প্রদেয় বেতন: ${staffHistoryData.calc.netPayableSalary.toLocaleString()} ৳
+================================
+স্বাক্ষর: ______________________
+তারিখ: ${new Date().toLocaleDateString()}
+--------------------------------
+`.trim();
+
+    if (onPrintThermal) {
+      const ok = await onPrintThermal(escText);
+      if (ok) {
+        onShowToast?.(isBn ? 'থার্মাল প্রিন্টারে পাঠানো হয়েছে!' : 'Printed to thermal printer!', 'success');
+        return;
+      }
+    }
+    window.print();
+  };
+
   return (
     <div className="max-w-5xl mx-auto px-2.5 sm:px-4 py-3 sm:py-5 space-y-4">
       {/* Top Banner & Header */}
@@ -534,10 +814,7 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
           <div className="flex items-center gap-2 self-start sm:self-auto">
             <button
               type="button"
-              onClick={() => {
-                setEditingStaff(null);
-                setIsStaffModalOpen(true);
-              }}
+              onClick={handleOpenAddStaffModal}
               className="px-3.5 py-2 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs sm:text-sm font-bold shadow-md hover:shadow-indigo-500/20 transition-all flex items-center gap-1.5 cursor-pointer"
             >
               <Plus className="w-4 h-4 stroke-[2.5]" />
@@ -864,6 +1141,34 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
 
                       {/* Status Action Buttons (Present / Absent / Half-day / Leave) */}
                       <div className="flex items-center gap-1.5 flex-wrap self-end sm:self-auto">
+                        {(() => {
+                          const mCalc = storageService.calculateStaffSalary(staff.id, selectedDate.slice(0, 7));
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setHistorySelectedMonth(selectedDate.slice(0, 7));
+                                setViewingHistoryStaff(staff);
+                              }}
+                              className={`px-2.5 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1 ${
+                                mCalc.absentDays > 0
+                                  ? 'bg-rose-100 hover:bg-rose-200 text-rose-800 border border-rose-300 shadow-2xs'
+                                  : 'bg-stone-100 hover:bg-stone-200 text-stone-700'
+                              }`}
+                              title={isBn ? 'উনার হাজিরা ও অনুপস্থিতির হিস্ট্রি দেখুন' : 'View attendance & absence history'}
+                            >
+                              <CalendarDays className="w-3.5 h-3.5" />
+                              <span>
+                                {mCalc.absentDays > 0
+                                  ? `${mCalc.absentDays} ${isBn ? 'দিন অনুপস্থিত (হিস্ট্রি)' : 'd absent'}`
+                                  : isBn
+                                  ? 'হিস্ট্রি'
+                                  : 'History'}
+                              </span>
+                            </button>
+                          );
+                        })()}
+
                         <button
                           type="button"
                           onClick={() => handleUpdateAttendanceStatus(staff.id, 'present')}
@@ -1151,10 +1456,7 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
 
               <button
                 type="button"
-                onClick={() => {
-                  setEditingStaff(null);
-                  setIsStaffModalOpen(true);
-                }}
+                onClick={handleOpenAddStaffModal}
                 className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-xs sm:text-sm font-bold flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
               >
                 <Plus className="w-4 h-4" />
@@ -1165,99 +1467,130 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
 
           {/* Staff Cards Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-            {filteredStaff.map((staff) => (
-              <div
-                key={staff.id}
-                className="bg-white rounded-3xl p-4 border border-stone-200/90 shadow-2xs hover:shadow-md transition-shadow relative overflow-hidden flex flex-col justify-between"
-              >
-                <div>
-                  <div className="flex items-start justify-between gap-2 mb-3">
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`w-12 h-12 rounded-2xl bg-gradient-to-tr ${
-                          staff.avatarColor || 'from-blue-500 to-indigo-600'
-                        } text-white flex items-center justify-center font-black text-base shadow-xs`}
-                      >
-                        {staff.name.slice(0, 2)}
+            {filteredStaff.map((staff) => {
+              const cardCalc = storageService.calculateStaffSalary(staff.id, selectedMonth);
+              return (
+                <div
+                  key={staff.id}
+                  className="bg-white rounded-3xl p-4 border border-stone-200/90 shadow-2xs hover:shadow-md transition-shadow relative overflow-hidden flex flex-col justify-between"
+                >
+                  <div>
+                    <div className="flex items-start justify-between gap-2 mb-3">
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={`w-12 h-12 rounded-2xl bg-gradient-to-tr ${
+                            staff.avatarColor || 'from-blue-500 to-indigo-600'
+                          } text-white flex items-center justify-center font-black text-base shadow-xs`}
+                        >
+                          {staff.name.slice(0, 2)}
+                        </div>
+                        <div>
+                          <h4 className="text-sm sm:text-base font-black text-stone-900">{staff.name}</h4>
+                          <p className="text-xs text-stone-500 font-semibold">{staff.designation}</p>
+                        </div>
                       </div>
-                      <div>
-                        <h4 className="text-sm sm:text-base font-black text-stone-900">{staff.name}</h4>
-                        <p className="text-xs text-stone-500 font-semibold">{staff.designation}</p>
+
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditStaffModal(staff)}
+                          className="p-1.5 rounded-xl hover:bg-stone-100 text-stone-600 cursor-pointer"
+                          title={isBn ? 'সম্পাদনা' : 'Edit'}
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteStaff(staff.id, staff.name)}
+                          className="p-1.5 rounded-xl hover:bg-rose-50 text-rose-500 cursor-pointer"
+                          title={isBn ? 'মুছে ফেলুন' : 'Delete'}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1">
+                    <div className="space-y-1.5 text-xs text-stone-600 border-t border-stone-100 pt-3">
+                      <div className="flex justify-between">
+                        <span className="text-stone-400">{isBn ? 'মোবাইল:' : 'Phone:'}</span>
+                        <span className="font-bold text-stone-800">{staff.phone}</span>
+                      </div>
+
+                      <div className="flex justify-between">
+                        <span className="text-stone-400">{isBn ? 'মাসিক বেতন:' : 'Monthly Salary:'}</span>
+                        <span className="font-black text-emerald-700">{staff.monthlySalary.toLocaleString()} ৳</span>
+                      </div>
+
+                      <div className="flex justify-between">
+                        <span className="text-stone-400">{isBn ? 'মাসিক ছুটি:' : 'Monthly Leaves:'}</span>
+                        <span className="font-bold text-blue-700">
+                          {staff.monthlyAllowedLeaves} {isBn ? 'দিন (পেইড)' : 'Days (Paid)'}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between">
+                        <span className="text-stone-400">{isBn ? 'কাজের শিফট:' : 'Shift:'}</span>
+                        <span className="font-medium text-stone-700">{staff.workingShift || '09:00 AM - 08:30 PM'}</span>
+                      </div>
+
+                      {/* Absent Days Badge */}
+                      <div className="flex justify-between items-center py-1.5 px-2.5 rounded-xl bg-stone-50 border border-stone-200/80 mt-2">
+                        <span className="text-[11px] font-bold text-stone-600">
+                          {isBn ? 'অনুপস্থিত হিস্ট্রি:' : 'Absence Record:'}
+                        </span>
+                        {cardCalc.absentDays > 0 ? (
+                          <span className="text-[11px] font-black text-rose-700 bg-rose-100 px-2 py-0.5 rounded-full border border-rose-200">
+                            🔴 {cardCalc.absentDays} {isBn ? 'দিন' : 'd'} (-{cardCalc.absentDeductionAmount.toLocaleString()} ৳)
+                          </span>
+                        ) : (
+                          <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                            🟢 {isBn ? '০ দিন (নিয়মিত)' : '0 d (Regular)'}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 pt-3 border-t border-stone-100 flex items-center justify-between gap-2">
+                    {staff.fingerprintEnrolled ? (
+                      <div className="flex items-center gap-1.5 text-emerald-700 text-xs font-bold">
+                        <Fingerprint className="w-4 h-4 text-emerald-600" />
+                        <span>{isBn ? 'আঙুলের ছাপ সক্রিয়' : 'Fingerprint Enrolled'}</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5 text-amber-700 text-xs font-semibold">
+                        <AlertCircle className="w-4 h-4 text-amber-500" />
+                        <span>{isBn ? 'বায়োমেট্রিক খালি' : 'No Fingerprint'}</span>
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-1.5">
                       <button
                         type="button"
                         onClick={() => {
-                          setEditingStaff(staff);
-                          setIsStaffModalOpen(true);
+                          setHistorySelectedMonth(selectedMonth);
+                          setViewingHistoryStaff(staff);
                         }}
-                        className="p-1.5 rounded-xl hover:bg-stone-100 text-stone-600 cursor-pointer"
-                        title={isBn ? 'সম্পাদনা' : 'Edit'}
+                        className="px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold transition-colors cursor-pointer flex items-center gap-1"
+                        title={isBn ? 'হাজিরা ও অনুপস্থিতির হিস্ট্রি দেখুন' : 'View attendance & absence history'}
                       >
-                        <Edit2 className="w-4 h-4" />
+                        <CalendarDays className="w-3.5 h-3.5" />
+                        <span>{isBn ? 'হিস্ট্রি' : 'History'}</span>
                       </button>
+
                       <button
                         type="button"
-                        onClick={() => handleDeleteStaff(staff.id, staff.name)}
-                        className="p-1.5 rounded-xl hover:bg-rose-50 text-rose-500 cursor-pointer"
-                        title={isBn ? 'মুছে ফেলুন' : 'Delete'}
+                        onClick={() => handleStartEnrollFingerprint(staff)}
+                        className="px-2.5 py-1.5 rounded-xl bg-stone-900 hover:bg-blue-600 text-white text-xs font-bold transition-colors cursor-pointer flex items-center gap-1"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Fingerprint className="w-3.5 h-3.5" />
+                        <span>{staff.fingerprintEnrolled ? (isBn ? 'পুনরায় স্ক্যান' : 'Re-Enroll') : (isBn ? 'আঙুল নিবন্ধন' : 'Enroll')}</span>
                       </button>
                     </div>
                   </div>
-
-                  <div className="space-y-1.5 text-xs text-stone-600 border-t border-stone-100 pt-3">
-                    <div className="flex justify-between">
-                      <span className="text-stone-400">{isBn ? 'মোবাইল:' : 'Phone:'}</span>
-                      <span className="font-bold text-stone-800">{staff.phone}</span>
-                    </div>
-
-                    <div className="flex justify-between">
-                      <span className="text-stone-400">{isBn ? 'মাসিক বেতন:' : 'Monthly Salary:'}</span>
-                      <span className="font-black text-emerald-700">{staff.monthlySalary.toLocaleString()} ৳</span>
-                    </div>
-
-                    <div className="flex justify-between">
-                      <span className="text-stone-400">{isBn ? 'মাসিক ছুটি:' : 'Monthly Leaves:'}</span>
-                      <span className="font-bold text-blue-700">
-                        {staff.monthlyAllowedLeaves} {isBn ? 'দিন (পেইড)' : 'Days (Paid)'}
-                      </span>
-                    </div>
-
-                    <div className="flex justify-between">
-                      <span className="text-stone-400">{isBn ? 'কাজের শিফট:' : 'Shift:'}</span>
-                      <span className="font-medium text-stone-700">{staff.workingShift || '09:00 AM - 08:30 PM'}</span>
-                    </div>
-                  </div>
                 </div>
-
-                <div className="mt-4 pt-3 border-t border-stone-100 flex items-center justify-between gap-2">
-                  {staff.fingerprintEnrolled ? (
-                    <div className="flex items-center gap-1.5 text-emerald-700 text-xs font-bold">
-                      <Fingerprint className="w-4 h-4 text-emerald-600" />
-                      <span>{isBn ? 'আঙুলের ছাপ সক্রিয়' : 'Fingerprint Enrolled'}</span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-1.5 text-amber-700 text-xs font-semibold">
-                      <AlertCircle className="w-4 h-4 text-amber-500" />
-                      <span>{isBn ? 'বায়োমেট্রিক খালি' : 'No Fingerprint'}</span>
-                    </div>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => handleStartEnrollFingerprint(staff)}
-                    className="px-2.5 py-1.5 rounded-xl bg-stone-900 hover:bg-blue-600 text-white text-xs font-bold transition-colors cursor-pointer flex items-center gap-1"
-                  >
-                    <Fingerprint className="w-3.5 h-3.5" />
-                    <span>{staff.fingerprintEnrolled ? (isBn ? 'পুনরায় স্ক্যান' : 'Re-Enroll') : (isBn ? 'আঙুল নিবন্ধন' : 'Enroll')}</span>
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -1495,6 +1828,100 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
                 </div>
               </div>
 
+              {/* BIOMETRIC FINGERPRINT ENROLLMENT ON ADMISSION */}
+              <div className="p-3.5 bg-gradient-to-br from-indigo-50/80 via-blue-50/70 to-slate-50 rounded-2xl border border-indigo-200/80 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center transition-colors shadow-xs ${
+                        modalFingerprintEnrolled
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-indigo-600 text-white'
+                      }`}
+                    >
+                      <Fingerprint className={`w-5 h-5 ${isModalScanning ? 'animate-pulse' : ''}`} />
+                    </div>
+                    <div>
+                      <h4 className="text-xs sm:text-sm font-black text-stone-900 flex items-center gap-1.5">
+                        <span>{isBn ? 'ভর্তির সময় ফিঙ্গারপ্রিন্ট নিবন্ধন' : 'Fingerprint on Admission'}</span>
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-700">
+                          {isBn ? 'বায়োমেট্রিক' : 'Biometric'}
+                        </span>
+                      </h4>
+                      <p className="text-[11px] text-stone-500 font-medium">
+                        {modalFingerprintEnrolled
+                          ? isBn
+                            ? '✅ আঙুলের ছাপ সংগৃহীত হয়েছে (ভর্তির সাথে সংরক্ষণ হবে)'
+                            : '✅ Fingerprint captured (will be saved with record)'
+                          : isBn
+                          ? 'নতুন স্টাফ ভর্তির সময়ই মোবাইলের সাথে ফিঙ্গার ডাটা নিয়ে রাখুন'
+                          : 'Capture & save biometric fingerprint directly upon admission'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {modalFingerprintEnrolled ? (
+                    <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" />
+                      <span>{isBn ? 'সংগৃহীত' : 'Enrolled'}</span>
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                      {isBn ? 'এখনই নিন' : 'Take Now'}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleModalScanFingerprint}
+                    disabled={isModalScanning}
+                    className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm ${
+                      modalFingerprintEnrolled
+                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                        : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                    }`}
+                  >
+                    <Fingerprint className={`w-4 h-4 ${isModalScanning ? 'animate-spin' : ''}`} />
+                    <span>
+                      {isModalScanning
+                        ? isBn
+                          ? 'ফিঙ্গারপ্রিন্ট সেন্সরে আঙুল রাখুন... স্ক্যান হচ্ছে'
+                          : 'Scanning finger... Place thumb on sensor'
+                        : modalFingerprintEnrolled
+                        ? isBn
+                          ? 'পুনরায় আঙুলের ছাপ স্ক্যান করুন'
+                          : 'Re-scan Fingerprint'
+                        : isBn
+                        ? '📲 মোবাইলে এখনই আঙুলের ছাপ ডাটা নিন'
+                        : 'Capture Fingerprint Now (Mobile Device)'}
+                    </span>
+                  </button>
+
+                  {modalFingerprintEnrolled && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setModalFingerprintEnrolled(false);
+                        setModalFingerprintId(null);
+                      }}
+                      className="px-2.5 py-2.5 rounded-xl bg-stone-200 hover:bg-rose-100 hover:text-rose-600 text-stone-600 text-xs font-bold transition-colors cursor-pointer"
+                      title={isBn ? 'আঙুলের ছাপ বাতিল করুন' : 'Remove fingerprint'}
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+
+                {modalFingerprintEnrolled && (
+                  <div className="text-[11px] text-emerald-800 bg-emerald-50/90 p-2.5 rounded-xl border border-emerald-200/80 flex items-center justify-between font-semibold">
+                    <span className="font-mono">ID: {modalFingerprintId}</span>
+                    <span className="text-emerald-700">{modalFingerprintName}</span>
+                  </div>
+                )}
+              </div>
+
               <div className="pt-3 border-t border-stone-100 flex items-center justify-end gap-2">
                 <button
                   type="button"
@@ -1698,6 +2125,281 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
               >
                 <Printer className="w-4 h-4" />
                 <span>{isBn ? 'প্রিন্ট / থার্মাল স্লিপ' : 'Print Slip'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 4: STAFF ATTENDANCE & ABSENCE HISTORY (উনার হিস্ট্রিতে কতদিন absent ছিলেন সেটা দেখায়) */}
+      {viewingHistoryStaff && staffHistoryData && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-4 sm:p-6 shadow-2xl border border-stone-200 space-y-4 max-h-[92vh] overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-start justify-between pb-3 border-b border-stone-100 gap-2">
+              <div className="flex items-center gap-3">
+                <div
+                  className={`w-12 h-12 rounded-2xl bg-gradient-to-tr ${
+                    viewingHistoryStaff.avatarColor || 'from-blue-500 to-indigo-600'
+                  } text-white flex items-center justify-center font-black text-base shadow-xs`}
+                >
+                  {viewingHistoryStaff.name.slice(0, 2)}
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-black text-stone-900 flex items-center gap-2">
+                    <span>{viewingHistoryStaff.name}</span>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-bold border border-blue-200">
+                      {viewingHistoryStaff.designation}
+                    </span>
+                  </h3>
+                  <p className="text-xs text-stone-500 font-semibold">
+                    {isBn ? 'মোবাইল:' : 'Phone:'} {viewingHistoryStaff.phone} • {isBn ? 'মূল বেতন:' : 'Salary:'} {viewingHistoryStaff.monthlySalary.toLocaleString()} ৳ • {isBn ? 'দৈনিক রেট:' : 'Daily:'} {staffHistoryData.calc.dailyRate} ৳
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="month"
+                  value={historySelectedMonth}
+                  onChange={(e) => setHistorySelectedMonth(e.target.value)}
+                  className="px-2.5 py-1 bg-stone-50 border border-stone-200 rounded-xl text-xs font-bold text-stone-700 outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => setViewingHistoryStaff(null)}
+                  className="p-1.5 rounded-xl hover:bg-stone-100 text-stone-500 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Attendance & Absence Summary Highlights */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              {/* Highlight 1: Absent Days & Deduction */}
+              <div className="p-3 rounded-2xl bg-rose-50/80 border border-rose-200/90 space-y-1">
+                <div className="flex items-center justify-between text-rose-700">
+                  <span className="text-xs font-black">{isBn ? 'মোট অনুপস্থিত' : 'Total Absent'}</span>
+                  <UserX className="w-4 h-4" />
+                </div>
+                <div className="text-xl sm:text-2xl font-black text-rose-950">
+                  {staffHistoryData.totalAbsent} <span className="text-xs font-bold text-rose-700">{isBn ? 'দিন' : 'days'}</span>
+                </div>
+                <div className="text-[11px] font-black text-rose-700">
+                  {staffHistoryData.totalAbsentDeduction > 0
+                    ? `-${staffHistoryData.totalAbsentDeduction.toLocaleString()} ৳ কর্তন`
+                    : isBn ? 'কোনো কর্তন নেই' : 'No deduction'}
+                </div>
+              </div>
+
+              {/* Highlight 2: Present Days */}
+              <div className="p-3 rounded-2xl bg-emerald-50/80 border border-emerald-200/90 space-y-1">
+                <div className="flex items-center justify-between text-emerald-700">
+                  <span className="text-xs font-black">{isBn ? 'উপস্থিত' : 'Present'}</span>
+                  <CheckCircle2 className="w-4 h-4" />
+                </div>
+                <div className="text-xl sm:text-2xl font-black text-emerald-950">
+                  {staffHistoryData.presentCount} <span className="text-xs font-bold text-emerald-700">{isBn ? 'দিন' : 'days'}</span>
+                </div>
+                <div className="text-[11px] font-medium text-emerald-800">
+                  {isBn ? 'নিয়মিত কর্মদিবস' : 'Working Days'}
+                </div>
+              </div>
+
+              {/* Highlight 3: Leaves Taken & Remaining (4 allowed per month) */}
+              <div className="p-3 rounded-2xl bg-blue-50/80 border border-blue-200/90 space-y-1">
+                <div className="flex items-center justify-between text-blue-700">
+                  <span className="text-xs font-black">{isBn ? 'মাসিক ছুটি' : 'Paid Leaves'}</span>
+                  <Calendar className="w-4 h-4" />
+                </div>
+                <div className="text-xl sm:text-2xl font-black text-blue-950">
+                  {staffHistoryData.leaveCount} <span className="text-xs font-bold text-blue-700">{isBn ? 'দিন ভোগ' : 'taken'}</span>
+                </div>
+                <div className="text-[11px] font-semibold text-blue-800">
+                  {isBn
+                    ? `অবশিষ্ট: ${Math.max(0, (viewingHistoryStaff.monthlyAllowedLeaves ?? 4) - staffHistoryData.leaveCount)} দিন`
+                    : `Left: ${Math.max(0, 4 - staffHistoryData.leaveCount)} d`}
+                </div>
+              </div>
+
+              {/* Highlight 4: Net Payable */}
+              <div className="p-3 rounded-2xl bg-amber-50/80 border border-amber-200/90 space-y-1">
+                <div className="flex items-center justify-between text-amber-700">
+                  <span className="text-xs font-black">{isBn ? 'প্রদেয় বেতন' : 'Net Salary'}</span>
+                  <DollarSign className="w-4 h-4" />
+                </div>
+                <div className="text-xl sm:text-2xl font-black text-amber-950">
+                  {staffHistoryData.calc.netPayableSalary.toLocaleString()} <span className="text-xs font-bold text-amber-700">৳</span>
+                </div>
+                <div className="text-[11px] font-semibold text-amber-800">
+                  {staffHistoryData.totalHalf > 0
+                    ? `${staffHistoryData.totalHalf} ${isBn ? 'অর্ধ দিবস' : 'half-day'}`
+                    : isBn ? 'হিসাব সম্পন্ন' : 'Calculated'}
+                </div>
+              </div>
+            </div>
+
+            {/* SECTION 1: DETAILED LIST OF ABSENT DATES (উনার অনুপস্থিতির হিস্ট্রি) */}
+            <div className="space-y-2.5">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs sm:text-sm font-black text-stone-900 flex items-center gap-1.5">
+                  <UserX className="w-4 h-4 text-rose-600" />
+                  <span>{isBn ? 'অনুপস্থিতির পূর্ণাঙ্গ হিস্ট্রি ও তারিখসমূহ' : 'Absence History & Missed Dates'}</span>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 font-bold">
+                    {staffHistoryData.totalAbsent} {isBn ? 'দিন অনুপস্থিত' : 'days absent'}
+                  </span>
+                </h4>
+                <span className="text-[11px] text-stone-500 font-medium">
+                  {isBn ? '১ দিন অনুপস্থিত = ১ দিনের দৈনিক বেতন কর্তন' : '1 day absent = 1 day salary deduction'}
+                </span>
+              </div>
+
+              {staffHistoryData.absentList.length === 0 ? (
+                <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-200/80 text-center space-y-1">
+                  <div className="inline-flex p-2 rounded-full bg-emerald-100 text-emerald-700">
+                    <CheckCircle2 className="w-5 h-5" />
+                  </div>
+                  <h5 className="text-xs sm:text-sm font-black text-emerald-950">
+                    {isBn ? '🎉 মাশাআল্লাহ! এই মাসে কোনো অনুপস্থিতি নেই!' : '🎉 Excellent! No absences this month!'}
+                  </h5>
+                  <p className="text-[11px] text-emerald-800 font-medium">
+                    {isBn
+                      ? 'স্টাফের শতভাগ উপস্থিতি রয়েছে। কোনো বেতন কর্তন হয়নি।'
+                      : 'Staff has 100% attendance with zero salary deductions.'}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                  {staffHistoryData.absentList.map((item, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between p-2.5 rounded-2xl bg-rose-50/70 border border-rose-200/80 gap-2"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-xl bg-rose-600 text-white flex items-center justify-center font-black text-xs">
+                          {item.date.slice(8, 10)}
+                        </div>
+                        <div>
+                          <div className="text-xs font-black text-stone-900 flex items-center gap-1.5">
+                            <span>{item.date} ({item.dayOfWeek})</span>
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-200/80 text-rose-900">
+                              {item.status === 'half_day' ? (isBn ? 'অর্ধ দিবস' : 'Half Day') : (isBn ? 'অনুপস্থিত' : 'Absent')}
+                            </span>
+                            {item.isAuto && (
+                              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-stone-200 text-stone-700">
+                                {isBn ? 'পাঞ্চ নেই (অটো)' : 'No Punch (Auto)'}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-rose-700 font-medium">
+                            {item.note || (isBn ? '১ দিনের দৈনিক বেতন কর্তন' : 'Daily salary deducted')} • -{item.deductionAmount.toLocaleString()} ৳
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleUpdatePastAttendance(viewingHistoryStaff.id, item.date, 'leave')}
+                          className="px-2 py-1 rounded-xl bg-blue-100 hover:bg-blue-200 text-blue-800 text-[11px] font-black cursor-pointer transition-colors"
+                          title={isBn ? 'অনুমোদিত ছুটি হিসেবে গণ্য করুন (বেতন কর্তন বাতিল হবে)' : 'Approve as paid leave'}
+                        >
+                          {isBn ? 'ছুটি অনুমোদন' : 'Make Leave'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleUpdatePastAttendance(viewingHistoryStaff.id, item.date, 'present')}
+                          className="px-2 py-1 rounded-xl bg-emerald-100 hover:bg-emerald-200 text-emerald-800 text-[11px] font-black cursor-pointer transition-colors"
+                          title={isBn ? 'উপস্থিত হিসেবে চিহ্নিত করুন' : 'Mark present'}
+                        >
+                          {isBn ? 'উপস্থিত' : 'Present'}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* SECTION 2: FULL MONTH ATTENDANCE LOG / SHEET */}
+            <div className="space-y-2 border-t border-stone-100 pt-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs sm:text-sm font-black text-stone-900 flex items-center gap-1.5">
+                  <CalendarDays className="w-4 h-4 text-blue-600" />
+                  <span>{isBn ? 'চলতি মাসের সম্পূর্ণ হাজিরা শিট' : 'Full Month Attendance Log'}</span>
+                </h4>
+                <div className="flex items-center gap-2 text-[10px] font-bold">
+                  <span className="flex items-center gap-1 text-emerald-700">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500" /> {isBn ? 'উপস্থিত' : 'Present'}
+                  </span>
+                  <span className="flex items-center gap-1 text-rose-700">
+                    <span className="w-2 h-2 rounded-full bg-rose-500" /> {isBn ? 'অনুপস্থিত' : 'Absent'}
+                  </span>
+                  <span className="flex items-center gap-1 text-indigo-700">
+                    <span className="w-2 h-2 rounded-full bg-indigo-500" /> {isBn ? 'সাপ্তাহিক ছুটি' : 'Weekly Off'}
+                  </span>
+                  <span className="flex items-center gap-1 text-blue-700">
+                    <span className="w-2 h-2 rounded-full bg-blue-500" /> {isBn ? 'পেইড ছুটি' : 'Leave'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-5 sm:grid-cols-7 md:grid-cols-10 gap-1 max-h-40 overflow-y-auto p-1 bg-stone-50 rounded-2xl border border-stone-200">
+                {staffHistoryData.dayRows.map((d) => (
+                  <div
+                    key={d.day}
+                    className={`p-1.5 rounded-xl text-center border text-[11px] font-bold flex flex-col justify-between min-h-[46px] ${
+                      d.status === 'present'
+                        ? 'bg-emerald-100/80 border-emerald-300 text-emerald-950'
+                        : d.status === 'absent'
+                        ? 'bg-rose-100/90 border-rose-300 text-rose-950 ring-1 ring-rose-400'
+                        : d.status === 'weekly_off'
+                        ? 'bg-indigo-50 border-indigo-200 text-indigo-800'
+                        : d.status === 'leave'
+                        ? 'bg-blue-100 border-blue-300 text-blue-900'
+                        : d.status === 'half_day'
+                        ? 'bg-amber-100 border-amber-300 text-amber-900'
+                        : 'bg-white border-stone-200 text-stone-400'
+                    }`}
+                  >
+                    <div className="text-[10px] text-stone-500 leading-none">{d.dayName.slice(0, 3)}</div>
+                    <div className="font-black text-xs leading-none">{d.day}</div>
+                    <div className="text-[9px] font-black uppercase tracking-tight leading-none">
+                      {d.status === 'present'
+                        ? 'উপস্থিত'
+                        : d.status === 'absent'
+                        ? 'অনুপস্থিত'
+                        : d.status === 'weekly_off'
+                        ? 'ছুটি'
+                        : d.status === 'leave'
+                        ? 'পেইড'
+                        : d.status === 'half_day'
+                        ? '০.৫'
+                        : '-'}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="pt-3 border-t border-stone-100 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => setViewingHistoryStaff(null)}
+                className="px-4 py-2 rounded-xl text-xs sm:text-sm font-bold text-stone-600 hover:bg-stone-100 cursor-pointer"
+              >
+                {isBn ? 'বন্ধ করুন' : 'Close'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handlePrintStaffHistoryThermal(viewingHistoryStaff)}
+                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-black shadow-md flex items-center gap-1.5 cursor-pointer"
+              >
+                <Printer className="w-4 h-4" />
+                <span>{isBn ? 'হাজিরা ও অনুপস্থিতি স্লিপ প্রিন্ট' : 'Print Attendance Slip'}</span>
               </button>
             </div>
           </div>
