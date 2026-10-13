@@ -43,8 +43,6 @@ import { BackExitPill } from './components/BackExitPill';
 import { useNetworkStatus } from './utils/useNetworkStatus';
 import { backHandler } from './utils/backHandler';
 import { useBackHandler } from './utils/useBackHandler';
-import { supabaseService } from './services/supabaseService';
-import { supabase, isSupabaseConfigured } from './supabaseClient.js';
 import { firebaseService } from './services/firebaseService';
 
 export default function App() {
@@ -275,11 +273,11 @@ export default function App() {
             const sProds = Array.isArray(serverVault.products) ? serverVault.products : [];
             if (sBills.length > 0 || sProds.length > 0 || serverVault.settings?.storeName) {
               storageService.applyServerVaultSilently(serverVault);
-              setBills(sBills);
-              setProducts(sProds);
-              if (Array.isArray(serverVault.cashEntries)) setCashEntries(serverVault.cashEntries);
-              if (Array.isArray(serverVault.customerDues)) setCustomerDues(serverVault.customerDues);
-              if (Array.isArray(serverVault.purchaseTrips)) setPurchaseTrips(serverVault.purchaseTrips);
+              setBills(storageService.getBills());
+              setProducts(storageService.getProducts());
+              if (Array.isArray(serverVault.cashEntries)) setCashEntries(storageService.getCashEntries());
+              if (Array.isArray(serverVault.customerDues)) setCustomerDues(storageService.getCustomerDues());
+              if (Array.isArray(serverVault.purchaseTrips)) setPurchaseTrips(storageService.getPurchaseTrips());
               if (serverVault.settings) setSettings(serverVault.settings);
               storageService.setLocalLastActive(Number(serverVault.lastActive) || Date.now());
             }
@@ -326,11 +324,11 @@ export default function App() {
 
             if (serverActive > localActive || billsDiffer || prodsDiffer || duesDiffer || cashDiffer) {
               storageService.applyServerVaultSilently(serverVault);
-              setBills(serverBills);
-              setProducts(serverProducts);
-              setCashEntries(serverCash);
-              setCustomerDues(serverDues);
-              setPurchaseTrips(serverTrips);
+              setBills(storageService.getBills());
+              setProducts(storageService.getProducts());
+              setCashEntries(storageService.getCashEntries());
+              setCustomerDues(storageService.getCustomerDues());
+              setPurchaseTrips(storageService.getPurchaseTrips());
               if (serverVault.settings) {
                 setSettings(serverVault.settings);
               }
@@ -543,11 +541,14 @@ export default function App() {
       setCustomerDues([]);
       setPurchaseTrips([]);
 
-      // Also sync profile to Supabase if session exists
-      const activeUserId = await supabaseService.getActiveUserId();
-      if (activeUserId) {
-        await supabaseService.syncProfile(updated, loggedIn, activeUserId);
-      }
+      // Strictly sync profile to Firebase Firestore
+      firebaseService.syncProfile(
+        updated,
+        loggedIn.id || loggedIn.email,
+        loggedIn.id || loggedIn.email,
+        loggedIn.phone,
+        loggedIn.email
+      ).catch((e) => console.warn('Firebase onboarding profile sync notice:', e));
     } else {
       setBills([]);
       setCashEntries([]);
@@ -1529,13 +1530,8 @@ export default function App() {
     storageService.saveSettings(newSettings);
     setSettings(newSettings);
 
-    // Sync store settings/profile to Supabase & Firebase
+    // Strictly sync store settings/profile to Firebase Firestore
     const prof = storageService.getUserProfile();
-    supabaseService.getActiveUserId().then((userId) => {
-      if (userId) {
-        supabaseService.syncProfile(newSettings, prof, userId, products);
-      }
-    });
     firebaseService.syncProfile(newSettings, undefined, undefined, prof.phone, prof.email);
   };
 
@@ -1572,25 +1568,7 @@ export default function App() {
     const saved = storageService.addOrUpdateProduct(data);
     setProducts(storageService.getProducts());
 
-    // Sync product & barcode to Supabase & Firebase
-    supabaseService.getActiveUserId().then((userId) => {
-      if (userId) {
-        supabaseService.syncProduct(saved, userId);
-        if (saved.barcode) {
-          supabaseService.syncBarcode({
-            id: `bc_${saved.id}`,
-            barcode: saved.barcode,
-            productName: saved.name,
-            productId: saved.id,
-            price: saved.price,
-            purchasePrice: saved.purchasePrice,
-            category: saved.category,
-            unit: saved.unit,
-          }, userId);
-        }
-      }
-    });
-
+    // Strictly sync product & barcode directly to Firebase Firestore
     firebaseService.syncProduct(saved);
     if (saved.barcode) {
       firebaseService.syncBarcode({
@@ -1617,11 +1595,8 @@ export default function App() {
     const updated = storageService.adjustProductStock(productId, delta);
     setProducts(storageService.getProducts());
     if (updated) {
-      // Sync to Firebase & Supabase
+      // Strictly sync to Firebase Firestore
       firebaseService.syncProduct(updated);
-      supabaseService.getActiveUserId().then((userId) => {
-        if (userId) supabaseService.syncProduct(updated, userId);
-      });
       showToast(
         language === 'bn'
           ? `"${updated.name}" এর বর্তমান স্টক: ${updated.stock}`
@@ -1631,17 +1606,14 @@ export default function App() {
     }
   };
 
-  const handleDeleteProductStock = (productId: string) => {
+  const handleDeleteProductStock = async (productId: string) => {
+    // 1. Delete from local storage & record tombstone
     storageService.deleteProduct(productId);
     setProducts(storageService.getProducts());
 
-    // Sync product & barcode deletion to Supabase and Firebase
-    supabaseService.getActiveUserId().then((userId) => {
-      supabaseService.deleteProduct(productId, userId || undefined);
-      supabaseService.deleteBarcode(`bc_${productId}`, userId || undefined);
-    });
-    firebaseService.deleteProduct(productId);
-    firebaseService.deleteBarcode(`bc_${productId}`);
+    // 2. Hard delete directly from Firebase Firestore immediately
+    await firebaseService.deleteProduct(productId);
+    await firebaseService.deleteBarcode(`bc_${productId}`);
 
     showToast(
       language === 'bn' ? 'প্রোডাক্ট তালিকা থেকে মুছে ফেলা হয়েছে' : 'Product removed from stock',
@@ -1672,32 +1644,44 @@ export default function App() {
         userProfile: prof
       }).catch((fbErr) => console.warn('Firebase sync notice:', fbErr));
 
-      // 1. If Supabase is configured, fetch directly from Supabase using authenticated auth.uid()
-      if (isSupabaseConfigured()) {
-        const uid = await supabaseService.getActiveUserId();
-        if (uid) {
-          const cloudData = await supabaseService.restoreUserData(uid, prof.email, prof.phone);
-          if (cloudData) {
-            setBills(cloudData.bills);
-            setProducts(cloudData.products);
-            if (Array.isArray(cloudData.cashEntries)) setCashEntries(cloudData.cashEntries);
-            if (Array.isArray(cloudData.customerDues)) setCustomerDues(cloudData.customerDues);
-            if (Array.isArray(cloudData.purchaseTrips)) setPurchaseTrips(cloudData.purchaseTrips);
-            if (cloudData.settings?.storeName) setSettings(cloudData.settings);
-            storageService.saveBills(cloudData.bills);
-            storageService.saveProducts(cloudData.products);
-            showToast(
-              language === 'bn'
-                ? `ক্লাউড সিঙ্ক সফল! (${cloudData.bills.length}টি ইনভয়েস/ট্রানজ্যাকশন, ${cloudData.products.length}টি প্রোডাক্ট)`
-                : `Cloud Synced! (${cloudData.bills.length} Invoices/Transactions, ${cloudData.products.length} Products)`,
-              'success'
-            );
-            return;
-          }
+      // 1. Strictly restore and sync directly from Firebase Firestore
+      const fbData = await firebaseService.restorePOSData(prof.email || prof.phone);
+      if (fbData && (fbData.bills.length > 0 || fbData.products.length > 0)) {
+        const deletedBills = storageService.getDeletedBillIds();
+        const deletedProds = storageService.getDeletedProductIds();
+        const activeBills = fbData.bills.filter((b) => !deletedBills.has(b.id) && !deletedBills.has(b.invoiceNo));
+        const activeProds = fbData.products.filter((p) => !deletedProds.has(p.id));
+
+        storageService.saveBills(activeBills);
+        storageService.saveProducts(activeProds);
+        setBills(activeBills);
+        setProducts(activeProds);
+        if (fbData.cashEntries && fbData.cashEntries.length > 0) {
+          storageService.saveCashEntries(fbData.cashEntries);
+          setCashEntries(fbData.cashEntries);
         }
+        if (fbData.customerDues && fbData.customerDues.length > 0) {
+          storageService.saveCustomerDues(fbData.customerDues);
+          setCustomerDues(fbData.customerDues);
+        }
+        if (fbData.purchaseTrips && fbData.purchaseTrips.length > 0) {
+          storageService.savePurchaseTrips(fbData.purchaseTrips);
+          setPurchaseTrips(fbData.purchaseTrips);
+        }
+        if (fbData.settings) {
+          storageService.saveSettings(fbData.settings);
+          setSettings(fbData.settings);
+        }
+        showToast(
+          language === 'bn'
+            ? `ফায়ারবেস ক্লাউড সিঙ্ক সফল! (${activeBills.length}টি ইনভয়েস, ${activeProds.length}টি প্রোডাক্ট)`
+            : `Firebase Cloud Synced! (${activeBills.length} Invoices, ${activeProds.length} Products)`,
+          'success'
+        );
+        return;
       }
 
-      // 2. Upload current local data to server
+      // 2. Upload current local data to server vault
       storageService.syncActiveAccountVault();
 
       // 3. Fetch latest merged canonical vault from server
@@ -1708,16 +1692,18 @@ export default function App() {
         if (json.success && json.vault) {
           const serverVault = json.vault;
           storageService.applyServerVaultSilently(serverVault);
-          setBills(serverVault.bills || []);
-          setProducts(serverVault.products || []);
-          if (Array.isArray(serverVault.cashEntries)) setCashEntries(serverVault.cashEntries);
-          if (Array.isArray(serverVault.customerDues)) setCustomerDues(serverVault.customerDues);
-          if (Array.isArray(serverVault.purchaseTrips)) setPurchaseTrips(serverVault.purchaseTrips);
+          const freshBills = storageService.getBills();
+          const freshProds = storageService.getProducts();
+          setBills(freshBills);
+          setProducts(freshProds);
+          if (Array.isArray(serverVault.cashEntries)) setCashEntries(storageService.getCashEntries());
+          if (Array.isArray(serverVault.customerDues)) setCustomerDues(storageService.getCustomerDues());
+          if (Array.isArray(serverVault.purchaseTrips)) setPurchaseTrips(storageService.getPurchaseTrips());
           if (serverVault.settings) setSettings(serverVault.settings);
           showToast(
             language === 'bn'
-              ? `সিঙ্ক সফল! (${serverVault.bills?.length || 0}টি ইনভয়েস, ${serverVault.products?.length || 0}টি প্রোডাক্ট)`
-              : `Synced! (${serverVault.bills?.length || 0} Invoices, ${serverVault.products?.length || 0} Products)`,
+              ? `সিঙ্ক সফল! (${freshBills.length}টি ইনভয়েস, ${freshProds.length}টি প্রোডাক্ট)`
+              : `Synced! (${freshBills.length} Invoices, ${freshProds.length} Products)`,
             'success'
           );
         }
@@ -1876,26 +1862,7 @@ export default function App() {
               if (savedProd) {
                 setBarcodeTargetProduct(savedProd);
 
-                // Sync to Supabase Barcode table and Product table
-                supabaseService.getActiveUserId().then((userId) => {
-                  if (userId) {
-                    supabaseService.syncProduct(savedProd, userId);
-                    if (savedProd.barcode) {
-                      supabaseService.syncBarcode({
-                        id: `bc_${savedProd.id}`,
-                        barcode: savedProd.barcode,
-                        productName: savedProd.name,
-                        productId: savedProd.id,
-                        price: savedProd.price,
-                        purchasePrice: savedProd.purchasePrice,
-                        category: savedProd.category,
-                        unit: savedProd.unit,
-                      }, userId);
-                    }
-                  }
-                });
-
-                // Sync to Firebase Barcode collection and Product collection
+                // Strictly sync to Firebase Barcode collection and Product collection
                 firebaseService.syncProduct(savedProd);
                 if (savedProd.barcode) {
                   firebaseService.syncBarcode({
