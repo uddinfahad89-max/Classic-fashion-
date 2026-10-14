@@ -217,6 +217,14 @@ export interface CustomerDue {
   deletedBy?: string;
 }
 
+export interface StaffPermissions {
+  canCreateBills: boolean; // Create Bills / Invoices & Collect Payments (default true)
+  canManageDues: boolean; // Manage Dues (Add Dues & Receive Payments) (default true)
+  canManageInventory: boolean; // Add & Edit Products / Inventory (default true)
+  canViewProfit: boolean; // View Net Profit / Financial Summary Reports (default false)
+  canDeleteInvoices: boolean; // Delete Past Invoices (default false)
+}
+
 export interface UserProfile {
   email: string;
   name: string;
@@ -239,6 +247,8 @@ export interface UserProfile {
   securityAnswer?: string;
   otpVerified?: boolean;
   loginMethod?: 'email_pin' | 'otp' | 'email_password' | 'app_pin';
+  staffId?: string;
+  permissions?: StaffPermissions;
 }
 
 export interface StoreVendorAccount {
@@ -277,7 +287,7 @@ export interface SavedAccountItem {
   phone: string;
   email: string;
   storeName: string;
-  role: 'Owner' | 'Manager' | 'Cashier';
+  role: 'Owner' | 'Manager' | 'Cashier' | 'Super Admin' | 'super_admin';
   shopId?: string;
   ownerId?: string;
   lastActive: number;
@@ -401,6 +411,12 @@ export interface StaffMember {
   notes?: string;
   isActive: boolean;
   createdAt: number;
+  // POS App Access & Permissions
+  hasPosAccess?: boolean;
+  email?: string;
+  password?: string;
+  permissions?: StaffPermissions;
+  storeId?: string;
 }
 
 export interface AttendanceRecord {

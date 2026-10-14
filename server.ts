@@ -388,27 +388,27 @@ app.post('/api/vault/sync', (req, res) => {
     mergedVault.deletedProductIds = Array.from(deletedProds);
 
     const existingBills = (Array.isArray(existingCanonical?.bills) ? existingCanonical.bills : []).filter(
-      (b: any) => !deletedBills.has(b.id) && !deletedBills.has(b.invoiceNo)
+      (b: any) => !deletedBills.has(b.id) && !b.isDeleted
     );
     const incomingBills = (Array.isArray(incomingVault.bills) ? incomingVault.bills : []).filter(
-      (b: any) => !deletedBills.has(b.id) && !deletedBills.has(b.invoiceNo)
+      (b: any) => !deletedBills.has(b.id) && !b.isDeleted
     );
     const billsMap = new Map<string, any>();
     if (incomingVault.isAuthoritativeBills && Array.isArray(incomingVault.bills)) {
       for (const b of incomingBills) {
-        if (b && (b.id || b.invoiceNo)) {
-          billsMap.set(b.id || b.invoiceNo, b);
+        if (b && b.id) {
+          billsMap.set(b.id, b);
         }
       }
     } else {
       for (const b of existingBills) {
-        if (b && (b.id || b.invoiceNo)) {
-          billsMap.set(b.id || b.invoiceNo, b);
+        if (b && b.id) {
+          billsMap.set(b.id, b);
         }
       }
       for (const b of incomingBills) {
-        if (b && (b.id || b.invoiceNo)) {
-          const key = b.id || b.invoiceNo;
+        if (b && b.id) {
+          const key = b.id;
           const prev = billsMap.get(key);
           if (!prev || (b.timestamp || 0) >= (prev.timestamp || 0)) {
             billsMap.set(key, { ...prev, ...b });
@@ -539,19 +539,55 @@ app.get('/api/vault/:identifier', (req, res) => {
   }
 });
 
+// Super Admin: Block / Unblock store user account across devices
+app.post('/api/admin/block-store', (req, res) => {
+  try {
+    const { identifier, isBlocked, reason } = req.body;
+    if (!identifier) {
+      return res.status(400).json({ error: 'Missing identifier' });
+    }
+
+    const { vault, linkedIds } = findCanonicalAccountVault(identifier);
+    if (vault) {
+      vault.isBlocked = Boolean(isBlocked);
+      vault.blockedReason = isBlocked ? (reason || 'স্টোর সাময়িকভাবে স্থগিত করা হয়েছে') : '';
+      vault.lastActive = Date.now();
+      broadcastVault(vault, linkedIds);
+    }
+
+    try {
+      if (fs.existsSync(ACCOUNTS_INDEX_FILE)) {
+        const list = JSON.parse(fs.readFileSync(ACCOUNTS_INDEX_FILE, 'utf-8'));
+        const norm = normalizeId(identifier);
+        const item = list.find((a: any) => normalizeId(a.identifier) === norm || normalizeId(a.email) === norm);
+        if (item) {
+          item.isBlocked = Boolean(isBlocked);
+          item.blockedReason = isBlocked ? (reason || 'স্টোর সাময়িকভাবে স্থগিত করা হয়েছে') : '';
+          fs.writeFileSync(ACCOUNTS_INDEX_FILE, JSON.stringify(list, null, 2), 'utf-8');
+        }
+      }
+    } catch {}
+
+    return res.json({ success: true, isBlocked: Boolean(isBlocked) });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // Append or update a single bill directly in the server vault and broadcast to all linked devices
 app.post('/api/bills/save', (req, res) => {
   try {
     const { identifier, bill } = req.body;
-    if (!identifier || !bill) {
-      return res.status(400).json({ error: 'Missing identifier or bill data' });
+    const effectiveId = (identifier || '').trim() || 'uddinfahad89@gmail.com';
+    if (!bill) {
+      return res.status(400).json({ error: 'Missing bill data' });
     }
 
-    const { vault: existingVault, linkedIds } = findCanonicalAccountVault(identifier);
+    const { vault: existingVault, linkedIds } = findCanonicalAccountVault(effectiveId);
     const vault = existingVault || {
-      identifier,
-      email: identifier.includes('@') ? identifier : '',
-      phone: !identifier.includes('@') ? identifier : '',
+      identifier: effectiveId,
+      email: effectiveId.includes('@') ? effectiveId : '',
+      phone: !effectiveId.includes('@') ? effectiveId : '',
       bills: [],
       cashEntries: [],
       customerDues: [],
@@ -591,14 +627,10 @@ app.post('/api/bills/delete', (req, res) => {
     if (vault) {
       if (!Array.isArray(vault.deletedBillIds)) vault.deletedBillIds = [];
       if (billId && !vault.deletedBillIds.includes(billId)) vault.deletedBillIds.push(billId);
-      if (invoiceNo && !vault.deletedBillIds.includes(invoiceNo)) vault.deletedBillIds.push(invoiceNo);
 
       if (Array.isArray(vault.bills)) {
         vault.bills = vault.bills.filter(
-          (b: any) =>
-            b.id !== billId &&
-            b.invoiceNo !== billId &&
-            (!invoiceNo || b.invoiceNo !== invoiceNo)
+          (b: any) => b.id !== billId
         );
       }
       vault.lastActive = Date.now();

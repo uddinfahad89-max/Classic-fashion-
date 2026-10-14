@@ -24,7 +24,8 @@ import {
   PurchaseTrip,
   UserProfile,
   StoreVendorAccount,
-  SoftDeletedItem
+  SoftDeletedItem,
+  StaffMember
 } from '../types';
 
 export const MASTER_ADMIN_EMAIL = 'uddinfahad89@gmail.com';
@@ -427,6 +428,52 @@ class FirebaseService {
   }
 
   // ==========================================
+  // STAFF MEMBERS COLLECTION (POS ACCESS & PERMISSIONS)
+  // ==========================================
+  async syncStaffMember(staff: StaffMember, storeId?: string): Promise<boolean> {
+    try {
+      const activeStore = storeId || staff.storeId || this.getEffectiveUserId();
+      const staffDocId = staff.id;
+
+      // 1. Store in stores/{storeId}/staff/{staffId}
+      const storeStaffRef = doc(db, 'stores', activeStore, 'staff', staffDocId);
+      const payload = {
+        ...staff,
+        storeId: activeStore,
+        updatedAt: new Date().toISOString(),
+      };
+      await setDoc(storeStaffRef, payload, { merge: true });
+
+      // 2. Also keep in top-level staff_members collection for multi-vendor lookup
+      const globalStaffRef = doc(db, 'staff_members', staffDocId);
+      await setDoc(globalStaffRef, payload, { merge: true });
+
+      return true;
+    } catch (e) {
+      console.error('Firebase syncStaffMember error:', e);
+      return false;
+    }
+  }
+
+  async fetchStaffMembers(storeId?: string): Promise<StaffMember[]> {
+    try {
+      const activeStore = storeId || this.getEffectiveUserId();
+      const staffCol = collection(db, 'stores', activeStore, 'staff');
+      const snap = await getDocs(staffCol);
+      const list: StaffMember[] = [];
+      snap.forEach((d) => {
+        if (d.exists()) {
+          list.push(d.data() as StaffMember);
+        }
+      });
+      return list;
+    } catch (e) {
+      console.warn('Firebase fetchStaffMembers notice:', e);
+      return [];
+    }
+  }
+
+  // ==========================================
   // BARCODES TABLE / COLLECTION
   // ==========================================
   async syncBarcode(item: BarcodeItem, userId?: string, shopId?: string): Promise<boolean> {
@@ -669,7 +716,7 @@ class FirebaseService {
         .filter((b) => {
           if (includeDeleted) return true;
           if (b.isDeleted === true) return false;
-          if (deletedSet.has(b.id) || (b.invoiceNo && deletedSet.has(b.invoiceNo))) return false;
+          if (deletedSet.has(b.id)) return false;
           return true;
         })
         .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
@@ -1332,6 +1379,8 @@ class FirebaseService {
       console.error('Firebase restorePOSData error:', e);
       return null;
     }
+  }
+
   // ==========================================
   // SUPER ADMIN & DATA RECOVERY ENGINE
   // ==========================================
@@ -1411,7 +1460,7 @@ class FirebaseService {
       try {
         const invSnap = await getDocs(collection(db, 'invoices'));
         invSnap.forEach((d) => {
-          const inv = d.data() as BillInvoice;
+          const inv = d.data() as any;
           if (inv.isDeleted) return;
           const ownerUid = (inv.userId || inv.userEmail || inv.email || '').toLowerCase();
           if (ownerUid) {
@@ -1440,7 +1489,7 @@ class FirebaseService {
       try {
         const prodSnap = await getDocs(collection(db, 'products'));
         prodSnap.forEach((d) => {
-          const p = d.data() as ProductStockItem;
+          const p = d.data() as any;
           if (p.isDeleted) return;
           const ownerUid = (p.userId || p.userEmail || p.email || '').toLowerCase();
           if (ownerUid && storesMap.has(ownerUid)) {
@@ -1469,13 +1518,13 @@ class FirebaseService {
       const list: BillInvoice[] = [];
 
       snap.forEach((d) => {
-        const inv = d.data() as BillInvoice;
+        const inv = d.data() as any;
         if (inv.isDeleted) return;
         if (storeIdFilter && storeIdFilter !== '__ALL__') {
           const u = (inv.userId || inv.userEmail || inv.email || inv.shopId || '').toLowerCase();
           if (u !== storeIdFilter.toLowerCase()) return;
         }
-        list.push(inv);
+        list.push(inv as BillInvoice);
       });
 
       return list.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
@@ -1494,7 +1543,7 @@ class FirebaseService {
       try {
         const invSnap = await getDocs(collection(db, 'invoices'));
         invSnap.forEach((d) => {
-          const inv = d.data() as BillInvoice;
+          const inv = d.data() as any;
           if (!inv.isDeleted) return;
           const storeId = (inv.userId || inv.userEmail || inv.email || inv.shopId || 'unknown').toLowerCase();
           if (storeIdFilter && storeIdFilter !== '__ALL__' && storeId !== storeIdFilter.toLowerCase()) return;
@@ -1516,7 +1565,7 @@ class FirebaseService {
       try {
         const prodSnap = await getDocs(collection(db, 'products'));
         prodSnap.forEach((d) => {
-          const p = d.data() as ProductStockItem;
+          const p = d.data() as any;
           if (!p.isDeleted) return;
           const storeId = (p.userId || p.userEmail || p.email || p.shopId || 'unknown').toLowerCase();
           if (storeIdFilter && storeIdFilter !== '__ALL__' && storeId !== storeIdFilter.toLowerCase()) return;
@@ -1537,7 +1586,7 @@ class FirebaseService {
       try {
         const dueSnap = await getDocs(collection(db, 'customer_dues'));
         dueSnap.forEach((d) => {
-          const due = d.data() as CustomerDue;
+          const due = d.data() as any;
           if (!due.isDeleted) return;
           const storeId = (due.userId || due.userEmail || due.shopId || 'unknown').toLowerCase();
           if (storeIdFilter && storeIdFilter !== '__ALL__' && storeId !== storeIdFilter.toLowerCase()) return;
@@ -1558,7 +1607,7 @@ class FirebaseService {
       try {
         const cashSnap = await getDocs(collection(db, 'cash_entries'));
         cashSnap.forEach((d) => {
-          const cash = d.data() as CashEntry;
+          const cash = d.data() as any;
           if (!cash.isDeleted) return;
           const storeId = (cash.userId || cash.userEmail || cash.shopId || 'unknown').toLowerCase();
           if (storeIdFilter && storeIdFilter !== '__ALL__' && storeId !== storeIdFilter.toLowerCase()) return;

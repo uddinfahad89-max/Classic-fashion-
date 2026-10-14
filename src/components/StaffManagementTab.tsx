@@ -27,6 +27,14 @@ import {
   CalendarDays,
   ShieldCheck,
   Award,
+  KeyRound,
+  Lock,
+  Eye,
+  EyeOff,
+  Shield,
+  Check,
+  ToggleLeft,
+  ToggleRight,
 } from 'lucide-react';
 import {
   StaffMember,
@@ -37,8 +45,10 @@ import {
   Language,
   ThermalPrinterSettings,
   BluetoothDeviceInfo,
+  StaffPermissions,
 } from '../types';
 import { storageService } from '../services/storageService';
+import { firebaseService } from '../services/firebaseService';
 
 interface StaffManagementTabProps {
   language?: Language;
@@ -133,6 +143,22 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
   const [modalFingerprintId, setModalFingerprintId] = useState<string | null>(null);
   const [modalFingerprintName, setModalFingerprintName] = useState<string>('ডান হাতের বৃদ্ধাঙ্গুল');
   const [isModalScanning, setIsModalScanning] = useState(false);
+
+  // POS Access & Role Permissions states
+  const [modalHasPosAccess, setModalHasPosAccess] = useState(false);
+  const [modalStaffEmail, setModalStaffEmail] = useState('');
+  const [modalStaffPassword, setModalStaffPassword] = useState('');
+  const [modalShowPassword, setModalShowPassword] = useState(false);
+  const [modalPermissions, setModalPermissions] = useState<StaffPermissions>({
+    canCreateBills: true,
+    canManageDues: true,
+    canManageInventory: true,
+    canViewProfit: false,
+    canDeleteInvoices: false,
+  });
+  const [isResettingStaffPassword, setIsResettingStaffPassword] = useState(false);
+  const [adminNewPassword, setAdminNewPassword] = useState('');
+  const [showAdminNewPassword, setShowAdminNewPassword] = useState(false);
 
   // Staff Attendance History Modal
   const [viewingHistoryStaff, setViewingHistoryStaff] = useState<StaffMember | null>(null);
@@ -410,6 +436,20 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
     setModalFingerprintId(null);
     setModalFingerprintName(isBn ? 'ডান হাতের বৃদ্ধাঙ্গুল' : 'Right Thumb');
     setIsModalScanning(false);
+    setModalHasPosAccess(false);
+    setModalStaffEmail('');
+    setModalStaffPassword('');
+    setModalShowPassword(false);
+    setModalPermissions({
+      canCreateBills: true,
+      canManageDues: true,
+      canManageInventory: true,
+      canViewProfit: false,
+      canDeleteInvoices: false,
+    });
+    setIsResettingStaffPassword(false);
+    setAdminNewPassword('');
+    setShowAdminNewPassword(false);
     setIsStaffModalOpen(true);
   };
 
@@ -420,6 +460,20 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
     setModalFingerprintId(staff.fingerprintId || null);
     setModalFingerprintName(staff.fingerprintName || (isBn ? 'ডান হাতের বৃদ্ধাঙ্গুল' : 'Right Thumb'));
     setIsModalScanning(false);
+    setModalHasPosAccess(Boolean(staff.hasPosAccess));
+    setModalStaffEmail(staff.email || '');
+    setModalStaffPassword(staff.password || '');
+    setModalShowPassword(false);
+    setModalPermissions(staff.permissions || {
+      canCreateBills: true,
+      canManageDues: true,
+      canManageInventory: true,
+      canViewProfit: false,
+      canDeleteInvoices: false,
+    });
+    setIsResettingStaffPassword(false);
+    setAdminNewPassword('');
+    setShowAdminNewPassword(false);
     setIsStaffModalOpen(true);
   };
 
@@ -511,6 +565,29 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
     const randomColor = colors[Math.floor(Math.random() * colors.length)];
 
     const isNew = !editingStaff;
+    const cleanEmail = modalStaffEmail.trim().toLowerCase();
+    const cleanPassword = modalStaffPassword.trim();
+
+    if (modalHasPosAccess) {
+      if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+        onShowToast?.(
+          isBn ? 'সঠিক স্টাফ লগইন ইমেল ঠিকানা লিখুন!' : 'Please enter a valid staff email address!',
+          'error'
+        );
+        return;
+      }
+      if (isNew && (!cleanPassword || cleanPassword.length < 6)) {
+        onShowToast?.(
+          isBn ? 'স্টাফ পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে!' : 'Staff password must be at least 6 characters!',
+          'error'
+        );
+        return;
+      }
+    }
+
+    const currentProfile = storageService.getUserProfile();
+    const currentStoreId = currentProfile.storeId || currentProfile.email || 'uddinfahad89@gmail.com';
+
     const staffObj: StaffMember = {
       id: editingStaff ? editingStaff.id : `staff-${Date.now()}`,
       name,
@@ -531,9 +608,21 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
       avatarColor: editingStaff?.avatarColor || randomColor,
       isActive: true,
       createdAt: editingStaff?.createdAt || Date.now(),
+      // POS Access & Role Permissions
+      hasPosAccess: modalHasPosAccess,
+      email: modalHasPosAccess ? cleanEmail : undefined,
+      password: modalHasPosAccess ? (cleanPassword || editingStaff?.password) : undefined,
+      permissions: modalHasPosAccess ? modalPermissions : undefined,
+      storeId: currentStoreId,
     };
 
     storageService.saveStaffMember(staffObj);
+
+    // Sync to Firebase Firestore under stores/{storeId}/staff/{staffId}
+    if (modalHasPosAccess) {
+      firebaseService.syncStaffMember(staffObj, currentStoreId);
+    }
+
     loadData();
     setIsStaffModalOpen(false);
     setEditingStaff(null);
@@ -547,10 +636,53 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
       );
     } else {
       onShowToast?.(
-        isBn ? `✅ স্টাফ "${name}" সফলভাবে সংরক্ষিত হয়েছে!` : `Staff "${name}" saved successfully!`,
+        isBn
+          ? `✅ স্টাফ "${name}" ${modalHasPosAccess ? '(পিওএস এক্সেস সহ)' : ''} সফলভাবে সংরক্ষিত হয়েছে!`
+          : `Staff "${name}" saved successfully!`,
         'success'
       );
     }
+  };
+
+  // Admin Direct Staff Password Reset (No email link required for staff)
+  const handleAdminResetStaffPassword = async () => {
+    if (!editingStaff) return;
+    const cleanNewPass = adminNewPassword.trim();
+    if (!cleanNewPass || cleanNewPass.length < 6) {
+      onShowToast?.(
+        isBn ? 'নতুন পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে!' : 'New password must be at least 6 characters!',
+        'error'
+      );
+      return;
+    }
+
+    const currentProfile = storageService.getUserProfile();
+    const currentStoreId = currentProfile.storeId || currentProfile.email || 'uddinfahad89@gmail.com';
+
+    const updatedStaff: StaffMember = {
+      ...editingStaff,
+      hasPosAccess: true,
+      password: cleanNewPass,
+      email: modalStaffEmail.trim().toLowerCase() || editingStaff.email,
+      permissions: modalPermissions,
+      storeId: currentStoreId,
+    };
+
+    storageService.saveStaffMember(updatedStaff);
+    await firebaseService.syncStaffMember(updatedStaff, currentStoreId);
+
+    setEditingStaff(updatedStaff);
+    setModalStaffPassword(cleanNewPass);
+    setIsResettingStaffPassword(false);
+    setAdminNewPassword('');
+    loadData();
+
+    onShowToast?.(
+      isBn
+        ? `✓ স্টাফ "${editingStaff.name}" এর নতুন পাসওয়ার্ড অ্যাডমিন দ্বারা সফলভাবে সেট হয়েছে!`
+        : `✓ Staff password for "${editingStaff.name}" reset by Admin successfully!`,
+      'success'
+    );
   };
 
   // Delete Staff

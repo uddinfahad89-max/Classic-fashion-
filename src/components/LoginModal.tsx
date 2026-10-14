@@ -730,7 +730,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({
         onClose={() => setIsResetModalOpen(false)}
         language={language}
         prefilledEmail={loginEmail}
-        initialMode="update_password"
         onSwitchToLogin={(em) => {
           setIsResetModalOpen(false);
           if (em) setLoginEmail(em);

@@ -121,6 +121,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
   const nativeDetectorTimerRef = useRef<number | null>(null);
   const lastScannedRef = useRef<{ code: string; time: number }>({ code: '', time: 0 });
+  const lastGlobalScanTimeRef = useRef<number>(0);
 
   const [isStarting, setIsStarting] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -176,7 +177,12 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       if (!cleanCode) return;
 
       const now = Date.now();
-      // Cooldown for the same barcode (3.5s) to prevent camera jitter multi-scans
+      // 1. Strict 900ms debouncing timer between any consecutive scans to eliminate rapid-trigger multi-add bug
+      if (now - lastGlobalScanTimeRef.current < 900) {
+        return;
+      }
+
+      // 2. Cooldown for the same barcode (3.5s) to prevent camera jitter multi-scans
       const cooldownMs = 3500;
       if (
         lastScannedRef.current.code === cleanCode &&
@@ -184,6 +190,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       ) {
         return;
       }
+      lastGlobalScanTimeRef.current = now;
       lastScannedRef.current = { code: cleanCode, time: now };
 
       // Process scan in BillingTab

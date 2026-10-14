@@ -449,6 +449,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     matchedProd?: ProductStockItem;
   } | null>(null);
   const lastScanBarcodeTimeRef = useRef<Map<string, number>>(new Map());
+  const lastGlobalScanTimeRef = useRef<number>(0);
+  const inFlightScannedCodesRef = useRef<Map<string, BillItem>>(new Map());
 
   useBackHandler(
     'billingDuplicateConfirmModal',
@@ -772,8 +774,16 @@ export const BillingTab: React.FC<BillingTabProps> = ({
 
   // Barcode Auto-Lookup in Inventory + Add 1 Item to Billing Cart + Refresh Input (With Duplicate Guard)
   const handleBarcodeScanned = (rawScannedCode: string): ScanResult => {
+    const now = Date.now();
+    // 1. Strict 900ms debouncing timer between any consecutive scans to prevent rapid 2-3 quantity multi-trigger
+    if (now - lastGlobalScanTimeRef.current < 900) {
+      return { matched: false };
+    }
+
     const { cleanCode, matchedProd } = resolveProductByBarcodeCode(rawScannedCode);
     if (!cleanCode) return { matched: false };
+
+    lastGlobalScanTimeRef.current = now;
 
     const lowerCode = cleanCode.toLowerCase();
 
@@ -787,7 +797,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     const resolvedUnit = matchedProd?.unit || itemUnit.trim() || 'Pcs';
     const newItemId = 'item-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6);
 
-    // Check if this item is already present in current bill
+    // Check if this item is already present in current bill OR in-flight synchronous cache
+    const inFlightItem = inFlightScannedCodesRef.current.get(lowerCode);
     const existingIndex = billItems.findIndex(
       (it) =>
         (it.barcode && it.barcode.trim().toLowerCase() === lowerCode) ||
@@ -796,132 +807,42 @@ export const BillingTab: React.FC<BillingTabProps> = ({
           (it.price === resolvedPrice || it.price === 0))
     );
 
-    const existingItem = existingIndex >= 0 ? billItems[existingIndex] : null;
+    const existingItem = existingIndex >= 0 ? billItems[existingIndex] : inFlightItem || null;
 
     if (existingItem) {
-      const now = Date.now();
-      const lastScanTime = lastScanBarcodeTimeRef.current.get(lowerCode) || 0;
-      const cooldownMs = (scanPrefs.cooldownSeconds || 3.5) * 1000;
+      playBarcodeWarningBeep(true);
+      try {
+        if (navigator.vibrate) navigator.vibrate(80);
+      } catch {}
 
-      // MODE 1: Prevent duplicate addition (একবার ১টি যোগ হলে আর বাড়বে না)
-      if (scanPrefs.duplicateMode === 'prevent') {
-        playBarcodeWarningBeep(true);
-        try {
-          if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
-        } catch {}
-
-        setScanStatusBanner({
-          message: isBn
-            ? `⚠️ "${existingItem.name}" ইতিমধ্যে বিলে ১টি রয়েছে! (ডুপ্লিকেট স্ক্যান প্রতিরোধ)`
-            : `⚠️ "${existingItem.name}" is already in bill! (Duplicate addition blocked)`,
-          type: 'warning',
-        });
-        setTimeout(() => setScanStatusBanner(null), 3500);
-
-        return {
-          matched: true,
-          itemName: existingItem.name,
-          price: existingItem.price,
-          isDuplicate: true,
-          currentQty: existingItem.qty,
-          prevented: true,
-        };
-      }
-
-      // MODE 2: Ask user confirmation before adding again (জিজ্ঞাসা করবে)
-      if (scanPrefs.duplicateMode === 'ask') {
-        playBarcodeWarningBeep(true);
-        try {
-          if (navigator.vibrate) navigator.vibrate(80);
-        } catch {}
-
-        setDuplicateConfirmItem({
-          item: existingItem,
-          barcode: cleanCode,
-          nextQty: existingItem.qty + 1,
-          matchedProd,
-        });
-
-        setScanStatusBanner({
-          message: isBn
-            ? `⚠️ "${existingItem.name}" ইতিমধ্যে বিলে আছে — যোগ করতে নিশ্চিত করুন`
-            : `⚠️ "${existingItem.name}" is already in bill — please confirm`,
-          type: 'warning',
-        });
-        setTimeout(() => setScanStatusBanner(null), 3500);
-
-        return {
-          matched: true,
-          itemName: existingItem.name,
-          price: existingItem.price,
-          isDuplicate: true,
-          currentQty: existingItem.qty,
-          requiresConfirmation: true,
-        };
-      }
-
-      // MODE 3: Cooldown-based auto increment (কুলডাউন সহ বৃদ্ধি)
-      if (now - lastScanTime < cooldownMs) {
-        playBarcodeWarningBeep(true);
-        setScanStatusBanner({
-          message: isBn
-            ? `⏳ "${existingItem.name}" ইতিমধ্যে স্ক্যান হয়েছে — পুনরায় যোগ করতে একটু অপেক্ষা করুন`
-            : `⏳ "${existingItem.name}" scanned — wait cooldown before adding again`,
-          type: 'warning',
-        });
-        setTimeout(() => setScanStatusBanner(null), 2500);
-
-        return {
-          matched: true,
-          itemName: existingItem.name,
-          price: existingItem.price,
-          isDuplicate: true,
-          currentQty: existingItem.qty,
-          prevented: true,
-        };
-      }
-
-      // Cooldown elapsed in Mode 3: increment by 1
-      lastScanBarcodeTimeRef.current.set(lowerCode, now);
-      const nextQty = existingItem.qty + 1;
-      const effectivePrice = resolvedPrice > 0 ? resolvedPrice : existingItem.price;
-      const effectiveName =
-        matchedProd && existingItem.name.startsWith('Item (') ? matchedProd.name : existingItem.name;
-
-      setBillItems((prev) =>
-        prev.map((it, idx) => {
-          if (idx !== existingIndex) return it;
-          return {
-            ...it,
-            name: effectiveName,
-            price: effectivePrice,
-            qty: nextQty,
-            barcode: it.barcode || cleanCode,
-            productId: it.productId || matchedProd?.id,
-            total: Math.round(effectivePrice * nextQty * 100) / 100,
-          };
-        })
-      );
+      // Prompt confirmation: "This item is already in the list. Do you want to add another unit?"
+      setDuplicateConfirmItem({
+        item: existingItem,
+        barcode: cleanCode,
+        nextQty: existingItem.qty + 1,
+        matchedProd,
+      });
 
       setScanStatusBanner({
         message: isBn
-          ? `✅ "${effectiveName}" (+1) কোয়ান্টিটি বৃদ্ধি পেয়েছে (${nextQty} টি)`
-          : `✅ "${effectiveName}" (+1) quantity increased to ${nextQty}`,
-        type: 'success',
+          ? `⚠️ "${existingItem.name}" ইতিমধ্যে তালিকায় আছে। আপনি কি আরেকটি যোগ করতে চান?`
+          : `⚠️ "${existingItem.name}" is already in the list. Do you want to add another unit?`,
+        type: 'warning',
       });
       setTimeout(() => setScanStatusBanner(null), 3500);
 
       return {
         matched: true,
-        itemName: effectiveName,
-        price: effectivePrice,
+        itemName: existingItem.name,
+        price: existingItem.price,
         isDuplicate: true,
-        currentQty: nextQty,
+        currentQty: existingItem.qty,
+        requiresConfirmation: true,
       };
     }
 
     // Fresh item addition (First time scanned)
-    lastScanBarcodeTimeRef.current.set(lowerCode, Date.now());
+    lastScanBarcodeTimeRef.current.set(lowerCode, now);
 
     const newCartItem: BillItem = {
       id: newItemId,
@@ -933,6 +854,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       barcode: cleanCode,
       productId: matchedProd?.id,
     };
+    inFlightScannedCodesRef.current.set(lowerCode, newCartItem);
     setBillItems((prev) => [...prev, newCartItem]);
 
     // If an unlisted barcode still has 0 price, open inline rate editor automatically so user can type rate immediately
@@ -2999,13 +2921,13 @@ export const BillingTab: React.FC<BillingTabProps> = ({
               <div className="text-center px-1">
                 <p className="text-xs font-bold text-stone-800 leading-snug">
                   {isBn
-                    ? 'আপনি কি আবার এই প্রোডাক্টের সংখ্যা ১টি বাড়াতে চান?'
-                    : 'Do you want to increase this product quantity by 1?'}
+                    ? 'এই পণ্যটি ইতিমধ্যে তালিকায় আছে। আপনি কি আরেকটি যোগ করতে চান?'
+                    : 'This item is already in the list. Do you want to add another unit?'}
                 </p>
                 <p className="text-[10px] text-stone-500 mt-0.5">
                   {isBn
-                    ? 'দ্রুত স্ক্যান করার কারণে অতিরিক্ত সংখ্যা যাতে ভুল করে যোগ না হয়'
-                    : 'Protects from accidental double-scanning'}
+                    ? 'ডুপ্লিকেট স্ক্যান রোধ: আপনি নিশ্চিত করলে তবেই সংখ্যা বাড়বে'
+                    : 'Duplicate guard: Quantity increases only upon confirmation'}
                 </p>
               </div>
 

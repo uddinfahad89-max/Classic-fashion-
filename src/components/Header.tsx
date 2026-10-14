@@ -37,6 +37,7 @@ import {
   Zap,
   HelpCircle,
   Package,
+  Crown,
 } from 'lucide-react';
 import {
   ThermalPrinterSettings,
@@ -79,6 +80,7 @@ interface HeaderProps {
   onOpenDataSaver?: () => void;
   onOpenBluetoothHelp?: () => void;
   onManualSync?: () => void;
+  onOpenSuperAdmin?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -110,6 +112,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenDataSaver,
   onOpenBluetoothHelp,
   onManualSync,
+  onOpenSuperAdmin,
 }) => {
   const isBn = language === 'bn';
   const isHi = language === 'hi';
@@ -181,6 +184,13 @@ export const Header: React.FC<HeaderProps> = ({
     : userProfile.email
     ? userProfile.email.trim().charAt(0).toUpperCase()
     : 'F';
+
+  const isSuperAdmin = Boolean(
+    userProfile.isSuperAdmin ||
+    userProfile.role === 'Super Admin' ||
+    userProfile.role === 'super_admin' ||
+    (userProfile.email || '').toLowerCase() === 'uddinfahad89@gmail.com'
+  );
 
   return (
     <>
@@ -387,16 +397,32 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Right: Circular Google Account Avatar */}
-          <div className="relative shrink-0" ref={profileRef}>
-            <button
-              id="google-avatar-btn"
-              type="button"
-              onClick={() => setIsProfileModalOpen((prev) => !prev)}
-              aria-label="Open Account Profile and Security"
-              className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-gradient-to-tr from-emerald-600 to-teal-500 text-white font-bold flex items-center justify-center text-sm shadow-xs hover:ring-2 hover:ring-blue-400/80 transition-all cursor-pointer border-2 border-white"
-              title={userProfile.name || userProfile.email || 'Google Profile'}
-            >
+          {/* Right: Super Admin Badge + Circular Google Account Avatar */}
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            {isSuperAdmin && onOpenSuperAdmin && (
+              <button
+                type="button"
+                id="header-super-admin-btn"
+                onClick={onOpenSuperAdmin}
+                className="px-2.5 py-1.5 rounded-full bg-gradient-to-r from-amber-400 via-amber-300 to-amber-500 text-stone-950 font-black text-xs flex items-center gap-1.5 shadow-sm hover:scale-105 active:scale-95 transition-all cursor-pointer border border-amber-300 ring-2 ring-amber-300/30"
+                title={isBn ? 'সুপার এডমিন কন্ট্রোল ও ডাটা রিকভারি' : 'Super Admin & Data Recovery'}
+              >
+                <Crown className="w-3.5 h-3.5 fill-stone-950 stroke-[2.5]" />
+                <span className="hidden sm:inline font-extrabold uppercase text-[11px] tracking-wide">
+                  {isBn ? 'সুপার এডমিন' : 'Admin'}
+                </span>
+              </button>
+            )}
+
+            <div className="relative shrink-0" ref={profileRef}>
+              <button
+                id="google-avatar-btn"
+                type="button"
+                onClick={() => setIsProfileModalOpen((prev) => !prev)}
+                aria-label="Open Account Profile and Security"
+                className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-gradient-to-tr from-emerald-600 to-teal-500 text-white font-bold flex items-center justify-center text-sm shadow-xs hover:ring-2 hover:ring-blue-400/80 transition-all cursor-pointer border-2 border-white"
+                title={userProfile.name || userProfile.email || 'Google Profile'}
+              >
               {userProfile.isLoggedIn ? (
                 <span>{userInitial}</span>
               ) : (
@@ -483,6 +509,25 @@ export const Header: React.FC<HeaderProps> = ({
 
                 {/* Actions */}
                 <div className="p-2 space-y-1">
+                  {isSuperAdmin && onOpenSuperAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsProfileModalOpen(false);
+                        onOpenSuperAdmin();
+                      }}
+                      className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-purple-950 bg-purple-50 hover:bg-purple-100 border border-purple-200 flex items-center justify-between transition-colors cursor-pointer"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Crown className="w-4 h-4 text-purple-700" />
+                        <span>{isBn ? 'সুপার এডমিন ও ডাটা রিকভারি' : 'Super Admin & Data Recovery'}</span>
+                      </span>
+                      <span className="text-[10px] font-black bg-amber-400 text-stone-950 px-1.5 py-0.2 rounded font-mono">
+                        MASTER
+                      </span>
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     onClick={() => {
@@ -582,7 +627,8 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </div>
         </div>
-      </header>
+      </div>
+    </header>
 
       {/* 3. GOOGLE WORKSPACE STYLE NAVIGATION DRAWER (Slides in from Left) */}
       {isDrawerOpen && (
@@ -665,6 +711,40 @@ export const Header: React.FC<HeaderProps> = ({
                   )}
                 </div>
               </div>
+
+              {/* If Super Admin, show Super Admin panel shortcut */}
+              {isSuperAdmin && onOpenSuperAdmin && (
+                <div className="p-2 pb-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsDrawerOpen(false);
+                      onOpenSuperAdmin();
+                    }}
+                    className="w-full text-left p-3 rounded-2xl bg-gradient-to-r from-purple-900 via-indigo-900 to-stone-900 text-white font-bold flex items-center justify-between shadow-md hover:ring-2 hover:ring-amber-400/50 transition-all cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-amber-400 text-stone-950 flex items-center justify-center font-black shrink-0">
+                        <Crown className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-black">
+                            {isBn ? 'সুপার এডমিন প্যানেল' : 'Super Admin Panel'}
+                          </span>
+                          <span className="text-[9px] px-1.5 py-0.2 bg-amber-400 text-stone-950 rounded-full font-black uppercase">
+                            MASTER
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-purple-200">
+                          {isBn ? 'সকল স্টোর নিয়ন্ত্রণ ও ডাটা রিকভারি' : 'Manage Stores & Data Recovery'}
+                        </p>
+                      </div>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-purple-200 shrink-0" />
+                  </button>
+                </div>
+              )}
 
               {/* Navigation Items (Google Sheets / Workspace Style) */}
               <div className="p-2 space-y-1">

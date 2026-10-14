@@ -41,6 +41,7 @@ import { DataSaverModal } from './components/DataSaverModal';
 import { BluetoothHelpModal } from './components/BluetoothHelpModal';
 import { ExitConfirmModal } from './components/ExitConfirmModal';
 import { BackExitPill } from './components/BackExitPill';
+import { SuperAdminModal } from './components/SuperAdminModal';
 import { useNetworkStatus } from './utils/useNetworkStatus';
 import { backHandler } from './utils/backHandler';
 import { useBackHandler } from './utils/useBackHandler';
@@ -89,6 +90,7 @@ export default function App() {
   const [autoPrintReceipt, setAutoPrintReceipt] = useState(false);
   const [editingBill, setEditingBill] = useState<BillInvoice | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isSuperAdminOpen, setIsSuperAdminOpen] = useState(false);
   const [isPrintingBill, setIsPrintingBill] = useState(false);
   const [isExitConfirmOpen, setIsExitConfirmOpen] = useState(false);
   const [isExitPillVisible, setIsExitPillVisible] = useState(false);
@@ -146,8 +148,8 @@ export default function App() {
             storageService.saveUserProfile(restoredProfile);
             localStorage.setItem('thermal_pos_onboarding_completed', 'true');
             setUserProfile(restoredProfile);
-            setBills(Array.isArray(v.bills) ? v.bills : []);
-            setProducts(Array.isArray(v.products) ? v.products : []);
+            setBills(storageService.getBills());
+            setProducts(storageService.getProducts());
             setCashEntries(Array.isArray(v.cashEntries) ? v.cashEntries : []);
             setCustomerDues(Array.isArray(v.customerDues) ? v.customerDues : []);
             setPurchaseTrips(Array.isArray(v.purchaseTrips) ? v.purchaseTrips : []);
@@ -193,7 +195,7 @@ export default function App() {
           const deletedProdIds = storageService.getDeletedProductIds();
 
           const activeFbBills = (fbRes.bills || []).filter(
-            (b) => !deletedBillIds.has(b.id) && !deletedBillIds.has(b.invoiceNo)
+            (b) => !deletedBillIds.has(b.id) && !b.isDeleted
           );
           const activeFbProducts = (fbRes.products || []).filter(
             (p) => !deletedProdIds.has(p.id)
@@ -608,7 +610,7 @@ export default function App() {
         const deletedProdIds = storageService.getDeletedProductIds();
 
         const activeBills = (r.bills || []).filter(
-          (b) => !deletedBillIds.has(b.id) && !deletedBillIds.has(b.invoiceNo)
+          (b) => !deletedBillIds.has(b.id) && !b.isDeleted
         );
         const activeProducts = (r.products || []).filter(
           (p) => !deletedProdIds.has(p.id)
@@ -635,7 +637,7 @@ export default function App() {
           email: cleanEmail,
           name: r.userProfile?.name || cleanEmail.split('@')[0],
           phone: r.userProfile?.phone || '',
-          role: r.userProfile?.role || 'Owner',
+          role: (r.userProfile?.role as any) || 'Owner',
           pin: r.userProfile?.pin || '1234',
           password: cleanPassword,
           isAppLockEnabled: false,
@@ -1141,8 +1143,12 @@ export default function App() {
     const bill = bills.find((b) => b.id === id) || storageService.getBillById(id);
     const invoiceNo = bill?.invoiceNo;
 
-    // Hard delete directly in Firebase Firestore immediately
-    await firebaseService.deleteInvoice(id, invoiceNo);
+    // Soft delete directly in Firebase Firestore immediately (for Admin single-click recovery)
+    await firebaseService.softDeleteInvoice(
+      id,
+      invoiceNo,
+      userProfile.name || userProfile.email || 'Owner'
+    );
 
     storageService.deleteBill(id, invoiceNo);
     const updatedBills = storageService.getBills();
@@ -1757,6 +1763,7 @@ export default function App() {
         networkStatus={networkStatus}
         onOpenDataSaver={() => setIsDataSaverOpen(true)}
         onOpenBluetoothHelp={() => setIsBluetoothHelpOpen(true)}
+        onOpenSuperAdmin={() => setIsSuperAdminOpen(true)}
       />
 
       {/* Main Workspace */}
@@ -2009,6 +2016,7 @@ export default function App() {
         onTestPrint={handleTestPrint}
         onOpenBluetoothHelp={() => setIsBluetoothHelpOpen(true)}
         language={language}
+        onOpenSuperAdmin={() => setIsSuperAdminOpen(true)}
         onDataRestored={() => {
           setBills(storageService.getBills());
           setCashEntries(storageService.getCashEntries());
@@ -2016,6 +2024,21 @@ export default function App() {
           setProducts(storageService.getProducts());
           setSettings(storageService.getSettings());
           showToast(language === 'bn' ? 'ডাটা ব্যাকআপ সফলভাবে রিস্টোর হয়েছে!' : 'Data backup restored successfully!');
+        }}
+      />
+
+      {/* Super Admin & Single-Click Data Recovery Modal */}
+      <SuperAdminModal
+        isOpen={isSuperAdminOpen}
+        onClose={() => setIsSuperAdminOpen(false)}
+        language={language}
+        currentUserProfile={userProfile}
+        onShowToast={(msg, type) => showToast(msg, type)}
+        onRefreshLocalData={() => {
+          setBills(storageService.getBills());
+          setProducts(storageService.getProducts());
+          setCustomerDues(storageService.getCustomerDues());
+          setCashEntries(storageService.getCashEntries());
         }}
       />
 
@@ -2089,7 +2112,6 @@ export default function App() {
         isOpen={isResetPasswordOpen}
         onClose={() => setIsResetPasswordOpen(false)}
         language={language}
-        initialMode={resetPasswordMode}
         prefilledEmail={resetPasswordEmail}
         onSwitchToLogin={(em) => {
           setIsResetPasswordOpen(false);

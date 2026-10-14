@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, X, Save, Check, Bluetooth, Power, Trash2, FileText, CheckCircle2, Zap, HelpCircle, Download, Upload, Database, Tag, Copy, Cloud, ShieldCheck, Receipt, Flame, Barcode, RefreshCw } from 'lucide-react';
+import { Settings, X, Save, Check, Bluetooth, Power, Trash2, FileText, CheckCircle2, Zap, HelpCircle, Download, Upload, Database, Tag, Copy, Cloud, ShieldCheck, Receipt, Flame, Barcode, RefreshCw, Crown } from 'lucide-react';
 import { ThermalPrinterSettings, BluetoothDeviceInfo, Language } from '../types';
 import { translations } from '../utils/i18n';
 import { storageService, BarcodeScanPreferences } from '../services/storageService';
@@ -18,6 +18,7 @@ interface SettingsModalProps {
   onOpenBluetoothHelp?: () => void;
   language?: Language;
   onDataRestored?: () => void;
+  onOpenSuperAdmin?: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -32,6 +33,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onOpenBluetoothHelp,
   language = 'bn',
   onDataRestored,
+  onOpenSuperAdmin,
 }) => {
   const t = translations[language];
   const isBn = language === 'bn';
@@ -999,6 +1001,39 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 {showFbDetails ? (isBn ? 'কনফিগ লুকান' : 'Hide details') : (isBn ? 'Firebase কনফিগারেশন দেখুন' : 'View Firebase config details')}
               </button>
             </div>
+
+            {(() => {
+              const profile = storageService.getUserProfile();
+              const isSuper =
+                profile.isSuperAdmin ||
+                profile.role === 'Super Admin' ||
+                profile.role === 'super_admin' ||
+                (profile.email || '').toLowerCase() === 'uddinfahad89@gmail.com';
+
+              if (isSuper && onOpenSuperAdmin) {
+                return (
+                  <div className="pt-2 border-t border-amber-200/80">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenSuperAdmin();
+                      }}
+                      className="w-full bg-gradient-to-r from-purple-900 via-indigo-900 to-stone-900 hover:from-purple-800 hover:to-stone-800 text-white font-bold py-2.5 px-3 rounded-xl text-xs flex items-center justify-between shadow-md cursor-pointer transition-all"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Crown className="w-4 h-4 text-amber-300" />
+                        <span>{isBn ? '👑 সুপার এডমিন কন্ট্রোল ও ডাটা রিকভারি প্যানেল' : '👑 Super Admin & Data Recovery Panel'}</span>
+                      </div>
+                      <span className="text-[10px] font-black uppercase bg-amber-400 text-stone-950 px-2 py-0.5 rounded-full font-mono">
+                        OPEN
+                      </span>
+                    </button>
+                  </div>
+                );
+              }
+              return null;
+            })()}
 
             {fbTestMsg && (
               <p

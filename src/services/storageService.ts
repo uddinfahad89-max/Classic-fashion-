@@ -43,7 +43,7 @@ export interface AccountVaultData {
   email: string;
   phone: string;
   name: string;
-  role: 'Owner' | 'Manager' | 'Cashier';
+  role: 'Owner' | 'Manager' | 'Cashier' | 'Super Admin' | 'super_admin';
   pin: string;
   password?: string;
   isAppLockEnabled?: boolean;
@@ -331,7 +331,7 @@ class StorageService {
 
           const deletedSet = this.getDeletedBillIds();
           const activeBills = finalBills.filter(
-            (b) => !deletedSet.has(b.id) && !deletedSet.has(b.invoiceNo)
+            (b) => !deletedSet.has(b.id) && !b.isDeleted
           );
           if (activeBills.length !== finalBills.length) {
             needsResave = true;
@@ -406,8 +406,10 @@ class StorageService {
       }
       bills[existingIndex] = { ...bills[existingIndex], ...bill };
     } else {
-      // Assign sequential invoice number based on current bill count + 1
-      bill.invoiceNo = this.getNextInvoiceNumber();
+      // If invoice number not already provided, assign next sequential number
+      if (!bill.invoiceNo || !bill.invoiceNo.trim()) {
+        bill.invoiceNo = this.getNextInvoiceNumber();
+      }
       bills.unshift(bill);
     }
 
@@ -417,17 +419,18 @@ class StorageService {
     }
     this.saveBillsList(bills, false);
 
-    // Direct backup of this bill to server disk (only if logged in with phone or email)
+    // Guaranteed direct backup of this bill to server disk & vault
     try {
       const profile = this.getUserProfile();
-      const id = profile.phone || profile.email;
-      if (profile.isLoggedIn && id && typeof window !== 'undefined' && typeof fetch !== 'undefined') {
+      const id = profile.phone || profile.email || 'uddinfahad89@gmail.com';
+      if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
         fetch('/api/bills/save', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ identifier: id, bill }),
         }).catch((e) => console.warn('Server bill backup notice:', e));
       }
+      this.syncActiveAccountVault();
     } catch {
       // ignore
     }
@@ -438,17 +441,21 @@ class StorageService {
       const stored = localStorage.getItem('thermal_pos_deleted_bill_ids_v1');
       if (stored) {
         const arr = JSON.parse(stored);
-        if (Array.isArray(arr)) return new Set(arr);
+        if (Array.isArray(arr)) {
+          // Strictly keep document IDs starting with 'inv-', exclude numeric invoice numbers
+          const cleanIds = arr.filter((x: string) => typeof x === 'string' && x.startsWith('inv-'));
+          return new Set(cleanIds);
+        }
       }
     } catch {}
     return new Set();
   }
 
-  markBillAsDeleted(id: string, invoiceNo?: string): void {
+  markBillAsDeleted(id: string): void {
     try {
+      if (!id || !id.startsWith('inv-')) return;
       const set = this.getDeletedBillIds();
-      if (id) set.add(id);
-      if (invoiceNo) set.add(invoiceNo);
+      set.add(id);
       localStorage.setItem('thermal_pos_deleted_bill_ids_v1', JSON.stringify(Array.from(set)));
     } catch {}
   }
@@ -474,17 +481,11 @@ class StorageService {
 
   deleteBill(id: string, invoiceNo?: string): void {
     const bill = this.getBillById(id);
-    const invNo = invoiceNo || bill?.invoiceNo;
-    this.markBillAsDeleted(id, invNo);
+    this.markBillAsDeleted(id);
 
     const deletedSet = this.getDeletedBillIds();
     const bills = this.getBills().filter(
-      (b) =>
-        b.id !== id &&
-        b.invoiceNo !== id &&
-        (!invNo || b.invoiceNo !== invNo) &&
-        !deletedSet.has(b.id) &&
-        !deletedSet.has(b.invoiceNo)
+      (b) => b.id !== id && !deletedSet.has(b.id)
     );
     this.saveBillsList(bills, false);
 
@@ -496,7 +497,7 @@ class StorageService {
         fetch('/api/bills/delete', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ identifier, billId: id, invoiceNo: invNo }),
+          body: JSON.stringify({ identifier, billId: id, invoiceNo: invoiceNo || (bill ? bill.invoiceNo : '') }),
         }).catch((e) => console.warn('Server bill delete notice:', e));
       }
     } catch {}
@@ -1017,11 +1018,22 @@ class StorageService {
 
       const rawBills = Array.isArray(serverVault.bills) ? serverVault.bills : [];
       const serverBills = rawBills.filter(
-        (b) => !deletedBills.has(b.id) && !deletedBills.has(b.invoiceNo)
+        (b) => !deletedBills.has(b.id) && !b.isDeleted
       );
+
+      // CRITICAL: Merge with any existing local bills so newly printed bills are NEVER overwritten or lost on restart
+      const currentLocalBills = this.getBills();
+      const serverBillIds = new Set(serverBills.map((b) => b.id));
+      const localUnsyncedBills = currentLocalBills.filter(
+        (b) => !serverBillIds.has(b.id) && !deletedBills.has(b.id) && !b.isDeleted
+      );
+
+      const mergedBills = [...localUnsyncedBills, ...serverBills];
+      mergedBills.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
       const prefix =
         serverVault.settings?.invoicePrefix !== undefined ? serverVault.settings.invoicePrefix : '';
-      const { bills: resequenced } = this.resequenceBillsInternal(serverBills, prefix);
+      const { bills: resequenced } = this.resequenceBillsInternal(mergedBills, prefix);
 
       localStorage.setItem(STORAGE_KEYS.BILLS, JSON.stringify(resequenced));
       if (Array.isArray(serverVault.cashEntries)) {

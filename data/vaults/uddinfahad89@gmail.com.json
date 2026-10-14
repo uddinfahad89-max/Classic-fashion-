@@ -9,8 +9,8 @@
   "isAppLockEnabled": false,
   "settings": {
     "storeName": "Classic fashion Kotamoni",
-    "storePhone": "",
-    "storeAddress": "",
+    "storePhone": "7055271959",
+    "storeAddress": "Kotamoni Bazar",
     "signatoryName": "",
     "upiId": "",
     "paperWidth": "58mm",
@@ -22,12 +22,72 @@
     "defaultInvoiceFormat": "tax_invoice",
     "isDataSaverEnabled": false,
     "invoicePrefix": "",
-    "nextInvoiceNumber": 2,
+    "nextInvoiceNumber": 3,
     "isLabelMode": false,
     "autoCapitalizeItemNames": true,
     "isTotalOnlySlip": false
   },
   "bills": [
+    {
+      "id": "inv-1791885420000",
+      "invoiceNo": "1",
+      "date": "14-10-2026",
+      "time": "01:17 pm",
+      "timestamp": 1791885420000,
+      "customerName": "AINUL",
+      "customerPhone": "7055271959",
+      "items": [
+        {
+          "id": "item-112233-1",
+          "name": "112233",
+          "price": 490,
+          "qty": 1,
+          "unit": "Pcs",
+          "total": 490
+        },
+        {
+          "id": "item-112233-2",
+          "name": "112233",
+          "price": 490,
+          "qty": 1,
+          "unit": "Pcs",
+          "total": 490
+        },
+        {
+          "id": "item-890123-1",
+          "name": "890123",
+          "price": 390,
+          "qty": 1,
+          "unit": "Pcs",
+          "total": 390
+        },
+        {
+          "id": "item-890123-2",
+          "name": "890123",
+          "price": 390,
+          "qty": 1,
+          "unit": "Pcs",
+          "total": 390
+        }
+      ],
+      "subtotal": 1760,
+      "discount": 0,
+      "discountType": "fixed",
+      "discountValue": 0,
+      "grandTotal": 1760,
+      "paymentMethod": "cash",
+      "paymentStatus": "PAID",
+      "paidAmount": 1760,
+      "changeAmount": 0,
+      "balance": 0,
+      "previousBalance": 0,
+      "currentBalance": 0,
+      "isEstimate": false,
+      "isDeleted": false,
+      "storeId": "uddinfahad89@gmail.com",
+      "userId": "uddinfahad89@gmail.com",
+      "userEmail": "uddinfahad89@gmail.com"
+    },
     {
       "isTailoring": false,
       "userId": "uddinfahad89@gmail.com",
@@ -149,7 +209,47 @@
       "discountValue": 0
     }
   ],
-  "cashEntries": [],
+  "cashEntries": [
+    {
+      "userId": "uddinfahad89@gmail.com",
+      "amount": 1300,
+      "timestamp": 1791963773258,
+      "shopId": "uddinfahad89@gmail.com",
+      "type": "Income",
+      "syncedAt": "2026-10-14T07:47:09.877Z",
+      "email": "uddinfahad89@gmail.com",
+      "dateFormatted": "13:12",
+      "note": "POS CASH Sale #INV-1",
+      "userEmail": "uddinfahad89@gmail.com",
+      "id": "cash-1791963773258-tgbqkl"
+    },
+    {
+      "userEmail": "uddinfahad89@gmail.com",
+      "shopId": "uddinfahad89@gmail.com",
+      "userId": "uddinfahad89@gmail.com",
+      "email": "uddinfahad89@gmail.com",
+      "amount": 1570,
+      "type": "Income",
+      "dateFormatted": "13:05",
+      "timestamp": 1791963306572,
+      "note": "POS CASH Sale #INV-2",
+      "syncedAt": "2026-10-14T07:47:09.878Z",
+      "id": "cash-1791963306572-det52k"
+    },
+    {
+      "userEmail": "uddinfahad89@gmail.com",
+      "amount": 1570,
+      "userId": "uddinfahad89@gmail.com",
+      "id": "cash-1791962429420-vq0rov",
+      "shopId": "uddinfahad89@gmail.com",
+      "dateFormatted": "12:50",
+      "note": "POS CASH Sale #INV-2",
+      "timestamp": 1791962429420,
+      "syncedAt": "2026-10-14T07:47:09.879Z",
+      "email": "uddinfahad89@gmail.com",
+      "type": "Income"
+    }
+  ],
   "customerDues": [
     {
       "syncedAt": "2026-10-12T08:11:12.306Z",
@@ -468,9 +568,57 @@
       "unit": "Pcs",
       "userId": "uddinfahad89@gmail.com",
       "syncedAt": "2026-10-13T09:07:11.105Z"
+    },
+    {
+      "updatedAt": 1791962429406,
+      "price": 120,
+      "purchasePrice": 0,
+      "id": "prod-1791962429406-4y6a",
+      "email": "uddinfahad89@gmail.com",
+      "barcode": "",
+      "userEmail": "uddinfahad89@gmail.com",
+      "syncedAt": "2026-10-14T07:47:08.936Z",
+      "unit": "Pcs",
+      "name": "RND",
+      "userId": "uddinfahad89@gmail.com",
+      "stock": 0,
+      "category": "",
+      "shopId": "uddinfahad89@gmail.com"
+    },
+    {
+      "updatedAt": 1791963773246,
+      "email": "uddinfahad89@gmail.com",
+      "purchasePrice": 0,
+      "price": 360,
+      "shopId": "uddinfahad89@gmail.com",
+      "barcode": "",
+      "id": "prod-1791962429406-ipfj",
+      "userId": "uddinfahad89@gmail.com",
+      "stock": 0,
+      "syncedAt": "2026-10-14T07:47:08.937Z",
+      "category": "",
+      "userEmail": "uddinfahad89@gmail.com",
+      "name": "GANJI",
+      "unit": "Pcs"
+    },
+    {
+      "userId": "uddinfahad89@gmail.com",
+      "id": "prod-1791963306566-kkyd",
+      "price": 120,
+      "updatedAt": 1791963773246,
+      "shopId": "uddinfahad89@gmail.com",
+      "category": "",
+      "email": "uddinfahad89@gmail.com",
+      "syncedAt": "2026-10-14T07:47:08.937Z",
+      "purchasePrice": 0,
+      "userEmail": "uddinfahad89@gmail.com",
+      "barcode": "",
+      "stock": 0,
+      "name": "RNS",
+      "unit": "Pcs"
     }
   ],
-  "lastActive": 1791885511108,
+  "lastActive": 1791965900505,
   "deletedBillIds": [],
   "deletedProductIds": []
 }
