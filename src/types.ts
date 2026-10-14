@@ -126,6 +126,12 @@ export interface ProductStockItem {
   category?: string;
   barcode?: string;
   updatedAt: number;
+  // Multi-Vendor & Soft Delete
+  storeId?: string;
+  userId?: string;
+  isDeleted?: boolean;
+  deletedAt?: number | string;
+  deletedBy?: string;
 }
 
 export interface BillInvoice {
@@ -158,6 +164,12 @@ export interface BillInvoice {
   tailoringStatus?: TailoringOrderStatus;
   masterName?: string;
   measurements?: TailoringMeasurements;
+  // Multi-Vendor & Soft Delete
+  storeId?: string;
+  userId?: string;
+  isDeleted?: boolean;
+  deletedAt?: number | string;
+  deletedBy?: string;
 }
 
 export type CashEntryType = 'Income' | 'Expense';
@@ -169,6 +181,12 @@ export interface CashEntry {
   note: string;
   timestamp: number;
   dateFormatted: string;
+  // Multi-Vendor & Soft Delete
+  storeId?: string;
+  userId?: string;
+  isDeleted?: boolean;
+  deletedAt?: number | string;
+  deletedBy?: string;
 }
 
 export type DueType = 'receivable' | 'payable'; // 'receivable' = আমি পাবো (Customer owes me), 'payable' = আমি দেবো (কাস্টমার পাওনাদার / Advance)
@@ -191,6 +209,12 @@ export interface CustomerDue {
   dueAmount: number;
   lastUpdated: number;
   transactions: DueTransaction[];
+  // Multi-Vendor & Soft Delete
+  storeId?: string;
+  userId?: string;
+  isDeleted?: boolean;
+  deletedAt?: number | string;
+  deletedBy?: string;
 }
 
 export interface UserProfile {
@@ -198,10 +222,16 @@ export interface UserProfile {
   name: string;
   isLoggedIn: boolean;
   shopId?: string;
+  storeId?: string;
+  userId?: string;
+  storeName?: string;
   ownerId?: string;
   loginTime?: number;
   phone?: string;
-  role?: 'Owner' | 'Manager' | 'Cashier';
+  role?: 'Owner' | 'Manager' | 'Cashier' | 'Super Admin' | 'super_admin';
+  isSuperAdmin?: boolean;
+  isBlocked?: boolean;
+  blockedReason?: string;
   pin?: string;
   password?: string;
   isAppLockEnabled?: boolean;
@@ -209,6 +239,36 @@ export interface UserProfile {
   securityAnswer?: string;
   otpVerified?: boolean;
   loginMethod?: 'email_pin' | 'otp' | 'email_password' | 'app_pin';
+}
+
+export interface StoreVendorAccount {
+  uid: string;
+  email: string;
+  name: string;
+  phone?: string;
+  storeName: string;
+  role: string;
+  isSuperAdmin?: boolean;
+  isBlocked?: boolean;
+  blockedReason?: string;
+  createdAt?: string | number;
+  lastActive?: string | number;
+  totalInvoices?: number;
+  totalRevenue?: number;
+  totalProducts?: number;
+  totalDues?: number;
+}
+
+export interface SoftDeletedItem {
+  id: string;
+  entityType: 'invoice' | 'product' | 'customer_due' | 'cash_entry' | 'purchase_trip';
+  title: string;
+  storeId: string;
+  storeName?: string;
+  userEmail?: string;
+  deletedAt: number;
+  deletedBy?: string;
+  data: any;
 }
 
 export interface SavedAccountItem {
@@ -301,6 +361,12 @@ export interface PurchaseTrip {
   status: 'active' | 'completed'; // 'active' = বাজারে কেনাকাটা চলছে, 'completed' = সম্পন্ন
   note?: string;
   syncedCashEntryId?: string; // If synced to cashbook as expense
+  // Multi-Vendor & Soft Delete
+  storeId?: string;
+  userId?: string;
+  isDeleted?: boolean;
+  deletedAt?: number | string;
+  deletedBy?: string;
 }
 
 // ----------------------------------------------------
