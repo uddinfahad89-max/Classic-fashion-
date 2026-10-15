@@ -35,6 +35,9 @@ import {
   Check,
   ToggleLeft,
   ToggleRight,
+  Mail,
+  Ban,
+  ShieldAlert,
 } from 'lucide-react';
 import {
   StaffMember,
@@ -156,6 +159,7 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
     canViewProfit: false,
     canDeleteInvoices: false,
   });
+  const [modalIsBlocked, setModalIsBlocked] = useState(false);
   const [isResettingStaffPassword, setIsResettingStaffPassword] = useState(false);
   const [adminNewPassword, setAdminNewPassword] = useState('');
   const [showAdminNewPassword, setShowAdminNewPassword] = useState(false);
@@ -447,6 +451,7 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
       canViewProfit: false,
       canDeleteInvoices: false,
     });
+    setModalIsBlocked(false);
     setIsResettingStaffPassword(false);
     setAdminNewPassword('');
     setShowAdminNewPassword(false);
@@ -471,6 +476,7 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
       canViewProfit: false,
       canDeleteInvoices: false,
     });
+    setModalIsBlocked(Boolean(staff.isBlocked || !staff.isActive));
     setIsResettingStaffPassword(false);
     setAdminNewPassword('');
     setShowAdminNewPassword(false);
@@ -606,7 +612,13 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
         ? modalFingerprintName || (isBn ? 'ডান হাতের বৃদ্ধাঙ্গুল' : 'Right Thumb')
         : undefined,
       avatarColor: editingStaff?.avatarColor || randomColor,
-      isActive: true,
+      isActive: !modalIsBlocked,
+      isBlocked: modalIsBlocked,
+      blockedReason: modalIsBlocked
+        ? isBn
+          ? 'দোকান মালিক কর্তৃক সাময়িকভাবে ব্লক করা হয়েছে'
+          : 'Temporarily blocked by store owner'
+        : undefined,
       createdAt: editingStaff?.createdAt || Date.now(),
       // POS Access & Role Permissions
       hasPosAccess: modalHasPosAccess,
@@ -642,6 +654,45 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
         'success'
       );
     }
+  };
+
+  // Toggle Staff Block/Unblock Status (Immediate control by Store Owner)
+  const handleToggleBlockStaff = async (staff: StaffMember) => {
+    const newBlocked = !staff.isBlocked;
+    const updated: StaffMember = {
+      ...staff,
+      isBlocked: newBlocked,
+      isActive: !newBlocked,
+      blockedReason: newBlocked
+        ? isBn
+          ? 'দোকান মালিক কর্তৃক সাময়িকভাবে ব্লক করা হয়েছে'
+          : 'Temporarily blocked by store owner'
+        : undefined,
+    };
+    storageService.saveStaffMember(updated);
+    if (staff.hasPosAccess) {
+      const currentProfile = storageService.getUserProfile();
+      const currentStoreId = currentProfile.storeId || currentProfile.email || 'uddinfahad89@gmail.com';
+      firebaseService.syncStaffMember(updated, currentStoreId);
+      if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
+        fetch('/api/staff/toggle-block', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ownerIdentifier: currentStoreId, staffId: staff.id }),
+        }).catch(() => {});
+      }
+    }
+    loadData();
+    onShowToast?.(
+      newBlocked
+        ? isBn
+          ? `🚫 স্টাফ "${staff.name}"-কে ব্লক করা হয়েছে। উনি আর অ্যাপে লগইন বা কাজ করতে পারবেন না।`
+          : `🚫 Staff "${staff.name}" has been blocked.`
+        : isBn
+        ? `✅ স্টাফ "${staff.name}"-কে পুনরায় আনব্লক করা হয়েছে।`
+        : `✅ Staff "${staff.name}" has been unblocked.`,
+      newBlocked ? 'info' : 'success'
+    );
   };
 
   // Admin Direct Staff Password Reset (No email link required for staff)
@@ -1625,6 +1676,18 @@ ${absentLines}
                       <div className="flex items-center gap-1">
                         <button
                           type="button"
+                          onClick={() => handleToggleBlockStaff(staff)}
+                          className={`p-1.5 rounded-xl transition-colors cursor-pointer ${
+                            staff.isBlocked
+                              ? 'bg-rose-100 hover:bg-emerald-100 text-rose-700 hover:text-emerald-700'
+                              : 'hover:bg-stone-100 text-stone-600 hover:text-rose-600'
+                          }`}
+                          title={staff.isBlocked ? (isBn ? 'আনব্লক করুন' : 'Unblock Staff') : (isBn ? 'ব্লক করুন' : 'Block Staff')}
+                        >
+                          {staff.isBlocked ? <Ban className="w-4 h-4 text-rose-600" /> : <ShieldCheck className="w-4 h-4" />}
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => handleOpenEditStaffModal(staff)}
                           className="p-1.5 rounded-xl hover:bg-stone-100 text-stone-600 cursor-pointer"
                           title={isBn ? 'সম্পাদনা' : 'Edit'}
@@ -1680,6 +1743,26 @@ ${absentLines}
                           </span>
                         )}
                       </div>
+
+                      {/* POS Account Access & Block status indicator */}
+                      {staff.hasPosAccess && (
+                        <div className="flex items-center justify-between py-1.5 px-2.5 rounded-xl bg-blue-50/80 border border-blue-200/70 mt-2">
+                          <div className="flex items-center gap-1.5 text-[11px] text-blue-900 font-bold truncate">
+                            <KeyRound className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                            <span className="truncate">{staff.email}</span>
+                          </div>
+                          {staff.isBlocked ? (
+                            <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-300 flex items-center gap-1 shrink-0">
+                              <Ban className="w-3 h-3 text-rose-600" />
+                              <span>{isBn ? 'ব্লকড' : 'Blocked'}</span>
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 shrink-0">
+                              {isBn ? 'সক্রিয়' : 'Active'}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -1958,6 +2041,210 @@ ${absentLines}
                     className="w-full px-3 py-2 bg-stone-50 border border-stone-200 rounded-xl text-xs sm:text-sm font-semibold outline-none"
                   />
                 </div>
+              </div>
+
+              {/* POS ACCOUNT ACCESS & PERMISSIONS (Shopping Mall Staff Mode) */}
+              <div className="p-4 bg-gradient-to-br from-blue-50/90 via-indigo-50/70 to-slate-50 rounded-2xl border border-blue-200/80 space-y-3.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center transition-colors shadow-xs ${
+                        modalHasPosAccess ? 'bg-blue-600 text-white' : 'bg-stone-200 text-stone-600'
+                      }`}
+                    >
+                      <KeyRound className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs sm:text-sm font-black text-stone-900 flex items-center gap-1.5">
+                        <span>{isBn ? '🔑 পিওএস (POS) অ্যাপ এক্সেস' : '🔑 POS App Account Access'}</span>
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-blue-100 text-blue-800">
+                          {isBn ? 'স্টাফ লগইন' : 'Staff Login'}
+                        </span>
+                      </h4>
+                      <p className="text-[11px] text-stone-500 font-medium">
+                        {isBn
+                          ? 'স্টাফের জন্য ইমেল ও পাসওয়ার্ড সেট করে সরাসরি অ্যাপ ব্যবহারের অনুমতি দিন'
+                          : 'Allow staff to log in with email & password to manage POS'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Toggle Switch */}
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={modalHasPosAccess}
+                      onChange={(e) => setModalHasPosAccess(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-stone-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
+
+                {modalHasPosAccess && (
+                  <div className="pt-2 border-t border-blue-200/60 space-y-3 animate-in fade-in duration-200">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {/* Staff Email */}
+                      <div>
+                        <label className="block text-xs font-bold text-stone-700 mb-1 flex items-center gap-1">
+                          <Mail className="w-3.5 h-3.5 text-blue-600" />
+                          <span>{isBn ? 'স্টাফ লগইন ইমেল (Email) *' : 'Staff Login Email *'}</span>
+                        </label>
+                        <input
+                          type="email"
+                          value={modalStaffEmail}
+                          onChange={(e) => setModalStaffEmail(e.target.value)}
+                          placeholder="staff@store.com"
+                          required={modalHasPosAccess}
+                          className="w-full px-3 py-2 bg-white border border-stone-200 rounded-xl text-xs sm:text-sm font-semibold outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+
+                      {/* Staff Password */}
+                      <div>
+                        <label className="block text-xs font-bold text-stone-700 mb-1 flex items-center justify-between">
+                          <span className="flex items-center gap-1">
+                            <Lock className="w-3.5 h-3.5 text-blue-600" />
+                            <span>{isBn ? 'স্টাফ পাসওয়ার্ড *' : 'Staff Password *'}</span>
+                          </span>
+                          <span className="text-[10px] text-stone-400">
+                            {isBn ? 'কমপক্ষে ৬ অক্ষর' : 'Min 6 chars'}
+                          </span>
+                        </label>
+                        <div className="relative">
+                          <input
+                            type={modalShowPassword ? 'text' : 'password'}
+                            value={modalStaffPassword}
+                            onChange={(e) => setModalStaffPassword(e.target.value)}
+                            placeholder={
+                              editingStaff?.password
+                                ? isBn
+                                  ? 'অপরিবর্তিত রাখতে খালি রাখুন'
+                                  : 'Leave empty to keep current'
+                                : '••••••••'
+                            }
+                            required={modalHasPosAccess && !editingStaff?.password}
+                            className="w-full pl-3 pr-9 py-2 bg-white border border-stone-200 rounded-xl text-xs sm:text-sm font-semibold outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setModalShowPassword(!modalShowPassword)}
+                            className="absolute right-2.5 top-2.5 text-stone-400 hover:text-stone-600 cursor-pointer"
+                          >
+                            {modalShowPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Active / Blocked Status Selector */}
+                    <div className="p-2.5 rounded-xl bg-white border border-stone-200/90 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {modalIsBlocked ? (
+                          <Ban className="w-4 h-4 text-rose-600" />
+                        ) : (
+                          <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                        )}
+                        <div>
+                          <span className="text-xs font-bold text-stone-800 block">
+                            {isBn ? 'স্টাফ অ্যাকাউন্ট স্ট্যাটাস (Account Status)' : 'Staff Account Status'}
+                          </span>
+                          <span className="text-[11px] text-stone-500">
+                            {modalIsBlocked
+                              ? isBn
+                                ? '🚫 ব্লক করা (স্টাফ লগইন করতে পারবে না)'
+                                : '🚫 Blocked (Staff cannot login)'
+                              : isBn
+                              ? '✅ সক্রিয় (স্টাফ পিওএস ব্যবহার করতে পারবে)'
+                              : '✅ Active (Staff can access POS)'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setModalIsBlocked(!modalIsBlocked)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer shadow-xs ${
+                          modalIsBlocked
+                            ? 'bg-rose-600 hover:bg-rose-700 text-white'
+                            : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                        }`}
+                      >
+                        {modalIsBlocked ? (isBn ? 'ব্লকড' : 'Blocked') : (isBn ? 'সক্রিয়' : 'Active')}
+                      </button>
+                    </div>
+
+                    {/* Permissions Checkboxes */}
+                    <div className="bg-white/90 p-3 rounded-xl border border-blue-100 space-y-2">
+                      <span className="text-xs font-black text-stone-800 block">
+                        {isBn ? 'অনুমোদিত কাজের তালিকা (Role Permissions):' : 'Staff Role Permissions:'}
+                      </span>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                        <label className="flex items-center gap-2 cursor-pointer p-1.5 rounded-lg hover:bg-stone-50">
+                          <input
+                            type="checkbox"
+                            checked={modalPermissions.canCreateBills}
+                            onChange={(e) =>
+                              setModalPermissions({ ...modalPermissions, canCreateBills: e.target.checked })
+                            }
+                            className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4"
+                          />
+                          <span className="font-bold text-stone-700">
+                            {isBn ? '✅ বিল তৈরি ও রসিদ প্রিন্ট' : '✅ Create Bills & Print'}
+                          </span>
+                        </label>
+
+                        <label className="flex items-center gap-2 cursor-pointer p-1.5 rounded-lg hover:bg-stone-50">
+                          <input
+                            type="checkbox"
+                            checked={modalPermissions.canManageInventory}
+                            onChange={(e) =>
+                              setModalPermissions({ ...modalPermissions, canManageInventory: e.target.checked })
+                            }
+                            className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4"
+                          />
+                          <span className="font-bold text-stone-700">
+                            {isBn ? '✅ নতুন পণ্য ও স্টক যোগ' : '✅ Add New Products & Stock'}
+                          </span>
+                        </label>
+
+                        <label className="flex items-center gap-2 cursor-pointer p-1.5 rounded-lg hover:bg-stone-50">
+                          <input
+                            type="checkbox"
+                            checked={modalPermissions.canManageDues}
+                            onChange={(e) =>
+                              setModalPermissions({ ...modalPermissions, canManageDues: e.target.checked })
+                            }
+                            className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4"
+                          />
+                          <span className="font-bold text-stone-700">
+                            {isBn ? '✅ কাস্টমার বাকি খাতা এন্ট্রি' : '✅ Record Customer Dues'}
+                          </span>
+                        </label>
+
+                        <label className="flex items-center gap-2 cursor-pointer p-1.5 rounded-lg hover:bg-stone-50">
+                          <input
+                            type="checkbox"
+                            checked={modalPermissions.canViewProfit}
+                            onChange={(e) =>
+                              setModalPermissions({ ...modalPermissions, canViewProfit: e.target.checked })
+                            }
+                            className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4"
+                          />
+                          <span className="font-bold text-stone-600">
+                            {isBn ? '📊 নিট লাভ ও আর্থিক হিসাব' : '📊 View Net Profit Reports'}
+                          </span>
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="p-2.5 rounded-xl bg-blue-100/70 text-blue-900 text-[11px] font-medium leading-relaxed">
+                      {isBn
+                        ? 'ℹ️ স্টাফ মেম্বার উনার ইমেল ও পাসওয়ার্ড দিয়ে লগইন করে যা কিছু কাজ করবেন (বিলিং, স্টক, বাকি), সব স্বয়ংক্রিয়ভাবে আপনার মেইন অ্যাকাউন্টে জমা হবে।'
+                        : 'ℹ️ Everything the staff enters (bills, stock, dues) will automatically sync and save to your main owner account.'}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* BIOMETRIC FINGERPRINT ENROLLMENT ON ADMISSION */}

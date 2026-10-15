@@ -164,6 +164,8 @@ export interface BillInvoice {
   tailoringStatus?: TailoringOrderStatus;
   masterName?: string;
   measurements?: TailoringMeasurements;
+  cashierName?: string;
+  cashierId?: string;
   // Multi-Vendor & Soft Delete
   storeId?: string;
   userId?: string;
@@ -221,6 +223,7 @@ export interface StaffPermissions {
   canCreateBills: boolean; // Create Bills / Invoices & Collect Payments (default true)
   canManageDues: boolean; // Manage Dues (Add Dues & Receive Payments) (default true)
   canManageInventory: boolean; // Add & Edit Products / Inventory (default true)
+  canManageStock?: boolean; // Alias for canManageInventory
   canViewProfit: boolean; // View Net Profit / Financial Summary Reports (default false)
   canDeleteInvoices: boolean; // Delete Past Invoices (default false)
 }
@@ -234,9 +237,10 @@ export interface UserProfile {
   userId?: string;
   storeName?: string;
   ownerId?: string;
+  ownerEmail?: string;
   loginTime?: number;
   phone?: string;
-  role?: 'Owner' | 'Manager' | 'Cashier' | 'Super Admin' | 'super_admin';
+  role?: 'Owner' | 'Manager' | 'Cashier' | 'Staff' | 'Super Admin' | 'super_admin';
   isSuperAdmin?: boolean;
   isBlocked?: boolean;
   blockedReason?: string;
@@ -287,7 +291,7 @@ export interface SavedAccountItem {
   phone: string;
   email: string;
   storeName: string;
-  role: 'Owner' | 'Manager' | 'Cashier' | 'Super Admin' | 'super_admin';
+  role: 'Owner' | 'Manager' | 'Cashier' | 'Staff' | 'Super Admin' | 'super_admin';
   shopId?: string;
   ownerId?: string;
   lastActive: number;
@@ -417,6 +421,8 @@ export interface StaffMember {
   password?: string;
   permissions?: StaffPermissions;
   storeId?: string;
+  isBlocked?: boolean;
+  blockedReason?: string;
 }
 
 export interface AttendanceRecord {

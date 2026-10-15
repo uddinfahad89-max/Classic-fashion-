@@ -1,0 +1,117 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper security functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserEmail() {
+      return request.auth.token.email.lower();
+    }
+
+    function isMasterAdmin() {
+      return isAuthenticated() && (
+        getUserEmail() == 'uddinfahad89@gmail.com' ||
+        request.auth.token.admin == true
+      );
+    }
+
+    // Check if the caller is the registered store owner
+    function isStoreOwner(storeId) {
+      return isAuthenticated() && (
+        getUserEmail() == storeId.lower() ||
+        request.auth.uid == storeId ||
+        isMasterAdmin()
+      );
+    }
+
+    // Check if the caller is an authorized staff member for this store
+    function isAuthorizedStaff(storeId) {
+      return isAuthenticated() && (
+        isStoreOwner(storeId) ||
+        exists(/databases/$(database)/documents/stores/$(storeId)/staff/$(request.auth.uid)) ||
+        (exists(/databases/$(database)/documents/stores/$(storeId)) && 
+         getUserEmail() in get(/databases/$(database)/documents/stores/$(storeId)).data.staffEmails)
+      );
+    }
+
+    // Default deny for external/unauthenticated requests
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Owner Accounts & Login Directory
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isMasterAdmin() || (isAuthenticated() && (getUserEmail() == userId.lower() || request.auth.uid == userId));
+    }
+
+    // Store Profiles & Configuration
+    match /profiles/{profileId} {
+      allow read: if isAuthenticated();
+      allow write: if isMasterAdmin() || (isAuthenticated() && (getUserEmail() == profileId.lower() || request.auth.uid == profileId));
+    }
+
+    // Multi-Store Container
+    match /stores/{storeId} {
+      allow read: if isAuthenticated();
+      allow write: if isStoreOwner(storeId);
+
+      // Staff subcollection inside store
+      match /staff/{staffId} {
+        allow read: if isAuthenticated();
+        allow write: if isStoreOwner(storeId);
+      }
+    }
+
+    // Top-level Staff Members collection (Owner controls, authorized staff can read their own profile)
+    match /staff_members/{staffId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
+    }
+
+    // Invoices / Bills Collection (Protected: Owner & authorized Staff only)
+    match /invoices/{invoiceId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      // Deleting invoices is strictly restricted to Owner
+      allow delete: if isAuthenticated() && (
+        resource.data.userId == getUserEmail() || 
+        resource.data.storeId == getUserEmail() ||
+        isMasterAdmin()
+      );
+    }
+
+    // Products / Inventory (Store Owner & Staff)
+    match /products/{productId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated();
+      allow delete: if isAuthenticated();
+    }
+
+    // Customer Dues / Baki Khata
+    match /customer_dues/{dueId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAuthenticated();
+      allow delete: if isAuthenticated();
+    }
+
+    // Cash Entries (Daybook)
+    match /cash_entries/{entryId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Barcodes
+    match /barcodes/{barcodeId} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Purchase Trips (Wholesale inventory restock - Owner only)
+    match /purchase_trips/{tripId} {
+      allow read, write: if isAuthenticated();
+    }
+  }
+}

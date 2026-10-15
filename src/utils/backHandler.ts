@@ -1,3 +1,5 @@
+import { useEffect } from 'react';
+
 // Custom native-like Back Button Handler for Android, Mobile Gestures, and Web Browsers
 
 type BackHandlerFn = () => boolean | void;
@@ -109,3 +111,15 @@ class BackHandlerManager {
 }
 
 export const backHandler = new BackHandlerManager();
+
+export function useBackHandler(
+  id: string,
+  active: boolean,
+  handler: BackHandlerFn,
+  priority = 10
+) {
+  useEffect(() => {
+    if (!active) return;
+    return backHandler.register(id, handler, priority);
+  }, [id, active, handler, priority]);
+}

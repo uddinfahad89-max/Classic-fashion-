@@ -106,6 +106,12 @@ class FirebaseService {
       const stored = localStorage.getItem('thermal_pos_user_profile_v1');
       if (stored) {
         const parsed = JSON.parse(stored);
+        if (parsed.role === 'Staff') {
+          const owner = parsed.ownerEmail || parsed.storeId || parsed.shopId;
+          if (owner && typeof owner === 'string' && owner.includes('@')) {
+            return owner.trim().toLowerCase();
+          }
+        }
         if (parsed.email && typeof parsed.email === 'string' && parsed.email.includes('@')) {
           return parsed.email.trim().toLowerCase();
         }
@@ -291,10 +297,83 @@ class FirebaseService {
             };
             await setDoc(userDocRef, matchedAccount, { merge: true });
           } else {
+            // Check if user is an authorized staff member in top-level staff_members
+            const staffDocRef = doc(db, 'staff_members', cleanEmail);
+            let staffDocSnap = await getDoc(staffDocRef);
+
+            if (staffDocSnap.exists()) {
+              const staffData = staffDocSnap.data() as StaffMember;
+              // Check if staff is blocked
+              if (staffData.isBlocked || staffData.isActive === false) {
+                return {
+                  success: false,
+                  error: `🚫 আপনার স্টাফ অ্যাকাউন্টটি দোকান মালিক কর্তৃক ব্লক করা হয়েছে। কারণ: ${
+                    staffData.blockedReason || 'দোকান মালিকের সাথে যোগাযোগ করুন।'
+                  }`,
+                };
+              }
+
+              // Check staff password
+              if (cleanPass && staffData.password && staffData.password !== cleanPass) {
+                return {
+                  success: false,
+                  error: 'পাসওয়ার্ড সঠিক নয়! সঠিক পাসওয়ার্ড লিখুন।',
+                };
+              }
+
+              // Try signing into Firebase Auth in background
+              if (cleanPass) {
+                try {
+                  await signInWithEmailAndPassword(auth, cleanEmail, cleanPass);
+                } catch {}
+              }
+
+              // Owner store ID
+              const ownerStoreId = staffData.storeId || 'uddinfahad89@gmail.com';
+              const restored = await this.restorePOSData(ownerStoreId);
+
+              const userProfile: UserProfile = {
+                name: staffData.name,
+                email: cleanEmail,
+                phone: staffData.phone || '',
+                role: 'Staff' as any,
+                isLoggedIn: true,
+                pin: '1234',
+                staffId: staffData.id,
+                storeId: ownerStoreId,
+                shopId: ownerStoreId,
+                ownerEmail: ownerStoreId,
+                storeName: restored?.settings?.storeName || 'Store POS',
+                permissions: staffData.permissions || {
+                  canCreateBills: true,
+                  canManageInventory: true,
+                  canManageStock: true,
+                  canManageDues: true,
+                  canViewProfit: false,
+                  canDeleteInvoices: false,
+                },
+              };
+
+              return {
+                success: true,
+                restored: {
+                  ...(restored || {
+                    bills: [],
+                    products: [],
+                    cashEntries: [],
+                    customerDues: [],
+                    purchaseTrips: [],
+                    barcodes: [],
+                  }),
+                  userProfile,
+                },
+              };
+            }
+
             // No record found at all in Firebase
             return {
               success: false,
-              error: 'এই ইমেল দিয়ে ফায়ারবেসে কোনো অ্যাকাউন্ট বা ডাটা পাওয়া যায়নি।'
+              error: 'এই ইমেল দিয়ে ফায়ারবেসে কোনো অ্যাকাউন্ট বা অনুমোদিত স্টাফ পাওয়া যায়নি।',
             };
           }
         }
@@ -447,6 +526,13 @@ class FirebaseService {
       // 2. Also keep in top-level staff_members collection for multi-vendor lookup
       const globalStaffRef = doc(db, 'staff_members', staffDocId);
       await setDoc(globalStaffRef, payload, { merge: true });
+
+      // 3. Index by lowercase email for fast authentication lookup
+      if (staff.email) {
+        const cleanEmail = staff.email.trim().toLowerCase();
+        const emailStaffRef = doc(db, 'staff_members', cleanEmail);
+        await setDoc(emailStaffRef, payload, { merge: true });
+      }
 
       return true;
     } catch (e) {

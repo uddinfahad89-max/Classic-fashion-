@@ -43,7 +43,7 @@ export interface AccountVaultData {
   email: string;
   phone: string;
   name: string;
-  role: 'Owner' | 'Manager' | 'Cashier' | 'Super Admin' | 'super_admin';
+  role: 'Owner' | 'Manager' | 'Cashier' | 'Staff' | 'Super Admin' | 'super_admin';
   pin: string;
   password?: string;
   isAppLockEnabled?: boolean;
@@ -53,6 +53,7 @@ export interface AccountVaultData {
   customerDues: CustomerDue[];
   purchaseTrips: PurchaseTrip[];
   products?: ProductStockItem[];
+  staffMembers?: StaffMember[];
   lastActive: number;
 }
 
@@ -422,7 +423,16 @@ class StorageService {
     // Guaranteed direct backup of this bill to server disk & vault
     try {
       const profile = this.getUserProfile();
-      const id = profile.phone || profile.email || 'uddinfahad89@gmail.com';
+      if (profile.role === 'Staff') {
+        if (!bill.cashierName) {
+          bill.cashierName = profile.name;
+        }
+      }
+      const id =
+        profile.role === 'Staff'
+          ? profile.ownerEmail || profile.storeId || profile.shopId || 'uddinfahad89@gmail.com'
+          : profile.phone || profile.email || 'uddinfahad89@gmail.com';
+
       if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
         fetch('/api/bills/save', {
           method: 'POST',
@@ -1052,6 +1062,9 @@ class StorageService {
       if (serverVault.settings) {
         localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(serverVault.settings));
       }
+      if (Array.isArray(serverVault.staffMembers) && serverVault.staffMembers.length > 0) {
+        localStorage.setItem(STORAGE_KEYS.STAFF, JSON.stringify(serverVault.staffMembers));
+      }
       this.saveToAccountVault({ ...serverVault, bills: resequenced }, false);
     } catch (e) {
       console.warn('applyServerVaultSilently error:', e);
@@ -1146,7 +1159,10 @@ class StorageService {
       if (!profile || !profile.isLoggedIn) {
         return;
       }
-      const identifier = profile.phone || profile.email;
+      const isStaff = profile.role === 'Staff';
+      const identifier = isStaff
+        ? profile.ownerEmail || profile.storeId || profile.shopId || profile.email
+        : profile.phone || profile.email;
       if (!identifier) {
         return;
       }
@@ -1158,15 +1174,16 @@ class StorageService {
       const customerDues = this.getCustomerDues();
       const purchaseTrips = this.getPurchaseTrips();
       const products = this.getProducts();
+      const staffMembers = this.getStaffMembers();
 
       const vaultData: AccountVaultData = {
-        identifier: profile.phone || profile.email || norm,
-        email: profile.email || '',
-        phone: profile.phone || '',
-        name: profile.name || 'Store Owner',
-        role: profile.role || 'Owner',
+        identifier: identifier || norm,
+        email: isStaff ? (profile.ownerEmail || identifier) : (profile.email || ''),
+        phone: isStaff ? '' : (profile.phone || ''),
+        name: isStaff ? (settings.signatoryName || 'Store Owner') : (profile.name || 'Store Owner'),
+        role: isStaff ? 'Owner' : (profile.role || 'Owner'),
         pin: profile.pin || '1234',
-        password: profile.password,
+        password: isStaff ? undefined : profile.password,
         isAppLockEnabled: profile.isAppLockEnabled,
         settings,
         bills,
@@ -1174,10 +1191,18 @@ class StorageService {
         customerDues,
         purchaseTrips,
         products,
+        staffMembers,
         lastActive: Date.now(),
       };
 
       this.saveToAccountVault(vaultData);
+      if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
+        fetch('/api/vault/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(vaultData),
+        }).catch(() => {});
+      }
     } catch {
       // ignore
     }
@@ -1887,6 +1912,17 @@ class StorageService {
     }
   }
 
+  saveProduct(product: ProductStockItem): void {
+    const products = this.getProducts();
+    const idx = products.findIndex((p) => p.id === product.id);
+    if (idx >= 0) {
+      products[idx] = product;
+    } else {
+      products.unshift(product);
+    }
+    this.saveProducts(products);
+  }
+
   addOrUpdateProduct(data: {
     id?: string;
     name: string;
@@ -2368,6 +2404,7 @@ class StorageService {
   saveStaffMembersList(list: StaffMember[]): void {
     try {
       localStorage.setItem(STORAGE_KEYS.STAFF, JSON.stringify(list));
+      this.syncActiveAccountVault();
     } catch (e) {
       console.warn('Failed to save staff members:', e);
     }
@@ -2382,6 +2419,18 @@ class StorageService {
       list.push(staff);
     }
     this.saveStaffMembersList(list);
+
+    try {
+      const profile = this.getUserProfile();
+      const ownerId = profile.ownerEmail || profile.storeId || profile.email || 'uddinfahad89@gmail.com';
+      if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
+        fetch('/api/staff/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ownerIdentifier: ownerId, staff }),
+        }).catch(() => {});
+      }
+    } catch {}
   }
 
   deleteStaffMember(id: string): void {

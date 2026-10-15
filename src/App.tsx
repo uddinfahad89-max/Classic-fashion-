@@ -43,9 +43,9 @@ import { ExitConfirmModal } from './components/ExitConfirmModal';
 import { BackExitPill } from './components/BackExitPill';
 import { SuperAdminModal } from './components/SuperAdminModal';
 import { useNetworkStatus } from './utils/useNetworkStatus';
-import { backHandler } from './utils/backHandler';
-import { useBackHandler } from './utils/useBackHandler';
+import { backHandler, useBackHandler } from './utils/backHandler';
 import { firebaseService } from './services/firebaseService';
+import { ShieldAlert, Lock } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('billing');
@@ -678,13 +678,17 @@ export default function App() {
     const serverAuth = await storageService.authenticateWithServerAsync(cleanEmail, cleanPassword);
     if (serverAuth.success && serverAuth.vault) {
       const v = serverAuth.vault;
+      const isStaff = (serverAuth as any).isStaff || (serverAuth as any).staffProfile?.role === 'Staff';
+      const staffProfile = (serverAuth as any).staffProfile;
+
       const loadedBills = Array.isArray(v.bills) ? v.bills : storageService.getBills();
       const loadedProducts = Array.isArray(v.products) ? v.products : storageService.getProducts();
       const loadedCash = Array.isArray(v.cashEntries) ? v.cashEntries : storageService.getCashEntries();
       const loadedDues = Array.isArray(v.customerDues) ? v.customerDues : storageService.getCustomerDues();
       const loadedTrips = Array.isArray(v.purchaseTrips) ? v.purchaseTrips : storageService.getPurchaseTrips();
       const loadedSettings = v.settings || storageService.getSettings();
-      const loadedProfile = storageService.getUserProfile();
+      const effectiveProfile: UserProfile =
+        isStaff && staffProfile ? staffProfile : storageService.getUserProfile();
 
       setBills(loadedBills);
       setProducts(loadedProducts);
@@ -692,13 +696,19 @@ export default function App() {
       setCustomerDues(loadedDues);
       setPurchaseTrips(loadedTrips);
       setSettings(loadedSettings);
-      setUserProfile(loadedProfile);
+      setUserProfile(effectiveProfile);
+      storageService.saveUserProfile(effectiveProfile);
       localStorage.setItem('thermal_pos_onboarding_completed', 'true');
       setIsOnboardingOpen(false);
       setIsLoginModalOpen(false);
+      setActiveTab(isStaff ? 'billing' : 'invoices');
 
       showToast(
-        language === 'bn'
+        isStaff
+          ? language === 'bn'
+            ? `স্বাগতম ${effectiveProfile.name}! আপনি অনুমোদিত স্টাফ হিসেবে সফলভাবে প্রবেশ করেছেন।`
+            : `Welcome ${effectiveProfile.name}! Logged in as authorized Staff.`
+          : language === 'bn'
           ? `স্বাগতম! আপনার অ্যাকাউন্ট সফলভাবে লগইন হয়েছে (${loadedBills.length}টি ইনভয়েস)।`
           : `Welcome back! Account logged in successfully (${loadedBills.length} invoices).`,
         'success'
@@ -706,13 +716,10 @@ export default function App() {
       return { success: true };
     }
 
-    if (serverAuth.error && serverAuth.error.includes('পাসওয়ার্ড')) {
+    if (serverAuth.error) {
       return {
         success: false,
-        error:
-          language === 'bn'
-            ? 'পাসওয়ার্ড সঠিক নয়! সঠিক পাসওয়ার্ড লিখুন।'
-            : 'Incorrect password! Please check and try again.',
+        error: serverAuth.error,
       };
     }
 
@@ -1766,6 +1773,35 @@ export default function App() {
         onOpenSuperAdmin={() => setIsSuperAdminOpen(true)}
       />
 
+      {/* Active Staff Mode Reassurance Bar */}
+      {userProfile.role === 'Staff' && (
+        <div className="bg-gradient-to-r from-blue-700 via-indigo-700 to-blue-800 text-white px-4 py-2 text-xs flex items-center justify-between shadow-xs">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span className="font-bold">
+              {language === 'bn' ? '👤 স্টাফ অ্যাকাউন্ট:' : '👤 Staff Mode:'}{' '}
+              <span className="font-black text-blue-200">{userProfile.name}</span>
+            </span>
+            <span className="hidden sm:inline text-blue-200/80">|</span>
+            <span className="hidden sm:inline text-[11px] text-blue-100">
+              {language === 'bn'
+                ? `দোকান: ${settings.storeName || 'Classic Fashion'} (সব কাজ মেইন অ্যাকাউন্টে জমা হচ্ছে)`
+                : `Store: ${settings.storeName || 'Classic Fashion'} (All work saving to main account)`}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleLogoutUser}
+              className="px-2.5 py-1 rounded-lg bg-white/15 hover:bg-white/25 text-white font-bold text-[11px] cursor-pointer transition-colors"
+            >
+              {language === 'bn' ? 'লগআউট' : 'Logout'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Main Workspace */}
       <main className="flex-1 pb-28 sm:pb-32">
         {activeTab === 'billing' && (
@@ -1812,19 +1848,35 @@ export default function App() {
             viewMode={viewMode}
             sortOption={sortOption}
             onNavigateToBilling={() => setActiveTab('billing')}
+            userProfile={userProfile}
           />
         )}
 
-        {activeTab === 'cashbook' && (
-          <CashbookTab
-            entries={cashEntries}
-            bills={bills}
-            settings={settings}
-            language={language}
-            onAddEntry={handleAddCashEntry}
-            onDeleteEntry={handleDeleteCashEntry}
-          />
-        )}
+        {activeTab === 'cashbook' &&
+          (userProfile.role === 'Staff' && !userProfile.permissions?.canViewProfit ? (
+            <div className="max-w-md mx-auto p-8 text-center space-y-3 mt-12 bg-white rounded-3xl border border-stone-200 shadow-sm mx-4 sm:mx-auto">
+              <div className="w-14 h-14 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center mx-auto">
+                <ShieldAlert className="w-7 h-7" />
+              </div>
+              <h3 className="font-black text-stone-900 text-base">
+                {language === 'bn' ? 'অ্যাক্সেস সংরক্ষিত' : 'Access Restricted'}
+              </h3>
+              <p className="text-xs text-stone-600 leading-relaxed">
+                {language === 'bn'
+                  ? 'নিট লাভ ও ডেবুক দেখার অনুমতি শুধুমাত্র দোকান মালিকের অ্যাকাউন্টের জন্য নির্ধারিত।'
+                  : 'Daily cashbook & net profit summary is restricted to the store owner.'}
+              </p>
+            </div>
+          ) : (
+            <CashbookTab
+              entries={cashEntries}
+              bills={bills}
+              settings={settings}
+              language={language}
+              onAddEntry={handleAddCashEntry}
+              onDeleteEntry={handleDeleteCashEntry}
+            />
+          ))}
 
         {activeTab === 'due' && (
           <CustomerDueTab
@@ -1840,23 +1892,38 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'purchases' && (
-          <PurchaseTripTab
-            trips={purchaseTrips}
-            settings={settings}
-            language={language}
-            onOpenCalculator={() => setIsCalculatorOpen(true)}
-            onCreateTrip={handleCreatePurchaseTrip}
-            onUpdateTrip={handleUpdatePurchaseTrip}
-            onAddCashToTrip={handleAddCashToTrip}
-            onAddExpense={handleAddTripExpense}
-            onDeleteExpense={handleDeleteTripExpense}
-            onUpdateTripStatus={handleUpdateTripStatus}
-            onDeleteTrip={handleDeletePurchaseTrip}
-            onSyncTripToCashbook={handleSyncTripToCashbook}
-            onPrintTripSlip={(bill) => setReceiptBill(bill)}
-          />
-        )}
+        {activeTab === 'purchases' &&
+          (userProfile.role === 'Staff' ? (
+            <div className="max-w-md mx-auto p-8 text-center space-y-3 mt-12 bg-white rounded-3xl border border-stone-200 shadow-sm mx-4 sm:mx-auto">
+              <div className="w-14 h-14 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center mx-auto">
+                <ShieldAlert className="w-7 h-7" />
+              </div>
+              <h3 className="font-black text-stone-900 text-base">
+                {language === 'bn' ? 'অ্যাক্সেস সংরক্ষিত' : 'Access Restricted'}
+              </h3>
+              <p className="text-xs text-stone-600 leading-relaxed">
+                {language === 'bn'
+                  ? 'পাইকারি কেনাকাটা ও ট্রিপ হিসাব শুধুমাত্র দোকান মালিকের জন্য নির্ধারিত।'
+                  : 'Wholesale purchases and purchase trips are restricted to the store owner.'}
+              </p>
+            </div>
+          ) : (
+            <PurchaseTripTab
+              trips={purchaseTrips}
+              settings={settings}
+              language={language}
+              onOpenCalculator={() => setIsCalculatorOpen(true)}
+              onCreateTrip={handleCreatePurchaseTrip}
+              onUpdateTrip={handleUpdatePurchaseTrip}
+              onAddCashToTrip={handleAddCashToTrip}
+              onAddExpense={handleAddTripExpense}
+              onDeleteExpense={handleDeleteTripExpense}
+              onUpdateTripStatus={handleUpdateTripStatus}
+              onDeleteTrip={handleDeletePurchaseTrip}
+              onSyncTripToCashbook={handleSyncTripToCashbook}
+              onPrintTripSlip={(bill) => setReceiptBill(bill)}
+            />
+          ))}
 
         {activeTab === 'barcode' && (
           <BarcodeTagStudioTab
@@ -1891,14 +1958,29 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'staff' && (
-          <StaffManagementTab
-            language={language}
-            onShowToast={showToast}
-            printerSettings={settings}
-            bluetoothDevice={bluetoothStatus}
-          />
-        )}
+        {activeTab === 'staff' &&
+          (userProfile.role === 'Staff' ? (
+            <div className="max-w-md mx-auto p-8 text-center space-y-3 mt-12 bg-white rounded-3xl border border-stone-200 shadow-sm mx-4 sm:mx-auto">
+              <div className="w-14 h-14 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center mx-auto">
+                <ShieldAlert className="w-7 h-7" />
+              </div>
+              <h3 className="font-black text-stone-900 text-base">
+                {language === 'bn' ? 'অ্যাক্সেস সংরক্ষিত' : 'Access Restricted'}
+              </h3>
+              <p className="text-xs text-stone-600 leading-relaxed">
+                {language === 'bn'
+                  ? 'স্টাফ ম্যানেজমেন্ট ও বেতন হিস্ট্রি শুধুমাত্র দোকান মালিকের জন্য নির্ধারিত।'
+                  : 'Staff management is restricted to the store owner.'}
+              </p>
+            </div>
+          ) : (
+            <StaffManagementTab
+              language={language}
+              onShowToast={showToast}
+              printerSettings={settings}
+              bluetoothDevice={bluetoothStatus}
+            />
+          ))}
       </main>
 
       {/* Fixed Bottom Navigation Bar (Vyapar style - Tabs only) */}
@@ -1910,6 +1992,7 @@ export default function App() {
         purchasesCount={purchaseTrips.filter((t) => t.status === 'active').length}
         duesCount={customerDues.filter((c) => c.totalDue > 0).length}
         language={language}
+        userProfile={userProfile}
       />
 
       {/* User Login & Profile Modal */}
@@ -2107,7 +2190,7 @@ export default function App() {
         }}
       />
 
-      {/* Firebase Password Reset Modal (Instant reset & Email link options) */}
+      {/* Firebase Password Reset Modal (Standard Email link verification) */}
       <ResetPasswordModal
         isOpen={isResetPasswordOpen}
         onClose={() => setIsResetPasswordOpen(false)}

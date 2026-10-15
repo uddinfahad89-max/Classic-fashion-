@@ -8,7 +8,7 @@ import {
   Barcode,
   UserCheck,
 } from 'lucide-react';
-import { ActiveTab, Language } from '../types';
+import { ActiveTab, Language, UserProfile } from '../types';
 
 interface BottomNavProps {
   activeTab: ActiveTab;
@@ -18,6 +18,7 @@ interface BottomNavProps {
   purchasesCount: number;
   duesCount?: number;
   language?: Language;
+  userProfile?: UserProfile;
 }
 
 export const BottomNav: React.FC<BottomNavProps> = ({
@@ -28,16 +29,19 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   purchasesCount,
   duesCount = 0,
   language = 'en',
+  userProfile,
 }) => {
   const isBn = language === 'bn';
+  const isStaff = userProfile?.role === 'Staff';
 
-  // Strict 7-tab sequence: Billing -> Dues -> Daybook -> Invoices -> Purchases -> Barcode -> Staff
-  const navItems: {
+  // Strict tab sequence filtered by staff role and permissions
+  const allNavItems: {
     id: ActiveTab;
     label: string;
     icon: React.ComponentType<{ className?: string }>;
     badge?: number;
     badgeColor?: string;
+    hidden?: boolean;
   }[] = [
     {
       id: 'billing',
@@ -57,6 +61,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       id: 'cashbook',
       label: isBn ? 'ডেবুক' : 'Daybook',
       icon: BookOpen,
+      hidden: isStaff && !userProfile?.permissions?.canViewProfit,
     },
     {
       id: 'invoices',
@@ -71,18 +76,22 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       icon: Truck,
       badge: purchasesCount,
       badgeColor: 'bg-emerald-600 text-white',
+      hidden: isStaff,
     },
     {
       id: 'barcode',
-      label: isBn ? 'বারকোড' : 'Barcode',
+      label: isBn ? 'পণ্য ও বারকোড' : 'Products',
       icon: Barcode,
     },
     {
       id: 'staff',
       label: isBn ? 'স্টাফ' : 'Staff',
       icon: UserCheck,
+      hidden: isStaff,
     },
   ];
+
+  const navItems = allNavItems.filter((item) => !item.hidden);
 
   return (
     <nav
@@ -91,7 +100,15 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-stone-200/90 shadow-[0_-4px_20px_rgba(0,0,0,0.06)]"
     >
       <div className="max-w-xl mx-auto px-1 sm:px-1.5 py-1.5 sm:py-2">
-        <div className="grid grid-cols-7 gap-0.5 sm:gap-1">
+        <div
+          className={`grid ${
+            navItems.length <= 4
+              ? 'grid-cols-4'
+              : navItems.length === 5
+              ? 'grid-cols-5'
+              : 'grid-cols-7'
+          } gap-0.5 sm:gap-1`}
+        >
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;

@@ -293,6 +293,35 @@ app.get('/api/accounts', (_req, res) => {
   }
 });
 
+function findStaffInVaults(input: string): { staff: any; ownerVault: any } | null {
+  try {
+    const clean = (input || '').trim().toLowerCase();
+    if (!clean) return null;
+
+    if (!fs.existsSync(DATA_DIR)) return null;
+    const files = fs.readdirSync(DATA_DIR);
+
+    for (const f of files) {
+      if (!f.endsWith('.json') || f === 'accounts_index.json') continue;
+      try {
+        const content = fs.readFileSync(path.join(DATA_DIR, f), 'utf-8');
+        const v = JSON.parse(content);
+        if (v && Array.isArray(v.staffMembers)) {
+          const found = v.staffMembers.find(
+            (s: any) =>
+              (s.email && s.email.trim().toLowerCase() === clean) ||
+              (s.phone && s.phone.replace(/[\s+-]/g, '') === clean.replace(/[\s+-]/g, ''))
+          );
+          if (found) {
+            return { staff: found, ownerVault: v };
+          }
+        }
+      } catch {}
+    }
+  } catch {}
+  return null;
+}
+
 // Server-side authentication: verify credentials directly against server vaults
 app.post('/api/auth/login', (req, res) => {
   try {
@@ -315,33 +344,133 @@ app.post('/api/auth/login', (req, res) => {
     }
 
     const { vault, linkedIds } = findCanonicalAccountVault(input);
-    if (!vault) {
-      return res.status(404).json({
-        success: false,
-        error: 'এই ইমেল দিয়ে কোনো অ্যাকাউন্ট পাওয়া যায়নি। দয়া করে সাইন আপ করুন।',
+    if (vault) {
+      // Verify password if saved (allow standard 123456 fallback if user account is configured)
+      if (vault.password && vault.password !== cleanPass) {
+        return res.status(401).json({
+          success: false,
+          error: 'পাসওয়ার্ড সঠিক নয়! সঠিক পাসওয়ার্ড লিখুন।',
+        });
+      }
+
+      if (!vault.password && cleanPass) {
+        vault.password = cleanPass;
+      }
+
+      broadcastVault(vault, linkedIds);
+
+      return res.json({
+        success: true,
+        vault,
       });
     }
 
-    // Verify password if saved (allow standard 123456 fallback if user account is configured)
-    if (vault.password && vault.password !== cleanPass) {
-      return res.status(401).json({
-        success: false,
-        error: 'পাসওয়ার্ড সঠিক নয়! সঠিক পাসওয়ার্ড লিখুন।',
+    // Check if input belongs to an authorized staff member
+    const staffMatch = findStaffInVaults(input);
+    if (staffMatch) {
+      const { staff, ownerVault } = staffMatch;
+
+      // Check if blocked by owner
+      if (staff.isBlocked || staff.isActive === false) {
+        return res.status(403).json({
+          success: false,
+          error: `🚫 আপনার স্টাফ অ্যাকাউন্টটি সাময়িকভাবে ব্লক করা হয়েছে। কারণ: ${
+            staff.blockedReason || 'দোকান মালিকের সাথে যোগাযোগ করুন।'
+          }`,
+        });
+      }
+
+      // Check password
+      if (staff.password && staff.password !== cleanPass) {
+        return res.status(401).json({
+          success: false,
+          error: 'পাসওয়ার্ড সঠিক নয়! সঠিক পাসওয়ার্ড লিখুন।',
+        });
+      }
+
+      const staffProfile = {
+        name: staff.name,
+        email: staff.email || input.toLowerCase(),
+        phone: staff.phone || '',
+        role: 'Staff',
+        isLoggedIn: true,
+        pin: '1234',
+        staffId: staff.id,
+        storeId: ownerVault.identifier || ownerVault.email || 'uddinfahad89@gmail.com',
+        storeName: ownerVault.settings?.storeName || 'Store POS',
+        ownerEmail: ownerVault.email || ownerVault.identifier || 'uddinfahad89@gmail.com',
+        permissions: staff.permissions || {
+          canCreateBills: true,
+          canManageStock: true,
+          canManageDues: true,
+          canViewProfit: false,
+          canDeleteInvoices: false,
+        },
+      };
+
+      return res.json({
+        success: true,
+        isStaff: true,
+        staff,
+        staffProfile,
+        vault: ownerVault,
       });
     }
 
-    // If vault lacked password but matched, save password to vault
-    if (!vault.password && cleanPass) {
-      vault.password = cleanPass;
-    }
-
-    // Synchronize canonical vault to all linked files
-    broadcastVault(vault, linkedIds);
-
-    return res.json({
-      success: true,
-      vault,
+    return res.status(404).json({
+      success: false,
+      error: 'এই ইমেল দিয়ে কোনো অ্যাকাউন্ট বা অনুমোদিত স্টাফ পাওয়া যায়নি।',
     });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Save or update staff member into owner's vault
+app.post('/api/staff/save', (req, res) => {
+  try {
+    const { ownerIdentifier, staff } = req.body || {};
+    const effectiveId = (ownerIdentifier || '').trim() || 'uddinfahad89@gmail.com';
+    const { vault, linkedIds } = findCanonicalAccountVault(effectiveId);
+    if (!vault) {
+      return res.status(404).json({ error: 'Owner vault not found' });
+    }
+    if (!Array.isArray(vault.staffMembers)) {
+      vault.staffMembers = [];
+    }
+    const idx = vault.staffMembers.findIndex((s: any) => s.id === staff.id);
+    if (idx >= 0) {
+      vault.staffMembers[idx] = staff;
+    } else {
+      vault.staffMembers.push(staff);
+    }
+    broadcastVault(vault, linkedIds);
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Toggle staff block status
+app.post('/api/staff/toggle-block', (req, res) => {
+  try {
+    const { ownerIdentifier, staffId } = req.body || {};
+    const effectiveId = (ownerIdentifier || '').trim() || 'uddinfahad89@gmail.com';
+    const { vault, linkedIds } = findCanonicalAccountVault(effectiveId);
+    if (!vault) {
+      return res.status(404).json({ error: 'Owner vault not found' });
+    }
+    if (!Array.isArray(vault.staffMembers)) {
+      vault.staffMembers = [];
+    }
+    const staff = vault.staffMembers.find((s: any) => s.id === staffId);
+    if (staff) {
+      staff.isBlocked = !staff.isBlocked;
+      staff.isActive = !staff.isBlocked;
+      broadcastVault(vault, linkedIds);
+      return res.json({ success: true, isBlocked: staff.isBlocked });
+    }
+    return res.status(404).json({ error: 'Staff not found' });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
   }
@@ -556,14 +685,15 @@ app.post('/api/admin/block-store', (req, res) => {
     }
 
     try {
-      if (fs.existsSync(ACCOUNTS_INDEX_FILE)) {
-        const list = JSON.parse(fs.readFileSync(ACCOUNTS_INDEX_FILE, 'utf-8'));
+      const indexPath = path.join(DATA_DIR, 'accounts_index.json');
+      if (fs.existsSync(indexPath)) {
+        const list = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
         const norm = normalizeId(identifier);
         const item = list.find((a: any) => normalizeId(a.identifier) === norm || normalizeId(a.email) === norm);
         if (item) {
           item.isBlocked = Boolean(isBlocked);
           item.blockedReason = isBlocked ? (reason || 'স্টোর সাময়িকভাবে স্থগিত করা হয়েছে') : '';
-          fs.writeFileSync(ACCOUNTS_INDEX_FILE, JSON.stringify(list, null, 2), 'utf-8');
+          fs.writeFileSync(indexPath, JSON.stringify(list, null, 2), 'utf-8');
         }
       }
     } catch {}
