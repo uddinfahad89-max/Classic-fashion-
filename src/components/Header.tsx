@@ -528,6 +528,23 @@ export const Header: React.FC<HeaderProps> = ({
                     </button>
                   )}
 
+                  {userProfile.role !== 'Staff' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsProfileModalOpen(false);
+                        onSelectTab('staff');
+                      }}
+                      className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-blue-800 bg-blue-50/80 hover:bg-blue-100 border border-blue-200/80 flex items-center justify-between transition-colors cursor-pointer"
+                    >
+                      <span className="flex items-center gap-2">
+                        <UserCheck className="w-4 h-4 text-blue-600" />
+                        <span>{isBn ? '👥 কর্মচারী অ্যাক্সেস ও স্টাফ তালিকা' : '👥 Staff Access & Permissions'}</span>
+                      </span>
+                      <ChevronRight className="w-3.5 h-3.5 text-blue-500" />
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     onClick={() => {

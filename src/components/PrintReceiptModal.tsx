@@ -77,7 +77,7 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
     } else {
       setIsTotalOnlySlip(Boolean(settings.isTotalOnlySlip));
     }
-  }, [settings.isTotalOnlySlip, initialTotalOnlySlip]);
+  }, [bill?.id, initialTotalOnlySlip]);
 
   const effectiveSettings = useMemo(
     () => ({ ...settings, isLabelMode, isTotalOnlySlip }),

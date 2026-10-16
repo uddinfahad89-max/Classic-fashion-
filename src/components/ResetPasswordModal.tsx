@@ -40,16 +40,14 @@ export const ResetPasswordModal: React.FC<ResetPasswordModalProps> = ({
     return en;
   };
 
-  const [email, setEmail] = useState(prefilledEmail || 'uddinfahad89@gmail.com');
+  const [email, setEmail] = useState(prefilledEmail || '');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [isSent, setIsSent] = useState(false);
 
   useEffect(() => {
-    if (prefilledEmail) {
-      setEmail(prefilledEmail);
-    }
+    setEmail(prefilledEmail || '');
     setError(null);
     setSuccessMsg(null);
     setIsSent(false);

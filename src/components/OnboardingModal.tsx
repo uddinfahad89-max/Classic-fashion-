@@ -47,6 +47,7 @@ interface OnboardingModalProps {
   language?: Language;
   onSelectLanguage?: (lang: Language) => void;
   onClose?: () => void;
+  onSkip?: () => void;
   canDismiss?: boolean;
   onOpenForgotPassword?: (email?: string) => void;
 }
@@ -58,6 +59,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
   language = 'bn',
   onSelectLanguage,
   onClose,
+  onSkip,
   canDismiss = false,
   onOpenForgotPassword,
 }) => {
@@ -112,10 +114,13 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
       });
       const accounts = storageService.getSavedAccounts();
       setSavedAccounts(accounts);
-      if (!loginEmail) {
-        setLoginEmail('uddinfahad89@gmail.com');
-        setLoginPassword('123456');
-      }
+      // New device or browser must start with completely clean empty email and password!
+      setLoginEmail('');
+      setLoginPassword('');
+      setSignupEmail('');
+      setSignupPassword('');
+      setError(null);
+      setSuccessMsg(null);
     }
   }, [isOpen]);
 
@@ -180,9 +185,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
         );
         setActiveTab('login');
         setLoginEmail(cleanEmail);
-        if (cleanEmail === 'uddinfahad89@gmail.com') {
-          setLoginPassword('123456');
-        }
+        setLoginPassword('');
         setIsLoading(false);
         return;
       }
@@ -200,9 +203,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
           if (result.error.includes('ইতোমধ্যে') || result.error.includes('already')) {
             setActiveTab('login');
             setLoginEmail(cleanEmail);
-            if (cleanEmail === 'uddinfahad89@gmail.com') {
-              setLoginPassword('123456');
-            }
+            setLoginPassword('');
           }
           setIsLoading(false);
           return;
@@ -329,19 +330,19 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
       >
         {/* Banner Header Card */}
         <div className="bg-gradient-to-r from-blue-600 via-indigo-600 to-indigo-700 px-5 py-4 text-white shrink-0">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-2xl bg-white/15 backdrop-blur-xs flex items-center justify-center text-white border border-white/20 shadow-xs">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-11 h-11 rounded-2xl bg-white/15 backdrop-blur-xs flex items-center justify-center text-white border border-white/20 shadow-xs shrink-0">
                 <Store className="w-6 h-6" />
               </div>
-              <div>
-                <h2 className="text-base sm:text-lg font-black tracking-tight flex items-center gap-1.5">
+              <div className="min-w-0">
+                <h2 className="text-base sm:text-lg font-black tracking-tight flex items-center gap-1.5 flex-wrap">
                   <span>{t('মাল্টি-ইউজার ক্লাউড POS', 'Multi-User Cloud POS', 'मल्टी-यूज़र क्लाउड POS')}</span>
                   <span className="text-[10px] bg-emerald-400 text-stone-950 font-black px-2 py-0.5 rounded-full">
                     Cloud Auth
                   </span>
                 </h2>
-                <p className="text-xs text-blue-100 font-medium">
+                <p className="text-xs text-blue-100 font-medium truncate">
                   {t(
                     'নিরাপদ ইমেল ও পাসওয়ার্ড লগইন এবং ক্লাউড ডেটা সিঙ্ক',
                     'Secure Email & Password Authentication & Cloud Sync',
@@ -350,6 +351,19 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                 </p>
               </div>
             </div>
+
+            {/* Skip Button in Header */}
+            {(onSkip || onClose) && (
+              <button
+                type="button"
+                onClick={onSkip || onClose}
+                className="px-2.5 py-1.5 rounded-xl bg-white/20 hover:bg-white/30 active:scale-95 text-white font-bold text-xs flex items-center gap-1.5 border border-white/25 transition-all cursor-pointer shadow-xs shrink-0"
+                title={t('লগইন ছাড়া অ্যাপ চালান (স্কিপ)', 'Skip and run offline', 'लॉगिन छोड़ें')}
+              >
+                <span>{t('স্কিপ', 'Skip', 'छोड़ें')}</span>
+                <span className="text-white/80 font-mono text-xs">✕</span>
+              </button>
+            )}
           </div>
 
           {/* Sub-header Connection Pill */}
@@ -498,9 +512,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                           onClick={() => {
                             if (acc.email) {
                               setLoginEmail(acc.email);
-                              if (acc.email === 'uddinfahad89@gmail.com') {
-                                setLoginPassword('123456');
-                              }
+                              setLoginPassword('');
                             }
                             setError(null);
                           }}
@@ -772,6 +784,26 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                 </button>
               </div>
             </form>
+          )}
+
+          {/* RUN WITHOUT LOGIN (SKIP OPTION) */}
+          {(onSkip || onClose) && (
+            <div className="pt-3 mt-3 border-t border-stone-200">
+              <button
+                type="button"
+                onClick={onSkip || onClose}
+                className="w-full py-2.5 px-3 rounded-2xl bg-stone-100 hover:bg-blue-50 active:scale-[0.99] text-stone-800 hover:text-blue-700 font-bold text-xs flex items-center justify-center gap-2 border border-stone-300 hover:border-blue-300 transition-all cursor-pointer shadow-2xs"
+              >
+                <span>⚡ {t('লগইন ছাড়াও চালানোর অপশন (স্কিপ করুন)', 'Run POS Without Login (Skip Option)', 'बिना लॉगिन के चलाएं (छोड़ें)')}</span>
+              </button>
+              <p className="text-[10px] text-stone-500 text-center mt-1">
+                {t(
+                  'লগইন ছাড়াও আপনি অফলাইনে সব বিলিং ও হিসাব রাখতে পারবেন। পরে যেকোনো সময় লগইন করতে পারবেন।',
+                  'You can run POS completely offline without login. You can log in anytime for cloud backup.',
+                  'आप बिना लॉगिन के भी ऑफलाइन चला सकते हैं।'
+                )}
+              </p>
+            </div>
           )}
         </div>
       </div>

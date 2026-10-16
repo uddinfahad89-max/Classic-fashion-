@@ -124,72 +124,30 @@ export default function App() {
     const currentSettings = storageService.getSettings();
     setLanguage(storageService.getLanguage());
 
-    // Clean blank state on new device / unauthenticated session -> Auto-connect to primary server account
-    if (!prof.isLoggedIn) {
-      fetch('/api/accounts/primary')
-        .then((r) => r.json())
-        .then((json) => {
-          if (json?.success && json.vault) {
-            const v = json.vault;
-            storageService.applyServerVaultSilently(v);
-            const restoredProfile: UserProfile = {
-              email: v.email || 'uddinfahad89@gmail.com',
-              name: v.name || 'Fahad uddin',
-              phone: v.phone || '',
-              role: v.role || 'Owner',
-              pin: v.pin || '1234',
-              password: v.password || '123456',
-              isLoggedIn: true,
-              isAppLockEnabled: Boolean(v.isAppLockEnabled),
-              loginTime: Date.now(),
-              loginMethod: 'email_password',
-              otpVerified: true,
-            };
-            storageService.saveUserProfile(restoredProfile);
-            localStorage.setItem('thermal_pos_onboarding_completed', 'true');
-            setUserProfile(restoredProfile);
-            setBills(storageService.getBills());
-            setProducts(storageService.getProducts());
-            setCashEntries(Array.isArray(v.cashEntries) ? v.cashEntries : []);
-            setCustomerDues(Array.isArray(v.customerDues) ? v.customerDues : []);
-            setPurchaseTrips(Array.isArray(v.purchaseTrips) ? v.purchaseTrips : []);
-            if (v.settings) setSettings(v.settings);
-            setIsOnboardingOpen(false);
-            storageService.setLocalLastActive(Number(v.lastActive) || Date.now());
-          } else {
-            setBills([]);
-            setCashEntries([]);
-            setCustomerDues([]);
-            setPurchaseTrips([]);
-            setSettings(currentSettings);
-            setUserProfile(prof);
-            setIsOnboardingOpen(true);
-          }
-        })
-        .catch(() => {
-          setBills([]);
-          setCashEntries([]);
-          setCustomerDues([]);
-          setPurchaseTrips([]);
-          setSettings(currentSettings);
-          setUserProfile(prof);
-          setIsOnboardingOpen(true);
-        });
+    const hasCompletedOnboarding = localStorage.getItem('thermal_pos_onboarding_completed') === 'true';
+    const isGuestMode = localStorage.getItem('thermal_pos_guest_mode') === 'true';
+
+    // Load local storage records for immediate responsiveness
+    const loadedBills = storageService.getBills();
+    setBills(loadedBills);
+    setCashEntries(storageService.getCashEntries());
+    setCustomerDues(storageService.getCustomerDues());
+    setPurchaseTrips(storageService.getPurchaseTrips());
+    setProducts(storageService.getProducts());
+    setSettings(currentSettings);
+    setUserProfile(prof);
+
+    // If logged in or user has already skipped/completed onboarding on this browser
+    if (prof.isLoggedIn || hasCompletedOnboarding || isGuestMode) {
+      setIsOnboardingOpen(false);
     } else {
-      const loadedBills = storageService.getBills();
-      setBills(loadedBills);
-      setCashEntries(storageService.getCashEntries());
-      setCustomerDues(storageService.getCustomerDues());
-      setPurchaseTrips(storageService.getPurchaseTrips());
-      setProducts(storageService.getProducts());
-      setSettings(storageService.getSettings());
-      setUserProfile(prof);
+      // Fresh new device/browser -> Prompt onboarding modal with clean empty fields and Skip option
+      setIsOnboardingOpen(true);
     }
 
-    // Boot-time multi-device restore & sync with Firebase Firestore
-    const targetEmail = prof.email || 'uddinfahad89@gmail.com';
-    if (firebaseService.isConfigured()) {
-      firebaseService.restorePOSData(targetEmail).then((fbRes) => {
+    // Boot-time multi-device restore & sync with Firebase Firestore (ONLY for logged-in accounts)
+    if (prof.isLoggedIn && prof.email && firebaseService.isConfigured()) {
+      firebaseService.restorePOSData(prof.email).then((fbRes) => {
         if (fbRes && fbRes.success) {
           const deletedBillIds = storageService.getDeletedBillIds();
           const deletedProdIds = storageService.getDeletedProductIds();
@@ -263,8 +221,8 @@ export default function App() {
       }).catch((err) => console.warn('Firebase boot check notice:', err));
     }
 
-    // Boot-time authoritative sync from server vault for multi-device consistency
-    const bootSyncId = prof.email || prof.phone || 'uddinfahad89@gmail.com';
+    // Boot-time authoritative sync from server vault for multi-device consistency (ONLY for logged-in accounts)
+    const bootSyncId = prof.isLoggedIn ? (prof.email || prof.phone) : '';
     if (bootSyncId) {
       const norm = storageService.normalizeIdentifier(bootSyncId);
       fetch(`/api/vault/${encodeURIComponent(norm)}`)
@@ -289,10 +247,11 @@ export default function App() {
         .catch(() => {});
     }
 
-    // Multi-device real-time sync: poll and refresh on tab focus so all devices stay identical
+    // Multi-device real-time sync: poll and refresh on tab focus so all devices stay identical (ONLY for logged-in accounts)
     const syncLiveVault = async () => {
       const currentProf = storageService.getUserProfile();
-      const syncId = currentProf.email || currentProf.phone || 'uddinfahad89@gmail.com';
+      if (!currentProf.isLoggedIn) return;
+      const syncId = currentProf.email || currentProf.phone;
       if (!syncId) return;
 
       try {
@@ -1127,7 +1086,10 @@ export default function App() {
       setIsPrintingBill(true);
       const connectRes = await thermalPrinterService.connectBluetooth();
       if (connectRes.success && thermalPrinterService.getIsConnected()) {
-        const printResult = await thermalPrinterService.printViaBluetooth(bill, settings);
+        const printResult = await thermalPrinterService.printViaBluetooth(bill, {
+          ...settings,
+          isTotalOnlySlip: effectiveTotalOnly,
+        });
         setIsPrintingBill(false);
         if (printResult.success) {
           showToast(
@@ -1566,6 +1528,7 @@ export default function App() {
     const updated = { ...settings, isTotalOnlySlip };
     storageService.saveSettings(updated);
     setSettings(updated);
+    setReceiptInitialTotalOnly(isTotalOnlySlip);
   };
 
   // Product Stock Handlers
@@ -1830,7 +1793,10 @@ export default function App() {
             bills={bills}
             settings={settings}
             language={language}
-            onViewReceipt={(bill) => setReceiptBill(bill)}
+            onViewReceipt={(bill) => {
+              setReceiptInitialTotalOnly(Boolean(settings.isTotalOnlySlip));
+              setReceiptBill(bill);
+            }}
             onDeleteBill={handleDeleteBill}
             onUpdateBill={handleUpdateBill}
             onEditBill={(bill) => setEditingBill(bill)}
@@ -1886,7 +1852,10 @@ export default function App() {
             onAddOrUpdateDue={handleAddOrUpdateDue}
             onRecordPayment={handleRecordCustomerPayment}
             onDeleteDue={handleDeleteCustomerDue}
-            onPrintDueSlip={(bill) => setReceiptBill(bill)}
+            onPrintDueSlip={(bill) => {
+              setReceiptInitialTotalOnly(Boolean(settings.isTotalOnlySlip));
+              setReceiptBill(bill);
+            }}
             onBatchImportDues={handleBatchImportDues}
             onUpdateCustomerDue={handleUpdateCustomerDue}
           />
@@ -1921,7 +1890,10 @@ export default function App() {
               onUpdateTripStatus={handleUpdateTripStatus}
               onDeleteTrip={handleDeletePurchaseTrip}
               onSyncTripToCashbook={handleSyncTripToCashbook}
-              onPrintTripSlip={(bill) => setReceiptBill(bill)}
+              onPrintTripSlip={(bill) => {
+                setReceiptInitialTotalOnly(Boolean(settings.isTotalOnlySlip));
+                setReceiptBill(bill);
+              }}
             />
           ))}
 
@@ -2014,6 +1986,7 @@ export default function App() {
           setResetPasswordMode('request_link');
           setIsResetPasswordOpen(true);
         }}
+        onOpenStaffManagement={() => setActiveTab('staff')}
       />
 
       {/* App Lock Screen (4-Digit PIN Security Vault) */}
@@ -2100,6 +2073,7 @@ export default function App() {
         onOpenBluetoothHelp={() => setIsBluetoothHelpOpen(true)}
         language={language}
         onOpenSuperAdmin={() => setIsSuperAdminOpen(true)}
+        onOpenStaffManagement={() => setActiveTab('staff')}
         onDataRestored={() => {
           setBills(storageService.getBills());
           setCashEntries(storageService.getCashEntries());

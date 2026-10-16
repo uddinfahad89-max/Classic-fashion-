@@ -17,6 +17,7 @@ import {
   LogIn,
   Globe,
   MapPin,
+  UserCheck,
 } from 'lucide-react';
 import { UserProfile, Language, SavedAccountItem, ThermalPrinterSettings } from '../types';
 import { storageService } from '../services/storageService';
@@ -53,6 +54,8 @@ interface LoginModalProps {
   language?: Language;
   onSelectLanguage?: (lang: Language) => void;
   onOpenForgotPassword?: (email?: string) => void;
+  onOpenStaffManagement?: () => void;
+  onSkip?: () => void;
 }
 
 export const LoginModal: React.FC<LoginModalProps> = ({
@@ -67,6 +70,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   language = 'bn',
   onSelectLanguage,
   onOpenForgotPassword,
+  onOpenStaffManagement,
+  onSkip,
 }) => {
   const isBn = language === 'bn';
   const isHi = language === 'hi';
@@ -119,10 +124,18 @@ export const LoginModal: React.FC<LoginModalProps> = ({
         setEditStoreAddress(settings.storeAddress || '');
         setStoreSaved(false);
       }
+      if (!userProfile.isLoggedIn) {
+        setLoginEmail('');
+        setLoginPassword('');
+      } else {
+        setLoginEmail(userProfile.email || '');
+      }
+      setSignupEmail('');
+      setSignupPassword('');
       setLoginError(null);
       setSignupError(null);
     }
-  }, [isOpen, userProfile.isLoggedIn, settings]);
+  }, [isOpen, userProfile.isLoggedIn, userProfile.email, settings]);
 
   if (!isOpen) return null;
 
@@ -315,29 +328,41 @@ export const LoginModal: React.FC<LoginModalProps> = ({
               </div>
             </div>
 
-            {onSelectLanguage && (
-              <div className="flex items-center gap-0.5 bg-white/15 border border-white/20 p-0.5 rounded-lg text-xs font-bold">
-                <Globe className="w-3.5 h-3.5 text-blue-100 ml-1" />
-                <button
-                  type="button"
-                  onClick={() => onSelectLanguage('bn')}
-                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer ${
-                    language === 'bn' ? 'bg-white text-blue-900' : 'text-white hover:bg-white/20'
-                  }`}
-                >
-                  বাং
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onSelectLanguage('en')}
-                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer ${
-                    language === 'en' ? 'bg-white text-blue-900' : 'text-white hover:bg-white/20'
-                  }`}
-                >
-                  EN
-                </button>
-              </div>
-            )}
+            <div className="flex items-center gap-2">
+              {onSelectLanguage && (
+                <div className="flex items-center gap-0.5 bg-white/15 border border-white/20 p-0.5 rounded-lg text-xs font-bold">
+                  <Globe className="w-3.5 h-3.5 text-blue-100 ml-1" />
+                  <button
+                    type="button"
+                    onClick={() => onSelectLanguage('bn')}
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer ${
+                      language === 'bn' ? 'bg-white text-blue-900' : 'text-white hover:bg-white/20'
+                    }`}
+                  >
+                    বাং
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onSelectLanguage('en')}
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer ${
+                      language === 'en' ? 'bg-white text-blue-900' : 'text-white hover:bg-white/20'
+                    }`}
+                  >
+                    EN
+                  </button>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={onSkip || onClose}
+                className="px-2.5 py-1 rounded-xl bg-white/20 hover:bg-white/30 active:scale-95 text-white font-bold text-xs flex items-center gap-1 cursor-pointer transition-all border border-white/25"
+                title={t('লগইন ছাড়া অ্যাপ ব্যবহার করুন (স্কিপ)', 'Skip and continue', 'छोड़ें')}
+              >
+                <span>{t('স্কিপ', 'Skip', 'छोड़ें')}</span>
+                <span className="text-white/80 font-mono text-xs">✕</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -419,6 +444,39 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   </button>
                 </div>
               </form>
+
+              {/* Staff Access & Roles Control Card for Shop Owner */}
+              {userProfile.role !== 'Staff' && onOpenStaffManagement && (
+                <div className="p-3.5 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200/90 rounded-2xl flex items-center justify-between gap-3 shadow-2xs">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                      <UserCheck className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs sm:text-sm font-bold text-stone-900">
+                        {t('কর্মচারী এক্সেস ও পারমিশন', 'Staff POS Access & Permissions', 'कर्मचारी एक्सेस व अनुमतियाँ')}
+                      </h4>
+                      <p className="text-[11px] text-stone-600 font-medium">
+                        {t(
+                          'কর্মচারীর জন্য ইমেল/পাসওয়ার্ড ও লিমিটেড বিলিং/স্টক এক্সেস দিন',
+                          'Create staff login with limited billing & stock access',
+                          'कर्मचारी के लिए लॉगिन बनाएं'
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onOpenStaffManagement();
+                    }}
+                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl cursor-pointer shadow-xs shrink-0 transition-colors"
+                  >
+                    {t('স্টাফ কন্ট্রোল →', 'Staff Access →', 'स्टाफ एक्सेस →')}
+                  </button>
+                </div>
+              )}
 
               {/* Switch Account or Logout Actions */}
               <div className="space-y-2 pt-1">
@@ -719,6 +777,24 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   </div>
                 </form>
               )}
+
+              {/* RUN WITHOUT LOGIN / SKIP */}
+              <div className="pt-3 mt-2 border-t border-stone-200">
+                <button
+                  type="button"
+                  onClick={onSkip || onClose}
+                  className="w-full py-2.5 px-3 rounded-2xl bg-stone-100 hover:bg-blue-50 active:scale-[0.99] text-stone-800 hover:text-blue-700 font-bold text-xs flex items-center justify-center gap-2 border border-stone-300 hover:border-blue-300 transition-all cursor-pointer shadow-2xs"
+                >
+                  <span>⚡ {t('লগইন ছাড়াও চালানোর অপশন (স্কিপ করুন)', 'Run POS Without Login (Skip Option)', 'बिना लॉगिन के चलाएं (छोड़ें)')}</span>
+                </button>
+                <p className="text-[10px] text-stone-500 text-center mt-1">
+                  {t(
+                    'লগইন না করেও সব বিল তৈরি ও হিসাব রাখতে পারবেন। ডাটা আপনার ডিভাইসেই নিরাপদে থাকবে।',
+                    'You can use the POS offline without login. All data stays on this device.',
+                    'बिना लॉगिन के भी आप बिलिंग कर सकते हैं।'
+                  )}
+                </p>
+              </div>
             </div>
           )}
         </div>

@@ -1,0 +1,146 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Registered store owner and staff user accounts",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string" },
+        "storeId": { "type": "string" },
+        "userId": { "type": "string" }
+      },
+      "required": ["email", "name"]
+    },
+    "StoreProfile": {
+      "title": "StoreProfile",
+      "description": "Store configuration, contact, and printer settings",
+      "type": "object",
+      "properties": {
+        "storeName": { "type": "string" },
+        "storeAddress": { "type": "string" },
+        "storePhone": { "type": "string" },
+        "ownerEmail": { "type": "string" }
+      },
+      "required": ["storeName"]
+    },
+    "StaffMember": {
+      "title": "StaffMember",
+      "description": "Authorized staff credentials and granular POS permissions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string" },
+        "storeId": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "isBlocked": { "type": "boolean" },
+        "hasPosAccess": { "type": "boolean" }
+      },
+      "required": ["id", "name", "storeId"]
+    },
+    "Invoice": {
+      "title": "Invoice",
+      "description": "POS billing invoices and customer sales receipts",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "invoiceNo": { "type": "string" },
+        "date": { "type": "string" },
+        "grandTotal": { "type": "number" },
+        "userId": { "type": "string" },
+        "storeId": { "type": "string" }
+      },
+      "required": ["id", "invoiceNo", "grandTotal", "storeId"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Store inventory products and stock quantities",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "stock": { "type": "number" },
+        "storeId": { "type": "string" }
+      },
+      "required": ["id", "name", "price", "storeId"]
+    },
+    "CustomerDue": {
+      "title": "CustomerDue",
+      "description": "Customer credit ledger dues and balances",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "totalDue": { "type": "number" },
+        "storeId": { "type": "string" }
+      },
+      "required": ["id", "name", "storeId"]
+    },
+    "CashEntry": {
+      "title": "CashEntry",
+      "description": "Daily cashbook income and expense transactions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string" },
+        "amount": { "type": "number" },
+        "storeId": { "type": "string" }
+      },
+      "required": ["id", "type", "amount", "storeId"]
+    },
+    "PurchaseTrip": {
+      "title": "PurchaseTrip",
+      "description": "Wholesale purchase restock trips for store owner",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "tripName": { "type": "string" },
+        "storeId": { "type": "string" }
+      },
+      "required": ["id", "storeId"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profiles for authenticated owners and staff"
+    },
+    "/profiles/{profileId}": {
+      "schema": "StoreProfile",
+      "description": "Store profiles and configuration"
+    },
+    "/stores/{storeId}/staff/{staffId}": {
+      "schema": "StaffMember",
+      "description": "Authorized staff members linked to specific store"
+    },
+    "/staff_members/{staffId}": {
+      "schema": "StaffMember",
+      "description": "Global staff index for multi-vendor lookup"
+    },
+    "/invoices/{invoiceId}": {
+      "schema": "Invoice",
+      "description": "POS billing invoices"
+    },
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Store products and inventory"
+    },
+    "/customer_dues/{dueId}": {
+      "schema": "CustomerDue",
+      "description": "Customer dues and credit book"
+    },
+    "/cash_entries/{entryId}": {
+      "schema": "CashEntry",
+      "description": "Daily cashbook entries"
+    },
+    "/purchase_trips/{tripId}": {
+      "schema": "PurchaseTrip",
+      "description": "Owner wholesale purchase trips"
+    }
+  }
+}

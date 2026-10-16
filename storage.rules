@@ -1,9 +1,63 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserEmail() {
+      return isAuthenticated() && request.auth.token.email != null
+        ? request.auth.token.email.lower()
+        : '';
+    }
+
+    function isMasterAdmin() {
+      return isAuthenticated() && (
+        getUserEmail() == 'uddinfahad89@gmail.com' ||
+        request.auth.token.admin == true
+      );
+    }
+
+    function isStoreOwner(storeId) {
+      return isAuthenticated() && (
+        isMasterAdmin() ||
+        (storeId != null && (
+          getUserEmail() == storeId.lower() ||
+          request.auth.uid == storeId
+        ))
+      );
+    }
+
+    // Default deny for all unauthenticated or external requests
     match /{allPaths=**} {
-      // Allow read/write ONLY to authenticated store owners and authorized staff
-      allow read, write: if request.auth != null;
+      allow read, write: if false;
+    }
+
+    // Store Documents, Receipts, Invoices & Product Images (Registered Owner & Admin)
+    match /stores/{storeId}/{allPaths=**} {
+      allow read: if isAuthenticated() && (isStoreOwner(storeId) || isMasterAdmin());
+      allow write: if isAuthenticated() && (isStoreOwner(storeId) || isMasterAdmin());
+    }
+
+    // User personal uploads & profile avatars
+    match /users/{userId}/{allPaths=**} {
+      allow read: if isAuthenticated() && (
+        request.auth.uid == userId ||
+        getUserEmail() == userId.lower() ||
+        isMasterAdmin()
+      );
+      allow write: if isAuthenticated() && (
+        request.auth.uid == userId ||
+        getUserEmail() == userId.lower() ||
+        isMasterAdmin()
+      );
+    }
+
+    // Generated receipt slips & exports
+    match /receipts/{storeId}/{allPaths=**} {
+      allow read: if isAuthenticated() && (isStoreOwner(storeId) || isMasterAdmin());
+      allow write: if isAuthenticated() && (isStoreOwner(storeId) || isMasterAdmin());
     }
   }
 }

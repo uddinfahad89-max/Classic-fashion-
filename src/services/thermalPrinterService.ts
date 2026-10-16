@@ -632,6 +632,93 @@ export class ThermalPrinterService {
       return labelLines.join('\n');
     }
 
+    // TOTAL ONLY SLIP MODE: Minimalistic summary containing only Store info, Total items count, Discount, Grand Total, Payment status & Due balance without individual items table
+    if (settings.isTotalOnlySlip) {
+      const slipLines: string[] = [];
+
+      // Header
+      slipLines.push(padCenter(settings.storeName.trim().toUpperCase()));
+      if (settings.storeAddress) slipLines.push(padCenter(settings.storeAddress.trim().toUpperCase()));
+      if (settings.storePhone) slipLines.push(padCenter(`Tel: ${settings.storePhone.trim()}`));
+
+      const isTailoring = Boolean(bill.isTailoring);
+      const method = String(bill.paymentMethod || 'cash').toLowerCase();
+      const isEstimate = method === 'estimate' || (Boolean(bill.isEstimate) && method === 'estimate');
+
+      slipLines.push(padCenter('*** TOTAL SUMMARY SLIP ***'));
+      slipLines.push(doubleDiv);
+
+      const billDocPrefix = isTailoring ? 'Order:' : isEstimate ? 'Est:' : 'Bill:';
+      const cleanCustName = bill.customerName?.trim()
+        ? ` (${bill.customerName.trim().slice(0, width === 48 ? 16 : 9)})`
+        : '';
+      slipLines.push(padBetween(`${billDocPrefix} #${bill.invoiceNo}${cleanCustName}`, bill.date));
+
+      if (bill.customerPhone) {
+        slipLines.push(padBetween('Phone:', bill.customerPhone));
+      }
+
+      slipLines.push(divider);
+
+      // Total quantity of items
+      const totalQty = bill.items.reduce((sum, it) => sum + (it.qty || 1), 0);
+      slipLines.push(padBetween('TOTAL QUANTITY:', `${totalQty} items`));
+
+      // Payment Status
+      const isDueFull =
+        (bill.balance !== undefined && bill.balance > 0) ||
+        (bill.paymentStatus !== 'PAID' && bill.grandTotal > (bill.paidAmount || 0)) ||
+        bill.paymentMethod === 'due';
+      const dueAmtFull =
+        bill.balance !== undefined
+          ? bill.balance
+          : Math.max(0, bill.grandTotal - (bill.paidAmount || 0));
+
+      const statusLabel = isEstimate
+        ? 'ESTIMATE'
+        : isDueFull && dueAmtFull > 0
+        ? 'UNPAID / DUE'
+        : 'PAID';
+      slipLines.push(padBetween('STATUS:', statusLabel));
+
+      // Subtotal & Discount (if discount > 0)
+      if (bill.discount > 0) {
+        slipLines.push(
+          padBetween(
+            `SUBTOTAL: ${sym}${bill.subtotal.toFixed(2)}`,
+            `DISC: -${sym}${bill.discount.toFixed(2)}`
+          )
+        );
+      }
+
+      slipLines.push(doubleDiv);
+
+      // Grand Total & Payment Mode
+      const payLabel = method === 'due' ? 'CREDIT' : method === 'estimate' ? 'ESTIMATE' : method.toUpperCase();
+      slipLines.push(
+        padBetween(
+          `GRAND TOTAL: ${sym}${bill.grandTotal.toFixed(2)}`,
+          `PAY: ${payLabel}`
+        )
+      );
+
+      // Paid & Due
+      if (bill.isTailoring) {
+        const adv = bill.paidAmount || 0;
+        const bal = bill.balance !== undefined ? bill.balance : Math.max(0, bill.grandTotal - adv);
+        slipLines.push(padBetween(`ADVANCE: ${sym}${adv.toFixed(2)}`, `BAL DUE: ${sym}${bal.toFixed(2)}`));
+      } else if (bill.paidAmount > 0 && isDueFull) {
+        slipLines.push(padBetween(`PAID: ${sym}${bill.paidAmount.toFixed(2)}`, `DUE: ${sym}${dueAmtFull.toFixed(2)}`));
+      } else if (isDueFull && dueAmtFull > 0 && bill.paymentMethod !== 'due') {
+        slipLines.push(padBetween('DUE (BAKI):', `${sym}${dueAmtFull.toFixed(2)}`));
+      }
+
+      slipLines.push(divider);
+      slipLines.push(padCenter('Thank you! Visit again.'));
+
+      return slipLines.join('\n');
+    }
+
     const lines: string[] = [];
 
     // Header
