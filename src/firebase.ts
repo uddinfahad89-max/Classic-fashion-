@@ -1,7 +1,13 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAnalytics, isSupported } from "firebase/analytics";
 import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  getFirestore,
+  setLogLevel
+} from "firebase/firestore";
 
 // Your web app's Firebase configuration
 export const firebaseConfig = {
@@ -29,8 +35,35 @@ if (typeof window !== "undefined") {
     .catch(() => {});
 }
 
-// Initialize Auth & Database
+// Silence internal SDK network/offline warning messages from console
+try {
+  setLogLevel('silent');
+} catch {}
+
+// Initialize Auth
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+
+// Initialize Firestore with long-polling transport & persistent multi-tab cache
+// to prevent 10s backend connection timeouts in sandboxes, iframes and mobile webviews
+let dbInstance: any;
+try {
+  dbInstance = initializeFirestore(app, {
+    experimentalForceLongPolling: true,
+    localCache: persistentLocalCache({
+      tabManager: persistentMultipleTabManager()
+    })
+  });
+} catch {
+  try {
+    dbInstance = initializeFirestore(app, {
+      experimentalForceLongPolling: true
+    });
+  } catch {
+    dbInstance = getFirestore(app);
+  }
+}
+
+export const db = dbInstance;
 export { analytics };
 export default app;
+

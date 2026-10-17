@@ -4,6 +4,8 @@ import {
   setDoc,
   getDocs,
   getDoc,
+  getDocFromCache,
+  getDocsFromCache,
   deleteDoc,
   query,
   where
@@ -106,14 +108,16 @@ class FirebaseService {
       const stored = localStorage.getItem('thermal_pos_user_profile_v1');
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (parsed.role === 'Staff') {
-          const owner = parsed.ownerEmail || parsed.storeId || parsed.shopId;
-          if (owner && typeof owner === 'string' && owner.includes('@')) {
-            return owner.trim().toLowerCase();
+        if (parsed && parsed.isLoggedIn) {
+          if (parsed.role === 'Staff') {
+            const owner = parsed.ownerEmail || parsed.storeId || parsed.shopId;
+            if (owner && typeof owner === 'string' && owner.includes('@')) {
+              return owner.trim().toLowerCase();
+            }
           }
-        }
-        if (parsed.email && typeof parsed.email === 'string' && parsed.email.includes('@')) {
-          return parsed.email.trim().toLowerCase();
+          if (parsed.email && typeof parsed.email === 'string' && parsed.email.includes('@')) {
+            return parsed.email.trim().toLowerCase();
+          }
         }
       }
     } catch {}
@@ -124,7 +128,7 @@ class FirebaseService {
     if (authEmail) return authEmail.trim().toLowerCase();
     const authUid = this.getActiveUserId();
     if (authUid) return authUid;
-    return 'uddinfahad89@gmail.com';
+    return '';
   }
 
   // Check if given user or active user is Super Admin (Master Account)
@@ -599,6 +603,7 @@ class FirebaseService {
   async fetchBarcodes(userId?: string): Promise<BarcodeItem[]> {
     try {
       const uid = this.getEffectiveUserId(userId);
+      if (!uid) return [];
       const barcodesRef = collection(db, 'barcodes');
       
       const map = new Map<string, BarcodeItem>();
@@ -606,20 +611,38 @@ class FirebaseService {
       // Query by userId
       try {
         const q1 = query(barcodesRef, where('userId', '==', uid));
-        const snap1 = await getDocs(q1);
-        snap1.forEach((d) => map.set(d.id, d.data() as BarcodeItem));
+        let snap1 = null;
+        try {
+          snap1 = await getDocs(q1);
+        } catch {
+          try {
+            snap1 = await getDocsFromCache(q1);
+          } catch {}
+        }
+        if (snap1) {
+          snap1.forEach((d) => map.set(d.id, d.data() as BarcodeItem));
+        }
       } catch {}
 
       // Query by userEmail
       try {
         const q2 = query(barcodesRef, where('userEmail', '==', uid));
-        const snap2 = await getDocs(q2);
-        snap2.forEach((d) => map.set(d.id, d.data() as BarcodeItem));
+        let snap2 = null;
+        try {
+          snap2 = await getDocs(q2);
+        } catch {
+          try {
+            snap2 = await getDocsFromCache(q2);
+          } catch {}
+        }
+        if (snap2) {
+          snap2.forEach((d) => map.set(d.id, d.data() as BarcodeItem));
+        }
       } catch {}
 
       return Array.from(map.values());
-    } catch (e) {
-      console.error('Firebase fetchBarcodes error:', e);
+    } catch (e: any) {
+      console.warn('Firebase fetchBarcodes notice:', e?.message || e);
       return [];
     }
   }
@@ -772,21 +795,40 @@ class FirebaseService {
   async fetchInvoices(userId?: string, includeDeleted = false): Promise<BillInvoice[]> {
     try {
       const uid = this.getEffectiveUserId(userId);
+      if (!uid) return [];
       const invoicesRef = collection(db, 'invoices');
       const map = new Map<string, BillInvoice>();
 
       // Query by userId
       try {
         const q1 = query(invoicesRef, where('userId', '==', uid));
-        const snap1 = await getDocs(q1);
-        snap1.forEach((d) => map.set(d.id, d.data() as BillInvoice));
+        let snap1 = null;
+        try {
+          snap1 = await getDocs(q1);
+        } catch {
+          try {
+            snap1 = await getDocsFromCache(q1);
+          } catch {}
+        }
+        if (snap1) {
+          snap1.forEach((d) => map.set(d.id, d.data() as BillInvoice));
+        }
       } catch {}
 
       // Query by userEmail
       try {
         const q2 = query(invoicesRef, where('userEmail', '==', uid));
-        const snap2 = await getDocs(q2);
-        snap2.forEach((d) => map.set(d.id, d.data() as BillInvoice));
+        let snap2 = null;
+        try {
+          snap2 = await getDocs(q2);
+        } catch {
+          try {
+            snap2 = await getDocsFromCache(q2);
+          } catch {}
+        }
+        if (snap2) {
+          snap2.forEach((d) => map.set(d.id, d.data() as BillInvoice));
+        }
       } catch {}
 
       // Filter out deleted bills from local tombstones and soft-delete flag
@@ -806,8 +848,8 @@ class FirebaseService {
           return true;
         })
         .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-    } catch (e) {
-      console.error('Firebase fetchInvoices error:', e);
+    } catch (e: any) {
+      console.warn('Firebase fetchInvoices notice:', e?.message || e);
       return [];
     }
   }
@@ -917,33 +959,61 @@ class FirebaseService {
   async fetchProducts(userId?: string, includeDeleted = false): Promise<ProductStockItem[]> {
     try {
       const uid = this.getEffectiveUserId(userId);
+      if (!uid) return [];
       const prodRef = collection(db, 'products');
       const map = new Map<string, ProductStockItem>();
 
       // Query by userId
       try {
         const q1 = query(prodRef, where('userId', '==', uid));
-        const snap1 = await getDocs(q1);
-        snap1.forEach((d) => map.set(d.id, d.data() as ProductStockItem));
+        let snap1 = null;
+        try {
+          snap1 = await getDocs(q1);
+        } catch {
+          try {
+            snap1 = await getDocsFromCache(q1);
+          } catch {}
+        }
+        if (snap1) {
+          snap1.forEach((d) => map.set(d.id, d.data() as ProductStockItem));
+        }
       } catch {}
 
       // Query by userEmail
       try {
         const q2 = query(prodRef, where('userEmail', '==', uid));
-        const snap2 = await getDocs(q2);
-        snap2.forEach((d) => map.set(d.id, d.data() as ProductStockItem));
+        let snap2 = null;
+        try {
+          snap2 = await getDocs(q2);
+        } catch {
+          try {
+            snap2 = await getDocsFromCache(q2);
+          } catch {}
+        }
+        if (snap2) {
+          snap2.forEach((d) => map.set(d.id, d.data() as ProductStockItem));
+        }
       } catch {}
 
       // Fallback: If 0 products and this is MASTER_ADMIN_EMAIL, check legacy anonymous products
       if (map.size === 0 && uid === MASTER_ADMIN_EMAIL) {
         try {
           const qAnon = query(prodRef, where('userId', '==', 'anonymous'));
-          const snapAnon = await getDocs(qAnon);
-          snapAnon.forEach((d) => {
-            const prod = d.data() as ProductStockItem;
-            map.set(d.id, prod);
-            this.syncProduct(prod, uid);
-          });
+          let snapAnon = null;
+          try {
+            snapAnon = await getDocs(qAnon);
+          } catch {
+            try {
+              snapAnon = await getDocsFromCache(qAnon);
+            } catch {}
+          }
+          if (snapAnon) {
+            snapAnon.forEach((d) => {
+              const prod = d.data() as ProductStockItem;
+              map.set(d.id, prod);
+              this.syncProduct(prod, uid);
+            });
+          }
         } catch {}
       }
 
@@ -962,8 +1032,8 @@ class FirebaseService {
         if (deletedProdSet.has(p.id)) return false;
         return true;
       });
-    } catch (e) {
-      console.error('Firebase fetchProducts error:', e);
+    } catch (e: any) {
+      console.warn('Firebase fetchProducts notice:', e?.message || e);
       return [];
     }
   }
@@ -980,6 +1050,7 @@ class FirebaseService {
   ): Promise<boolean> {
     try {
       const uid = this.getEffectiveUserId(userId);
+      if (!uid) return false;
       const profileRef = doc(db, 'profiles', uid);
 
       const payload = {
@@ -1006,8 +1077,8 @@ class FirebaseService {
 
       await setDoc(profileRef, payload, { merge: true });
       return true;
-    } catch (e) {
-      console.error('Firebase syncProfile error:', e);
+    } catch (e: any) {
+      console.warn('Firebase syncProfile notice:', e?.message || e);
       return false;
     }
   }
@@ -1015,15 +1086,25 @@ class FirebaseService {
   async fetchProfile(userId?: string): Promise<ThermalPrinterSettings | null> {
     try {
       const uid = this.getEffectiveUserId(userId);
+      if (!uid) return null;
       const profileRef = doc(db, 'profiles', uid);
-      const snapshot = await getDoc(profileRef);
-      if (snapshot.exists()) {
+      let snapshot = null;
+      try {
+        snapshot = await getDoc(profileRef);
+      } catch {
+        try {
+          snapshot = await getDocFromCache(profileRef);
+        } catch {
+          snapshot = null;
+        }
+      }
+      if (snapshot && snapshot.exists()) {
         const data = snapshot.data();
         return (data?.settings as ThermalPrinterSettings) || null;
       }
       return null;
-    } catch (e) {
-      console.error('Firebase fetchProfile error:', e);
+    } catch (e: any) {
+      console.warn('Firebase fetchProfile notice:', e?.message || e);
       return null;
     }
   }
@@ -1109,26 +1190,45 @@ class FirebaseService {
   async fetchCashEntries(userId?: string, includeDeleted = false): Promise<CashEntry[]> {
     try {
       const uid = this.getEffectiveUserId(userId);
+      if (!uid) return [];
       const cashRef = collection(db, 'cash_entries');
       const map = new Map<string, CashEntry>();
 
       try {
         const q1 = query(cashRef, where('userId', '==', uid));
-        const snap1 = await getDocs(q1);
-        snap1.forEach((d) => map.set(d.id, d.data() as CashEntry));
+        let snap1 = null;
+        try {
+          snap1 = await getDocs(q1);
+        } catch {
+          try {
+            snap1 = await getDocsFromCache(q1);
+          } catch {}
+        }
+        if (snap1) {
+          snap1.forEach((d) => map.set(d.id, d.data() as CashEntry));
+        }
       } catch {}
 
       try {
         const q2 = query(cashRef, where('userEmail', '==', uid));
-        const snap2 = await getDocs(q2);
-        snap2.forEach((d) => map.set(d.id, d.data() as CashEntry));
+        let snap2 = null;
+        try {
+          snap2 = await getDocs(q2);
+        } catch {
+          try {
+            snap2 = await getDocsFromCache(q2);
+          } catch {}
+        }
+        if (snap2) {
+          snap2.forEach((d) => map.set(d.id, d.data() as CashEntry));
+        }
       } catch {}
 
       return Array.from(map.values())
         .filter((c) => includeDeleted || !c.isDeleted)
         .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-    } catch (e) {
-      console.error('Firebase fetchCashEntries error:', e);
+    } catch (e: any) {
+      console.warn('Firebase fetchCashEntries notice:', e?.message || e);
       return [];
     }
   }
@@ -1211,24 +1311,43 @@ class FirebaseService {
   async fetchCustomerDues(userId?: string, includeDeleted = false): Promise<CustomerDue[]> {
     try {
       const uid = this.getEffectiveUserId(userId);
+      if (!uid) return [];
       const dueRef = collection(db, 'customer_dues');
       const map = new Map<string, CustomerDue>();
 
       try {
         const q1 = query(dueRef, where('userId', '==', uid));
-        const snap1 = await getDocs(q1);
-        snap1.forEach((d) => map.set(d.id, d.data() as CustomerDue));
+        let snap1 = null;
+        try {
+          snap1 = await getDocs(q1);
+        } catch {
+          try {
+            snap1 = await getDocsFromCache(q1);
+          } catch {}
+        }
+        if (snap1) {
+          snap1.forEach((d) => map.set(d.id, d.data() as CustomerDue));
+        }
       } catch {}
 
       try {
         const q2 = query(dueRef, where('userEmail', '==', uid));
-        const snap2 = await getDocs(q2);
-        snap2.forEach((d) => map.set(d.id, d.data() as CustomerDue));
+        let snap2 = null;
+        try {
+          snap2 = await getDocs(q2);
+        } catch {
+          try {
+            snap2 = await getDocsFromCache(q2);
+          } catch {}
+        }
+        if (snap2) {
+          snap2.forEach((d) => map.set(d.id, d.data() as CustomerDue));
+        }
       } catch {}
 
       return Array.from(map.values()).filter((d) => includeDeleted || !d.isDeleted);
-    } catch (e) {
-      console.error('Firebase fetchCustomerDues error:', e);
+    } catch (e: any) {
+      console.warn('Firebase fetchCustomerDues notice:', e?.message || e);
       return [];
     }
   }
@@ -1311,24 +1430,43 @@ class FirebaseService {
   async fetchPurchaseTrips(userId?: string, includeDeleted = false): Promise<PurchaseTrip[]> {
     try {
       const uid = this.getEffectiveUserId(userId);
+      if (!uid) return [];
       const tripRef = collection(db, 'purchase_trips');
       const map = new Map<string, PurchaseTrip>();
 
       try {
         const q1 = query(tripRef, where('userId', '==', uid));
-        const snap1 = await getDocs(q1);
-        snap1.forEach((d) => map.set(d.id, d.data() as PurchaseTrip));
+        let snap1 = null;
+        try {
+          snap1 = await getDocs(q1);
+        } catch {
+          try {
+            snap1 = await getDocsFromCache(q1);
+          } catch {}
+        }
+        if (snap1) {
+          snap1.forEach((d) => map.set(d.id, d.data() as PurchaseTrip));
+        }
       } catch {}
 
       try {
         const q2 = query(tripRef, where('userEmail', '==', uid));
-        const snap2 = await getDocs(q2);
-        snap2.forEach((d) => map.set(d.id, d.data() as PurchaseTrip));
+        let snap2 = null;
+        try {
+          snap2 = await getDocs(q2);
+        } catch {
+          try {
+            snap2 = await getDocsFromCache(q2);
+          } catch {}
+        }
+        if (snap2) {
+          snap2.forEach((d) => map.set(d.id, d.data() as PurchaseTrip));
+        }
       } catch {}
 
       return Array.from(map.values()).filter((t) => includeDeleted || !t.isDeleted);
-    } catch (e) {
-      console.error('Firebase fetchPurchaseTrips error:', e);
+    } catch (e: any) {
+      console.warn('Firebase fetchPurchaseTrips notice:', e?.message || e);
       return [];
     }
   }
@@ -1427,7 +1565,6 @@ class FirebaseService {
     }
   }
 
-  // Restore POS data from Firebase Firestore
   async restorePOSData(userId?: string): Promise<{
     success: boolean;
     bills: BillInvoice[];
@@ -1440,6 +1577,7 @@ class FirebaseService {
   } | null> {
     try {
       const uid = this.getEffectiveUserId(userId);
+      if (!uid) return null;
       const [bills, products, cashEntries, customerDues, purchaseTrips, settings, barcodes] =
         await Promise.all([
           this.fetchInvoices(uid),
@@ -1461,8 +1599,8 @@ class FirebaseService {
         settings: settings || undefined,
         barcodes
       };
-    } catch (e) {
-      console.error('Firebase restorePOSData error:', e);
+    } catch (e: any) {
+      console.warn('Firebase restorePOSData notice:', e?.message || e);
       return null;
     }
   }
