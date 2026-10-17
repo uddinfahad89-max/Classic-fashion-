@@ -529,6 +529,28 @@ export default function App() {
     );
   };
 
+  const handleSkipOnboarding = () => {
+    localStorage.setItem('thermal_pos_guest_mode', 'true');
+    localStorage.setItem('thermal_pos_onboarding_completed', 'true');
+    setIsOnboardingOpen(false);
+    setIsLoginModalOpen(false);
+
+    const prods = storageService.getProducts();
+    setProducts(prods);
+    setBills(storageService.getBills());
+    setCashEntries(storageService.getCashEntries());
+    setCustomerDues(storageService.getCustomerDues());
+    setPurchaseTrips(storageService.getPurchaseTrips());
+    setSettings(storageService.getSettings());
+
+    showToast(
+      language === 'bn'
+        ? 'স্বাগতম! আপনি অফলাইন/গেস্ট মোডে পিওএস ব্যবহার করছেন। ক্লাউড ব্যাকআপের জন্য যেকোনো সময় লগইন করতে পারেন।'
+        : 'Welcome! You are using POS in Offline/Guest mode. You can log in anytime for cloud backup.',
+      'info'
+    );
+  };
+
   const handleLoginExisting = async (
     email: string,
     password: string,
@@ -1987,6 +2009,7 @@ export default function App() {
           setIsResetPasswordOpen(true);
         }}
         onOpenStaffManagement={() => setActiveTab('staff')}
+        onSkip={handleSkipOnboarding}
       />
 
       {/* App Lock Screen (4-Digit PIN Security Vault) */}
@@ -2162,6 +2185,8 @@ export default function App() {
           setResetPasswordMode('request_link');
           setIsResetPasswordOpen(true);
         }}
+        onSkip={handleSkipOnboarding}
+        onClose={handleSkipOnboarding}
       />
 
       {/* Firebase Password Reset Modal (Standard Email link verification) */}

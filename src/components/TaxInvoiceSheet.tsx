@@ -14,7 +14,7 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
   settings,
   isTotalOnlySlip = false,
 }) => {
-  const isTotalOnly = isTotalOnlySlip || Boolean(settings.isTotalOnlySlip);
+  const isTotalOnly = Boolean(isTotalOnlySlip);
   const isBillEstimate =
     bill.paymentMethod === 'estimate' ||
     (!bill.paymentMethod && (bill.paymentStatus === 'ESTIMATE' || Boolean(bill.isEstimate)));

@@ -75,7 +75,7 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
     if (initialTotalOnlySlip !== undefined) {
       setIsTotalOnlySlip(Boolean(initialTotalOnlySlip));
     } else {
-      setIsTotalOnlySlip(Boolean(settings.isTotalOnlySlip));
+      setIsTotalOnlySlip(false);
     }
   }, [bill?.id, initialTotalOnlySlip]);
 
