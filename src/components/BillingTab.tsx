@@ -1895,12 +1895,12 @@ export const BillingTab: React.FC<BillingTabProps> = ({
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-xs sm:text-sm">
               <thead>
-                <tr className="bg-stone-50/90 text-stone-500 text-[11px] sm:text-xs uppercase tracking-wider font-bold border-b border-stone-200 select-none">
-                  <th className="text-left p-2.5 sm:p-3">ITEM</th>
-                  <th className="text-center p-2.5 sm:p-3 w-32 sm:w-36">QTY</th>
-                  <th className="text-right p-2.5 sm:p-3">UNIT PRICE</th>
-                  <th className="text-right p-2.5 sm:p-3">TOTAL</th>
-                  <th className="sticky right-0 bg-stone-50/95 text-right p-2.5 sm:p-3 w-36 sm:w-40 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]"></th>
+                <tr className="bg-stone-50/90 text-stone-500 text-[10.5px] sm:text-xs uppercase tracking-wider font-bold border-b border-stone-200 select-none">
+                  <th className="text-left p-2 sm:p-2.5">ITEM</th>
+                  <th className="text-center p-2 sm:p-2.5 w-24 sm:w-28">QTY</th>
+                  <th className="text-right p-2 sm:p-2.5">UNIT PRICE</th>
+                  <th className="text-right p-2 sm:p-2.5">TOTAL</th>
+                  <th className="sticky right-0 bg-stone-50/95 text-right p-1.5 sm:p-2 w-20 sm:w-24 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]"></th>
                 </tr>
               </thead>
               <tbody id="billTable" className="divide-y divide-stone-100">
@@ -1980,12 +1980,12 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                         <td className="p-2 sm:p-2.5 text-right font-bold text-stone-900 whitespace-nowrap text-xs sm:text-sm">
                           {sym || 'Rs.'}{liveEditTotal.toFixed(2)}
                         </td>
-                        <td className="sticky right-0 bg-emerald-50/95 z-10 p-2 sm:p-2.5 text-right shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">
-                          <div className="inline-flex items-center justify-end gap-1.5">
+                        <td className="sticky right-0 bg-emerald-50/95 z-10 p-1.5 sm:p-2 text-right shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">
+                          <div className="inline-flex items-center justify-end gap-1 sm:gap-1.5">
                             <button
                               type="button"
                               onClick={() => handleSaveEditItem(item.id)}
-                              className="px-3 py-1.5 rounded-lg bg-[#0A8057] hover:bg-[#086a48] active:scale-95 text-white font-bold text-xs shadow-2xs transition-all cursor-pointer whitespace-nowrap"
+                              className="px-2 py-1 rounded-md bg-[#0A8057] hover:bg-[#086a48] active:scale-95 text-white font-bold text-[11px] shadow-2xs transition-all cursor-pointer whitespace-nowrap leading-none"
                               title={isBn ? 'সেভ করুন' : 'Save changes'}
                             >
                               Save
@@ -1993,10 +1993,10 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                             <button
                               type="button"
                               onClick={handleCancelEditItem}
-                              className="p-1.5 rounded-lg bg-stone-200 hover:bg-stone-300 text-stone-700 transition-colors cursor-pointer shrink-0"
+                              className="p-1 sm:p-1.5 rounded-md bg-stone-200 hover:bg-stone-300 text-stone-700 transition-colors cursor-pointer shrink-0"
                               title={isBn ? 'বাতিল করুন' : 'Cancel'}
                             >
-                              <X className="w-4 h-4" />
+                              <X className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         </td>
@@ -2006,12 +2006,12 @@ export const BillingTab: React.FC<BillingTabProps> = ({
 
                   return (
                     <tr key={item.id} className="hover:bg-stone-50/80 border-b border-stone-100 transition-colors">
-                      {/* 1. ITEM: Bold uppercase matching image */}
-                      <td className="p-2.5 sm:p-3.5">
+                      {/* 1. ITEM: Bold uppercase */}
+                      <td className="p-2 sm:p-2.5">
                         <div className="flex flex-col">
                           <span
                             onClick={() => handleStartEditItem(item, 'name')}
-                            className="font-bold text-sm sm:text-base text-stone-900 tracking-wide uppercase cursor-pointer hover:text-[#0A8057] transition-colors"
+                            className="font-bold text-xs sm:text-sm text-stone-900 tracking-wide uppercase cursor-pointer hover:text-[#0A8057] transition-colors"
                             title={isBn ? 'নাম এডিট করতে ট্যাপ করুন' : 'Tap to edit item name'}
                           >
                             {item.name}
@@ -2024,20 +2024,20 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                         </div>
                       </td>
 
-                      {/* 2. QTY: Circular green stepper exactly matching image */}
-                      <td className="p-2.5 sm:p-3.5 text-center">
-                        <div className="inline-flex items-center justify-center gap-1.5 sm:gap-2">
+                      {/* 2. QTY: Circular green stepper */}
+                      <td className="p-2 sm:p-2.5 text-center">
+                        <div className="inline-flex items-center justify-center gap-1 sm:gap-1.5">
                           <button
                             type="button"
                             onClick={() => handleUpdateQty(item.id, item.qty - 1)}
-                            className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-[#E2F4EB] hover:bg-[#cdecdb] active:scale-90 text-[#0A8057] font-bold text-base flex items-center justify-center transition-all cursor-pointer select-none"
+                            className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#E2F4EB] hover:bg-[#cdecdb] active:scale-90 text-[#0A8057] font-bold text-sm sm:text-base flex items-center justify-center transition-all cursor-pointer select-none"
                             title={isBn ? 'একটি কমান' : 'Decrease'}
                           >
                             −
                           </button>
                           <span
                             onClick={() => handleStartEditItem(item, 'qty')}
-                            className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-[#0A8057] text-white font-bold text-xs sm:text-sm flex items-center justify-center shadow-2xs cursor-pointer select-none"
+                            className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#0A8057] text-white font-bold text-xs sm:text-sm flex items-center justify-center shadow-2xs cursor-pointer select-none"
                             title={isBn ? 'সংখ্যা এডিট করতে ট্যাপ করুন' : 'Tap to edit quantity'}
                           >
                             {item.qty}
@@ -2045,7 +2045,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                           <button
                             type="button"
                             onClick={() => handleUpdateQty(item.id, item.qty + 1)}
-                            className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-[#E2F4EB] hover:bg-[#cdecdb] active:scale-90 text-[#0A8057] font-bold text-base flex items-center justify-center transition-all cursor-pointer select-none"
+                            className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#E2F4EB] hover:bg-[#cdecdb] active:scale-90 text-[#0A8057] font-bold text-sm sm:text-base flex items-center justify-center transition-all cursor-pointer select-none"
                             title={isBn ? 'একটি বাড়ান' : 'Increase'}
                           >
                             +
@@ -2053,8 +2053,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                         </div>
                       </td>
 
-                      {/* 3. UNIT PRICE: Clean font matching image */}
-                      <td className="p-2.5 sm:p-3.5 text-right">
+                      {/* 3. UNIT PRICE: Clean font */}
+                      <td className="p-2 sm:p-2.5 text-right">
                         <span
                           onClick={() => handleStartEditItem(item, 'price')}
                           className="font-medium text-xs sm:text-sm text-stone-800 cursor-pointer hover:text-[#0A8057] transition-colors"
@@ -2065,18 +2065,18 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                       </td>
 
                       {/* 4. TOTAL: e.g. Rs.300.00 */}
-                      <td className="p-2.5 sm:p-3.5 text-right font-medium text-xs sm:text-sm text-stone-900 whitespace-nowrap">
+                      <td className="p-2 sm:p-2.5 text-right font-medium text-xs sm:text-sm text-stone-900 whitespace-nowrap">
                         {sym || 'Rs.'}{item.total.toFixed(2)}
                       </td>
 
-                      {/* 5. ACTIONS: Save button + Edit Pen (কলম) beside it + Delete */}
-                      <td className="sticky right-0 bg-white group-hover:bg-stone-50/80 z-10 p-2.5 sm:p-3.5 text-right shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">
-                        <div className="inline-flex items-center justify-end gap-1.5 sm:gap-2">
-                          {/* Save button (matching image) */}
+                      {/* 5. ACTIONS: Save button + Edit Pen (কলম) beside it */}
+                      <td className="sticky right-0 bg-white group-hover:bg-stone-50/80 z-10 p-1.5 sm:p-2 text-right shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">
+                        <div className="inline-flex items-center justify-end gap-1 sm:gap-1.5">
+                          {/* Save button (compact size) */}
                           <button
                             type="button"
                             onClick={() => handleQuickSaveItemToStock(item)}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-bold shadow-2xs active:scale-95 transition-all cursor-pointer whitespace-nowrap ${
+                            className={`px-2 py-1 rounded-md text-[11px] font-bold shadow-2xs active:scale-95 transition-all cursor-pointer whitespace-nowrap leading-none ${
                               savedItemIds.has(item.id)
                                 ? 'bg-emerald-600 text-white'
                                 : 'bg-[#0A8057] hover:bg-[#086a48] text-white'
@@ -2086,24 +2086,14 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                             {savedItemIds.has(item.id) ? '✓ Saved' : 'Save'}
                           </button>
 
-                          {/* Edit Pen (কলম) button beside Save as explicitly requested! */}
+                          {/* Edit Pen (কলম) button beside Save */}
                           <button
                             type="button"
                             onClick={() => handleStartEditItem(item, 'name')}
-                            className="p-1.5 rounded-lg text-blue-600 hover:text-blue-700 hover:bg-blue-50 border border-blue-200/80 active:scale-95 transition-all cursor-pointer shrink-0"
+                            className="p-1 sm:p-1.5 rounded-md text-blue-600 hover:text-blue-700 hover:bg-blue-50 border border-blue-200/80 active:scale-95 transition-all cursor-pointer shrink-0"
                             title={isBn ? 'আইটেম এডিট করুন (Edit)' : 'Edit Item'}
                           >
-                            <Pencil className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.2]" />
-                          </button>
-
-                          {/* Delete Item */}
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveItem(item.id)}
-                            className="p-1.5 rounded-lg text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer shrink-0"
-                            title={isBn ? 'মুছে ফেলুন' : 'Remove'}
-                          >
-                            <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-stone-400 hover:text-rose-600" />
+                            <Pencil className="w-3.5 h-3.5 stroke-[2.2]" />
                           </button>
                         </div>
                       </td>
