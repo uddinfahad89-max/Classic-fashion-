@@ -61,7 +61,7 @@ const DEFAULT_USER: UserProfile = {
   email: '',
   name: '',
   phone: '',
-  role: 'Owner',
+  role: 'Guest' as any,
   pin: '',
   isAppLockEnabled: false,
   isLoggedIn: false,
@@ -94,41 +94,8 @@ class StorageService {
     this.purgeLegacyDataOnce();
   }
 
-  // Fetch accounts from server disk to populate saved accounts on new devices/browsers
+  // Saved accounts strictly on this local device (never leak other stores' data)
   async fetchServerAccountsAsync(): Promise<SavedAccountItem[]> {
-    try {
-      if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
-        const res = await fetch('/api/accounts');
-        if (res.ok) {
-          const json = await res.json();
-          if (json && Array.isArray(json.accounts)) {
-            const current = this.getSavedAccounts();
-            const map = new Map<string, SavedAccountItem>();
-            for (const acc of current) {
-              const k = this.normalizeIdentifier(acc.email || acc.identifier || acc.phone);
-              if (k) map.set(k, acc);
-            }
-            for (const acc of json.accounts) {
-              const k = this.normalizeIdentifier(acc.email || acc.identifier || acc.phone);
-              if (k) {
-                map.set(k, {
-                  identifier: acc.identifier,
-                  name: acc.name || 'Store Owner',
-                  phone: acc.phone || '',
-                  email: acc.email || '',
-                  storeName: acc.storeName || 'My Store',
-                  role: acc.role || 'Owner',
-                  lastActive: acc.lastActive || Date.now(),
-                });
-              }
-            }
-            const merged = Array.from(map.values());
-            localStorage.setItem(VAULT_KEYS.ACCOUNTS_INDEX, JSON.stringify(merged));
-            return merged;
-          }
-        }
-      }
-    } catch {}
     return this.getSavedAccounts();
   }
 
@@ -430,8 +397,9 @@ class StorageService {
       }
       const id =
         profile.role === 'Staff'
-          ? profile.ownerEmail || profile.storeId || profile.shopId || 'uddinfahad89@gmail.com'
-          : profile.phone || profile.email || 'uddinfahad89@gmail.com';
+          ? profile.ownerEmail || profile.storeId || profile.shopId || ''
+          : profile.phone || profile.email || '';
+      if (!id) return;
 
       if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
         fetch('/api/bills/save', {
@@ -502,7 +470,7 @@ class StorageService {
     // Call server disk deletion endpoint so this bill is permanently deleted from server vault
     try {
       const profile = this.getUserProfile();
-      const identifier = profile.email || profile.phone || profile.shopId || 'uddinfahad89@gmail.com';
+      const identifier = profile.email || profile.phone || profile.shopId || '';
       if (identifier && typeof window !== 'undefined' && typeof fetch !== 'undefined') {
         fetch('/api/bills/delete', {
           method: 'POST',
@@ -921,7 +889,7 @@ class StorageService {
   async authenticateWithServerAsync(
     identifier: string,
     password?: string
-  ): Promise<{ success: boolean; vault?: AccountVaultData; error?: string }> {
+  ): Promise<{ success: boolean; vault?: AccountVaultData; error?: string; isStaff?: boolean; staffProfile?: UserProfile }> {
     try {
       const cleanId = (identifier || '').trim();
       const cleanPass = (password || '').trim();
@@ -965,7 +933,17 @@ class StorageService {
               localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(serverVault.products));
             }
 
-            const restoredProfile: UserProfile = {
+            const isStaff = Boolean(json.isStaff || (json.staffProfile && json.staffProfile.role === 'Staff'));
+            const staffProfile = json.staffProfile;
+
+            const restoredProfile: UserProfile = isStaff && staffProfile ? {
+              ...staffProfile,
+              role: 'Staff',
+              isLoggedIn: true,
+              loginTime: Date.now(),
+              loginMethod: cleanPass ? 'email_password' : 'otp',
+              otpVerified: true,
+            } : {
               email: serverVault.email || (cleanId.includes('@') ? cleanId : ''),
               name: serverVault.name || cleanId.split('@')[0] || 'Store Owner',
               phone: serverVault.phone || (!cleanId.includes('@') ? cleanId : ''),
@@ -982,7 +960,7 @@ class StorageService {
             localStorage.setItem('thermal_pos_onboarding_completed', 'true');
             this.setLocalLastActive(serverVault.lastActive || Date.now());
 
-            return { success: true, vault: serverVault };
+            return { success: true, vault: serverVault, isStaff, staffProfile: isStaff ? restoredProfile : undefined };
           } else if (json && json.error) {
             return {
               success: false,
@@ -2076,7 +2054,7 @@ class StorageService {
 
     try {
       const profile = this.getUserProfile();
-      const identifier = profile.email || profile.phone || profile.shopId || 'uddinfahad89@gmail.com';
+      const identifier = profile.email || profile.phone || profile.shopId || '';
       if (identifier && typeof window !== 'undefined' && typeof fetch !== 'undefined') {
         fetch('/api/products/delete', {
           method: 'POST',
@@ -2422,8 +2400,8 @@ class StorageService {
 
     try {
       const profile = this.getUserProfile();
-      const ownerId = profile.ownerEmail || profile.storeId || profile.email || 'uddinfahad89@gmail.com';
-      if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
+      const ownerId = profile.ownerEmail || profile.storeId || profile.email || '';
+      if (ownerId && typeof window !== 'undefined' && typeof fetch !== 'undefined') {
         fetch('/api/staff/save', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

@@ -32,7 +32,9 @@ import {
   Pin,
   BookUser,
   ShieldCheck,
+  MessageCircle,
 } from 'lucide-react';
+import { sendWhatsAppBillForInvoice } from '../utils/whatsappHelper';
 import {
   BillItem,
   BillInvoice,
@@ -1323,8 +1325,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     setEditingItemId(null);
   };
 
-  // Handle Checkout: Save Only or Direct Print
-  const handleCheckoutAndPrint = (mode: 'save' | 'print' = 'print') => {
+  // Handle Checkout: Save Only, Direct Print, or Send WhatsApp Bill
+  const handleCheckoutAndPrint = (mode: 'save' | 'print' | 'whatsapp' = 'print') => {
     let finalItems = [...billItems];
     if (hasPendingItem) {
       const validQty = !isNaN(pendingQty) && pendingQty > 0 ? pendingQty : 1;
@@ -1443,7 +1445,12 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       localStorage.removeItem(BILLING_CART_DRAFT_KEY);
     } catch {}
 
-    onPrintBill(bill, mode, isTotalOnlyCheckout);
+    if (mode === 'whatsapp') {
+      onPrintBill(bill, 'save', isTotalOnlyCheckout);
+      sendWhatsAppBillForInvoice(bill, settings);
+    } else {
+      onPrintBill(bill, mode, isTotalOnlyCheckout);
+    }
     setItemName('');
     setItemPrice('');
     setItemQty('1');
@@ -1853,6 +1860,21 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             </div>
 
             <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => handleCheckoutAndPrint('whatsapp')}
+                disabled={!canCheckout || isPrinting}
+                className={`px-2 py-1 rounded-xl text-xs font-bold flex items-center gap-1 shadow-2xs transition-all cursor-pointer ${
+                  canCheckout && !isPrinting
+                    ? 'bg-[#25D366] hover:bg-[#20bd5a] active:scale-95 text-white'
+                    : 'bg-stone-200 text-stone-400 cursor-not-allowed'
+                }`}
+                title={isBn ? 'হোয়াটসঅ্যাপে বিল পাঠান ও সেভ করুন' : 'Send WhatsApp Bill'}
+              >
+                <MessageCircle className="w-3.5 h-3.5" />
+                <span className="whitespace-nowrap">WhatsApp</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => handleCheckoutAndPrint('save')}
@@ -2790,44 +2812,60 @@ export const BillingTab: React.FC<BillingTabProps> = ({
           )}
         </div>
 
-        {/* 5. VERY BOTTOM: Two Side-by-Side Action Buttons (Save Bill & Direct Print) */}
-        <div className="grid grid-cols-2 gap-2 sm:gap-3 pt-1">
+        {/* 5. VERY BOTTOM: Three Side-by-Side Action Buttons (Save Bill, WhatsApp Bill, Direct Print) */}
+        <div className="grid grid-cols-3 gap-1.5 sm:gap-2.5 pt-1">
           {/* Button 1: Save Bill Only */}
           <button
             type="button"
             id="billing-save-btn"
             onClick={() => handleCheckoutAndPrint('save')}
             disabled={!canCheckout || isPrinting}
-            className={`w-full py-3.5 px-3 rounded-2xl font-bold text-xs sm:text-sm shadow-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
+            className={`w-full py-3.5 px-2 rounded-2xl font-bold text-xs sm:text-sm shadow-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
               canCheckout && !isPrinting
                 ? 'bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white shadow-md active:scale-[0.99]'
                 : 'bg-stone-200 text-stone-400 cursor-not-allowed'
             }`}
           >
-            <Check className="w-4 h-4 sm:w-5 sm:h-5 shrink-0 stroke-[2.5]" />
+            <Check className="w-4 h-4 shrink-0 stroke-[2.5]" />
             <span className="truncate">
               {isEstimateBill
                 ? isBn
-                  ? 'এস্টিমেট সেভ করুন'
-                  : 'Save Estimate'
+                  ? 'এস্টিমেট সেভ'
+                  : 'Save Est.'
                 : isBn
-                ? 'বিল সেভ করুন'
+                ? 'বিল সেভ'
                 : language === 'hi'
-                ? 'बिल सेव करें'
+                ? 'बिल सेव'
                 : 'Save Bill'}
-            </span>
-            <span className="opacity-90 font-mono text-[11px] bg-white/20 px-1.5 py-0.5 rounded-md font-semibold shrink-0">
-              #{invoiceNo || storageService.getNextInvoiceNumber()}
             </span>
           </button>
 
-          {/* Button 2: Direct Print Bill */}
+          {/* Button 2: WhatsApp Bill */}
+          <button
+            type="button"
+            id="billing-whatsapp-btn"
+            onClick={() => handleCheckoutAndPrint('whatsapp')}
+            disabled={!canCheckout || isPrinting}
+            className={`w-full py-3.5 px-2 rounded-2xl font-bold text-xs sm:text-sm shadow-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+              canCheckout && !isPrinting
+                ? 'bg-[#25D366] hover:bg-[#20bd5a] active:bg-[#1caa51] text-white shadow-md active:scale-[0.99]'
+                : 'bg-stone-200 text-stone-400 cursor-not-allowed'
+            }`}
+            title={isBn ? 'হোয়াটসঅ্যাপে বিল পাঠান ও সেভ করুন' : 'Save and send WhatsApp bill'}
+          >
+            <MessageCircle className="w-4 h-4 shrink-0 fill-current" />
+            <span className="truncate font-extrabold">
+              {isBn ? 'WhatsApp বিল' : 'WhatsApp'}
+            </span>
+          </button>
+
+          {/* Button 3: Direct Print Bill */}
           <button
             type="button"
             id="billing-print-btn"
             onClick={() => handleCheckoutAndPrint('print')}
             disabled={!canCheckout || isPrinting}
-            className={`w-full py-3.5 px-3 rounded-2xl font-bold text-xs sm:text-sm shadow-xs flex items-center justify-center gap-2 transition-all cursor-pointer ${
+            className={`w-full py-3.5 px-2 rounded-2xl font-bold text-xs sm:text-sm shadow-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
               canCheckout && !isPrinting
                 ? 'bg-[#6E68D8] hover:bg-[#5E58C8] active:bg-[#534DA8] text-white shadow-md active:scale-[0.99]'
                 : 'bg-stone-200 text-stone-400 cursor-not-allowed'
@@ -2835,25 +2873,22 @@ export const BillingTab: React.FC<BillingTabProps> = ({
           >
             {isPrinting ? (
               <>
-                <RefreshCw className="w-4 h-4 sm:w-5 sm:h-5 animate-spin shrink-0" />
+                <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
                 <span className="truncate">{t.generatingInvoice}</span>
               </>
             ) : (
               <>
-                <Printer className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
-                <span className="whitespace-nowrap">
+                <Printer className="w-4 h-4 shrink-0" />
+                <span className="truncate">
                   {isEstimateBill
                     ? isBn
                       ? 'এস্টিমেট প্রিন্ট'
-                      : 'Print Estimate'
+                      : 'Print Est.'
                     : isBn
-                    ? 'প্রিন্ট করুন'
+                    ? 'প্রিন্ট বিল'
                     : language === 'hi'
-                    ? 'प्रिंट करें'
+                    ? 'प्रिंट बिल'
                     : 'Print Bill'}
-                </span>
-                <span className="opacity-90 font-mono text-[11px] bg-white/20 px-1.5 py-0.5 rounded-md font-semibold shrink-0">
-                  #{invoiceNo || storageService.getNextInvoiceNumber()}
                 </span>
               </>
             )}

@@ -18,6 +18,7 @@ import {
   RefreshCw,
   History,
   User,
+  Users,
 } from 'lucide-react';
 import { Language, SavedAccountItem } from '../types';
 import { supabaseService, SUPABASE_SQL_SETUP_SCRIPT } from '../services/supabaseService';
@@ -50,6 +51,7 @@ interface OnboardingModalProps {
   onSkip?: () => void;
   canDismiss?: boolean;
   onOpenForgotPassword?: (email?: string) => void;
+  initialTab?: 'login' | 'staff_login' | 'signup';
 }
 
 export const OnboardingModal: React.FC<OnboardingModalProps> = ({
@@ -62,12 +64,13 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
   onSkip,
   canDismiss = false,
   onOpenForgotPassword,
+  initialTab,
 }) => {
   const isBn = language === 'bn';
   const isHi = language === 'hi';
 
-  // Navigation Tab: 'login' | 'signup'
-  const [activeTab, setActiveTab] = useState<'login' | 'signup'>('login');
+  // Navigation Tab: 'login' | 'staff_login' | 'signup'
+  const [activeTab, setActiveTab] = useState<'login' | 'staff_login' | 'signup'>(initialTab || 'login');
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
 
   // Sign Up Form State
@@ -82,7 +85,12 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
   const [loginPassword, setLoginPassword] = useState('');
   const [showLoginPassword, setShowLoginPassword] = useState(false);
 
-  // Saved accounts in local vault for fast 1-click restore
+  // Staff Log In Form State
+  const [staffEmail, setStaffEmail] = useState('');
+  const [staffPassword, setStaffPassword] = useState('');
+  const [showStaffPassword, setShowStaffPassword] = useState(false);
+
+  // Saved accounts in local vault for fast 1-click restore (Strictly local to this browser)
   const [savedAccounts, setSavedAccounts] = useState<SavedAccountItem[]>([]);
 
   // Supabase Custom Config State
@@ -107,22 +115,23 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
-      storageService.fetchServerAccountsAsync().then((accs) => {
-        if (Array.isArray(accs) && accs.length > 0) {
-          setSavedAccounts(accs);
-        }
-      });
+      if (initialTab) {
+        setActiveTab(initialTab);
+      }
+      // Strictly load saved accounts belonging only to this local device
       const accounts = storageService.getSavedAccounts();
       setSavedAccounts(accounts);
-      // New device or browser must start with completely clean empty email and password!
+      // New device or browser starts with clean empty fields
       setLoginEmail('');
       setLoginPassword('');
+      setStaffEmail('');
+      setStaffPassword('');
       setSignupEmail('');
       setSignupPassword('');
       setError(null);
       setSuccessMsg(null);
     }
-  }, [isOpen]);
+  }, [isOpen, initialTab]);
 
   if (!isOpen) return null;
 
@@ -298,6 +307,69 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
     }
   };
 
+  // Handle Staff Login (Email & Password Provided by Store Owner)
+  const handleStaffLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSuccessMsg(null);
+
+    const cleanEmail = staffEmail.trim().toLowerCase();
+    const cleanPassword = staffPassword.trim();
+
+    if (!cleanEmail) {
+      setError(
+        t('দয়া করে স্টাফ ইমেল ঠিকানা লিখুন', 'Please enter staff email address', 'कृपया स्टाफ ईमेल पता दर्ज करें')
+      );
+      return;
+    }
+
+    if (!cleanPassword) {
+      setError(
+        t('দয়া করে স্টাফ পাসওয়ার্ড লিখুন', 'Please enter staff password', 'कृपया स्टाफ पासवर्ड दर्ज करें')
+      );
+      return;
+    }
+
+    if (cleanPassword.length < 4) {
+      setError(
+        t('পাসওয়ার্ড কমপক্ষে ৪ অক্ষরের হতে হবে', 'Password must be at least 4 characters', 'पासवर्ड कम से कम 4 अक्षरों का होना चाहिए')
+      );
+      return;
+    }
+
+    if (!onLoginExisting) return;
+
+    setIsLoading(true);
+
+    try {
+      const result = await onLoginExisting(cleanEmail, cleanPassword, 'email_password');
+      if (!result.success) {
+        setError(
+          result.error ||
+            t(
+              'স্টাফ ইমেল অথবা পাসওয়ার্ড সঠিক নয়!',
+              'Invalid staff email or password',
+              'स्टाफ ईमेल या पासवर्ड गलत है!'
+            )
+        );
+        setIsLoading(false);
+        return;
+      }
+
+      setSuccessMsg(
+        t(
+          'স্টাফ লগইন সফল! পিওএস সিস্টেমে প্রবেশ করা হচ্ছে...',
+          'Staff login successful! Entering POS...',
+          'स्टाफ लॉगिन सफल! पीओएस में प्रवेश हो रहा है...'
+        )
+      );
+    } catch (err: any) {
+      setError(err.message || 'Staff login failed');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Copy Supabase SQL script
   const handleCopySql = async () => {
     try {
@@ -382,8 +454,8 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
           </div>
         </div>
 
-        {/* Navigation Tabs Bar: [Log In] and [Sign Up] */}
-        <div className="bg-stone-50 border-b border-stone-200 px-4 py-2.5 flex items-center justify-between gap-2 shrink-0">
+        {/* Navigation Tabs Bar: [Owner Log In], [Staff Log In], [Sign Up] */}
+        <div className="bg-stone-50 border-b border-stone-200 px-3 sm:px-4 py-2.5 flex items-center justify-between gap-2 shrink-0">
           <div className="flex items-center gap-1 bg-stone-200/80 p-0.5 rounded-xl text-xs font-bold flex-1 sm:flex-initial">
             <button
               type="button"
@@ -392,14 +464,31 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                 setError(null);
                 setSuccessMsg(null);
               }}
-              className={`flex-1 sm:flex-initial px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+              className={`flex-1 sm:flex-initial px-3 sm:px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                 activeTab === 'login'
                   ? 'bg-blue-600 text-white shadow-xs'
                   : 'text-stone-700 hover:text-stone-900 hover:bg-white/60'
               }`}
             >
               <LogIn className="w-3.5 h-3.5" />
-              <span>{t('লগইন (Log In)', 'Log In', 'लॉगिन')}</span>
+              <span>{t('মালিক লগইন', 'Owner Log In', 'मालिक')}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab('staff_login');
+                setError(null);
+                setSuccessMsg(null);
+              }}
+              className={`flex-1 sm:flex-initial px-3 sm:px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                activeTab === 'staff_login'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'text-stone-700 hover:text-stone-900 hover:bg-white/60'
+              }`}
+            >
+              <Users className="w-3.5 h-3.5" />
+              <span>{t('স্টাফ লগইন', 'Staff Log In', 'स्टाफ')}</span>
             </button>
 
             <button
@@ -409,14 +498,14 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                 setError(null);
                 setSuccessMsg(null);
               }}
-              className={`flex-1 sm:flex-initial px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+              className={`flex-1 sm:flex-initial px-3 sm:px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                 activeTab === 'signup'
                   ? 'bg-blue-600 text-white shadow-xs'
                   : 'text-stone-700 hover:text-stone-900 hover:bg-white/60'
               }`}
             >
               <UserPlus className="w-3.5 h-3.5" />
-              <span>{t('সাইন আপ (Sign Up)', 'Sign Up', 'साइन अप')}</span>
+              <span>{t('নতুন দোকান', 'Open Shop', 'नई दुकान')}</span>
             </button>
           </div>
 
@@ -647,6 +736,134 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
                       )}
                     </span>
                   </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {/* ========================================================================= */}
+          {/* TAB 2: STAFF LOG IN (EMAIL + PASSWORD CREATED BY STORE OWNER) */}
+          {/* ========================================================================= */}
+          {activeTab === 'staff_login' && (
+            <div className="space-y-4">
+              {/* Staff Guidance Banner */}
+              <div className="p-3.5 rounded-2xl bg-indigo-50/90 border border-indigo-200/90 text-indigo-950 text-xs flex items-start gap-2.5 shadow-2xs">
+                <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 mt-0.5 shadow-xs">
+                  <Users className="w-4 h-4" />
+                </div>
+                <div>
+                  <p className="font-black text-indigo-950 text-xs">
+                    {t('👤 স্টাফ / ক্যাশিয়ার লগইন', 'Staff / Cashier Login', 'स्टाफ / कैशियर लॉगिन')}
+                  </p>
+                  <p className="text-[11px] text-indigo-700 mt-0.5 leading-relaxed font-medium">
+                    {t(
+                      'দোকান মালিকের তৈরি করে দেওয়া স্টাফ ইমেল ও পাসওয়ার্ড দিয়ে নিচে লগইন করুন।',
+                      'Log in using the staff email and password provided by your store owner.',
+                      'दुकान मालिक द्वारा दिया गया स्टाफ ईमेल और पासवर्ड दर्ज करें।'
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              <form onSubmit={handleStaffLoginSubmit} className="space-y-3.5">
+                {/* Staff Email Address */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
+                    <Mail className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>{t('স্টাফ ইমেল ঠিকানা (Staff Email) *', 'Staff Email Address *', 'स्टाफ ईमेल पता *')}</span>
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    autoFocus
+                    value={staffEmail}
+                    onChange={(e) => {
+                      setStaffEmail(e.target.value);
+                      if (error) setError(null);
+                    }}
+                    placeholder="staff@example.com"
+                    className="w-full px-3.5 py-2.5 text-sm bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-indigo-500 focus:bg-white font-medium transition-all"
+                  />
+                </div>
+
+                {/* Staff Password */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>{t('স্টাফ পাসওয়ার্ড (Staff Password) *', 'Staff Password *', 'स्टाफ पासवर्ड *')}</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowStaffPassword(!showStaffPassword)}
+                      className="text-[11px] text-stone-500 hover:text-stone-800 flex items-center gap-1 cursor-pointer"
+                    >
+                      {showStaffPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      <span>{showStaffPassword ? 'Hide' : 'Show'}</span>
+                    </button>
+                  </div>
+                  <input
+                    type={showStaffPassword ? 'text' : 'password'}
+                    required
+                    value={staffPassword}
+                    onChange={(e) => {
+                      setStaffPassword(e.target.value);
+                      if (error) setError(null);
+                    }}
+                    placeholder={t('দোকান মালিকের দেওয়া পাসওয়ার্ড দিন', 'Enter staff password given by store owner', 'मालिक द्वारा दिया गया पासवर्ड दर्ज करें')}
+                    className="w-full px-3.5 py-2.5 text-sm bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-indigo-500 focus:bg-white font-medium transition-all"
+                  />
+                </div>
+
+                {/* Submit Staff Login Button */}
+                <div className="pt-1.5">
+                  <button
+                    type="submit"
+                    disabled={isLoading}
+                    className="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-indigo-600 via-indigo-700 to-blue-700 hover:from-indigo-500 hover:to-blue-600 active:scale-[0.99] text-white font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20 cursor-pointer transition-all disabled:opacity-50"
+                  >
+                    {isLoading ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Users className="w-4 h-4" />
+                    )}
+                    <span>
+                      {isLoading
+                        ? t('স্টাফ লগইন হচ্ছে...', 'Logging in as Staff...', 'स्टाफ लॉगिन हो रहा है...')
+                        : t('স্টাফ হিসেবে প্রবেশ করুন (Staff Login)', 'Log In as Staff', 'स्टाफ के रूप में लॉगिन करें')}
+                    </span>
+                  </button>
+                </div>
+
+                {/* Helpful Note and Switch to Owner Login */}
+                <div className="text-center pt-1 space-y-1.5">
+                  <p className="text-[11px] text-stone-500">
+                    {t(
+                      '🔒 স্টাফ হিসেবে আপনি শুধুমাত্র নির্ধারিত সেলস ও বিলিং করতে পারবেন।',
+                      '🔒 As staff, you can create bills and access permitted POS features.',
+                      '🔒 स्टाफ के रूप में आप बिलिंग और अनुमत सुविधाएं इस्तेमाल कर सकते हैं।'
+                    )}
+                  </p>
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('login');
+                        setError(null);
+                        setSuccessMsg(null);
+                      }}
+                      className="text-xs text-blue-600 hover:text-blue-800 font-bold cursor-pointer underline inline-flex items-center gap-1"
+                    >
+                      <LogIn className="w-3.5 h-3.5" />
+                      <span>
+                        {t(
+                          'দোকানের মালিক? মালিক অ্যাকাউন্টে লগইন করতে এখানে চাপুন ➜',
+                          'Store Owner? Click here to Log In as Owner ➜',
+                          'दुकान मालिक? मालिक लॉगिन के लिए यहाँ क्लिक करें ➜'
+                        )}
+                      </span>
+                    </button>
+                  </div>
                 </div>
               </form>
             </div>

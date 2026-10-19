@@ -138,38 +138,42 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden min-h-0">
           <div className="p-4 sm:p-5 space-y-3.5 text-xs overflow-y-auto flex-1">
-            {/* Employee Access & Permissions Quick Link */}
-            {onOpenStaffManagement && (
-              <div className="p-3 bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 rounded-2xl text-white space-y-2 shadow-sm">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
-                      <UserCheck className="w-4 h-4 text-white" />
+            {/* Employee Access & Permissions Quick Link (Store Owner Only) */}
+            {onOpenStaffManagement && (() => {
+              const currentProf = storageService.getUserProfile();
+              if (!currentProf.isLoggedIn || currentProf.role === 'Staff') return null;
+              return (
+                <div className="p-3 bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 rounded-2xl text-white space-y-2 shadow-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+                        <UserCheck className="w-4 h-4 text-white" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs sm:text-sm font-black">
+                          {isBn ? '👥 কর্মচারী এক্সেস ও স্টাফ পারমিশন' : '👥 Staff POS Access & Permissions'}
+                        </h4>
+                        <p className="text-[11px] text-blue-100">
+                          {isBn
+                            ? 'কর্মচারীর জন্য ইমেল/পাসওয়ার্ড ও লিমিটেড এক্সেস (বিলিং, স্টক, বাকি) দিন'
+                            : 'Set up staff login & permissions for billing and stock'}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <h4 className="text-xs sm:text-sm font-black">
-                        {isBn ? '👥 কর্মচারী এক্সেস ও স্টাফ পারমিশন' : '👥 Staff POS Access & Permissions'}
-                      </h4>
-                      <p className="text-[11px] text-blue-100">
-                        {isBn
-                          ? 'কর্মচারীর জন্য ইমেল/পাসওয়ার্ড ও লিমিটেড এক্সেস (বিলিং, স্টক, বাকি) দিন'
-                          : 'Set up staff login & permissions for billing and stock'}
-                      </p>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose();
+                        onOpenStaffManagement();
+                      }}
+                      className="px-3 py-1.5 bg-white text-blue-900 rounded-xl text-xs font-black shadow-xs hover:bg-blue-50 transition-colors cursor-pointer shrink-0"
+                    >
+                      {isBn ? 'খুলুন →' : 'Open →'}
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onClose();
-                      onOpenStaffManagement();
-                    }}
-                    className="px-3 py-1.5 bg-white text-blue-900 rounded-xl text-xs font-black shadow-xs hover:bg-blue-50 transition-colors cursor-pointer shrink-0"
-                  >
-                    {isBn ? 'খুলুন →' : 'Open →'}
-                  </button>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Bluetooth Printer Section */}
           <div className="p-3 bg-stone-50 border border-stone-200 rounded-2xl space-y-2">
@@ -1040,10 +1044,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {(() => {
               const profile = storageService.getUserProfile();
               const isSuper =
-                profile.isSuperAdmin ||
-                profile.role === 'Super Admin' ||
-                profile.role === 'super_admin' ||
-                (profile.email || '').toLowerCase() === 'uddinfahad89@gmail.com';
+                Boolean(profile.isLoggedIn) &&
+                profile.role !== 'Staff' &&
+                (profile.isSuperAdmin ||
+                  profile.role === 'Super Admin' ||
+                  profile.role === 'super_admin' ||
+                  (profile.email && profile.email.toLowerCase() === 'uddinfahad89@gmail.com'));
 
               if (isSuper && onOpenSuperAdmin) {
                 return (

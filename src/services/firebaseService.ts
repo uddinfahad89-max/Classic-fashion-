@@ -333,8 +333,8 @@ class FirebaseService {
               }
 
               // Owner store ID
-              const ownerStoreId = staffData.storeId || 'uddinfahad89@gmail.com';
-              const restored = await this.restorePOSData(ownerStoreId);
+              const ownerStoreId = staffData.storeId || (staffData as any).ownerEmail || (staffData as any).shopId || '';
+              const restored = ownerStoreId ? await this.restorePOSData(ownerStoreId) : null;
 
               const userProfile: UserProfile = {
                 name: staffData.name,

@@ -251,46 +251,15 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', serverTime: new Date().toISOString() });
 });
 
-// Primary authoritative account for seamless auto-restore across any browser or mobile
-app.get('/api/accounts/primary', (_req, res) => {
-  try {
-    const { vault } = findCanonicalAccountVault('uddinfahad89@gmail.com');
-    if (vault) {
-      return res.json({ success: true, vault });
-    }
-    // Fallback: check first account in accounts_index.json
-    const indexPath = path.join(DATA_DIR, 'accounts_index.json');
-    if (fs.existsSync(indexPath)) {
-      const list = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
-      if (Array.isArray(list) && list.length > 0 && list[0].identifier) {
-        const fallback = findCanonicalAccountVault(list[0].identifier);
-        if (fallback.vault) {
-          return res.json({ success: true, vault: fallback.vault });
-        }
-      }
-    }
-    return res.status(404).json({ success: false, message: 'No primary account found' });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
+// Primary authoritative account check (only with valid authenticated identifier)
+app.get('/api/accounts/primary', (req, res) => {
+  return res.status(404).json({ success: false, message: 'Authentication required' });
 });
 
-// List all registered accounts stored on server disk (for multi-device account selection)
+// List all registered accounts stored on server disk (disabled for public client privacy)
 app.get('/api/accounts', (_req, res) => {
-  try {
-    const indexPath = path.join(DATA_DIR, 'accounts_index.json');
-    let list: any[] = [];
-    if (fs.existsSync(indexPath)) {
-      try {
-        list = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
-      } catch {
-        list = [];
-      }
-    }
-    return res.json({ success: true, accounts: Array.isArray(list) ? list : [] });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
+  // Never expose store accounts to unauthenticated strangers/new browsers
+  return res.json({ success: true, accounts: [] });
 });
 
 function findStaffInVaults(input: string): { staff: any; ownerVault: any } | null {
@@ -396,9 +365,9 @@ app.post('/api/auth/login', (req, res) => {
         isLoggedIn: true,
         pin: '1234',
         staffId: staff.id,
-        storeId: ownerVault.identifier || ownerVault.email || 'uddinfahad89@gmail.com',
+        storeId: ownerVault.identifier || ownerVault.email || '',
         storeName: ownerVault.settings?.storeName || 'Store POS',
-        ownerEmail: ownerVault.email || ownerVault.identifier || 'uddinfahad89@gmail.com',
+        ownerEmail: ownerVault.email || ownerVault.identifier || '',
         permissions: staff.permissions || {
           canCreateBills: true,
           canManageStock: true,
@@ -430,7 +399,10 @@ app.post('/api/auth/login', (req, res) => {
 app.post('/api/staff/save', (req, res) => {
   try {
     const { ownerIdentifier, staff } = req.body || {};
-    const effectiveId = (ownerIdentifier || '').trim() || 'uddinfahad89@gmail.com';
+    const effectiveId = (ownerIdentifier || '').trim();
+    if (!effectiveId) {
+      return res.status(400).json({ error: 'ownerIdentifier required' });
+    }
     const { vault, linkedIds } = findCanonicalAccountVault(effectiveId);
     if (!vault) {
       return res.status(404).json({ error: 'Owner vault not found' });
@@ -455,7 +427,10 @@ app.post('/api/staff/save', (req, res) => {
 app.post('/api/staff/toggle-block', (req, res) => {
   try {
     const { ownerIdentifier, staffId } = req.body || {};
-    const effectiveId = (ownerIdentifier || '').trim() || 'uddinfahad89@gmail.com';
+    const effectiveId = (ownerIdentifier || '').trim();
+    if (!effectiveId) {
+      return res.status(400).json({ error: 'ownerIdentifier required' });
+    }
     const { vault, linkedIds } = findCanonicalAccountVault(effectiveId);
     if (!vault) {
       return res.status(404).json({ error: 'Owner vault not found' });
@@ -708,7 +683,10 @@ app.post('/api/admin/block-store', (req, res) => {
 app.post('/api/bills/save', (req, res) => {
   try {
     const { identifier, bill } = req.body;
-    const effectiveId = (identifier || '').trim() || 'uddinfahad89@gmail.com';
+    const effectiveId = (identifier || '').trim();
+    if (!effectiveId) {
+      return res.status(400).json({ error: 'identifier required' });
+    }
     if (!bill) {
       return res.status(400).json({ error: 'Missing bill data' });
     }

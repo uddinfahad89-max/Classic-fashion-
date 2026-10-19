@@ -592,7 +592,7 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
     }
 
     const currentProfile = storageService.getUserProfile();
-    const currentStoreId = currentProfile.storeId || currentProfile.email || 'uddinfahad89@gmail.com';
+    const currentStoreId = currentProfile.storeId || currentProfile.email || '';
 
     const staffObj: StaffMember = {
       id: editingStaff ? editingStaff.id : `staff-${Date.now()}`,
@@ -672,14 +672,16 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
     storageService.saveStaffMember(updated);
     if (staff.hasPosAccess) {
       const currentProfile = storageService.getUserProfile();
-      const currentStoreId = currentProfile.storeId || currentProfile.email || 'uddinfahad89@gmail.com';
-      firebaseService.syncStaffMember(updated, currentStoreId);
-      if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
-        fetch('/api/staff/toggle-block', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ownerIdentifier: currentStoreId, staffId: staff.id }),
-        }).catch(() => {});
+      const currentStoreId = currentProfile.storeId || currentProfile.email || '';
+      if (currentStoreId) {
+        firebaseService.syncStaffMember(updated, currentStoreId);
+        if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
+          fetch('/api/staff/toggle-block', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ownerIdentifier: currentStoreId, staffId: staff.id }),
+          }).catch(() => {});
+        }
       }
     }
     loadData();
@@ -708,7 +710,7 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
     }
 
     const currentProfile = storageService.getUserProfile();
-    const currentStoreId = currentProfile.storeId || currentProfile.email || 'uddinfahad89@gmail.com';
+    const currentStoreId = currentProfile.storeId || currentProfile.email || '';
 
     const updatedStaff: StaffMember = {
       ...editingStaff,
@@ -1058,6 +1060,47 @@ ${absentLines}
           >
             <Fingerprint className="w-4 h-4" />
             <span>{isBn ? 'ফিংগার ডিভাইস সেটিংস' : 'Fingerprint Device'}</span>
+          </button>
+        </div>
+
+        {/* STAFF LOGIN GUIDE BANNER FOR STORE OWNER */}
+        <div className="mt-4 p-3.5 sm:p-4 rounded-2xl bg-gradient-to-r from-blue-900/40 via-indigo-900/30 to-slate-900/50 border border-blue-500/30 text-white flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+          <div className="flex items-start gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-blue-500/20 text-blue-300 flex items-center justify-center shrink-0 mt-0.5 border border-blue-400/30">
+              <KeyRound className="w-4 h-4" />
+            </div>
+            <div>
+              <h4 className="text-xs sm:text-sm font-bold text-blue-200 flex items-center gap-2">
+                <span>{isBn ? '💡 স্টাফ লগইন করার নির্দেশিকা (Staff Login Guide)' : '💡 Staff Login Guide'}</span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+                  {isBn ? 'সহজ ৩ ধাপ' : 'Easy 3 Steps'}
+                </span>
+              </h4>
+              <p className="text-[11px] sm:text-xs text-slate-300 mt-1 leading-relaxed">
+                {isBn
+                  ? '১. স্টাফকে অ্যাপের লিঙ্ক দিন • ২. স্টাফ লিংকে ঢুকে উপরে "👤 স্টাফ লগইন" বাটনে ক্লিক করবে • ৩. আপনার দেওয়া স্টাফ ইমেল ও পাসওয়ার্ড দিয়ে লগইন করলেই ক্যাশিয়ার মোডে বিলিং করতে পারবে।'
+                  : '1. Send link to staff • 2. Staff clicks "Staff Login" at the top • 3. Enters the email & password you set to access POS Cashier mode.'}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              const url = typeof window !== 'undefined' ? `${window.location.origin}/?tab=staff_login` : '';
+              if (navigator?.clipboard?.writeText) {
+                navigator.clipboard.writeText(url);
+                onShowToast?.(
+                  isBn
+                    ? '✅ স্টাফ লগইন লিঙ্ক কপি হয়েছে! এটি আপনার স্টাফকে পাঠিয়ে দিন।'
+                    : '✅ Staff login link copied to clipboard!',
+                  'success'
+                );
+              }
+            }}
+            className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-95 text-white text-xs font-bold shrink-0 flex items-center gap-1.5 shadow-sm border border-blue-400/40 cursor-pointer transition-all"
+          >
+            <ShieldCheck className="w-3.5 h-3.5 text-blue-200" />
+            <span>{isBn ? '📋 স্টাফ লগইন লিঙ্ক কপি করুন' : '📋 Copy Staff Login Link'}</span>
           </button>
         </div>
       </div>

@@ -22,6 +22,7 @@ import { thermalPrinterService } from '../services/thermalPrinterService';
 import { exportElementAsPdf, exportElementAsImage } from '../utils/exportInvoice';
 import { TaxInvoiceSheet } from './TaxInvoiceSheet';
 import { ProductLabelSheet } from './ProductLabelSheet';
+import { sendWhatsAppBillForInvoice } from '../utils/whatsappHelper';
 
 interface PrintReceiptModalProps {
   bill: BillInvoice | null;
@@ -293,155 +294,25 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
 
   // 7. WhatsApp Share
   const handleWhatsAppShare = () => {
-    const currency = settings.currencySymbol || 'Rs';
-    let message = '';
-
     if (isLabelMode) {
+      const currency = settings.currencySymbol || '₹';
       const itemsList = bill.items
         .map((it, idx) => {
           const bcode = it.barcode || `${bill.invoiceNo || 'INV'}-${idx + 1}`;
           return `🏷️ *${it.name.toUpperCase()}*\nBarcode: ${bcode}\nPrice: ${currency}${it.price.toFixed(2)}`;
         })
         .join('\n\n');
-      message = `*PRODUCT LABELS / PRICE TAGS*\n\n${itemsList}`;
-    } else if (isTotalOnlySlip) {
-      const store = settings.storeName || 'CLASSIC FASHION';
-      const totalQty = bill.items.reduce((sum, it) => sum + (it.qty || 1), 0);
-      const isMsgEstimate =
-        bill.paymentMethod === 'estimate' ||
-        (!bill.paymentMethod && (estimateMode || bill.paymentStatus === 'ESTIMATE'));
-      const isDue = !isMsgEstimate && ((bill.balance && bill.balance > 0) || (bill.paymentStatus !== 'PAID' && bill.grandTotal > (bill.paidAmount || 0)));
-      const dueAmt = bill.balance !== undefined ? bill.balance : Math.max(0, bill.grandTotal - (bill.paidAmount || 0));
-
-      message =
-        `*${store}*\n` +
-        `--------------------------------\n` +
-        `Bill: #${bill.invoiceNo} | Date: ${bill.date}\n` +
-        (bill.customerName ? `Customer: ${bill.customerName}\n` : '') +
-        `Total Quantity: ${totalQty} items\n` +
-        `Status: ${isMsgEstimate ? 'ESTIMATE (এস্টিমেট)' : isDue ? 'UNPAID / DUE (বাকি)' : 'PAID (পরিশোধিত)'}\n` +
-        (bill.discount > 0 ? `Discount: -${currency}${bill.discount.toFixed(1)}\n` : '') +
-        `*Total Amount: ${currency}${bill.grandTotal.toFixed(1)}*\n` +
-        (isMsgEstimate ? `*Payment: ESTIMATE (এস্টিমেট)*\n` : bill.paidAmount && bill.paidAmount > 0 && isDue ? `Paid: ${currency}${bill.paidAmount.toFixed(1)}\n` : '') +
-        (!isMsgEstimate && isDue && dueAmt > 0 ? `*Due (বাকি): ${currency}${dueAmt.toFixed(1)}*\n` : '') +
-        (!isMsgEstimate && settings.upiId && isDue && dueAmt > 0
-          ? `📲 *Pay Due via UPI:*\nupi://pay?pa=${settings.upiId.trim()}&pn=${encodeURIComponent(
-              settings.storeName || 'Store'
-            )}&am=${dueAmt.toFixed(2)}&cu=INR&tn=${encodeURIComponent(
-              `Due Bill #${bill.invoiceNo}`
-            )}\n`
-          : '') +
-        `--------------------------------\n` +
-        `Thank you! Visit again.`;
-    } else {
-      const store = settings.storeName || 'CLASSIC FASHION';
-      const itemsList = bill.items
-        .map(
-          (it, idx) =>
-            `${idx + 1}. ${it.name} (${it.qty}${it.unit ? ' ' + it.unit : 'x'}) = ${currency}${it.total}`
-        )
-        .join('\n');
-
-      const isTailoring = Boolean(bill.isTailoring);
-      const isEstimateBill = Boolean(
-        bill.paymentMethod === 'estimate' ||
-        (!bill.paymentMethod && (estimateMode || bill.paymentStatus === 'ESTIMATE'))
-      );
-      const headerLine = isTailoring
-        ? `*✂️ ${store} - Tailoring Order #${bill.invoiceNo}*\n`
-        : isEstimateBill
-        ? `*${store} - Estimate Bill #${bill.invoiceNo}*\n`
-        : bill.paymentMethod === 'cash'
-        ? `*${store} - Cash Memo #${bill.invoiceNo}*\n`
-        : bill.paymentMethod === 'upi'
-        ? `*${store} - UPI Bill #${bill.invoiceNo}*\n`
-        : bill.paymentMethod === 'due'
-        ? `*${store} - Credit Bill #${bill.invoiceNo}*\n`
-        : `*${store} - Cash Memo #${bill.invoiceNo}*\n`;
-
-      let tailoringMeta = '';
-      if (isTailoring) {
-        if (bill.deliveryDate) {
-          tailoringMeta += `Delivery Date: ${bill.deliveryDate}\n`;
-        }
-        if (bill.tailoringStatus) {
-          tailoringMeta += `Status: ${
-            bill.tailoringStatus === 'ready'
-              ? 'Ready for Delivery'
-              : bill.tailoringStatus === 'delivered'
-              ? 'Delivered'
-              : 'Stitching / Pending'
-          }\n`;
-        }
-        if (bill.measurements) {
-          const m = bill.measurements;
-          const mParts: string[] = [];
-          if (m.garmentType) mParts.push(`Garment: ${m.garmentType}`);
-          if (m.length) mParts.push(`L:${m.length}`);
-          if (m.chest) mParts.push(`Ch:${m.chest}`);
-          if (m.waist) mParts.push(`W:${m.waist}`);
-          if (m.shoulder) mParts.push(`Sh:${m.shoulder}`);
-          if (m.sleeve) mParts.push(`Sl:${m.sleeve}`);
-          if (m.neck) mParts.push(`Nk:${m.neck}`);
-          if (m.hip) mParts.push(`Hp:${m.hip}`);
-          if (m.bottom) mParts.push(`Bt:${m.bottom}`);
-          if (mParts.length > 0) {
-            tailoringMeta += `*Measurements:* ${mParts.join(' | ')}\n`;
-          }
-          if (m.designNotes) {
-            tailoringMeta += `*Note:* ${m.designNotes}\n`;
-          }
-        }
-      }
-
-      message =
-        headerLine +
-        `Date: ${bill.date}\n` +
-        `Customer: ${bill.customerName || 'Customer'}\n` +
-        (tailoringMeta ? `${tailoringMeta}\n` : '\n') +
-        `*Items:*\n${itemsList}\n\n` +
-        `*Total Amount:* ${currency}${bill.grandTotal}\n` +
-        (isEstimateBill
-          ? `*Payment Mode:* ESTIMATE (এস্টিমেট)\n` +
-            (bill.paidAmount > 0
-              ? `*Advance Paid:* ${currency}${bill.paidAmount}\n*Est. Balance:* ${currency}${
-                  bill.balance !== undefined ? bill.balance : bill.grandTotal - (bill.paidAmount || 0)
-                }\n\n`
-              : `*Status:* Estimate / Quotation (Not Finalized)\n\n`)
-          : bill.paymentMethod === 'cash'
-          ? `*Payment Mode:* CASH (ক্যাশ)\n` +
-            `*Paid (পরিশোধ):* ${currency}${bill.paidAmount !== undefined ? bill.paidAmount : bill.grandTotal}\n` +
-            (bill.balance && bill.balance > 0 ? `*Due (বাকি):* ${currency}${bill.balance}\n\n` : `\n`)
-          : bill.paymentMethod === 'upi'
-          ? `*Payment Mode:* UPI (ইউপিআই)\n` +
-            `*Paid (পরিশোধ):* ${currency}${bill.paidAmount !== undefined ? bill.paidAmount : bill.grandTotal}\n` +
-            (bill.balance && bill.balance > 0 ? `*Due (বাকি):* ${currency}${bill.balance}\n\n` : `\n`)
-          : bill.paymentMethod === 'due'
-          ? `*Payment Mode:* CREDIT / DUE (বাকী / ক্রেডিট)\n` +
-            `*Paid (পরিশোধ):* ${currency}${bill.paidAmount || 0}\n` +
-            `*Due (বাকি):* ${currency}${bill.balance !== undefined ? bill.balance : bill.grandTotal - (bill.paidAmount || 0)}\n\n`
-          : `*${isTailoring ? 'Advance Paid' : 'Paid'}:* ${currency}${bill.paidAmount || 0}\n` +
-            `*${isTailoring ? 'Balance Due' : 'Balance'}:* ${currency}${
-              bill.balance !== undefined ? bill.balance : bill.grandTotal - (bill.paidAmount || 0)
-            }\n\n`) +
-        (!isEstimateBill &&
-        settings.upiId &&
-        (bill.balance !== undefined ? bill.balance : bill.grandTotal - (bill.paidAmount || 0)) > 0
-          ? `📲 *Scan / Pay Due via UPI (${settings.upiId}):*\nupi://pay?pa=${settings.upiId.trim()}&pn=${encodeURIComponent(
-              settings.storeName || 'Store'
-            )}&am=${(
-              bill.balance !== undefined ? bill.balance : bill.grandTotal - (bill.paidAmount || 0)
-            ).toFixed(2)}&cu=INR&tn=${encodeURIComponent(`Due Bill #${bill.invoiceNo}`)}\n\n`
-          : '') +
-        `Thank you for choosing us!`;
+      const message = `*PRODUCT LABELS / PRICE TAGS*\n\n${itemsList}`;
+      const phone = bill.customerPhone?.replace(/[^0-9]/g, '') || '';
+      const formattedPhone = phone ? (phone.length === 10 ? '91' + phone : phone) : '';
+      const whatsappUrl = formattedPhone
+        ? `https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`
+        : `https://wa.me/?text=${encodeURIComponent(message)}`;
+      window.open(whatsappUrl, '_blank');
+      return;
     }
 
-    const phone = bill.customerPhone?.replace(/[^0-9]/g, '') || '';
-    const whatsappUrl = phone
-      ? `https://wa.me/${phone.length === 10 ? '91' + phone : phone}?text=${encodeURIComponent(message)}`
-      : `https://wa.me/?text=${encodeURIComponent(message)}`;
-
-    window.open(whatsappUrl, '_blank');
+    sendWhatsAppBillForInvoice(bill, effectiveSettings);
   };
 
   return (
@@ -796,8 +667,18 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
           </div>
         </div>
 
-        {/* 4. Bottom Footer Bar: Edit & Delete Side-by-Side */}
-        <div className="p-2.5 sm:p-3 bg-white border-t border-stone-200 flex items-center justify-center gap-3 text-xs">
+        {/* 4. Bottom Footer Bar: WhatsApp Bill, Edit & Delete */}
+        <div className="p-2.5 sm:p-3 bg-white border-t border-stone-200 flex items-center justify-center gap-2 sm:gap-3 text-xs flex-wrap sm:flex-nowrap">
+          <button
+            type="button"
+            onClick={handleWhatsAppShare}
+            className="flex-1 max-w-[200px] py-2.5 px-4 rounded-xl bg-[#25D366] hover:bg-[#20bd5a] active:bg-[#1caa51] text-white text-xs font-black flex items-center justify-center gap-2 cursor-pointer transition-all shadow-md active:scale-95"
+            title={language === 'bn' ? 'হোয়াটসঅ্যাপে বিল পাঠান' : 'Send WhatsApp Bill'}
+          >
+            <Share2 className="w-4 h-4 text-white shrink-0" />
+            <span className="whitespace-nowrap">{language === 'bn' ? 'WhatsApp বিল' : 'WhatsApp Bill'}</span>
+          </button>
+
           {onEditBill && (
             <button
               type="button"

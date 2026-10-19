@@ -18,6 +18,7 @@ import { BillInvoice, ThermalPrinterSettings, Language, UserProfile } from '../t
 import { thermalPrinterService } from '../services/thermalPrinterService';
 import { EditInvoiceModal } from './EditInvoiceModal';
 import { SortOption } from './Header';
+import { sendWhatsAppBillForInvoice } from '../utils/whatsappHelper';
 
 interface InvoicesTabProps {
   bills: BillInvoice[];
@@ -618,6 +619,17 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
                       {isDue ? (isBn ? 'বাকি (Due)' : "You'll Get (Due)") : isBn ? 'নগদ (Paid)' : 'Paid'}
                     </div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      sendWhatsAppBillForInvoice(bill, settings);
+                    }}
+                    className="p-2 rounded-xl text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 border border-emerald-200/60 shadow-2xs transition-colors cursor-pointer"
+                    title={isBn ? 'হোয়াটসঅ্যাপে বিল পাঠান (WhatsApp Bill)' : 'Send WhatsApp Bill'}
+                  >
+                    <MessageCircle className="w-4 h-4 text-emerald-600" />
+                  </button>
                   <button
                     type="button"
                     onClick={(e) => {

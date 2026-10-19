@@ -38,6 +38,7 @@ import {
   HelpCircle,
   Package,
   Crown,
+  KeyRound,
 } from 'lucide-react';
 import {
   ThermalPrinterSettings,
@@ -59,6 +60,7 @@ interface HeaderProps {
   onOpenSettings: () => void;
   userProfile: UserProfile;
   onOpenLogin: () => void;
+  onOpenStaffLogin?: () => void;
   language: Language;
   onToggleLanguage: () => void;
   onSelectLanguage?: (lang: Language) => void;
@@ -92,6 +94,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSettings,
   userProfile,
   onOpenLogin,
+  onOpenStaffLogin,
   language,
   onToggleLanguage,
   onSelectLanguage,
@@ -183,13 +186,16 @@ export const Header: React.FC<HeaderProps> = ({
     ? userProfile.name.trim().charAt(0).toUpperCase()
     : userProfile.email
     ? userProfile.email.trim().charAt(0).toUpperCase()
-    : 'F';
+    : 'G';
 
   const isSuperAdmin = Boolean(
-    userProfile.isSuperAdmin ||
-    userProfile.role === 'Super Admin' ||
-    userProfile.role === 'super_admin' ||
-    (userProfile.email || '').toLowerCase() === 'uddinfahad89@gmail.com'
+    userProfile.isLoggedIn &&
+      userProfile.role !== 'Staff' && (
+        userProfile.isSuperAdmin ||
+        userProfile.role === 'Super Admin' ||
+        userProfile.role === 'super_admin' ||
+        (userProfile.email && userProfile.email.toLowerCase() === 'uddinfahad89@gmail.com')
+      )
   );
 
   return (
@@ -397,8 +403,35 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Right: Super Admin Badge + Circular Google Account Avatar */}
+          {/* Right: Actions, Staff Login, Super Admin, and Profile Avatar */}
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            {/* If NOT logged in: Direct Staff Login & Owner Login Action Buttons */}
+            {!userProfile.isLoggedIn && (
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onOpenStaffLogin) onOpenStaffLogin();
+                    else onOpenLogin();
+                  }}
+                  className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm active:scale-95 transition-all cursor-pointer border border-blue-400/40"
+                  title={isBn ? 'স্টাফ / ক্যাশিয়ার লগইন' : 'Staff / Cashier Login'}
+                >
+                  <Users className="w-3.5 h-3.5" />
+                  <span className="font-extrabold">{isBn ? 'স্টাফ লগইন' : 'Staff Login'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={onOpenLogin}
+                  className="hidden sm:flex px-2.5 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 font-bold text-xs items-center gap-1.5 border border-stone-300 shadow-2xs active:scale-95 transition-all cursor-pointer"
+                  title={isBn ? 'দোকান মালিক লগইন' : 'Store Owner Login'}
+                >
+                  <KeyRound className="w-3.5 h-3.5 text-stone-600" />
+                  <span>{isBn ? 'মালিক লগইন' : 'Owner Login'}</span>
+                </button>
+              </div>
+            )}
+
             {isSuperAdmin && onOpenSuperAdmin && (
               <button
                 type="button"
@@ -421,7 +454,7 @@ export const Header: React.FC<HeaderProps> = ({
                 onClick={() => setIsProfileModalOpen((prev) => !prev)}
                 aria-label="Open Account Profile and Security"
                 className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-gradient-to-tr from-emerald-600 to-teal-500 text-white font-bold flex items-center justify-center text-sm shadow-xs hover:ring-2 hover:ring-blue-400/80 transition-all cursor-pointer border-2 border-white"
-                title={userProfile.name || userProfile.email || 'Google Profile'}
+                title={userProfile.isLoggedIn ? (userProfile.name || userProfile.email || 'Profile') : (isBn ? 'লগইন করুন' : 'Log In')}
               >
               {userProfile.isLoggedIn ? (
                 <span>{userInitial}</span>
@@ -437,27 +470,83 @@ export const Header: React.FC<HeaderProps> = ({
                 className="absolute right-0 top-12 w-80 bg-white rounded-3xl shadow-2xl border border-stone-200 py-3 z-50 animate-in fade-in zoom-in-95 duration-150 divide-y divide-stone-100"
               >
                 {/* Profile Header */}
-                <div className="px-4 py-2 text-center">
-                  <div className="w-14 h-14 mx-auto rounded-full bg-gradient-to-tr from-emerald-600 to-teal-500 text-white font-black text-xl flex items-center justify-center shadow-md mb-2">
-                    {userInitial}
+                {!userProfile.isLoggedIn ? (
+                  <div className="px-4 py-3 text-center space-y-2">
+                    <div className="w-12 h-12 mx-auto rounded-2xl bg-stone-100 text-stone-600 flex items-center justify-center shadow-inner">
+                      <ShieldCheck className="w-6 h-6 text-stone-500" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-stone-900">
+                        {isBn ? 'গেস্ট / অফলাইন মোড' : 'Guest / Offline Mode'}
+                      </h3>
+                      <p className="text-[11px] text-stone-500 mt-0.5 leading-tight">
+                        {isBn
+                          ? 'দোকানের ডাটা ক্লাউডে সিঙ্ক ও সুরক্ষিত রাখতে লগইন করুন।'
+                          : 'Log in to securely sync your shop data across devices.'}
+                      </p>
+                    </div>
+                    <div className="pt-1 flex flex-col gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsProfileModalOpen(false);
+                          if (onOpenStaffLogin) onOpenStaffLogin();
+                          else onOpenLogin();
+                        }}
+                        className="w-full py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer"
+                      >
+                        <Users className="w-4 h-4" />
+                        <span>{isBn ? '👤 স্টাফ লগইন (Staff Login)' : '👤 Staff Login'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsProfileModalOpen(false);
+                          onOpenLogin();
+                        }}
+                        className="w-full py-2 px-3 rounded-xl bg-stone-100 hover:bg-stone-200 active:scale-95 text-stone-800 font-bold text-xs flex items-center justify-center gap-2 border border-stone-300 transition-all cursor-pointer"
+                      >
+                        <KeyRound className="w-4 h-4 text-stone-700" />
+                        <span>{isBn ? '🔑 দোকান মালিক লগইন' : '🔑 Store Owner Login'}</span>
+                      </button>
+                    </div>
                   </div>
-                  <h3 className="text-sm font-bold text-stone-900 truncate">
-                    {userProfile.name || (isBn ? 'দোকানের মালিক' : 'Store Owner')}
-                  </h3>
-                  {userProfile.email && (
-                    <p className="text-xs text-stone-500 font-mono truncate">
-                      {userProfile.email}
-                    </p>
-                  )}
-                  {userProfile.phone && (
-                    <p className="text-[11px] text-stone-500 font-mono mt-0.5">
-                      📞 {userProfile.phone}
-                    </p>
-                  )}
-                  <span className="inline-block mt-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                    {userProfile.role || 'Store Owner'}
-                  </span>
-                </div>
+                ) : (
+                  <div className="px-4 py-2 text-center">
+                    <div className="w-14 h-14 mx-auto rounded-full bg-gradient-to-tr from-emerald-600 to-teal-500 text-white font-black text-xl flex items-center justify-center shadow-md mb-2">
+                      {userInitial}
+                    </div>
+                    <h3 className="text-sm font-bold text-stone-900 truncate">
+                      {userProfile.name || (userProfile.role === 'Staff' ? (isBn ? 'স্টাফ মেম্বার' : 'Staff Member') : (isBn ? 'দোকানের মালিক' : 'Store Owner'))}
+                    </h3>
+                    {userProfile.email && (
+                      <p className="text-xs text-stone-500 font-mono truncate">
+                        {userProfile.email}
+                      </p>
+                    )}
+                    {userProfile.phone && (
+                      <p className="text-[11px] text-stone-500 font-mono mt-0.5">
+                        📞 {userProfile.phone}
+                      </p>
+                    )}
+                    <div className="mt-1.5 flex items-center justify-center gap-1.5 flex-wrap">
+                      <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                        userProfile.role === 'Staff'
+                          ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                          : 'bg-blue-50 text-blue-700 border-blue-200'
+                      }`}>
+                        {userProfile.role === 'Staff'
+                          ? (isBn ? '👤 স্টাফ / ক্যাশিয়ার' : '👤 Staff / Cashier')
+                          : (userProfile.role || 'Store Owner')}
+                      </span>
+                      {userProfile.storeName && (
+                        <span className="text-[10px] text-stone-500 font-medium truncate max-w-[140px]">
+                          🏪 {userProfile.storeName}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* Printer Status in Account */}
                 <div className="px-4 py-2.5 flex items-center justify-between bg-stone-50/70">
@@ -528,7 +617,7 @@ export const Header: React.FC<HeaderProps> = ({
                     </button>
                   )}
 
-                  {userProfile.role !== 'Staff' && (
+                  {userProfile.isLoggedIn && userProfile.role !== 'Staff' && (
                     <button
                       type="button"
                       onClick={() => {
@@ -1091,9 +1180,9 @@ export const Header: React.FC<HeaderProps> = ({
 
             {/* Drawer Bottom Info */}
             <div className="p-3 bg-stone-50 border-t border-stone-200 text-center text-xs text-stone-500 flex items-center justify-center gap-1.5 flex-wrap">
-              <span className="font-medium">Created & Built by:</span>
-              <span className="font-extrabold text-stone-900 bg-white px-2.5 py-0.5 rounded-lg border border-stone-300 shadow-2xs">
-                fahad uddin
+              <span className="font-medium">{isBn ? 'থার্মাল পিওএস ও বিলিং সিস্টেম' : 'Thermal POS & Billing System'}</span>
+              <span className="font-extrabold text-stone-800 bg-white px-2 py-0.5 rounded-lg border border-stone-300 shadow-2xs font-mono">
+                v2.0 Pro
               </span>
             </div>
           </div>

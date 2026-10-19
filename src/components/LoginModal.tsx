@@ -18,6 +18,7 @@ import {
   Globe,
   MapPin,
   UserCheck,
+  Users,
 } from 'lucide-react';
 import { UserProfile, Language, SavedAccountItem, ThermalPrinterSettings } from '../types';
 import { storageService } from '../services/storageService';
@@ -33,7 +34,7 @@ interface LoginModalProps {
     email: string,
     name?: string,
     pin?: string,
-    role?: 'Owner' | 'Manager' | 'Cashier',
+    role?: 'Owner' | 'Manager' | 'Cashier' | 'Staff',
     phone?: string,
     isAppLockEnabled?: boolean,
     loginMethod?: 'email_pin' | 'otp' | 'email_password' | 'app_pin',
@@ -56,6 +57,7 @@ interface LoginModalProps {
   onOpenForgotPassword?: (email?: string) => void;
   onOpenStaffManagement?: () => void;
   onSkip?: () => void;
+  initialTab?: 'login' | 'staff_login' | 'signup';
 }
 
 export const LoginModal: React.FC<LoginModalProps> = ({
@@ -72,6 +74,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   onOpenForgotPassword,
   onOpenStaffManagement,
   onSkip,
+  initialTab,
 }) => {
   const isBn = language === 'bn';
   const isHi = language === 'hi';
@@ -87,8 +90,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     userProfile.isLoggedIn ? 'view' : 'auth'
   );
 
-  // Auth Action Tab: 'login' | 'signup'
-  const [authTab, setAuthTab] = useState<'login' | 'signup'>('login');
+  // Auth Action Tab: 'login' | 'staff_login' | 'signup'
+  const [authTab, setAuthTab] = useState<'login' | 'staff_login' | 'signup'>(initialTab || 'login');
 
   // Log In Form
   const [loginEmail, setLoginEmail] = useState(userProfile.email || '');
@@ -117,6 +120,9 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setMode(userProfile.isLoggedIn ? 'view' : 'auth');
+      if (initialTab) {
+        setAuthTab(initialTab);
+      }
       const accounts = storageService.getSavedAccounts();
       setSavedAccounts(accounts);
       if (settings) {
@@ -135,7 +141,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       setLoginError(null);
       setSignupError(null);
     }
-  }, [isOpen, userProfile.isLoggedIn, userProfile.email, settings]);
+  }, [isOpen, userProfile.isLoggedIn, userProfile.email, settings, initialTab]);
 
   if (!isOpen) return null;
 
@@ -181,11 +187,12 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
     setIsSubmitting(true);
     try {
+      const selectedRole = authTab === 'staff_login' ? 'Staff' : 'Owner';
       const result = await onLogin(
         cleanEmail,
         cleanEmail.split('@')[0],
         '1234',
-        'Owner',
+        selectedRole,
         '',
         false,
         'email_password',
@@ -510,8 +517,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({
             /* AUTH MODE: LOGIN OR SIGN UP (EMAIL & PASSWORD ONLY) */
             /* ========================================================================= */
             <div className="space-y-4">
-              {/* Clean Tab Switcher: [Log In] and [Sign Up] */}
-              <div className="flex items-center bg-stone-100 p-1 rounded-2xl border border-stone-200/80">
+              {/* Clean 3-Tab Switcher: [Owner Login], [Staff Login], [Sign Up] */}
+              <div className="flex items-center bg-stone-100 p-1 rounded-2xl border border-stone-200/80 gap-1">
                 <button
                   type="button"
                   onClick={() => {
@@ -519,14 +526,31 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                     setLoginError(null);
                     setSignupError(null);
                   }}
-                  className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                  className={`flex-1 py-2 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                     authTab === 'login'
                       ? 'bg-blue-600 text-white shadow-xs'
-                      : 'text-stone-600 hover:text-stone-900'
+                      : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/50'
                   }`}
                 >
                   <LogIn className="w-3.5 h-3.5" />
-                  <span>{t('লগইন (Log In)', 'Log In', 'लॉगिन')}</span>
+                  <span>{t('মালিক লগইন', 'Owner Login', 'मालिक')}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthTab('staff_login');
+                    setLoginError(null);
+                    setSignupError(null);
+                  }}
+                  className={`flex-1 py-2 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                    authTab === 'staff_login'
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/50'
+                  }`}
+                >
+                  <Users className="w-3.5 h-3.5" />
+                  <span>{t('স্টাফ লগইন', 'Staff Login', 'स्टाफ')}</span>
                 </button>
 
                 <button
@@ -536,18 +560,39 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                     setLoginError(null);
                     setSignupError(null);
                   }}
-                  className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                  className={`flex-1 py-2 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                     authTab === 'signup'
                       ? 'bg-blue-600 text-white shadow-xs'
-                      : 'text-stone-600 hover:text-stone-900'
+                      : 'text-stone-600 hover:text-stone-900 hover:bg-stone-200/50'
                   }`}
                 >
                   <UserPlus className="w-3.5 h-3.5" />
-                  <span>{t('সাইন আপ (Sign Up)', 'Sign Up', 'साइन अप')}</span>
+                  <span>{t('রেজিস্টার', 'Sign Up', 'रजिस्टर')}</span>
                 </button>
               </div>
 
-              {/* Saved accounts in device */}
+              {/* Staff Login Informational Banner */}
+              {authTab === 'staff_login' && (
+                <div className="p-3 rounded-2xl bg-indigo-50/90 border border-indigo-200 text-indigo-950 text-xs flex items-start gap-2.5">
+                  <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0 mt-0.5">
+                    <Users className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <p className="font-extrabold text-indigo-900">
+                      {t('👤 স্টাফ / ক্যাশিয়ার লগইন', 'Staff / Cashier Login', 'स्टाफ / कैशियर लॉगिन')}
+                    </p>
+                    <p className="text-[11px] text-indigo-700 mt-0.5 leading-relaxed">
+                      {t(
+                        'আপনার দোকান মালিক আপনাকে যে স্টাফ ইমেল এবং পাসওয়ার্ড তৈরি করে দিয়েছেন, তা দিয়ে নিচে লগইন করুন।',
+                        'Log in using the staff email and password provided to you by your store owner.',
+                        'दुकान मालिक द्वारा दिया गया स्टाफ ईमेल और पासवर्ड दर्ज करें।'
+                      )}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Saved accounts in device (Only for owner login) */}
               {authTab === 'login' && savedAccounts.length > 0 && (
                 <div className="p-2.5 bg-blue-50/70 border border-blue-200/80 rounded-2xl space-y-1.5">
                   <div className="flex items-center justify-between text-[11px] font-bold text-blue-950">
@@ -579,8 +624,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 </div>
               )}
 
-              {/* LOG IN FORM */}
-              {authTab === 'login' && (
+              {/* LOG IN FORM (Handles both Owner and Staff Login) */}
+              {(authTab === 'login' || authTab === 'staff_login') && (
                 <form onSubmit={handleLoginSubmit} className="space-y-3.5">
                   {loginError && (
                     <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-start gap-2">
@@ -592,7 +637,11 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   <div className="space-y-1">
                     <label className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
                       <Mail className="w-3.5 h-3.5 text-blue-600" />
-                      <span>{t('ইমেল ঠিকানা (Email Address) *', 'Email Address *', 'ईमेल पता *')}</span>
+                      <span>
+                        {authTab === 'staff_login'
+                          ? t('স্টাফ ইমেল ঠিকানা (Staff Email) *', 'Staff Email Address *', 'स्टाफ ईमेल *')
+                          : t('ইমেল ঠিকানা (Email Address) *', 'Email Address *', 'ईमेल पता *')}
+                      </span>
                     </label>
                     <input
                       type="email"
@@ -603,7 +652,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                         setLoginEmail(e.target.value);
                         if (loginError) setLoginError(null);
                       }}
-                      placeholder="owner@example.com"
+                      placeholder={authTab === 'staff_login' ? 'staff@example.com' : 'owner@example.com'}
                       className="w-full px-3.5 py-2.5 text-sm bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-blue-500 focus:bg-white font-medium transition-all"
                     />
                   </div>
@@ -612,7 +661,11 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                     <div className="flex items-center justify-between">
                       <label className="text-xs font-bold text-stone-800 flex items-center gap-1.5">
                         <Lock className="w-3.5 h-3.5 text-blue-600" />
-                        <span>{t('পাসওয়ার্ড (Password) *', 'Password *', 'पासवर्ड *')}</span>
+                        <span>
+                          {authTab === 'staff_login'
+                            ? t('স্টাফ পাসওয়ার্ড (Staff Password) *', 'Staff Password *', 'स्टाफ पासवर्ड *')
+                            : t('পাসওয়ার্ড (Password) *', 'Password *', 'पासवर्ड *')}
+                        </span>
                       </label>
                       <button
                         type="button"
@@ -634,37 +687,47 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                       placeholder={t('কমপক্ষে ৬ অক্ষরের পাসওয়ার্ড', 'Minimum 6 character password', 'कम से कम 6 अक्षरों का पासवर्ड')}
                       className="w-full px-3.5 py-2.5 text-sm bg-stone-50 border border-stone-200 rounded-xl focus:outline-none focus:border-blue-500 focus:bg-white font-medium transition-all"
                     />
-                    <div className="flex justify-end pt-0.5">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (onOpenForgotPassword) {
-                            onOpenForgotPassword(loginEmail);
-                          } else {
-                            setIsResetModalOpen(true);
-                          }
-                        }}
-                        className="text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer transition-colors"
-                      >
-                        {t('পাসওয়ার্ড ভুলে গেছেন?', 'Forgot Password?', 'पासवर्ड भूल गए?')}
-                      </button>
-                    </div>
+                    {authTab !== 'staff_login' && (
+                      <div className="flex justify-end pt-0.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (onOpenForgotPassword) {
+                              onOpenForgotPassword(loginEmail);
+                            } else {
+                              setIsResetModalOpen(true);
+                            }
+                          }}
+                          className="text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer transition-colors"
+                        >
+                          {t('পাসওয়ার্ড ভুলে গেছেন?', 'Forgot Password?', 'पासवर्ड भूल गए?')}
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   <div className="pt-1">
                     <button
                       type="submit"
                       disabled={isSubmitting}
-                      className="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20 cursor-pointer transition-all disabled:opacity-50"
+                      className={`w-full py-3 px-4 rounded-2xl text-white font-black text-sm flex items-center justify-center gap-2 shadow-lg cursor-pointer transition-all disabled:opacity-50 ${
+                        authTab === 'staff_login'
+                          ? 'bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 shadow-indigo-500/20'
+                          : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 shadow-blue-500/20'
+                      }`}
                     >
                       {isSubmitting ? (
                         <RefreshCw className="w-4 h-4 animate-spin" />
+                      ) : authTab === 'staff_login' ? (
+                        <Users className="w-4 h-4" />
                       ) : (
                         <LogIn className="w-4 h-4" />
                       )}
                       <span>
                         {isSubmitting
                           ? t('লগইন হচ্ছে...', 'Logging in...', 'लॉगिन हो रहा है...')
+                          : authTab === 'staff_login'
+                          ? t('👤 স্টাফ হিসেবে প্রবেশ করুন', 'Log In as Staff', 'स्टाफ लॉगिन करें')
                           : t('লগইন ও ডেটা রিস্টোর', 'Log In & Restore', 'लॉगिन करें')}
                       </span>
                     </button>

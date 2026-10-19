@@ -45,7 +45,7 @@ import { SuperAdminModal } from './components/SuperAdminModal';
 import { useNetworkStatus } from './utils/useNetworkStatus';
 import { backHandler, useBackHandler } from './utils/backHandler';
 import { firebaseService } from './services/firebaseService';
-import { ShieldAlert, Lock } from 'lucide-react';
+import { ShieldAlert, ShieldCheck, Lock } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('billing');
@@ -77,6 +77,8 @@ export default function App() {
   const [barcodeTargetProduct, setBarcodeTargetProduct] = useState<ProductStockItem | null>(null);
   const [isProductStockOpen, setIsProductStockOpen] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [loginModalInitialTab, setLoginModalInitialTab] = useState<'login' | 'staff_login' | 'signup'>('login');
+  const [onboardingInitialTab, setOnboardingInitialTab] = useState<'login' | 'staff_login' | 'signup'>('login');
   const [isResetPasswordOpen, setIsResetPasswordOpen] = useState(false);
   const [resetPasswordMode, setResetPasswordMode] = useState<'request_link' | 'update_password'>('request_link');
   const [resetPasswordEmail, setResetPasswordEmail] = useState('');
@@ -343,6 +345,19 @@ export default function App() {
     };
     checkPasswordResetLink();
 
+    // Check if user or staff opened the direct staff login link (?login=staff or ?tab=staff_login)
+    try {
+      const searchParams = new URLSearchParams(window.location.search);
+      const loginParam = searchParams.get('login') || searchParams.get('tab') || searchParams.get('role');
+      if (loginParam === 'staff' || loginParam === 'staff_login') {
+        setLoginModalInitialTab('staff_login');
+        setOnboardingInitialTab('staff_login');
+        if (!prof.isLoggedIn) {
+          setIsLoginModalOpen(true);
+        }
+      }
+    } catch {}
+
     // Initialize native Android & browser back button handler
     backHandler.init();
 
@@ -549,6 +564,26 @@ export default function App() {
         : 'Welcome! You are using POS in Offline/Guest mode. You can log in anytime for cloud backup.',
       'info'
     );
+  };
+
+  const handleOpenStaffLogin = () => {
+    setLoginModalInitialTab('staff_login');
+    setOnboardingInitialTab('staff_login');
+    if (isOnboardingOpen) {
+      setIsOnboardingOpen(true);
+    } else {
+      setIsLoginModalOpen(true);
+    }
+  };
+
+  const handleOpenOwnerLogin = () => {
+    setLoginModalInitialTab('login');
+    setOnboardingInitialTab('login');
+    if (isOnboardingOpen) {
+      setIsOnboardingOpen(true);
+    } else {
+      setIsLoginModalOpen(true);
+    }
   };
 
   const handleLoginExisting = async (
@@ -1729,7 +1764,8 @@ export default function App() {
         onTestPrint={handleTestPrint}
         onOpenSettings={() => setIsSettingsOpen(true)}
         userProfile={userProfile}
-        onOpenLogin={() => setIsLoginModalOpen(true)}
+        onOpenLogin={handleOpenOwnerLogin}
+        onOpenStaffLogin={handleOpenStaffLogin}
         language={language}
         onToggleLanguage={handleToggleLanguage}
         onSelectLanguage={handleSelectLanguage}
@@ -1953,7 +1989,37 @@ export default function App() {
         )}
 
         {activeTab === 'staff' &&
-          (userProfile.role === 'Staff' ? (
+          (!userProfile.isLoggedIn ? (
+            <div className="max-w-md mx-auto p-8 text-center space-y-4 mt-12 bg-white rounded-3xl border border-stone-200 shadow-sm mx-4 sm:mx-auto">
+              <div className="w-14 h-14 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center mx-auto">
+                <ShieldCheck className="w-7 h-7" />
+              </div>
+              <h3 className="font-black text-stone-900 text-base">
+                {language === 'bn' ? 'দোকান মালিকের লগইন প্রয়োজন' : 'Owner Login Required'}
+              </h3>
+              <p className="text-xs text-stone-600 leading-relaxed">
+                {language === 'bn'
+                  ? 'স্টাফদের আইডি, পাসওয়ার্ড ও বেতন সংক্রান্ত গোপনীয় তথ্য দেখতে এবং পরিচালনা করতে অনুগ্রহ করে দোকান মালিক হিসেবে লগইন করুন।'
+                  : 'Please log in as Store Owner to manage staff members and salaries.'}
+              </p>
+              <div className="pt-2 flex flex-col sm:flex-row gap-2 justify-center">
+                <button
+                  type="button"
+                  onClick={handleOpenOwnerLogin}
+                  className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-sm cursor-pointer"
+                >
+                  {language === 'bn' ? '🔑 দোকান মালিক লগইন' : 'Owner Login'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleOpenStaffLogin}
+                  className="px-4 py-2.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs border border-indigo-200 cursor-pointer"
+                >
+                  {language === 'bn' ? '👤 স্টাফ লগইন' : 'Staff Login'}
+                </button>
+              </div>
+            </div>
+          ) : userProfile.role === 'Staff' ? (
             <div className="max-w-md mx-auto p-8 text-center space-y-3 mt-12 bg-white rounded-3xl border border-stone-200 shadow-sm mx-4 sm:mx-auto">
               <div className="w-14 h-14 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center mx-auto">
                 <ShieldAlert className="w-7 h-7" />
@@ -2010,6 +2076,7 @@ export default function App() {
         }}
         onOpenStaffManagement={() => setActiveTab('staff')}
         onSkip={handleSkipOnboarding}
+        initialTab={loginModalInitialTab}
       />
 
       {/* App Lock Screen (4-Digit PIN Security Vault) */}
@@ -2187,6 +2254,7 @@ export default function App() {
         }}
         onSkip={handleSkipOnboarding}
         onClose={handleSkipOnboarding}
+        initialTab={onboardingInitialTab}
       />
 
       {/* Firebase Password Reset Modal (Standard Email link verification) */}
