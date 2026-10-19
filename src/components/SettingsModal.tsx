@@ -985,6 +985,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   setFbRestoring(true);
                   setFbRestoreMsg(null);
                   try {
+                    const currentProf = storageService.getUserProfile();
+                    if (!currentProf.isLoggedIn) {
+                      setFbRestoreMsg({
+                        type: 'error',
+                        text: isBn
+                          ? 'ক্লাউড ডেটা রিস্টোর করতে দয়া করে প্রথমে উপরের "মালিক লগইন" থেকে আপনার ইমেল ও পাসওয়ার্ড দিয়ে লগইন করুন।'
+                          : 'Please log in with your email & password first to restore your cloud data.'
+                      });
+                      setFbRestoring(false);
+                      return;
+                    }
                     const res = await firebaseService.restorePOSData();
                     if (res && res.success) {
                       if (res.bills.length > 0) storageService.saveBills(res.bills);
