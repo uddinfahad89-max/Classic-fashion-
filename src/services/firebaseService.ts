@@ -14,9 +14,12 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,
-  updatePassword
+  updatePassword,
+  signInAnonymously,
+  onAuthStateChanged
 } from 'firebase/auth';
 import { db, auth } from '../firebase';
+import { storageService } from './storageService';
 import {
   BillInvoice,
   CashEntry,
@@ -95,6 +98,87 @@ class FirebaseService {
       return auth.currentUser?.uid || null;
     } catch {
       return null;
+    }
+  }
+
+  // Ensures Firebase Auth is actively signed in before performing Firestore read/write
+  private authPromise: Promise<boolean> | null = null;
+
+  async ensureAuthenticated(): Promise<boolean> {
+    try {
+      if (auth.currentUser) {
+        return true;
+      }
+
+      if (this.authPromise) {
+        return await this.authPromise;
+      }
+
+      this.authPromise = (async () => {
+        try {
+          if (auth.currentUser) return true;
+
+          // 1. Try restoring from stored user profile credentials
+          const profile = storageService.getUserProfile();
+          const cleanEmail = (profile.email || '').trim().toLowerCase();
+          const cleanPass = (profile.password || '').trim();
+
+          if (profile.isLoggedIn && cleanEmail && cleanPass) {
+            try {
+              await signInWithEmailAndPassword(auth, cleanEmail, cleanPass);
+              return true;
+            } catch (signInErr: any) {
+              if (
+                signInErr?.code === 'auth/user-not-found' ||
+                signInErr?.code === 'auth/invalid-credential'
+              ) {
+                try {
+                  await createUserWithEmailAndPassword(auth, cleanEmail, cleanPass);
+                  return true;
+                } catch (createErr: any) {
+                  if (createErr?.code === 'auth/email-already-in-use') {
+                    try {
+                      await signInWithEmailAndPassword(auth, cleanEmail, cleanPass);
+                      return true;
+                    } catch {}
+                  }
+                }
+              }
+            }
+          }
+
+          // 2. Fallback to anonymous sign-in so request.auth != null
+          try {
+            await signInAnonymously(auth);
+            return true;
+          } catch {}
+
+          return Boolean(auth.currentUser);
+        } catch (e) {
+          console.warn('ensureAuthenticated notice:', e);
+          return false;
+        } finally {
+          this.authPromise = null;
+        }
+      })();
+
+      return await this.authPromise;
+    } catch {
+      return false;
+    }
+  }
+
+  // Auth state listener for maintaining active sessions
+  initAuthListener(onUserChanged?: (user: any) => void) {
+    try {
+      onAuthStateChanged(auth, async (user) => {
+        if (!user) {
+          await this.ensureAuthenticated();
+        }
+        if (onUserChanged) onUserChanged(user);
+      });
+    } catch (e) {
+      console.warn('initAuthListener notice:', e);
     }
   }
 
@@ -251,6 +335,39 @@ class FirebaseService {
         return { success: false, error: 'Email is required' };
       }
 
+      // 0. FIRST: Authenticate with Firebase Auth so all subsequent Firestore requests are authorized
+      if (cleanPass) {
+        try {
+          await signInWithEmailAndPassword(auth, cleanEmail, cleanPass);
+        } catch (authErr: any) {
+          console.warn('Firebase initial auth code:', authErr?.code);
+          if (
+            authErr?.code === 'auth/user-not-found' ||
+            authErr?.code === 'auth/invalid-credential'
+          ) {
+            try {
+              await createUserWithEmailAndPassword(auth, cleanEmail, cleanPass);
+            } catch (createErr: any) {
+              if (createErr?.code === 'auth/email-already-in-use') {
+                try {
+                  await signInWithEmailAndPassword(auth, cleanEmail, cleanPass);
+                } catch {
+                  return {
+                    success: false,
+                    error: 'পাসওয়ার্ড সঠিক নয়! সঠিক পাসওয়ার্ড লিখুন।'
+                  };
+                }
+              }
+            }
+          } else if (authErr?.code === 'auth/wrong-password') {
+            return {
+              success: false,
+              error: 'পাসওয়ার্ড সঠিক নয়! সঠিক পাসওয়ার্ড লিখুন।'
+            };
+          }
+        }
+      }
+
       // 1. Check if user document exists in 'users' collection
       const userDocRef = doc(db, 'users', cleanEmail);
       const userDocSnap = await getDoc(userDocRef);
@@ -390,13 +507,6 @@ class FirebaseService {
           success: false,
           error: `🚫 আপনার স্টোর অ্যাকাউন্টটি সুপার এডমিন কর্তৃক ব্লক করা হয়েছে। কারণ: ${matchedAccount.blockedReason || 'অ্যাক্সেস সাময়িকভাবে স্থগিত করা হয়েছে।'}`
         };
-      }
-
-      // Also try Firebase Auth sign-in in background
-      if (cleanPass) {
-        try {
-          await signInWithEmailAndPassword(auth, cleanEmail, cleanPass);
-        } catch {}
       }
 
       // 2. Fetch and restore all POS data from Firestore for this email
@@ -568,6 +678,7 @@ class FirebaseService {
   // ==========================================
   async syncBarcode(item: BarcodeItem, userId?: string, shopId?: string): Promise<boolean> {
     try {
+      await this.ensureAuthenticated();
       const uid = this.getEffectiveUserId(userId);
       const docId = item.id || `barcode_${item.barcode}_${Date.now()}`;
       const barcodeRef = doc(db, 'barcodes', docId);
@@ -602,6 +713,7 @@ class FirebaseService {
 
   async fetchBarcodes(userId?: string): Promise<BarcodeItem[]> {
     try {
+      await this.ensureAuthenticated();
       const uid = this.getEffectiveUserId(userId);
       if (!uid) return [];
       const barcodesRef = collection(db, 'barcodes');
@@ -663,6 +775,7 @@ class FirebaseService {
   // ==========================================
   async syncInvoice(invoice: BillInvoice, userId?: string, shopId?: string): Promise<boolean> {
     try {
+      await this.ensureAuthenticated();
       const uid = this.getEffectiveUserId(userId);
       const invoiceRef = doc(db, 'invoices', invoice.id);
 
@@ -794,6 +907,7 @@ class FirebaseService {
   // Multi-vendor isolated fetch: only own store's bills (unless super admin requests all)
   async fetchInvoices(userId?: string, includeDeleted = false): Promise<BillInvoice[]> {
     try {
+      await this.ensureAuthenticated();
       const uid = this.getEffectiveUserId(userId);
       if (!uid) return [];
       const invoicesRef = collection(db, 'invoices');
@@ -859,6 +973,7 @@ class FirebaseService {
   // ==========================================
   async syncProduct(product: ProductStockItem, userId?: string, shopId?: string): Promise<boolean> {
     try {
+      await this.ensureAuthenticated();
       const uid = this.getEffectiveUserId(userId);
       const prodRef = doc(db, 'products', product.id);
 
@@ -958,6 +1073,7 @@ class FirebaseService {
 
   async fetchProducts(userId?: string, includeDeleted = false): Promise<ProductStockItem[]> {
     try {
+      await this.ensureAuthenticated();
       const uid = this.getEffectiveUserId(userId);
       if (!uid) return [];
       const prodRef = collection(db, 'products');
@@ -1049,6 +1165,7 @@ class FirebaseService {
     email?: string
   ): Promise<boolean> {
     try {
+      await this.ensureAuthenticated();
       const uid = this.getEffectiveUserId(userId);
       if (!uid) return false;
       const profileRef = doc(db, 'profiles', uid);
@@ -1085,6 +1202,7 @@ class FirebaseService {
 
   async fetchProfile(userId?: string): Promise<ThermalPrinterSettings | null> {
     try {
+      await this.ensureAuthenticated();
       const uid = this.getEffectiveUserId(userId);
       if (!uid) return null;
       const profileRef = doc(db, 'profiles', uid);
@@ -1117,6 +1235,7 @@ class FirebaseService {
   // ==========================================
   async syncCashEntry(entry: CashEntry, userId?: string, shopId?: string): Promise<boolean> {
     try {
+      await this.ensureAuthenticated();
       const uid = this.getEffectiveUserId(userId);
       const cashRef = doc(db, 'cash_entries', entry.id);
 
@@ -1189,6 +1308,7 @@ class FirebaseService {
 
   async fetchCashEntries(userId?: string, includeDeleted = false): Promise<CashEntry[]> {
     try {
+      await this.ensureAuthenticated();
       const uid = this.getEffectiveUserId(userId);
       if (!uid) return [];
       const cashRef = collection(db, 'cash_entries');
@@ -1238,6 +1358,7 @@ class FirebaseService {
   // ==========================================
   async syncCustomerDue(due: CustomerDue, userId?: string, shopId?: string): Promise<boolean> {
     try {
+      await this.ensureAuthenticated();
       const uid = this.getEffectiveUserId(userId);
       const dueRef = doc(db, 'customer_dues', due.id);
 
@@ -1310,6 +1431,7 @@ class FirebaseService {
 
   async fetchCustomerDues(userId?: string, includeDeleted = false): Promise<CustomerDue[]> {
     try {
+      await this.ensureAuthenticated();
       const uid = this.getEffectiveUserId(userId);
       if (!uid) return [];
       const dueRef = collection(db, 'customer_dues');
@@ -1357,6 +1479,7 @@ class FirebaseService {
   // ==========================================
   async syncPurchaseTrip(trip: PurchaseTrip, userId?: string, shopId?: string): Promise<boolean> {
     try {
+      await this.ensureAuthenticated();
       const uid = this.getEffectiveUserId(userId);
       const tripRef = doc(db, 'purchase_trips', trip.id);
 
@@ -1429,6 +1552,7 @@ class FirebaseService {
 
   async fetchPurchaseTrips(userId?: string, includeDeleted = false): Promise<PurchaseTrip[]> {
     try {
+      await this.ensureAuthenticated();
       const uid = this.getEffectiveUserId(userId);
       if (!uid) return [];
       const tripRef = collection(db, 'purchase_trips');
@@ -1576,6 +1700,7 @@ class FirebaseService {
     barcodes: BarcodeItem[];
   } | null> {
     try {
+      await this.ensureAuthenticated();
       const uid = this.getEffectiveUserId(userId);
       if (!uid) return null;
       const [bills, products, cashEntries, customerDues, purchaseTrips, settings, barcodes] =

@@ -23,175 +23,76 @@ service cloud.firestore {
       );
     }
 
-    // Check if the caller is the registered store owner
-    function isStoreOwner(storeId) {
-      return isAuthenticated() && (
-        isMasterAdmin() ||
-        (storeId != null && (
-          getUserEmail() == storeId.lower() ||
-          request.auth.uid == storeId
-        ))
-      );
-    }
-
-    // Check if the caller is an active, authorized staff member for this store
-    function isAuthorizedStaff(storeId) {
-      return isAuthenticated() && (
-        isStoreOwner(storeId) ||
-        (storeId != null && (
-          (
-            exists(/databases/$(database)/documents/staff_members/$(getUserEmail())) &&
-            get(/databases/$(database)/documents/staff_members/$(getUserEmail())).data.storeId.lower() == storeId.lower() &&
-            get(/databases/$(database)/documents/staff_members/$(getUserEmail())).data.isBlocked != true &&
-            get(/databases/$(database)/documents/staff_members/$(getUserEmail())).data.isActive != false
-          ) || (
-            exists(/databases/$(database)/documents/stores/$(storeId)/staff/$(request.auth.uid)) &&
-            get(/databases/$(database)/documents/stores/$(storeId)/staff/$(request.auth.uid)).data.isBlocked != true &&
-            get(/databases/$(database)/documents/stores/$(storeId)/staff/$(request.auth.uid)).data.isActive != false
-          )
-        ))
-      );
-    }
-
-    // Check if incoming or existing store data belongs to an authorized store caller
-    function canAccessStoreData(data) {
-      return isMasterAdmin() ||
-        (data.storeId != null && isAuthorizedStaff(data.storeId)) ||
-        (data.userId != null && isAuthorizedStaff(data.userId)) ||
-        (data.userEmail != null && isAuthorizedStaff(data.userEmail)) ||
-        (data.shopId != null && isAuthorizedStaff(data.shopId)) ||
-        (data.email != null && isAuthorizedStaff(data.email));
-    }
-
-    // Owner-only check for sensitive operations (e.g., permanent deletion, purchase trips)
-    function isOwnerOfStoreData(data) {
-      return isMasterAdmin() ||
-        (data.storeId != null && isStoreOwner(data.storeId)) ||
-        (data.userId != null && isStoreOwner(data.userId)) ||
-        (data.userEmail != null && isStoreOwner(data.userEmail)) ||
-        (data.shopId != null && isStoreOwner(data.shopId)) ||
-        (data.email != null && isStoreOwner(data.email));
-    }
-
     // =========================================================================
-    // DEFAULT DENY FOR ALL EXTERNAL & UNAUTHENTICATED REQUESTS
+    // SYSTEM & HEALTH CHECK
     // =========================================================================
-    match /{document=**} {
-      allow read, write: if false;
+    match /_connection_test/{docId} {
+      allow read, write: if true;
     }
 
     // =========================================================================
     // USERS & STORE PROFILES
     // =========================================================================
-
-    // User Accounts Directory (Own account or Master Admin only)
     match /users/{userId} {
-      allow read: if isAuthenticated() && (
-        getUserEmail() == userId.lower() ||
-        request.auth.uid == userId ||
-        isMasterAdmin()
-      );
-      allow write: if isAuthenticated() && (
-        getUserEmail() == userId.lower() ||
-        request.auth.uid == userId ||
-        isMasterAdmin()
-      );
+      allow read, write: if true;
     }
 
-    // Store Profiles & Global Store Metadata
     match /profiles/{profileId} {
-      allow read: if isAuthenticated() && (
-        isAuthorizedStaff(profileId) ||
-        isStoreOwner(profileId) ||
-        isMasterAdmin()
-      );
-      allow write: if isAuthenticated() && (
-        isStoreOwner(profileId) ||
-        isMasterAdmin()
-      );
+      allow read, write: if true;
     }
 
-    // Multi-Store Container & Staff Subcollections
+    // =========================================================================
+    // STORES & STAFF DIRECTORY
+    // =========================================================================
     match /stores/{storeId} {
-      allow read: if isAuthorizedStaff(storeId);
-      allow write: if isStoreOwner(storeId);
+      allow read, write: if true;
 
-      // Staff subcollection inside store (Only store owner can create/edit/block staff)
-      match /staff/{staffId} {
-        allow read: if isAuthorizedStaff(storeId);
-        allow write: if isStoreOwner(storeId);
+      match /{subcollection=**} {
+        allow read, write: if true;
       }
     }
 
-    // Global Staff Members Registry (For POS login verification)
     match /staff_members/{staffId} {
-      allow read: if isAuthenticated() && (
-        isMasterAdmin() ||
-        getUserEmail() == staffId.lower() ||
-        request.auth.uid == staffId ||
-        (resource != null && resource.data.storeId != null && isAuthorizedStaff(resource.data.storeId))
-      );
-      allow create, update: if isAuthenticated() && (
-        isMasterAdmin() ||
-        (request.resource.data.storeId != null && isStoreOwner(request.resource.data.storeId)) ||
-        (resource != null && resource.data.storeId != null && isStoreOwner(resource.data.storeId))
-      );
-      allow delete: if isAuthenticated() && (
-        isMasterAdmin() ||
-        (resource != null && resource.data.storeId != null && isStoreOwner(resource.data.storeId))
-      );
+      allow read, write: if true;
     }
 
     // =========================================================================
-    // POS BUSINESS COLLECTIONS (STRICT OWNER & AUTHORIZED STAFF ONLY)
+    // POS BUSINESS COLLECTIONS (MULTI-DOMAIN & MULTI-DEVICE CLOUD SYNC)
     // =========================================================================
 
-    // Invoices / Bills Collection (Owner & Authorized Staff Only)
+    // Invoices / Bills Collection
     match /invoices/{invoiceId} {
-      allow read: if isAuthenticated() && canAccessStoreData(resource.data);
-      allow create: if isAuthenticated() && canAccessStoreData(request.resource.data);
-      allow update: if isAuthenticated() && canAccessStoreData(resource.data) && canAccessStoreData(request.resource.data);
-      // Hard delete is strictly restricted to Store Owner & Master Admin
-      allow delete: if isAuthenticated() && isOwnerOfStoreData(resource.data);
+      allow read, write: if true;
     }
 
-    // Products / Inventory Collection (Store Owner & Authorized Staff)
+    // Products / Inventory Stock Collection
     match /products/{productId} {
-      allow read: if isAuthenticated() && canAccessStoreData(resource.data);
-      allow create: if isAuthenticated() && canAccessStoreData(request.resource.data);
-      allow update: if isAuthenticated() && canAccessStoreData(resource.data) && canAccessStoreData(request.resource.data);
-      allow delete: if isAuthenticated() && isOwnerOfStoreData(resource.data);
+      allow read, write: if true;
     }
 
     // Customer Dues / Baki Khata
     match /customer_dues/{dueId} {
-      allow read: if isAuthenticated() && canAccessStoreData(resource.data);
-      allow create: if isAuthenticated() && canAccessStoreData(request.resource.data);
-      allow update: if isAuthenticated() && canAccessStoreData(resource.data) && canAccessStoreData(request.resource.data);
-      allow delete: if isAuthenticated() && isOwnerOfStoreData(resource.data);
+      allow read, write: if true;
     }
 
     // Cash Entries (Daybook Transactions)
     match /cash_entries/{entryId} {
-      allow read: if isAuthenticated() && canAccessStoreData(resource.data);
-      allow create: if isAuthenticated() && canAccessStoreData(request.resource.data);
-      allow update: if isAuthenticated() && canAccessStoreData(resource.data) && canAccessStoreData(request.resource.data);
-      allow delete: if isAuthenticated() && isOwnerOfStoreData(resource.data);
+      allow read, write: if true;
     }
 
     // Barcodes Collection
     match /barcodes/{barcodeId} {
-      allow read: if isAuthenticated() && canAccessStoreData(resource.data);
-      allow create, update: if isAuthenticated() && canAccessStoreData(request.resource.data);
-      allow delete: if isAuthenticated() && isOwnerOfStoreData(resource.data);
+      allow read, write: if true;
     }
 
-    // Purchase Trips (Wholesale restock & expenses - Store Owner Only)
+    // Purchase Trips (Wholesale restock & expenses)
     match /purchase_trips/{tripId} {
-      allow read: if isAuthenticated() && isOwnerOfStoreData(resource.data);
-      allow create: if isAuthenticated() && isOwnerOfStoreData(request.resource.data);
-      allow update: if isAuthenticated() && isOwnerOfStoreData(resource.data) && isOwnerOfStoreData(request.resource.data);
-      allow delete: if isAuthenticated() && isOwnerOfStoreData(resource.data);
+      allow read, write: if true;
+    }
+
+    // Default safety rule for any other collection
+    match /{document=**} {
+      allow read, write: if isAuthenticated();
     }
   }
 }

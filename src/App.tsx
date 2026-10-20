@@ -149,7 +149,9 @@ export default function App() {
 
     // Boot-time multi-device restore & sync with Firebase Firestore (ONLY for logged-in accounts)
     if (prof.isLoggedIn && prof.email && firebaseService.isConfigured()) {
-      firebaseService.restorePOSData(prof.email).then((fbRes) => {
+      firebaseService.ensureAuthenticated().then(() => {
+        return firebaseService.restorePOSData(prof.email);
+      }).then((fbRes) => {
         if (fbRes && fbRes.success) {
           const deletedBillIds = storageService.getDeletedBillIds();
           const deletedProdIds = storageService.getDeletedProductIds();
