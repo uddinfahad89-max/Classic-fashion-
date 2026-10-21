@@ -75,6 +75,7 @@ interface BillingTabProps {
   products?: ProductStockItem[];
   onOpenProductStock?: () => void;
   totalInvoicesCount?: number;
+  onOpenRecycleBin?: () => void;
   onQuickSaveProduct?: (data: {
     name: string;
     price: number;
@@ -130,6 +131,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   products = [],
   onOpenProductStock,
   totalInvoicesCount = 0,
+  onOpenRecycleBin,
   onQuickSaveProduct,
 }) => {
   const t = translations[language];
@@ -2432,6 +2434,23 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                       {enableSavedSuggestions ? 'ON' : 'OFF'}
                     </span>
                   </button>
+
+                  {onOpenRecycleBin && (
+                    <button
+                      type="button"
+                      id="btn-billing-open-recycle-bin"
+                      onClick={() => {
+                        setShowStockMoreMenu(false);
+                        onOpenRecycleBin();
+                      }}
+                      className="w-full px-3 py-2 rounded-xl text-xs font-bold text-rose-700 hover:bg-rose-50 flex items-center justify-between gap-2 cursor-pointer text-left border-t border-stone-100 mt-1 pt-1.5 transition-colors"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Trash2 className="w-3.5 h-3.5 text-rose-600 stroke-[2.2]" />
+                        <span>{isBn ? 'রিসাইকেল বিন (Recycle Bin)' : 'Recycle Bin'}</span>
+                      </span>
+                    </button>
+                  )}
                 </div>
               )}
             </div>

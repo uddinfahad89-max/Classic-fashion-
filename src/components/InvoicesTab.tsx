@@ -33,6 +33,7 @@ interface InvoicesTabProps {
   viewMode?: 'grid' | 'list';
   sortOption?: SortOption;
   onNavigateToBilling?: () => void;
+  onOpenRecycleBin?: () => void;
   userProfile?: UserProfile;
 }
 
@@ -108,6 +109,7 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
   externalSearchTerm = '',
   sortOption = 'date-desc',
   onNavigateToBilling,
+  onOpenRecycleBin,
   userProfile,
 }) => {
   const isBn = language === 'bn';
@@ -382,6 +384,24 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
                     </button>
                   ))}
                 </div>
+
+                {onOpenRecycleBin && (
+                  <div className="py-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowMoreMenu(false);
+                        onOpenRecycleBin();
+                      }}
+                      className="w-full text-left px-3.5 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50 flex items-center justify-between cursor-pointer transition-colors"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Trash2 className="w-4 h-4 text-rose-600 stroke-[2.2]" />
+                        <span>{isBn ? 'রিসাইকেল বিন (Recycle Bin)' : 'Recycle Bin'}</span>
+                      </span>
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>

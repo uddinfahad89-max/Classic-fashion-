@@ -404,15 +404,29 @@ class FirebaseService {
           };
           await setDoc(userDocRef, matchedAccount, { merge: true });
         } else {
-          // Also check if any invoices exist for this email
-          const invQuery = query(collection(db, 'invoices'), where('userId', '==', cleanEmail));
-          const invSnap = await getDocs(invQuery);
-          if (!invSnap.empty) {
+          // Also check if any invoices exist for this email under userId or userEmail
+          let hasExistingData = false;
+          try {
+            const invQuery = query(collection(db, 'invoices'), where('userId', '==', cleanEmail));
+            const invSnap = await getDocs(invQuery);
+            if (!invSnap.empty) hasExistingData = true;
+          } catch {}
+
+          if (!hasExistingData) {
+            try {
+              const invQuery2 = query(collection(db, 'invoices'), where('userEmail', '==', cleanEmail));
+              const invSnap2 = await getDocs(invQuery2);
+              if (!invSnap2.empty) hasExistingData = true;
+            } catch {}
+          }
+
+          if (hasExistingData || cleanEmail === MASTER_ADMIN_EMAIL.toLowerCase()) {
             matchedAccount = {
               email: cleanEmail,
               password: cleanPass,
-              name: cleanEmail.split('@')[0],
-              role: 'Owner',
+              name: cleanEmail === MASTER_ADMIN_EMAIL.toLowerCase() ? 'Master Admin' : cleanEmail.split('@')[0],
+              role: cleanEmail === MASTER_ADMIN_EMAIL.toLowerCase() ? 'Super Admin' : 'Owner',
+              isSuperAdmin: cleanEmail === MASTER_ADMIN_EMAIL.toLowerCase(),
               pin: '1234',
               updatedAt: new Date().toISOString()
             };
@@ -944,6 +958,23 @@ class FirebaseService {
           snap2.forEach((d) => map.set(d.id, d.data() as BillInvoice));
         }
       } catch {}
+
+      // Fallback: If 0 invoices, check storeId
+      if (map.size === 0) {
+        try {
+          const qStore = query(invoicesRef, where('storeId', '==', uid));
+          const snapStore = await getDocs(qStore);
+          snapStore.forEach((d) => map.set(d.id, d.data() as BillInvoice));
+        } catch {}
+      }
+
+      // Fallback: If Super Admin and still 0 invoices, retrieve all store invoices
+      if (map.size === 0 && this.isSuperAdmin(uid)) {
+        try {
+          const allSnap = await getDocs(invoicesRef);
+          allSnap.forEach((d) => map.set(d.id, d.data() as BillInvoice));
+        } catch {}
+      }
 
       // Filter out deleted bills from local tombstones and soft-delete flag
       let deletedSet: Set<string>;

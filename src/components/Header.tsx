@@ -48,6 +48,7 @@ import {
   ActiveTab,
   NetworkStatusInfo,
 } from '../types';
+import { storageService } from '../services/storageService';
 
 export type SortOption = 'date-desc' | 'date-asc' | 'amount-desc' | 'name-asc';
 
@@ -83,6 +84,7 @@ interface HeaderProps {
   onOpenBluetoothHelp?: () => void;
   onManualSync?: () => void;
   onOpenSuperAdmin?: () => void;
+  onOpenRecycleBin?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -116,6 +118,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenBluetoothHelp,
   onManualSync,
   onOpenSuperAdmin,
+  onOpenRecycleBin,
 }) => {
   const isBn = language === 'bn';
   const isHi = language === 'hi';
@@ -129,11 +132,15 @@ export const Header: React.FC<HeaderProps> = ({
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false);
   const [isFolderMenuOpen, setIsFolderMenuOpen] = useState(false);
+  const [isTopMoreMenuOpen, setIsTopMoreMenuOpen] = useState(false);
 
   const profileRef = useRef<HTMLDivElement>(null);
   const sortRef = useRef<HTMLDivElement>(null);
   const folderRef = useRef<HTMLDivElement>(null);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const recycleBinCount = storageService.getRecycleBinItems().length;
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -147,6 +154,9 @@ export const Header: React.FC<HeaderProps> = ({
       if (folderRef.current && !folderRef.current.contains(e.target as Node)) {
         setIsFolderMenuOpen(false);
       }
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
+        setIsTopMoreMenuOpen(false);
+      }
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -154,6 +164,7 @@ export const Header: React.FC<HeaderProps> = ({
         setIsProfileModalOpen(false);
         setIsSortDropdownOpen(false);
         setIsFolderMenuOpen(false);
+        setIsTopMoreMenuOpen(false);
         setIsDrawerOpen(false);
       }
     };
@@ -732,6 +743,129 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
             )}
           </div>
+
+          {/* Top 3-Dot More Menu Button (৩ ডট মেনু) */}
+          <div className="relative shrink-0" ref={moreMenuRef}>
+            <button
+              id="header-top-3dots-btn"
+              type="button"
+              onClick={() => setIsTopMoreMenuOpen((prev) => !prev)}
+              aria-label="More options"
+              className={`p-2 rounded-full text-stone-700 hover:text-stone-950 hover:bg-stone-100 active:bg-stone-200 transition-colors cursor-pointer shrink-0 ${
+                isTopMoreMenuOpen ? 'bg-stone-100 text-stone-950 ring-2 ring-blue-500/30' : ''
+              }`}
+              title={isBn ? 'অন্যান্য অপশন ও রিসাইকেল বিন (৩ ডট)' : 'More options & Recycle Bin (3-dots)'}
+            >
+              <MoreVertical className="w-5 h-5 text-stone-700" />
+            </button>
+
+            {/* 3-Dot Dropdown Popover */}
+            {isTopMoreMenuOpen && (
+              <div
+                id="header-top-3dots-dropdown"
+                className="absolute right-0 top-11 w-64 bg-white rounded-2xl shadow-2xl border border-stone-200 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150 divide-y divide-stone-100"
+              >
+                {/* 1. Recycle Bin - Prominent Top Item with Badge */}
+                <div className="p-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsTopMoreMenuOpen(false);
+                      if (onOpenRecycleBin) onOpenRecycleBin();
+                    }}
+                    className="w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold text-rose-700 bg-rose-50/70 hover:bg-rose-100 flex items-center justify-between transition-colors cursor-pointer border border-rose-200/60 shadow-2xs"
+                  >
+                    <span className="flex items-center gap-2.5">
+                      <Trash2 className="w-4 h-4 text-rose-600 stroke-[2.3]" />
+                      <span>{isBn ? 'রিসাইকেল বিন (Recycle Bin)' : 'Recycle Bin'}</span>
+                    </span>
+                    <span className="text-[10px] font-mono font-black bg-rose-600 text-white px-2 py-0.5 rounded-full shadow-2xs">
+                      {recycleBinCount > 0 ? `${recycleBinCount}` : 'Bin'}
+                    </span>
+                  </button>
+                </div>
+
+                {/* 2. Cloud Sync */}
+                {onManualSync && (
+                  <div className="py-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsTopMoreMenuOpen(false);
+                        onManualSync();
+                      }}
+                      className="w-full text-left px-3.5 py-2 text-xs font-semibold text-stone-700 hover:bg-stone-50 flex items-center gap-2.5 transition-colors cursor-pointer"
+                    >
+                      <RefreshCw className="w-4 h-4 text-emerald-600" />
+                      <span>{isBn ? 'সব ডাটা সিঙ্ক (Cloud Sync)' : 'Sync Cloud Data'}</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* 3. Common Quick Actions */}
+                <div className="py-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsTopMoreMenuOpen(false);
+                      onOpenSettings();
+                    }}
+                    className="w-full text-left px-3.5 py-2 text-xs font-semibold text-stone-700 hover:bg-stone-50 flex items-center gap-2.5 transition-colors cursor-pointer"
+                  >
+                    <SettingsIcon className="w-4 h-4 text-stone-600" />
+                    <span>{isBn ? 'দোকান ও রসিদ সেটিংস' : 'Store Settings'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsTopMoreMenuOpen(false);
+                      onOpenCalculator();
+                    }}
+                    className="w-full text-left px-3.5 py-2 text-xs font-semibold text-stone-700 hover:bg-stone-50 flex items-center gap-2.5 transition-colors cursor-pointer"
+                  >
+                    <Calculator className="w-4 h-4 text-blue-600" />
+                    <span>{isBn ? 'হিসাব ক্যালকুলেটর (Calculator)' : 'Calculator'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsTopMoreMenuOpen(false);
+                      if (bluetoothStatus.connected) {
+                        onTestPrint();
+                      } else {
+                        onConnectBluetooth();
+                      }
+                    }}
+                    className="w-full text-left px-3.5 py-2 text-xs font-semibold text-stone-700 hover:bg-stone-50 flex items-center justify-between transition-colors cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2.5">
+                      <Bluetooth className="w-4 h-4 text-emerald-600" />
+                      <span>{isBn ? 'থার্মাল প্রিন্টার' : 'Thermal Printer'}</span>
+                    </span>
+                    <span className="text-[10px] text-stone-500 font-medium">
+                      {bluetoothStatus.connected ? 'Online' : 'Connect'}
+                    </span>
+                  </button>
+
+                  {onOpenDataSaver && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsTopMoreMenuOpen(false);
+                        onOpenDataSaver();
+                      }}
+                      className="w-full text-left px-3.5 py-2 text-xs font-semibold text-stone-700 hover:bg-stone-50 flex items-center gap-2.5 transition-colors cursor-pointer"
+                    >
+                      <Zap className="w-4 h-4 text-amber-500 fill-amber-500" />
+                      <span>{isBn ? 'লো-ডাটা মোড (Data Saver)' : 'Data Saver Mode'}</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </header>
@@ -999,6 +1133,26 @@ export const Header: React.FC<HeaderProps> = ({
                   <UserCheck className="w-5 h-5 text-blue-600" />
                   <span>{isBn ? 'স্টাফ ম্যানেজমেন্ট ও বায়োমেট্রিক হাজিরা' : 'Staff Management & Attendance'}</span>
                 </button>
+
+                {/* 8. Recycle Bin (রিসাইকেল বিন) */}
+                {onOpenRecycleBin && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsDrawerOpen(false);
+                      onOpenRecycleBin();
+                    }}
+                    className="w-full text-left px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-bold flex items-center justify-between text-rose-700 bg-rose-50/50 hover:bg-rose-100/70 border border-rose-200/60 transition-colors cursor-pointer"
+                  >
+                    <span className="flex items-center gap-3">
+                      <Trash2 className="w-5 h-5 text-rose-600 stroke-[2.2]" />
+                      <span>{isBn ? 'রিসাইকেল বিন (Recycle Bin)' : 'Recycle Bin'}</span>
+                    </span>
+                    <span className="text-[10px] font-mono font-bold bg-rose-600 text-white px-2 py-0.5 rounded-full shadow-2xs">
+                      {recycleBinCount > 0 ? recycleBinCount : 'Bin'}
+                    </span>
+                  </button>
+                )}
 
                 <div className="h-px bg-stone-200 my-2" />
 

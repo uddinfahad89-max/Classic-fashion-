@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Users,
   Plus,
@@ -26,6 +26,7 @@ import {
   CheckCircle2,
   FastForward,
   Edit3,
+  MoreVertical,
 } from 'lucide-react';
 import { CustomerDue, DueType, ThermalPrinterSettings, BillInvoice, Language } from '../types';
 import { translations } from '../utils/i18n';
@@ -58,6 +59,7 @@ interface CustomerDueTabProps {
       type?: DueType;
     }
   ) => void;
+  onOpenRecycleBin?: () => void;
 }
 
 export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
@@ -70,6 +72,7 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
   onPrintDueSlip,
   onBatchImportDues,
   onUpdateCustomerDue,
+  onOpenRecycleBin,
 }) => {
   const t = translations[language];
   const isBn = language === 'bn';
@@ -122,6 +125,20 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
   const [editCustPhone, setEditCustPhone] = useState('');
   const [editCustAmount, setEditCustAmount] = useState('');
   const [editCustType, setEditCustType] = useState<DueType>('receivable');
+
+  // 3-Dot More Menu State (Recycle Bin, Reports, Excel, WhatsApp)
+  const [showDueMoreMenu, setShowDueMoreMenu] = useState(false);
+  const dueMoreMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dueMoreMenuRef.current && !dueMoreMenuRef.current.contains(e.target as Node)) {
+        setShowDueMoreMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useBackHandler('dueEditCustomerModal', isEditCustomerModalOpen, () => {
     setIsEditCustomerModalOpen(false);
@@ -571,21 +588,102 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
           </button>
         </div>
 
-        {/* View Reports Bar */}
-        <button
-          type="button"
-          onClick={() => setIsReportModalOpen(true)}
-          className="w-full py-2.5 px-4 bg-stone-50 hover:bg-stone-100 border-t border-stone-200/80 flex items-center justify-between text-xs font-bold text-stone-700 transition-colors cursor-pointer"
-        >
-          <span className="flex items-center gap-2">
-            <FileText className="w-4 h-4 text-blue-600" />
-            <span>{isBn ? 'বাকি খাতা রিপোর্ট দেখুন (PDF / Print)' : 'VIEW REPORTS (PDF)'}</span>
-          </span>
-          <span className="text-blue-600 text-xs font-bold flex items-center gap-0.5">
-            <span>{isBn ? 'দেখুন' : 'View'}</span>
-            <span>&gt;</span>
-          </span>
-        </button>
+        {/* View Reports & 3-Dot More Bar (রিসাইকেল বিন ও অন্যান্য অপশন) */}
+        <div className="border-t border-stone-200/80 flex items-center justify-between bg-stone-50">
+          <button
+            type="button"
+            onClick={() => setIsReportModalOpen(true)}
+            className="flex-1 py-2.5 px-4 hover:bg-stone-100 flex items-center justify-between text-xs font-bold text-stone-700 transition-colors cursor-pointer"
+          >
+            <span className="flex items-center gap-2">
+              <FileText className="w-4 h-4 text-blue-600" />
+              <span>{isBn ? 'বাকি খাতা রিপোর্ট দেখুন (PDF / Print)' : 'VIEW REPORTS (PDF)'}</span>
+            </span>
+            <span className="text-blue-600 text-xs font-bold flex items-center gap-0.5">
+              <span>{isBn ? 'দেখুন' : 'View'}</span>
+              <span>&gt;</span>
+            </span>
+          </button>
+
+          {/* 3-Dot More Button */}
+          <div className="relative border-l border-stone-200/80 shrink-0" ref={dueMoreMenuRef}>
+            <button
+              id="btn-customer-due-more-dots"
+              type="button"
+              onClick={() => setShowDueMoreMenu((prev) => !prev)}
+              className="p-2.5 text-stone-600 hover:text-stone-950 hover:bg-stone-100 transition-colors cursor-pointer flex items-center justify-center"
+              title={isBn ? 'রিসাইকেল বিন ও অন্যান্য অপশন (৩ ডট)' : 'Recycle Bin & More Options (3-dots)'}
+            >
+              <MoreVertical className="w-4 h-4" />
+            </button>
+
+            {/* 3-Dot Dropdown */}
+            {showDueMoreMenu && (
+              <div className="absolute right-0 top-10 w-60 bg-white rounded-2xl shadow-2xl border border-stone-200 py-1.5 z-40 animate-in fade-in zoom-in-95 duration-150 divide-y divide-stone-100">
+                {onOpenRecycleBin && (
+                  <div className="p-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowDueMoreMenu(false);
+                        onOpenRecycleBin();
+                      }}
+                      className="w-full text-left px-3.5 py-2.5 text-xs font-bold text-rose-700 bg-rose-50/70 hover:bg-rose-100 rounded-xl flex items-center justify-between cursor-pointer transition-colors border border-rose-200/60 shadow-2xs"
+                    >
+                      <span className="flex items-center gap-2.5">
+                        <Trash2 className="w-4 h-4 text-rose-600 stroke-[2.3]" />
+                        <span>{isBn ? 'রিসাইকেল বিন (Recycle Bin)' : 'Recycle Bin'}</span>
+                      </span>
+                      <span className="text-[10px] font-mono font-black bg-rose-600 text-white px-2 py-0.5 rounded-full shadow-2xs">
+                        Bin
+                      </span>
+                    </button>
+                  </div>
+                )}
+
+                <div className="py-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowDueMoreMenu(false);
+                      setIsReportModalOpen(true);
+                    }}
+                    className="w-full text-left px-3.5 py-2 text-xs font-semibold text-stone-700 hover:bg-stone-50 flex items-center gap-2.5 cursor-pointer"
+                  >
+                    <FileText className="w-4 h-4 text-blue-600" />
+                    <span>{isBn ? 'রিপোর্ট ও স্টেটমেন্ট (PDF)' : 'Ledger Reports (PDF)'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowDueMoreMenu(false);
+                      setIsExcelImportModalOpen(true);
+                    }}
+                    className="w-full text-left px-3.5 py-2 text-xs font-semibold text-stone-700 hover:bg-stone-50 flex items-center gap-2.5 cursor-pointer"
+                  >
+                    <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                    <span>{isBn ? 'এক্সেল / CSV ব্যাকআপ ও ইমপোর্ট' : 'Import / Export Excel'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowDueMoreMenu(false);
+                      setWhatsAppCustomerTarget(null);
+                      setWhatsAppModalMode('bulk');
+                      setIsWhatsAppAssistantModalOpen(true);
+                    }}
+                    className="w-full text-left px-3.5 py-2 text-xs font-semibold text-stone-700 hover:bg-stone-50 flex items-center gap-2.5 cursor-pointer"
+                  >
+                    <FastForward className="w-4 h-4 text-amber-500" />
+                    <span>{isBn ? 'বাল্ক হোয়াটসঅ্যাপ তাগাদা' : 'Bulk WhatsApp Reminders'}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* SUCCESS IMPORT BANNER */}

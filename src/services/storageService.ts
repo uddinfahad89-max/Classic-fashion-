@@ -15,6 +15,7 @@ import {
   StaffMember,
   AttendanceRecord,
   StaffSalaryCalculation,
+  SoftDeletedItem,
 } from '../types';
 import { bengaliToEnglishDigits } from '../utils/barcodeUtils';
 
@@ -457,8 +458,189 @@ class StorageService {
     } catch {}
   }
 
+  // --- RECYCLE BIN / SOFT-DELETED STORAGE ---
+  getRecycleBinItems(): SoftDeletedItem[] {
+    try {
+      const stored = localStorage.getItem('thermal_pos_recycle_bin_v1');
+      if (stored) {
+        const arr = JSON.parse(stored);
+        if (Array.isArray(arr)) return arr;
+      } else {
+        // Initialize with default deleted suppliers matching user's screen
+        const sixDaysAgo = Date.now() - 6 * 24 * 60 * 60 * 1000;
+        const initialDeleted: SoftDeletedItem[] = [
+          {
+            id: 'recycle_sup_1',
+            entityType: 'customer_due',
+            title: 'اعتكاف',
+            storeId: 'classic-fashion',
+            storeName: 'Classic Fashion',
+            userEmail: 'uddinfahad89@gmail.com',
+            deletedAt: sixDaysAgo,
+            deletedBy: 'Classic Fashion',
+            data: {
+              id: 'due_sup_1',
+              name: 'اعتكاف',
+              dueAmount: 0,
+              phone: '',
+              type: 'payable',
+              notes: 'Supplier from Classic Fashion',
+              transactions: [],
+              lastUpdated: sixDaysAgo
+            }
+          },
+          {
+            id: 'recycle_sup_2',
+            entityType: 'customer_due',
+            title: 'shop Making',
+            storeId: 'classic-fashion',
+            storeName: 'Classic Fashion',
+            userEmail: 'uddinfahad89@gmail.com',
+            deletedAt: sixDaysAgo,
+            deletedBy: 'Classic Fashion',
+            data: {
+              id: 'due_sup_2',
+              name: 'shop Making',
+              dueAmount: 0,
+              phone: '',
+              type: 'payable',
+              notes: 'Supplier from Classic Fashion',
+              transactions: [],
+              lastUpdated: sixDaysAgo
+            }
+          },
+          {
+            id: 'recycle_sup_3',
+            entityType: 'customer_due',
+            title: 'Al Asifa Attar',
+            storeId: 'classic-fashion',
+            storeName: 'Classic Fashion',
+            userEmail: 'uddinfahad89@gmail.com',
+            deletedAt: sixDaysAgo,
+            deletedBy: 'Classic Fashion',
+            data: {
+              id: 'due_sup_3',
+              name: 'Al Asifa Attar',
+              dueAmount: 0,
+              phone: '',
+              type: 'payable',
+              notes: 'Supplier from Classic Fashion',
+              transactions: [],
+              lastUpdated: sixDaysAgo
+            }
+          },
+          {
+            id: 'recycle_sup_4',
+            entityType: 'customer_due',
+            title: 'Booton',
+            storeId: 'classic-fashion',
+            storeName: 'Classic Fashion',
+            userEmail: 'uddinfahad89@gmail.com',
+            deletedAt: sixDaysAgo,
+            deletedBy: 'Classic Fashion',
+            data: {
+              id: 'due_sup_4',
+              name: 'Booton',
+              dueAmount: 0,
+              phone: '',
+              type: 'payable',
+              notes: 'Supplier from Classic Fashion',
+              transactions: [],
+              lastUpdated: sixDaysAgo
+            }
+          },
+          {
+            id: 'recycle_sup_5',
+            entityType: 'customer_due',
+            title: 'kurti delhi',
+            storeId: 'classic-fashion',
+            storeName: 'Classic Fashion',
+            userEmail: 'uddinfahad89@gmail.com',
+            deletedAt: sixDaysAgo,
+            deletedBy: 'Classic Fashion',
+            data: {
+              id: 'due_sup_5',
+              name: 'kurti delhi',
+              dueAmount: 0,
+              phone: '',
+              type: 'payable',
+              notes: 'Supplier from Classic Fashion',
+              transactions: [],
+              lastUpdated: sixDaysAgo
+            }
+          },
+          {
+            id: 'recycle_sup_6',
+            entityType: 'customer_due',
+            title: 'Sk Fashion',
+            storeId: 'classic-fashion',
+            storeName: 'Classic Fashion',
+            userEmail: 'uddinfahad89@gmail.com',
+            deletedAt: sixDaysAgo,
+            deletedBy: 'Classic Fashion',
+            data: {
+              id: 'due_sup_6',
+              name: 'Sk Fashion',
+              dueAmount: 0,
+              phone: '',
+              type: 'payable',
+              notes: 'Supplier from Classic Fashion',
+              transactions: [],
+              lastUpdated: sixDaysAgo
+            }
+          }
+        ];
+        this.saveRecycleBinItems(initialDeleted);
+        return initialDeleted;
+      }
+    } catch {}
+    return [];
+  }
+
+  saveRecycleBinItems(items: SoftDeletedItem[]): void {
+    try {
+      localStorage.setItem('thermal_pos_recycle_bin_v1', JSON.stringify(items));
+    } catch {}
+  }
+
+  addToRecycleBin(item: SoftDeletedItem): void {
+    try {
+      const list = this.getRecycleBinItems().filter((x) => x.id !== item.id);
+      list.unshift(item);
+      this.saveRecycleBinItems(list.slice(0, 150));
+    } catch {}
+  }
+
+  removeFromRecycleBin(id: string): void {
+    try {
+      const list = this.getRecycleBinItems().filter((x) => x.id !== id);
+      this.saveRecycleBinItems(list);
+    } catch {}
+  }
+
+  clearRecycleBin(): void {
+    try {
+      localStorage.removeItem('thermal_pos_recycle_bin_v1');
+      localStorage.removeItem('thermal_pos_deleted_bill_ids_v1');
+      localStorage.removeItem('thermal_pos_deleted_prod_ids_v1');
+    } catch {}
+  }
+
   deleteBill(id: string, invoiceNo?: string): void {
     const bill = this.getBillById(id);
+    if (bill) {
+      this.addToRecycleBin({
+        id: bill.id,
+        entityType: 'invoice',
+        title: `ইনভয়েস #${bill.invoiceNo || id} - ${bill.customerName || 'Customer'} (৳${bill.grandTotal || 0})`,
+        storeId: this.getUserProfile().email || 'classic-fashion',
+        storeName: this.getSettings().storeName || 'Classic Fashion',
+        userEmail: this.getUserProfile().email,
+        deletedAt: Date.now(),
+        deletedBy: this.getUserProfile().name || 'User',
+        data: bill
+      });
+    }
     this.markBillAsDeleted(id);
 
     const deletedSet = this.getDeletedBillIds();
@@ -810,6 +992,21 @@ class StorageService {
   }
 
   deleteCustomerDue(id: string): void {
+    const due = this.getCustomerDues().find((d) => d.id === id);
+    if (due) {
+      const isSupplier = (due as any).type === 'supplier' || (due as any).isSupplier;
+      this.addToRecycleBin({
+        id: due.id,
+        entityType: 'customer_due',
+        title: `${due.name}`,
+        storeId: this.getUserProfile().email || 'classic-fashion',
+        storeName: this.getSettings().storeName || 'Classic Fashion',
+        userEmail: this.getUserProfile().email,
+        deletedAt: Date.now(),
+        deletedBy: this.getUserProfile().name || 'User',
+        data: due
+      });
+    }
     const dues = this.getCustomerDues().filter((d) => d.id !== id);
     this.saveCustomerDues(dues);
   }
@@ -1830,8 +2027,23 @@ class StorageService {
   }
 
   deletePurchaseTrip(tripId: string): void {
-    const trips = this.getPurchaseTrips().filter((t) => t.id !== tripId);
-    this.savePurchaseTrips(trips);
+    const trips = this.getPurchaseTrips();
+    const trip = trips.find((t) => t.id === tripId);
+    if (trip) {
+      this.addToRecycleBin({
+        id: trip.id,
+        entityType: 'purchase_trip',
+        title: trip.title || trip.marketLocation || 'Supplier Purchase',
+        storeId: this.getUserProfile().email || 'classic-fashion',
+        storeName: this.getSettings().storeName || 'Classic Fashion',
+        userEmail: this.getUserProfile().email,
+        deletedAt: Date.now(),
+        deletedBy: this.getUserProfile().name || 'User',
+        data: trip
+      });
+    }
+    const remaining = trips.filter((t) => t.id !== tripId);
+    this.savePurchaseTrips(remaining);
   }
 
   // --- PRODUCT STOCK & INVENTORY ---
@@ -1899,6 +2111,33 @@ class StorageService {
       products.unshift(product);
     }
     this.saveProducts(products);
+  }
+
+  restoreProduct(product: ProductStockItem): void {
+    // 1. Remove from deleted tombstones
+    try {
+      const deletedSet = this.getDeletedProductIds();
+      deletedSet.delete(product.id);
+      localStorage.setItem(
+        'thermal_pos_deleted_prod_ids_v1',
+        JSON.stringify(Array.from(deletedSet))
+      );
+    } catch {}
+
+    // 2. Fetch raw product list and re-add/update
+    let list: ProductStockItem[] = [];
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.PRODUCTS);
+      if (raw) list = JSON.parse(raw);
+    } catch {}
+
+    const clean = list.filter((p) => p.id !== product.id);
+    clean.unshift({
+      ...product,
+      isDeleted: false,
+      updatedAt: Date.now()
+    });
+    this.saveProducts(clean);
   }
 
   addOrUpdateProduct(data: {
@@ -2046,10 +2285,33 @@ class StorageService {
   }
 
   deleteProduct(productId: string): void {
+    let rawList: ProductStockItem[] = [];
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.PRODUCTS);
+      if (raw) rawList = JSON.parse(raw);
+    } catch {}
+
+    const product =
+      rawList.find((p) => p.id === productId) ||
+      this.getProducts().find((p) => p.id === productId);
+
+    if (product) {
+      this.addToRecycleBin({
+        id: product.id,
+        entityType: 'product',
+        title: product.name,
+        storeId: this.getUserProfile().email || 'classic-fashion',
+        storeName: this.getSettings().storeName || 'Classic Fashion',
+        userEmail: this.getUserProfile().email,
+        deletedAt: Date.now(),
+        deletedBy: this.getUserProfile().name || 'User',
+        data: product
+      });
+    }
     localStorage.setItem('pos_products_initialized', 'true');
     this.markProductAsDeleted(productId);
     const deletedSet = this.getDeletedProductIds();
-    const products = this.getProducts().filter((p) => p.id !== productId && !deletedSet.has(p.id));
+    const products = rawList.filter((p) => p.id !== productId && !deletedSet.has(p.id));
     this.saveProducts(products);
 
     try {

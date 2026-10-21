@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   ShoppingBag,
   Plus,
@@ -29,6 +29,7 @@ import {
   Tag,
   ArrowUpRight,
   Check,
+  MoreVertical,
 } from 'lucide-react';
 import {
   PurchaseTrip,
@@ -72,6 +73,7 @@ interface PurchaseTripTabProps {
   onDeleteTrip: (tripId: string) => void;
   onSyncTripToCashbook: (trip: PurchaseTrip) => void;
   onPrintTripSlip: (bill: BillInvoice) => void;
+  onOpenRecycleBin?: () => void;
 }
 
 export const PurchaseTripTab: React.FC<PurchaseTripTabProps> = ({
@@ -88,6 +90,7 @@ export const PurchaseTripTab: React.FC<PurchaseTripTabProps> = ({
   onDeleteTrip,
   onSyncTripToCashbook,
   onPrintTripSlip,
+  onOpenRecycleBin,
 }) => {
   const t = translations[language];
   const isBn = language === 'bn';
@@ -103,6 +106,20 @@ export const PurchaseTripTab: React.FC<PurchaseTripTabProps> = ({
   const [isNewTripModalOpen, setIsNewTripModalOpen] = useState(false);
   const [editingTrip, setEditingTrip] = useState<PurchaseTrip | null>(null);
   const [addCashTrip, setAddCashTrip] = useState<PurchaseTrip | null>(null);
+
+  // 3-Dot More Menu State (Recycle Bin, Calculator, etc.)
+  const [showTripMoreMenu, setShowTripMoreMenu] = useState(false);
+  const tripMoreMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (tripMoreMenuRef.current && !tripMoreMenuRef.current.contains(e.target as Node)) {
+        setShowTripMoreMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useBackHandler('purchaseAddExpenseModal', isAddPurchaseModalOpen, () => {
     setIsAddPurchaseModalOpen(false);
@@ -337,17 +354,85 @@ export const PurchaseTripTab: React.FC<PurchaseTripTabProps> = ({
             </div>
           </div>
 
-          {onOpenCalculator && (
-            <button
-              type="button"
-              onClick={onOpenCalculator}
-              className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
-              title={isBn ? 'ক্যালকুলেটর খুলুন (পাইকারি ও ডজন হিসাব)' : 'Open Wholesale Calculator'}
-            >
-              <Calculator className="w-3.5 h-3.5 text-amber-700" />
-              <span>{isBn ? 'ক্যালকুলেটর' : 'Calc'}</span>
-            </button>
-          )}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {onOpenCalculator && (
+              <button
+                type="button"
+                onClick={onOpenCalculator}
+                className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                title={isBn ? 'ক্যালকুলেটর খুলুন (পাইকারি ও ডজন হিসাব)' : 'Open Wholesale Calculator'}
+              >
+                <Calculator className="w-3.5 h-3.5 text-amber-700" />
+                <span>{isBn ? 'ক্যালকুলেটর' : 'Calc'}</span>
+              </button>
+            )}
+
+            {/* 3-Dot More Menu for Purchase/Supplier Tab */}
+            <div className="relative shrink-0" ref={tripMoreMenuRef}>
+              <button
+                id="btn-purchase-trip-more-dots"
+                type="button"
+                onClick={() => setShowTripMoreMenu((prev) => !prev)}
+                className="p-1.5 text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded-xl transition-colors cursor-pointer border border-stone-200"
+                title={isBn ? 'রিসাইকেল বিন ও অন্যান্য অপশন (৩ ডট)' : 'Recycle Bin & Options (3-dots)'}
+              >
+                <MoreVertical className="w-4 h-4" />
+              </button>
+
+              {showTripMoreMenu && (
+                <div className="absolute right-0 top-9 w-56 bg-white rounded-2xl shadow-xl border border-stone-200 py-1.5 z-40 animate-in fade-in zoom-in-95 duration-150 divide-y divide-stone-100">
+                  {onOpenRecycleBin && (
+                    <div className="p-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowTripMoreMenu(false);
+                          onOpenRecycleBin();
+                        }}
+                        className="w-full text-left px-3.5 py-2.5 text-xs font-bold text-rose-700 bg-rose-50/70 hover:bg-rose-100 rounded-xl flex items-center justify-between cursor-pointer transition-colors border border-rose-200/60 shadow-2xs"
+                      >
+                        <span className="flex items-center gap-2.5">
+                          <Trash2 className="w-4 h-4 text-rose-600 stroke-[2.3]" />
+                          <span>{isBn ? 'রিসাইকেল বিন (Recycle Bin)' : 'Recycle Bin'}</span>
+                        </span>
+                        <span className="text-[10px] font-mono font-black bg-rose-600 text-white px-2 py-0.5 rounded-full shadow-2xs">
+                          Bin
+                        </span>
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="py-1">
+                    {onOpenCalculator && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowTripMoreMenu(false);
+                          onOpenCalculator();
+                        }}
+                        className="w-full text-left px-3.5 py-2 text-xs font-semibold text-stone-700 hover:bg-stone-50 flex items-center gap-2.5 cursor-pointer"
+                      >
+                        <Calculator className="w-4 h-4 text-amber-600" />
+                        <span>{isBn ? 'পাইকারি ক্যালকুলেটর' : 'Wholesale Calculator'}</span>
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowTripMoreMenu(false);
+                        setIsNewTripModalOpen(true);
+                      }}
+                      className="w-full text-left px-3.5 py-2 text-xs font-semibold text-stone-700 hover:bg-stone-50 flex items-center gap-2.5 cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4 text-blue-600" />
+                      <span>{isBn ? '+ নতুন মার্কেট ট্রিপ' : '+ New Market Trip'}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* 3 Compact Metric Cards */}

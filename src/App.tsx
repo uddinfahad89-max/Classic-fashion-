@@ -42,6 +42,7 @@ import { BluetoothHelpModal } from './components/BluetoothHelpModal';
 import { ExitConfirmModal } from './components/ExitConfirmModal';
 import { BackExitPill } from './components/BackExitPill';
 import { SuperAdminModal } from './components/SuperAdminModal';
+import { RecycleBinModal } from './components/RecycleBinModal';
 import { useNetworkStatus } from './utils/useNetworkStatus';
 import { backHandler, useBackHandler } from './utils/backHandler';
 import { firebaseService } from './services/firebaseService';
@@ -93,6 +94,7 @@ export default function App() {
   const [editingBill, setEditingBill] = useState<BillInvoice | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSuperAdminOpen, setIsSuperAdminOpen] = useState(false);
+  const [isRecycleBinOpen, setIsRecycleBinOpen] = useState(false);
   const [isPrintingBill, setIsPrintingBill] = useState(false);
   const [isExitConfirmOpen, setIsExitConfirmOpen] = useState(false);
   const [isExitPillVisible, setIsExitPillVisible] = useState(false);
@@ -420,6 +422,11 @@ export default function App() {
 
   useBackHandler('appOnboarding', isOnboardingOpen, () => {
     setIsOnboardingOpen(false);
+    return true;
+  }, 50);
+
+  useBackHandler('appRecycleBin', isRecycleBinOpen, () => {
+    setIsRecycleBinOpen(false);
     return true;
   }, 50);
 
@@ -1670,29 +1677,57 @@ export default function App() {
         'info'
       );
 
-      // Sync all current data to Firebase Firestore in background
-      firebaseService.syncAllPOSData({
-        bills: storageService.getBills(),
-        products: storageService.getProducts(),
-        cashEntries: storageService.getCashEntries(),
-        customerDues: storageService.getCustomerDues(),
-        purchaseTrips: storageService.getPurchaseTrips(),
-        settings: storageService.getSettings(),
-        userProfile: prof
-      }).catch((fbErr) => console.warn('Firebase sync notice:', fbErr));
+      // 1. Upload current device data to Firebase Firestore first
+      const targetSyncId = prof.email || prof.phone || '';
+      await firebaseService.syncAllPOSData(
+        {
+          bills: storageService.getBills(),
+          products: storageService.getProducts(),
+          cashEntries: storageService.getCashEntries(),
+          customerDues: storageService.getCustomerDues(),
+          purchaseTrips: storageService.getPurchaseTrips(),
+          settings: storageService.getSettings(),
+          userProfile: prof
+        },
+        targetSyncId
+      ).catch((fbErr) => console.warn('Firebase sync notice:', fbErr));
 
-      // 1. Strictly restore and sync directly from Firebase Firestore
-      const fbData = await firebaseService.restorePOSData(prof.email || prof.phone);
-      if (fbData && (fbData.bills.length > 0 || fbData.products.length > 0)) {
+      // 2. Fetch and merge all data from Firebase Firestore
+      const fbData = await firebaseService.restorePOSData(targetSyncId);
+      if (fbData) {
         const deletedBills = storageService.getDeletedBillIds();
         const deletedProds = storageService.getDeletedProductIds();
-        const activeBills = fbData.bills.filter((b) => !deletedBills.has(b.id) && !deletedBills.has(b.invoiceNo));
-        const activeProds = fbData.products.filter((p) => !deletedProds.has(p.id));
 
-        storageService.saveBills(activeBills);
-        storageService.saveProducts(activeProds);
-        setBills(activeBills);
-        setProducts(activeProds);
+        const localBills = storageService.getBills();
+        const localProds = storageService.getProducts();
+
+        // Merge without losing any bill
+        const billMap = new Map<string, BillInvoice>();
+        localBills.forEach((b) => billMap.set(b.id, b));
+        (fbData.bills || []).forEach((b) => {
+          if (!deletedBills.has(b.id) && !deletedBills.has(b.invoiceNo)) {
+            billMap.set(b.id, b);
+          }
+        });
+        const mergedBills = Array.from(billMap.values()).sort(
+          (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
+        );
+
+        // Merge products without losing any product
+        const prodMap = new Map<string, ProductStockItem>();
+        localProds.forEach((p) => prodMap.set(p.id, p));
+        (fbData.products || []).forEach((p) => {
+          if (!deletedProds.has(p.id)) {
+            prodMap.set(p.id, p);
+          }
+        });
+        const mergedProds = Array.from(prodMap.values());
+
+        storageService.saveBills(mergedBills);
+        storageService.saveProducts(mergedProds);
+        setBills(mergedBills);
+        setProducts(mergedProds);
+
         if (fbData.cashEntries && fbData.cashEntries.length > 0) {
           storageService.saveCashEntries(fbData.cashEntries);
           setCashEntries(fbData.cashEntries);
@@ -1711,8 +1746,8 @@ export default function App() {
         }
         showToast(
           language === 'bn'
-            ? `ফায়ারবেস ক্লাউড সিঙ্ক সফল! (${activeBills.length}টি ইনভয়েস, ${activeProds.length}টি প্রোডাক্ট)`
-            : `Firebase Cloud Synced! (${activeBills.length} Invoices, ${activeProds.length} Products)`,
+            ? `ফায়ারবেস ক্লাউড সিঙ্ক সফল! (${mergedBills.length}টি ইনভয়েস, ${mergedProds.length}টি প্রোডাক্ট)`
+            : `Firebase Cloud Synced! (${mergedBills.length} Invoices, ${mergedProds.length} Products)`,
           'success'
         );
         return;
@@ -1794,6 +1829,7 @@ export default function App() {
         onOpenDataSaver={() => setIsDataSaverOpen(true)}
         onOpenBluetoothHelp={() => setIsBluetoothHelpOpen(true)}
         onOpenSuperAdmin={() => setIsSuperAdminOpen(true)}
+        onOpenRecycleBin={() => setIsRecycleBinOpen(true)}
       />
 
       {/* Active Staff Mode Reassurance Bar */}
@@ -1841,6 +1877,7 @@ export default function App() {
             products={products}
             onOpenProductStock={() => setIsProductStockOpen(true)}
             totalInvoicesCount={bills.length}
+            onOpenRecycleBin={() => setIsRecycleBinOpen(true)}
             onQuickSaveProduct={(data) => {
               storageService.addOrUpdateProduct(data);
               setProducts(storageService.getProducts());
@@ -1875,6 +1912,7 @@ export default function App() {
             sortOption={sortOption}
             onNavigateToBilling={() => setActiveTab('billing')}
             userProfile={userProfile}
+            onOpenRecycleBin={() => setIsRecycleBinOpen(true)}
           />
         )}
 
@@ -1918,6 +1956,7 @@ export default function App() {
             }}
             onBatchImportDues={handleBatchImportDues}
             onUpdateCustomerDue={handleUpdateCustomerDue}
+            onOpenRecycleBin={() => setIsRecycleBinOpen(true)}
           />
         )}
 
@@ -1954,6 +1993,7 @@ export default function App() {
                 setReceiptInitialTotalOnly(Boolean(settings.isTotalOnlySlip));
                 setReceiptBill(bill);
               }}
+              onOpenRecycleBin={() => setIsRecycleBinOpen(true)}
             />
           ))}
 
@@ -2305,6 +2345,27 @@ export default function App() {
         onUpdateSettings={handleSaveSettings}
         language={language}
         onShowToast={showToast}
+      />
+
+      {/* Recycle Bin Full-Screen Mobile Modal */}
+      <RecycleBinModal
+        isOpen={isRecycleBinOpen}
+        onClose={() => setIsRecycleBinOpen(false)}
+        language={language}
+        currentUserProfile={userProfile}
+        onItemRestored={() => {
+          setBills(storageService.getBills());
+          setProducts(storageService.getProducts());
+          setCustomerDues(storageService.getCustomerDues());
+          setCashEntries(storageService.getCashEntries());
+          setPurchaseTrips(storageService.getPurchaseTrips());
+          showToast(
+            language === 'bn'
+              ? 'আইটেমটি সফলভাবে রিস্টোর করা হয়েছে'
+              : 'Item restored successfully',
+            'success'
+          );
+        }}
       />
 
       {/* Khatabook / Vyapar style Floating Back Exit Pill */}
