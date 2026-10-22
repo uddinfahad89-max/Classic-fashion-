@@ -421,9 +421,7 @@ class StorageService {
       if (stored) {
         const arr = JSON.parse(stored);
         if (Array.isArray(arr)) {
-          // Strictly keep document IDs starting with 'inv-', exclude numeric invoice numbers
-          const cleanIds = arr.filter((x: string) => typeof x === 'string' && x.startsWith('inv-'));
-          return new Set(cleanIds);
+          return new Set(arr.filter((x: any) => typeof x === 'string' && x.trim().length > 0));
         }
       }
     } catch {}
@@ -432,10 +430,66 @@ class StorageService {
 
   markBillAsDeleted(id: string): void {
     try {
-      if (!id || !id.startsWith('inv-')) return;
+      if (!id || typeof id !== 'string') return;
+      const cleanId = id.trim();
+      if (!cleanId) return;
       const set = this.getDeletedBillIds();
-      set.add(id);
+      set.add(cleanId);
       localStorage.setItem('thermal_pos_deleted_bill_ids_v1', JSON.stringify(Array.from(set)));
+    } catch {}
+  }
+
+  restoreBill(bill: BillInvoice): void {
+    if (!bill || !bill.id) return;
+
+    // 1. Un-tombstone the bill ID and invoice number
+    try {
+      const deletedSet = this.getDeletedBillIds();
+      deletedSet.delete(bill.id);
+      if (bill.invoiceNo) {
+        deletedSet.delete(bill.invoiceNo);
+      }
+      localStorage.setItem(
+        'thermal_pos_deleted_bill_ids_v1',
+        JSON.stringify(Array.from(deletedSet))
+      );
+    } catch {}
+
+    // 2. Fetch raw bills from storage and re-insert or update
+    let rawBills: BillInvoice[] = [];
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.BILLS);
+      if (raw) rawBills = JSON.parse(raw);
+    } catch {}
+
+    const cleanBill: BillInvoice = {
+      ...bill,
+      isDeleted: false,
+      deletedAt: undefined,
+      deletedBy: undefined,
+    };
+
+    const idx = rawBills.findIndex((b) => b.id === cleanBill.id);
+    if (idx >= 0) {
+      rawBills[idx] = cleanBill;
+    } else {
+      rawBills.unshift(cleanBill);
+    }
+
+    this.saveBillsList(rawBills, false);
+
+    // 3. Backup to server disk and sync vault
+    try {
+      const profile = this.getUserProfile();
+      const identifier = profile.email || profile.phone || profile.shopId || '';
+      if (identifier && typeof window !== 'undefined' && typeof fetch !== 'undefined') {
+        fetch('/api/bills/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ identifier, bill: cleanBill }),
+        }).catch((e) => console.warn('Server bill restore notice:', e));
+      }
+      this.syncActiveAccountVault();
     } catch {}
   }
 
@@ -642,6 +696,12 @@ class StorageService {
       });
     }
     this.markBillAsDeleted(id);
+    if (invoiceNo && invoiceNo !== id) {
+      this.markBillAsDeleted(invoiceNo);
+    }
+    if (bill?.invoiceNo && bill.invoiceNo !== id) {
+      this.markBillAsDeleted(bill.invoiceNo);
+    }
 
     const deletedSet = this.getDeletedBillIds();
     const bills = this.getBills().filter(

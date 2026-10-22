@@ -151,6 +151,7 @@ interface ProductStockModalProps {
   onDeleteProduct: (productId: string) => void;
   onSelectForBill?: (product: ProductStockItem, qty?: number) => void;
   onOpenBarcodeStudio?: (product: ProductStockItem) => void;
+  onOpenRecycleBin?: () => void;
   settings: ThermalPrinterSettings;
   language?: Language;
 }
@@ -164,6 +165,7 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
   onDeleteProduct,
   onSelectForBill,
   onOpenBarcodeStudio,
+  onOpenRecycleBin,
   settings,
   language = 'bn',
 }) => {
@@ -409,13 +411,26 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-8 h-8 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center text-white transition-colors cursor-pointer"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-1.5">
+            {onOpenRecycleBin && (
+              <button
+                type="button"
+                onClick={onOpenRecycleBin}
+                title={isBn ? 'রিসাইকেল বিন (Recycle Bin)' : 'Recycle Bin'}
+                className="px-2.5 py-1.5 rounded-xl bg-white/15 hover:bg-white/25 flex items-center gap-1.5 text-xs font-bold text-white transition-colors cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">{isBn ? 'রিসাইকেল বিন' : 'Recycle Bin'}</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-8 h-8 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center text-white transition-colors cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Summary Stats Bar */}

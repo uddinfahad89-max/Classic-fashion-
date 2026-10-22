@@ -107,16 +107,7 @@ export const RecycleBinModal: React.FC<RecycleBinModalProps> = ({
       if (item.entityType === 'invoice') {
         const rawBill = item.data as BillInvoice;
         if (rawBill) {
-          const restoredBill: BillInvoice = { ...rawBill, isDeleted: false };
-          storageService.saveBill(restoredBill);
-          try {
-            const deletedSet = storageService.getDeletedBillIds();
-            deletedSet.delete(item.id);
-            localStorage.setItem(
-              'thermal_pos_deleted_bill_ids_v1',
-              JSON.stringify(Array.from(deletedSet))
-            );
-          } catch {}
+          storageService.restoreBill(rawBill);
         }
       } else if (item.entityType === 'product') {
         const prod = item.data as ProductStockItem;
@@ -152,7 +143,7 @@ export const RecycleBinModal: React.FC<RecycleBinModalProps> = ({
 
       // 2. Cloud restoration in Firebase
       try {
-        await firebaseService.restoreSoftDeletedRecord(item.entityType, item.id);
+        await firebaseService.restoreSoftDeletedRecord(item.entityType, item.id, item.data);
       } catch (err) {
         console.warn('Firebase restore error:', err);
       }
@@ -323,12 +314,13 @@ export const RecycleBinModal: React.FC<RecycleBinModalProps> = ({
               const isItemBusy = actionLoadingId === item.id;
               const storeDisplay = item.storeName || 'Classic Fashion';
               const isSupplierOrParty = item.entityType === 'customer_due' || item.entityType === 'purchase_trip';
+              const isProduct = item.entityType === 'product';
               const entityLabel =
                 isSupplierOrParty
                   ? 'Supplier'
                   : item.entityType === 'invoice'
                   ? 'Invoice'
-                  : item.entityType === 'product'
+                  : isProduct
                   ? 'Product'
                   : 'Item';
 

@@ -885,19 +885,51 @@ class FirebaseService {
   }
 
   // Single-Click Instant Recovery for Invoices
-  async restoreInvoice(id: string): Promise<boolean> {
+  async restoreInvoice(id: string, bill?: BillInvoice): Promise<boolean> {
     try {
+      await this.ensureAuthenticated();
       const invoiceRef = doc(db, 'invoices', id);
-      await setDoc(
-        invoiceRef,
-        {
+      const updatePayload: Record<string, any> = {
+        isDeleted: false,
+        deletedAt: null,
+        deletedBy: null,
+        restoredAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      if (bill) {
+        Object.assign(updatePayload, {
+          ...bill,
           isDeleted: false,
           deletedAt: null,
           deletedBy: null,
-          restoredAt: new Date().toISOString()
-        },
-        { merge: true }
-      );
+        });
+      }
+
+      await setDoc(invoiceRef, updatePayload, { merge: true });
+
+      // If bill has invoiceNo or id matches, unmark in related Firestore docs
+      const invNo = bill?.invoiceNo || (id.startsWith('inv-') ? undefined : id);
+      if (invNo) {
+        try {
+          const invoicesRef = collection(db, 'invoices');
+          const q2 = query(invoicesRef, where('invoiceNo', '==', invNo));
+          const snap2 = await getDocs(q2);
+          for (const d of snap2.docs) {
+            await setDoc(
+              d.ref,
+              {
+                isDeleted: false,
+                deletedAt: null,
+                deletedBy: null,
+                restoredAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              },
+              { merge: true }
+            );
+          }
+        } catch {}
+      }
 
       // Remove from local tombstone if present
       try {
@@ -905,7 +937,9 @@ class FirebaseService {
           const raw = localStorage.getItem('thermal_pos_deleted_bill_ids_v1');
           if (raw) {
             const arr = JSON.parse(raw);
-            const filtered = arr.filter((x: string) => x !== id);
+            const filtered = arr.filter(
+              (x: string) => x !== id && (bill?.invoiceNo ? x !== bill.invoiceNo : true)
+            );
             localStorage.setItem('thermal_pos_deleted_bill_ids_v1', JSON.stringify(filtered));
           }
         }
@@ -1069,19 +1103,28 @@ class FirebaseService {
   }
 
   // Single-Click Instant Recovery for Products
-  async restoreProduct(productId: string): Promise<boolean> {
+  async restoreProduct(productId: string, product?: ProductStockItem): Promise<boolean> {
     try {
+      await this.ensureAuthenticated();
       const prodRef = doc(db, 'products', productId);
-      await setDoc(
-        prodRef,
-        {
+      const updatePayload: Record<string, any> = {
+        isDeleted: false,
+        deletedAt: null,
+        deletedBy: null,
+        updatedAt: Date.now()
+      };
+
+      if (product) {
+        Object.assign(updatePayload, {
+          ...product,
           isDeleted: false,
           deletedAt: null,
           deletedBy: null,
           updatedAt: Date.now()
-        },
-        { merge: true }
-      );
+        });
+      }
+
+      await setDoc(prodRef, updatePayload, { merge: true });
 
       // Remove from local tombstone if present
       try {
@@ -1317,19 +1360,26 @@ class FirebaseService {
     return this.softDeleteCashEntry(id);
   }
 
-  async restoreCashEntry(id: string): Promise<boolean> {
+  async restoreCashEntry(id: string, cash?: CashEntry): Promise<boolean> {
     try {
+      await this.ensureAuthenticated();
       const cashRef = doc(db, 'cash_entries', id);
-      await setDoc(
-        cashRef,
-        {
+      const updatePayload: Record<string, any> = {
+        isDeleted: false,
+        deletedAt: null,
+        deletedBy: null,
+        updatedAt: Date.now()
+      };
+      if (cash) {
+        Object.assign(updatePayload, {
+          ...cash,
           isDeleted: false,
           deletedAt: null,
           deletedBy: null,
           updatedAt: Date.now()
-        },
-        { merge: true }
-      );
+        });
+      }
+      await setDoc(cashRef, updatePayload, { merge: true });
       return true;
     } catch (e) {
       console.error('Firebase restoreCashEntry error:', e);
@@ -1440,19 +1490,26 @@ class FirebaseService {
     return this.softDeleteCustomerDue(id);
   }
 
-  async restoreCustomerDue(id: string): Promise<boolean> {
+  async restoreCustomerDue(id: string, due?: CustomerDue): Promise<boolean> {
     try {
+      await this.ensureAuthenticated();
       const dueRef = doc(db, 'customer_dues', id);
-      await setDoc(
-        dueRef,
-        {
+      const updatePayload: Record<string, any> = {
+        isDeleted: false,
+        deletedAt: null,
+        deletedBy: null,
+        updatedAt: Date.now()
+      };
+      if (due) {
+        Object.assign(updatePayload, {
+          ...due,
           isDeleted: false,
           deletedAt: null,
           deletedBy: null,
           updatedAt: Date.now()
-        },
-        { merge: true }
-      );
+        });
+      }
+      await setDoc(dueRef, updatePayload, { merge: true });
       return true;
     } catch (e) {
       console.error('Firebase restoreCustomerDue error:', e);
@@ -1561,19 +1618,26 @@ class FirebaseService {
     return this.softDeletePurchaseTrip(id);
   }
 
-  async restorePurchaseTrip(id: string): Promise<boolean> {
+  async restorePurchaseTrip(id: string, trip?: PurchaseTrip): Promise<boolean> {
     try {
+      await this.ensureAuthenticated();
       const tripRef = doc(db, 'purchase_trips', id);
-      await setDoc(
-        tripRef,
-        {
+      const updatePayload: Record<string, any> = {
+        isDeleted: false,
+        deletedAt: null,
+        deletedBy: null,
+        updatedAt: Date.now()
+      };
+      if (trip) {
+        Object.assign(updatePayload, {
+          ...trip,
           isDeleted: false,
           deletedAt: null,
           deletedBy: null,
           updatedAt: Date.now()
-        },
-        { merge: true }
-      );
+        });
+      }
+      await setDoc(tripRef, updatePayload, { merge: true });
       return true;
     } catch (e) {
       console.error('Firebase restorePurchaseTrip error:', e);
@@ -1766,18 +1830,18 @@ class FirebaseService {
   // ==========================================
 
   // Single-Click Generic Restore Method
-  async restoreSoftDeletedRecord(entityType: string, id: string): Promise<boolean> {
+  async restoreSoftDeletedRecord(entityType: string, id: string, fullData?: any): Promise<boolean> {
     try {
       if (entityType === 'invoice') {
-        return await this.restoreInvoice(id);
+        return await this.restoreInvoice(id, fullData);
       } else if (entityType === 'product') {
-        return await this.restoreProduct(id);
+        return await this.restoreProduct(id, fullData);
       } else if (entityType === 'customer_due') {
-        return await this.restoreCustomerDue(id);
+        return await this.restoreCustomerDue(id, fullData);
       } else if (entityType === 'cash_entry') {
-        return await this.restoreCashEntry(id);
+        return await this.restoreCashEntry(id, fullData);
       } else if (entityType === 'purchase_trip') {
-        return await this.restorePurchaseTrip(id);
+        return await this.restorePurchaseTrip(id, fullData);
       }
       return false;
     } catch (e) {

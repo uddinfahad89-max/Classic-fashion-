@@ -2270,6 +2270,7 @@ export default function App() {
         }}
         settings={settings}
         language={language}
+        onOpenRecycleBin={() => setIsRecycleBinOpen(true)}
       />
 
       {/* Bluetooth Setup & Troubleshooting Guide Modal */}
