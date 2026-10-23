@@ -144,7 +144,7 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
   const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null);
   const [modalFingerprintEnrolled, setModalFingerprintEnrolled] = useState(false);
   const [modalFingerprintId, setModalFingerprintId] = useState<string | null>(null);
-  const [modalFingerprintName, setModalFingerprintName] = useState<string>('ডান হাতের বৃদ্ধাঙ্গুল');
+  const [modalFingerprintName, setModalFingerprintName] = useState<string>(isBn ? 'ডান হাতের বৃদ্ধাঙ্গুল' : 'Right Thumb');
   const [isModalScanning, setIsModalScanning] = useState(false);
 
   // POS Access & Role Permissions states
@@ -2829,15 +2829,15 @@ ${absentLines}
                     <div className="font-black text-xs leading-none">{d.day}</div>
                     <div className="text-[9px] font-black uppercase tracking-tight leading-none">
                       {d.status === 'present'
-                        ? 'উপস্থিত'
+                        ? (isBn ? 'উপস্থিত' : 'Present')
                         : d.status === 'absent'
-                        ? 'অনুপস্থিত'
+                        ? (isBn ? 'অনুপস্থিত' : 'Absent')
                         : d.status === 'weekly_off'
-                        ? 'ছুটি'
+                        ? (isBn ? 'ছুটি' : 'Off')
                         : d.status === 'leave'
-                        ? 'পেইড'
+                        ? (isBn ? 'পেইড' : 'Paid')
                         : d.status === 'half_day'
-                        ? '০.৫'
+                        ? (isBn ? '০.৫' : '0.5')
                         : '-'}
                     </div>
                   </div>

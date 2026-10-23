@@ -331,6 +331,9 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
                   <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded shrink-0">
                     {bill.paymentStatus === 'PAID' ? 'PAID' : 'DUE / CREDIT'}
                   </span>
+                  <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.5 rounded shrink-0">
+                    {settings.paperWidth || '80mm'} Roll
+                  </span>
                 </div>
               </div>
             </div>
@@ -545,6 +548,40 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
             </button>
           </div>
 
+          {/* Roll Width Selector: 80mm Wide Receipt vs 58mm Standard */}
+          <div className="flex items-center justify-between px-1 py-0.5 text-xs bg-stone-50 rounded-xl border border-stone-200/80 px-2.5 py-1">
+            <span className="text-[11px] font-bold text-stone-700 flex items-center gap-1">
+              <span>🖨️</span>
+              <span>{language === 'bn' ? 'রসিদের সাইজ (Paper Roll):' : 'Receipt Paper Roll:'}</span>
+            </span>
+            <div className="inline-flex items-center bg-stone-200/70 rounded-lg p-0.5 text-[11px] font-bold">
+              <button
+                type="button"
+                onClick={() => onUpdatePaperWidth && onUpdatePaperWidth('80mm')}
+                className={`px-2.5 py-0.5 rounded-md transition-all cursor-pointer flex items-center gap-1 ${
+                  (settings.paperWidth || '80mm') === '80mm'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-stone-600 hover:text-stone-900'
+                }`}
+              >
+                <span>✓ 80mm</span>
+                <span className="text-[10px] opacity-90">({language === 'bn' ? 'ওয়াইড রসিদ' : 'Wide'})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onUpdatePaperWidth && onUpdatePaperWidth('58mm')}
+                className={`px-2.5 py-0.5 rounded-md transition-all cursor-pointer flex items-center gap-1 ${
+                  settings.paperWidth === '58mm'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-stone-600 hover:text-stone-900'
+                }`}
+              >
+                <span>58mm</span>
+                <span className="text-[10px] opacity-90">({language === 'bn' ? 'ছোট' : 'Small'})</span>
+              </button>
+            </div>
+          </div>
+
           {/* Top 2 Side-by-Side Print Buttons: Connect & Print (Left) and Print (Right) */}
           <div className="flex items-center justify-center gap-3">
             <button
@@ -662,6 +699,7 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
                 bill={effectiveBill}
                 settings={effectiveSettings}
                 isTotalOnlySlip={isTotalOnlySlip}
+                language={language}
               />
             )}
           </div>

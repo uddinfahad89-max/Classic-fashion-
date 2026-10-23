@@ -200,6 +200,19 @@ class StorageService {
       if (parsed.currencySymbol === '?' || parsed.currencySymbol === '₹') {
         parsed.currencySymbol = 'Rs.';
       }
+      // Ensure 80mm roll wide receipt is actively selected by default as requested by user
+      if (localStorage.getItem('simple_pos_paper_migrated_80mm_v3') !== 'done') {
+        parsed.paperWidth = '80mm';
+        try {
+          localStorage.setItem('simple_pos_paper_migrated_80mm_v3', 'done');
+          localStorage.setItem(
+            STORAGE_KEYS.SETTINGS,
+            JSON.stringify({ ...DEFAULT_SETTINGS, ...parsed, paperWidth: '80mm' })
+          );
+        } catch {}
+      } else if (!parsed.paperWidth) {
+        parsed.paperWidth = '80mm';
+      }
       return { ...DEFAULT_SETTINGS, ...parsed };
     } catch {
       return DEFAULT_SETTINGS;
@@ -1912,18 +1925,31 @@ class StorageService {
   // --- LANGUAGE SETTINGS ---
   getLanguage(): Language {
     try {
+      // Ensure initial opening page starts in English as requested
+      if (localStorage.getItem('simple_pos_default_lang_en_v5') !== 'done') {
+        localStorage.setItem('simple_pos_default_lang_en_v5', 'done');
+        localStorage.setItem(STORAGE_KEYS.LANG, 'en');
+        localStorage.setItem('simple_pos_language_explicit', 'true');
+        return 'en';
+      }
+
+      const explicit = localStorage.getItem('simple_pos_language_explicit');
       const lang = localStorage.getItem(STORAGE_KEYS.LANG);
+      if (explicit === 'true' && (lang === 'en' || lang === 'bn' || lang === 'hi')) {
+        return lang;
+      }
       if (lang === 'en' || lang === 'bn' || lang === 'hi') {
         return lang;
       }
-      return 'bn'; // Default to Bengali as requested
+      return 'en'; // Default to English as requested
     } catch {
-      return 'bn';
+      return 'en';
     }
   }
 
   setLanguage(lang: Language): void {
     try {
+      localStorage.setItem('simple_pos_language_explicit', 'true');
       localStorage.setItem(STORAGE_KEYS.LANG, lang);
     } catch (e) {
       console.error('Failed to save language:', e);

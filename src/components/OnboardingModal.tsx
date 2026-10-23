@@ -58,7 +58,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
   isOpen,
   onSave,
   onLoginExisting,
-  language = 'bn',
+  language = 'en',
   onSelectLanguage,
   onClose,
   onSkip,
@@ -515,21 +515,21 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
               <Globe className="w-3.5 h-3.5 text-stone-500 ml-1" />
               <button
                 type="button"
-                onClick={() => onSelectLanguage('bn')}
-                className={`px-2 py-0.5 rounded text-[11px] font-bold cursor-pointer ${
-                  language === 'bn' ? 'bg-blue-600 text-white' : 'text-stone-600 hover:bg-stone-100'
-                }`}
-              >
-                বাংলা
-              </button>
-              <button
-                type="button"
                 onClick={() => onSelectLanguage('en')}
                 className={`px-2 py-0.5 rounded text-[11px] font-bold cursor-pointer ${
                   language === 'en' ? 'bg-blue-600 text-white' : 'text-stone-600 hover:bg-stone-100'
                 }`}
               >
                 EN
+              </button>
+              <button
+                type="button"
+                onClick={() => onSelectLanguage('bn')}
+                className={`px-2 py-0.5 rounded text-[11px] font-bold cursor-pointer ${
+                  language === 'bn' ? 'bg-blue-600 text-white' : 'text-stone-600 hover:bg-stone-100'
+                }`}
+              >
+                বাংলা
               </button>
               <button
                 type="button"

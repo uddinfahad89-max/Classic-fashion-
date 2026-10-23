@@ -43,7 +43,7 @@ export const CashbookTab: React.FC<CashbookTabProps> = ({
   settings,
   onAddEntry,
   onDeleteEntry,
-  language = 'bn',
+  language = 'en',
 }) => {
   const t = translations[language];
   const isBn = language === 'bn';

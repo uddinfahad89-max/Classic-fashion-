@@ -126,7 +126,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   isPrinting = false,
   onPrintBill,
   onClearBill,
-  language = 'bn',
+  language = 'en',
   onOpenCalculator,
   products = [],
   onOpenProductStock,
@@ -1152,6 +1152,13 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     discountAmount = Math.min(subtotal, rawDiscount);
   }
 
+  const liveDiscountPercent =
+    discountType === 'percent'
+      ? Math.min(100, rawDiscount)
+      : subtotal > 0
+      ? Math.round((discountAmount / subtotal) * 100 * 10) / 10
+      : 0;
+
   const grandTotal = Math.max(0, subtotal - discountAmount);
   const paidNum = parseFloat(paidAmount) || 0;
   const changeAmount = Math.max(0, paidNum - grandTotal);
@@ -2079,18 +2086,46 @@ export const BillingTab: React.FC<BillingTabProps> = ({
 
                       {/* 3. UNIT PRICE: Clean font */}
                       <td className="p-2 sm:p-2.5 text-right">
-                        <span
-                          onClick={() => handleStartEditItem(item, 'price')}
-                          className="font-medium text-xs sm:text-sm text-stone-800 cursor-pointer hover:text-[#0A8057] transition-colors"
-                          title={isBn ? 'দর এডিট করতে ট্যাপ করুন' : 'Tap to edit unit price'}
-                        >
-                          {item.price.toFixed(2)}
-                        </span>
+                        <div className="flex flex-col items-end">
+                          {discountAmount > 0 && liveDiscountPercent > 0 ? (
+                            <>
+                              <span
+                                onClick={() => handleStartEditItem(item, 'price')}
+                                className="font-bold text-xs sm:text-sm text-stone-900 cursor-pointer hover:text-[#0A8057] transition-colors"
+                                title={isBn ? 'দর এডিট করতে ট্যাপ করুন' : 'Tap to edit unit price'}
+                              >
+                                {(item.price * (1 - discountAmount / subtotal)).toFixed(2)}
+                              </span>
+                              <span className="line-through text-stone-400 text-[11px] leading-tight">
+                                {item.price.toFixed(2)}
+                              </span>
+                            </>
+                          ) : (
+                            <span
+                              onClick={() => handleStartEditItem(item, 'price')}
+                              className="font-medium text-xs sm:text-sm text-stone-800 cursor-pointer hover:text-[#0A8057] transition-colors"
+                              title={isBn ? 'দর এডিট করতে ট্যাপ করুন' : 'Tap to edit unit price'}
+                            >
+                              {item.price.toFixed(2)}
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* 4. TOTAL: e.g. Rs.300.00 */}
                       <td className="p-2 sm:p-2.5 text-right font-medium text-xs sm:text-sm text-stone-900 whitespace-nowrap">
-                        {sym || 'Rs.'}{item.total.toFixed(2)}
+                        {discountAmount > 0 && liveDiscountPercent > 0 ? (
+                          <div className="flex flex-col items-end">
+                            <span className="font-bold text-stone-900">
+                              {sym || 'Rs.'}{(item.total * (1 - discountAmount / subtotal)).toFixed(2)}
+                            </span>
+                            <span className="line-through text-stone-400 text-[11px] leading-tight">
+                              {sym || 'Rs.'}{item.total.toFixed(2)}
+                            </span>
+                          </div>
+                        ) : (
+                          `${sym || 'Rs.'}${item.total.toFixed(2)}`
+                        )}
                       </td>
 
                       {/* 5. ACTIONS: Save button + Edit Pen (কলম) beside it */}
@@ -2288,7 +2323,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                           : 'Saved Products (Tap to fill name & price)'}
                       </span>
                     </span>
-                    <span>{matchingProducts.length}টি পাওয়া গেছে</span>
+                    <span>{isBn ? `${matchingProducts.length}টি পাওয়া গেছে` : `${matchingProducts.length} found`}</span>
                   </div>
 
                   <div className="max-h-60 overflow-y-auto divide-y divide-stone-100">

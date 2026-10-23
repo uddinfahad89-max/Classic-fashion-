@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BillInvoice, ThermalPrinterSettings } from '../types';
+import { BillInvoice, ThermalPrinterSettings, Language } from '../types';
 import { numberToWords } from '../utils/numberToWords';
 import { buildUpiUri, generateQrDataUrl } from '../utils/qrCode';
 
@@ -7,13 +7,16 @@ interface TaxInvoiceSheetProps {
   bill: BillInvoice;
   settings: ThermalPrinterSettings;
   isTotalOnlySlip?: boolean;
+  language?: Language;
 }
 
 export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
   bill,
   settings,
   isTotalOnlySlip = false,
+  language = 'en',
 }) => {
+  const isBn = language === 'bn';
   const isTotalOnly = Boolean(isTotalOnlySlip);
   const isBillEstimate =
     bill.paymentMethod === 'estimate' ||
@@ -165,14 +168,14 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
               }`}
             >
               {isBillEstimate
-                ? '📋 ESTIMATE (এস্টিমেট)'
+                ? (isBn ? '📋 ESTIMATE (এস্টিমেট)' : '📋 ESTIMATE')
                 : bill.paymentMethod === 'cash' && balance <= 0
-                ? '💵 CASH (পরিশোধিত)'
+                ? (isBn ? '💵 CASH (পরিশোধিত)' : '💵 CASH (PAID)')
                 : bill.paymentMethod === 'upi' && balance <= 0
-                ? '📱 UPI (পরিশোধিত)'
+                ? (isBn ? '📱 UPI (পরিশোধিত)' : '📱 UPI (PAID)')
                 : balance <= 0
-                ? '✓ PAID (পরিশোধিত)'
-                : '⚠️ UNPAID / DUE (বাকি)'}
+                ? (isBn ? '✓ PAID (পরিশোধিত)' : '✓ PAID')
+                : (isBn ? '⚠️ UNPAID / DUE (বাকি)' : '⚠️ UNPAID / DUE')}
             </span>
           </div>
         </div>
@@ -209,25 +212,25 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
                 : 'bg-stone-50 border-stone-200 text-stone-900'
             }`}
           >
-            <span>Payment Mode (পেমেন্ট ধরন)</span>
+            <span>{isBn ? 'পেমেন্ট ধরন (Payment Mode)' : 'Payment Mode'}</span>
             <span className="font-black uppercase tracking-wide">
               {isBillEstimate
-                ? 'এস্টিমেট (ESTIMATE)'
+                ? (isBn ? 'এস্টিমেট (ESTIMATE)' : 'ESTIMATE')
                 : bill.paymentMethod === 'cash'
-                ? 'ক্যাশ (CASH)'
+                ? (isBn ? 'ক্যাশ (CASH)' : 'CASH')
                 : bill.paymentMethod === 'upi'
-                ? 'ইউপিআই (UPI)'
+                ? (isBn ? 'ইউপিআই (UPI)' : 'UPI')
                 : bill.paymentMethod === 'due'
-                ? 'ক্রেডিট / বাকি (CREDIT)'
+                ? (isBn ? 'ক্রেডিট / বাকি (CREDIT)' : 'CREDIT / DUE')
                 : bill.paymentMethod === 'card'
-                ? 'কার্ড (CARD)'
+                ? (isBn ? 'কার্ড (CARD)' : 'CARD')
                 : (bill.paymentMethod || 'CASH').toUpperCase()}
             </span>
           </div>
             <>
               {paidAmount > 0 && balance > 0 && (
                 <div className="flex justify-between items-center text-stone-700 font-medium text-sm sm:text-base px-1">
-                  <span>Paid (পরিশোধ)</span>
+                  <span>{isBn ? 'Paid (পরিশোধ)' : 'Paid'}</span>
                   <span className="font-bold text-emerald-700">
                     {currencyPrefix}{paidAmount.toFixed(1)}
                   </span>
@@ -236,7 +239,7 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
 
               {balance > 0 && (
                 <div className="flex justify-between items-center bg-rose-50 border border-rose-200 px-3.5 py-2 rounded-xl text-rose-900 font-bold">
-                  <span>Due (বাকি)</span>
+                  <span>{isBn ? 'Due (বাকি)' : 'Due'}</span>
                   <span className="text-lg sm:text-xl font-black text-rose-700">
                     {currencyPrefix}{balance.toFixed(1)}
                   </span>
@@ -296,20 +299,20 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
       <div className="text-center my-2.5">
         <h2 className="text-xl sm:text-2xl font-black text-[#5046E5] print:text-black tracking-wide uppercase">
           {isTotalOnly
-            ? 'টাকার হিসাব স্লিপ / TOTAL AMOUNT SLIP'
+            ? (isBn ? 'টাকার হিসাব স্লিপ / TOTAL AMOUNT SLIP' : 'TOTAL AMOUNT SLIP')
             : bill.isTailoring
             ? '✂️ Tailoring Invoice'
             : isBillEstimate
-            ? 'এস্টিমেট বিল / ESTIMATE BILL'
+            ? (isBn ? 'এস্টিমেট বিল / ESTIMATE BILL' : 'ESTIMATE BILL')
             : bill.paymentMethod === 'cash'
-            ? 'ক্যাশ মেমো / CASH MEMO'
+            ? (isBn ? 'ক্যাশ মেমো / CASH MEMO' : 'CASH MEMO')
             : bill.paymentMethod === 'upi'
-            ? 'ইউপিআই বিল / UPI BILL'
+            ? (isBn ? 'ইউপিআই বিল / UPI BILL' : 'UPI BILL')
             : bill.paymentMethod === 'due'
-            ? 'বাকি বিল / CREDIT BILL'
+            ? (isBn ? 'বাকি বিল / CREDIT BILL' : 'CREDIT / DUE BILL')
             : bill.paymentMethod === 'card'
-            ? 'কার্ড বিল / CARD BILL'
-            : 'ক্যাশ মেমো / CASH MEMO'}
+            ? (isBn ? 'কার্ড বিল / CARD BILL' : 'CARD BILL')
+            : (isBn ? 'ক্যাশ মেমো / CASH MEMO' : 'CASH MEMO')}
         </h2>
       </div>
 
@@ -348,31 +351,35 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
           <div className="pt-0.5">
             {isBillEstimate ? (
               <span className="inline-block px-2.5 py-0.5 rounded text-xs sm:text-sm font-black bg-blue-100 text-blue-800 border border-blue-300">
-                📋 ESTIMATE BILL (এস্টিমেট)
+                {isBn ? '📋 ESTIMATE BILL (এস্টিমেট)' : '📋 ESTIMATE BILL'}
               </span>
             ) : bill.paymentMethod === 'cash' ? (
               <span className="inline-block px-2.5 py-0.5 rounded text-xs sm:text-sm font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
-                💵 CASH (ক্যাশ মেমো{balance <= 0 ? ' - পরিশোধিত' : ''})
+                {isBn ? `💵 CASH (ক্যাশ মেমো${balance <= 0 ? ' - পরিশোধিত' : ''})` : `💵 CASH${balance <= 0 ? ' (PAID)' : ''}`}
               </span>
             ) : bill.paymentMethod === 'upi' ? (
               <span className="inline-block px-2.5 py-0.5 rounded text-xs sm:text-sm font-black bg-purple-100 text-purple-800 border border-purple-300">
-                📱 UPI (ইউপিআই{balance <= 0 ? ' - পরিশোধিত' : ''})
+                {isBn ? `📱 UPI (ইউপিআই${balance <= 0 ? ' - পরিশোধিত' : ''})` : `📱 UPI${balance <= 0 ? ' (PAID)' : ''}`}
               </span>
             ) : bill.paymentMethod === 'due' ? (
               <span className="inline-block px-2 py-0.5 rounded text-xs sm:text-sm font-black bg-rose-100 text-rose-700 border border-rose-300">
-                ⏳ CREDIT / DUE (বাকী / ক্রেডিট)
+                {isBn ? '⏳ CREDIT / DUE (বাকী / ক্রেডিট)' : '⏳ CREDIT / DUE'}
               </span>
             ) : bill.paymentMethod === 'card' ? (
               <span className="inline-block px-2.5 py-0.5 rounded text-xs sm:text-sm font-black bg-blue-100 text-blue-800 border border-blue-300">
-                💳 CARD (কার্ড)
+                {isBn ? '💳 CARD (কার্ড)' : '💳 CARD'}
               </span>
             ) : balance > 0 ? (
               <span className="inline-block px-2 py-0.5 rounded text-xs sm:text-sm font-black bg-rose-100 text-rose-700 border border-rose-300">
-                {paidAmount > 0 ? `PARTIAL DUE: ${currencyPrefix}${balance.toFixed(1)}` : `DUE (বাকি): ${currencyPrefix}${balance.toFixed(1)}`}
+                {paidAmount > 0
+                  ? `PARTIAL DUE: ${currencyPrefix}${balance.toFixed(1)}`
+                  : isBn
+                  ? `DUE (বাকি): ${currencyPrefix}${balance.toFixed(1)}`
+                  : `DUE: ${currencyPrefix}${balance.toFixed(1)}`}
               </span>
             ) : (
-              <span className="inline-block px-2 py-0.5 rounded text-xs sm:text-sm font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
-                ✓ PAID (পরিশোধিত)
+              <span className="inline-block px-2.5 py-0.5 rounded text-xs sm:text-sm font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
+                {isBn ? '✓ PAID (পরিশোধিত)' : '✓ PAID'}
               </span>
             )}
           </div>
@@ -450,25 +457,30 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
           <div className="flex items-center justify-between border-b border-stone-200 pb-3 flex-wrap gap-2">
             <div>
               <span className="text-xs font-bold text-stone-500 uppercase tracking-wider block">
-                পণ্য বিবরণী / Purchase Overview
+                {isBn ? 'পণ্য বিবরণী / Purchase Overview' : 'Purchase Overview'}
               </span>
               <span className="text-base sm:text-lg font-black text-stone-900">
-                মোট ক্রয়কৃত পণ্য / আইটেম: <strong className="text-[#8C8EE8] font-mono text-xl">{totalQty}</strong> টি
+                {isBn ? 'মোট ক্রয়কৃত পণ্য / আইটেম: ' : 'Total Items Purchased: '}
+                <strong className="text-[#8C8EE8] font-mono text-xl">{totalQty}</strong> {isBn ? 'টি' : 'pcs'}
               </span>
             </div>
             <div className="text-right">
-              <span className="text-xs font-bold text-stone-500 uppercase block">পেমেন্ট অবস্থা</span>
+              <span className="text-xs font-bold text-stone-500 uppercase block">
+                {isBn ? 'পেমেন্ট অবস্থা' : 'Payment Status'}
+              </span>
               <span
                 className={`inline-block px-3 py-1 rounded-full text-xs font-black ${
                   balance <= 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
                 }`}
               >
-                {balance <= 0 ? '✓ পরিশোধিত (PAID)' : '⚠️ বকেয়া (DUE)'}
+                {balance <= 0 ? (isBn ? '✓ পরিশোধিত (PAID)' : '✓ PAID') : (isBn ? '⚠️ বকেয়া (DUE)' : '⚠️ DUE')}
               </span>
             </div>
           </div>
           <p className="text-xs text-stone-500 italic font-medium">
-            * এই হিসাব স্লিপে ব্যক্তিগত পণ্যের আইটেম তালিকা ও দর গোপন রাখা হয়েছে, শুধু চূড়ান্ত টাকার হিসাব দেওয়া হয়েছে।
+            {isBn
+              ? '* এই হিসাব স্লিপে ব্যক্তিগত পণ্যের আইটেম তালিকা ও দর গোপন রাখা হয়েছে, শুধু চূড়ান্ত টাকার হিসাব দেওয়া হয়েছে।'
+              : '* Individual item names and rates are hidden on this total slip; only final calculated amount is shown.'}
           </p>
         </div>
       ) : (
@@ -490,26 +502,58 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
               </tr>
             </thead>
             <tbody>
-              {bill.items.map((item, idx) => (
-                <tr key={item.id || idx} className="bg-white">
-                  <td className="py-2.5 px-3 text-left text-stone-900 font-semibold">
-                    {idx + 1}
-                  </td>
-                  <td className="py-2.5 px-3 text-left font-bold text-stone-900">
-                    {item.name}
-                  </td>
-                  <td className="py-2.5 px-3 text-right text-stone-900 font-semibold whitespace-nowrap">
-                    {item.qty}
-                    {item.unit ? ` ${item.unit}` : ''}
-                  </td>
-                  <td className="py-2.5 px-3 text-right text-stone-900 font-semibold whitespace-nowrap">
-                    {item.price.toFixed(1)}
-                  </td>
-                  <td className="py-2.5 px-3 text-right text-stone-900 font-bold whitespace-nowrap">
-                    {item.total.toFixed(1)}
-                  </td>
-                </tr>
-              ))}
+              {bill.items.map((item, idx) => {
+                const itemDiscountRatio =
+                  discountAmount > 0 && bill.subtotal > 0
+                    ? discountAmount / bill.subtotal
+                    : 0;
+                const finalUnitPrice = Math.round(item.price * (1 - itemDiscountRatio) * 100) / 100;
+                const finalItemTotal = Math.round(item.total * (1 - itemDiscountRatio) * 100) / 100;
+                const hasDiscount = discountAmount > 0 && finalUnitPrice !== item.price;
+
+                return (
+                  <tr key={item.id || idx} className="bg-white">
+                    <td className="py-2.5 px-3 text-left text-stone-900 font-semibold">
+                      {idx + 1}
+                    </td>
+                    <td className="py-2.5 px-3 text-left font-bold text-stone-900">
+                      {item.name}
+                    </td>
+                    <td className="py-2.5 px-3 text-right text-stone-900 font-semibold whitespace-nowrap">
+                      {item.qty}
+                      {item.unit ? ` ${item.unit}` : ''}
+                    </td>
+                    <td className="py-2.5 px-3 text-right text-stone-900 font-semibold whitespace-nowrap">
+                      {hasDiscount ? (
+                        <div>
+                          <div className="font-bold text-stone-900">
+                            {finalUnitPrice.toFixed(1)}
+                          </div>
+                          <div className="line-through text-stone-400 text-xs leading-none mt-0.5">
+                            {item.price.toFixed(1)}
+                          </div>
+                        </div>
+                      ) : (
+                        <div>{item.price.toFixed(1)}</div>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-3 text-right text-stone-900 font-bold whitespace-nowrap">
+                      {hasDiscount ? (
+                        <div>
+                          <div className="font-bold text-stone-900">
+                            {finalItemTotal.toFixed(1)}
+                          </div>
+                          <div className="line-through text-stone-400 text-xs font-normal leading-none mt-0.5">
+                            {item.total.toFixed(1)}
+                          </div>
+                        </div>
+                      ) : (
+                        item.total.toFixed(1)
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
             <tfoot>
               <tr className="border-t border-b border-stone-800 font-extrabold text-stone-900">
@@ -520,7 +564,16 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
                 </td>
                 <td className="py-2.5 px-3"></td>
                 <td className="py-2.5 px-3 text-right font-extrabold text-stone-900 text-base sm:text-lg whitespace-nowrap">
-                  {currencyPrefix}{bill.subtotal.toFixed(1)}
+                  {discountAmount > 0 ? (
+                    <div>
+                      <div>{currencyPrefix}{bill.grandTotal.toFixed(1)}</div>
+                      <div className="line-through text-stone-400 text-xs font-normal">
+                        {currencyPrefix}{bill.subtotal.toFixed(1)}
+                      </div>
+                    </div>
+                  ) : (
+                    `${currencyPrefix}{bill.subtotal.toFixed(1)}`
+                  )}
                 </td>
               </tr>
             </tfoot>
@@ -543,7 +596,7 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
           {(isTotalOnly || discountAmount > 0) && (
             <div className="flex justify-between items-center py-0.5">
               <span className="font-medium text-stone-800">
-                {isTotalOnly ? 'মোট পণ্যের দাম (Subtotal)' : 'Subtotal'}
+                {isTotalOnly ? (isBn ? 'মোট পণ্যের দাম (Subtotal)' : 'Subtotal') : 'Subtotal'}
               </span>
               <span className="font-semibold text-stone-900">
                 {currencyPrefix}{bill.subtotal.toFixed(1)}
@@ -585,18 +638,18 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
                   : 'bg-stone-50 border-stone-200 text-stone-900'
               }`}
             >
-              <span className="text-sm sm:text-base">পেমেন্ট ধরন (Payment Mode)</span>
+              <span className="text-sm sm:text-base">{isBn ? 'পেমেন্ট ধরন (Payment Mode)' : 'Payment Mode'}</span>
               <span className="font-black uppercase tracking-wider text-sm sm:text-base">
                 {isBillEstimate
-                  ? 'এস্টিমেট (ESTIMATE)'
+                  ? (isBn ? 'এস্টিমেট (ESTIMATE)' : 'ESTIMATE')
                   : bill.paymentMethod === 'cash'
-                  ? 'ক্যাশ (CASH)'
+                  ? (isBn ? 'ক্যাশ (CASH)' : 'CASH')
                   : bill.paymentMethod === 'upi'
-                  ? 'ইউপিআই (UPI)'
+                  ? (isBn ? 'ইউপিআই (UPI)' : 'UPI')
                   : bill.paymentMethod === 'due'
-                  ? 'ক্রেডিট / বাকি (CREDIT)'
+                  ? (isBn ? 'ক্রেডিট / বাকি (CREDIT)' : 'CREDIT / DUE')
                   : bill.paymentMethod === 'card'
-                  ? 'কার্ড (CARD)'
+                  ? (isBn ? 'কার্ড (CARD)' : 'CARD')
                   : (bill.paymentMethod || 'CASH').toUpperCase()}
               </span>
             </div>
@@ -604,7 +657,7 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
             {paidAmount > 0 && (
               <div className="flex justify-between items-center py-0.5">
                 <span className="font-medium text-stone-800">
-                  {bill.isTailoring ? 'Advance' : 'Paid / Received (পরিশোধ)'}
+                  {bill.isTailoring ? 'Advance' : (isBn ? 'Paid / Received (পরিশোধ)' : 'Paid / Received')}
                 </span>
                 <span className="font-semibold text-emerald-700">
                   {currencyPrefix}{paidAmount.toFixed(1)}
@@ -615,7 +668,7 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
             {balance > 0 && (
               <div className="flex justify-between items-center py-0.5">
                 <span className="font-semibold text-rose-700">
-                  {bill.isTailoring ? 'Balance Due' : 'Balance Due (বাকি)'}
+                  {bill.isTailoring ? 'Balance Due' : (isBn ? 'Balance Due (বাকি)' : 'Balance Due')}
                 </span>
                 <span className="font-extrabold text-rose-700">
                   {currencyPrefix}{balance.toFixed(1)}
@@ -625,7 +678,7 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
 
             {isBillEstimate && paidAmount <= 0 && (
               <div className="text-right text-xs text-stone-500 font-medium italic pt-0.5">
-                * এস্টিমেট বিল / কোটেশন (Estimate / Quotation)
+                {isBn ? '* এস্টিমেট বিল / কোটেশন (Estimate / Quotation)' : '* Estimate Bill / Quotation'}
               </div>
             )}
           </div>

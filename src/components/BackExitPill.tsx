@@ -14,7 +14,7 @@ export const BackExitPill: React.FC<BackExitPillProps> = ({
   isVisible,
   onDismiss,
   onOpenConfirm,
-  language = 'bn',
+  language = 'en',
   durationMs = 3500,
 }) => {
   const [secondsLeft, setSecondsLeft] = useState(3);

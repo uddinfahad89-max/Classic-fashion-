@@ -13,7 +13,7 @@ export const ExitConfirmModal: React.FC<ExitConfirmModalProps> = ({
   isOpen,
   onClose,
   onConfirmExit,
-  language = 'bn',
+  language = 'en',
 }) => {
   const isBn = language === 'bn';
 

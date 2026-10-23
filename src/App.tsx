@@ -1316,9 +1316,19 @@ export default function App() {
     }
 
     if (type === 'payable') {
-      showToast(`কাস্টমার পাওনাদার হিসেবে ${settings.currencySymbol}${amount.toFixed(2)} যুক্ত করা হয়েছে`, 'info');
+      showToast(
+        language === 'bn'
+          ? `কাস্টমার পাওনাদার হিসেবে ${settings.currencySymbol}${amount.toFixed(2)} যুক্ত করা হয়েছে`
+          : `Added customer payable: ${settings.currencySymbol}${amount.toFixed(2)}`,
+        'info'
+      );
     } else {
-      showToast(`বাকি হিসেবে ${settings.currencySymbol}${amount.toFixed(2)} যুক্ত করা হয়েছে`, 'info');
+      showToast(
+        language === 'bn'
+          ? `বাকি হিসেবে ${settings.currencySymbol}${amount.toFixed(2)} যুক্ত করা হয়েছে`
+          : `Added customer due: ${settings.currencySymbol}${amount.toFixed(2)}`,
+        'info'
+      );
     }
   };
 
@@ -1367,16 +1377,30 @@ export default function App() {
       storageService.addCashEntry(
         'Expense',
         amount,
-        `পাওনাদারকে পরিশোধ: ${target?.name || 'Customer'} - ${note || 'Settlement'}`
+        language === 'bn'
+          ? `পাওনাদারকে পরিশোধ: ${target?.name || 'Customer'} - ${note || 'Settlement'}`
+          : `Payable settlement: ${target?.name || 'Customer'} - ${note || 'Settlement'}`
       );
-      showToast(`পাওনাদারকে ${settings.currencySymbol}${amount.toFixed(2)} পরিশোধ রেকর্ড করা হয়েছে`, 'success');
+      showToast(
+        language === 'bn'
+          ? `পাওনাদারকে ${settings.currencySymbol}${amount.toFixed(2)} পরিশোধ রেকর্ড করা হয়েছে`
+          : `Recorded payment of ${settings.currencySymbol}${amount.toFixed(2)} to creditor`,
+        'success'
+      );
     } else {
       storageService.addCashEntry(
         'Income',
         amount,
-        `বাকি আদায় জমা: ${target?.name || 'Customer'} - ${note || 'Due payment'}`
+        language === 'bn'
+          ? `বাকি আদায় জমা: ${target?.name || 'Customer'} - ${note || 'Due payment'}`
+          : `Due payment collection: ${target?.name || 'Customer'} - ${note || 'Due payment'}`
       );
-      showToast(`বাকি আদায় ${settings.currencySymbol}${amount.toFixed(2)} ক্যাশবুকে জমা হয়েছে`, 'success');
+      showToast(
+        language === 'bn'
+          ? `বাকি আদায় ${settings.currencySymbol}${amount.toFixed(2)} ক্যাশবুকে জমা হয়েছে`
+          : `Collected ${settings.currencySymbol}${amount.toFixed(2)} due payment added to cashbook`,
+        'success'
+      );
     }
     const freshCash = storageService.getCashEntries();
     setCashEntries(freshCash);

@@ -65,7 +65,7 @@ interface CustomerDueTabProps {
 export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
   dues,
   settings,
-  language = 'bn',
+  language = 'en',
   onAddOrUpdateDue,
   onRecordPayment,
   onDeleteDue,

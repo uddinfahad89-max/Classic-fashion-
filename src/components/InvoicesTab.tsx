@@ -101,7 +101,7 @@ function getPartyDisplayName(customerName?: string): string {
 export const InvoicesTab: React.FC<InvoicesTabProps> = ({
   bills,
   settings,
-  language = 'bn',
+  language = 'en',
   onViewReceipt,
   onDeleteBill,
   onUpdateBill,
@@ -539,6 +539,13 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
                 : Math.max(0, bill.grandTotal - (bill.paidAmount || 0)) || bill.grandTotal
               : 0;
 
+            const discPercent =
+              bill.discountType === 'percent' && bill.discountValue
+                ? bill.discountValue
+                : bill.subtotal > 0 && bill.discount > 0
+                ? Math.round((bill.discount / bill.subtotal) * 100 * 10) / 10
+                : 0;
+
             return (
               <div
                 key={bill.id}
@@ -554,6 +561,19 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
                     <span className="text-[11px] font-mono font-bold text-stone-500 bg-stone-100 px-1.5 py-0.5 rounded">
                       #{bill.invoiceNo}
                     </span>
+                    {bill.discount > 0 && (
+                      <span
+                        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200"
+                        title={
+                          isBn
+                            ? `ডিসকাউন্ট: -${sym}${bill.discount}`
+                            : `Discount: -${sym}${bill.discount}`
+                        }
+                      >
+                        <span>🏷️</span>
+                        <span>-{sym}{bill.discount}</span>
+                      </span>
+                    )}
                     {bill.paymentMethod === 'estimate' || bill.paymentStatus === 'ESTIMATE' ? (
                       <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-700 text-[10px] font-bold border border-blue-200">
                         {isBn ? 'এস্টিমেট (Estimate)' : 'ESTIMATE'}
@@ -638,6 +658,11 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
                     >
                       {isDue ? (isBn ? 'বাকি (Due)' : "You'll Get (Due)") : isBn ? 'নগদ (Paid)' : 'Paid'}
                     </div>
+                    {bill.discount > 0 && (
+                      <div className="text-[10px] font-bold text-emerald-600 mt-0.5">
+                        -{sym}{bill.discount}
+                      </div>
+                    )}
                   </div>
                   <button
                     type="button"

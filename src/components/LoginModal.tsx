@@ -69,7 +69,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   onLogin,
   onRegister,
   onLogout,
-  language = 'bn',
+  language = 'en',
   onSelectLanguage,
   onOpenForgotPassword,
   onOpenStaffManagement,
@@ -341,6 +341,15 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   <Globe className="w-3.5 h-3.5 text-blue-100 ml-1" />
                   <button
                     type="button"
+                    onClick={() => onSelectLanguage('en')}
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer ${
+                      language === 'en' ? 'bg-white text-blue-900' : 'text-white hover:bg-white/20'
+                    }`}
+                  >
+                    EN
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => onSelectLanguage('bn')}
                     className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer ${
                       language === 'bn' ? 'bg-white text-blue-900' : 'text-white hover:bg-white/20'
@@ -350,12 +359,12 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => onSelectLanguage('en')}
+                    onClick={() => onSelectLanguage('hi')}
                     className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer ${
-                      language === 'en' ? 'bg-white text-blue-900' : 'text-white hover:bg-white/20'
+                      language === 'hi' ? 'bg-white text-blue-900' : 'text-white hover:bg-white/20'
                     }`}
                   >
-                    EN
+                    हिन्दी
                   </button>
                 </div>
               )}
