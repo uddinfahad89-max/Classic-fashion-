@@ -107,11 +107,12 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
 
   const sheetRef = useRef<HTMLDivElement>(null);
 
+  const [printScale, setPrintScale] = useState<'normal' | 'large' | 'xlarge'>('large');
   const [estimateMode, setEstimateMode] = useState<boolean>(() =>
     bill
       ? bill.paymentMethod === 'estimate' ||
         bill.paymentStatus === 'ESTIMATE' ||
-        (Boolean(bill.isEstimate) && bill.paymentMethod === 'estimate')
+        Boolean(bill.isEstimate)
       : false
   );
 
@@ -120,7 +121,7 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
       setEstimateMode(
         bill.paymentMethod === 'estimate' ||
           bill.paymentStatus === 'ESTIMATE' ||
-          (Boolean(bill.isEstimate) && bill.paymentMethod === 'estimate')
+          Boolean(bill.isEstimate)
       );
     }
   }, [bill]);
@@ -129,7 +130,7 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
     if (autoPrint && bill) {
       const timer = setTimeout(() => {
         if (sheetRef.current) {
-          thermalPrinterService.printTaxInvoiceElement(sheetRef.current, bill);
+          thermalPrinterService.printTaxInvoiceElement(sheetRef.current, effectiveBill);
         }
         if (onAutoPrintComplete) {
           onAutoPrintComplete();
@@ -144,6 +145,10 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
   const effectiveBill: BillInvoice = {
     ...bill,
     isEstimate: estimateMode,
+    paymentMethod: estimateMode ? 'estimate' : (bill.paymentMethod === 'estimate' ? 'cash' : bill.paymentMethod),
+    paymentStatus: estimateMode ? 'ESTIMATE' : (bill.paymentStatus === 'ESTIMATE' ? 'PAID' : bill.paymentStatus),
+    balance: estimateMode ? 0 : bill.balance,
+    paidAmount: estimateMode ? 0 : bill.paidAmount,
   };
 
   const isEstimate = estimateMode;
@@ -235,7 +240,7 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
   // 4. Standard Print for Tax Invoice
   const handlePrintTaxInvoice = () => {
     if (!sheetRef.current) return;
-    thermalPrinterService.printTaxInvoiceElement(sheetRef.current, bill);
+    thermalPrinterService.printTaxInvoiceElement(sheetRef.current, effectiveBill);
   };
 
   // 5. Direct PDF Save
@@ -328,8 +333,18 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
               <div className="min-w-0">
                 <div className="font-mono font-bold text-xs sm:text-sm text-stone-900 flex items-center gap-1.5 flex-wrap">
                   <span className="truncate">{pdfFilename}</span>
-                  <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded shrink-0">
-                    {bill.paymentStatus === 'PAID' ? 'PAID' : 'DUE / CREDIT'}
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ${
+                    effectiveBill.isEstimate || effectiveBill.paymentMethod === 'estimate' || effectiveBill.paymentStatus === 'ESTIMATE'
+                      ? 'bg-blue-100 text-blue-800'
+                      : effectiveBill.paymentStatus === 'PAID'
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : 'bg-rose-100 text-rose-800'
+                  }`}>
+                    {effectiveBill.isEstimate || effectiveBill.paymentMethod === 'estimate' || effectiveBill.paymentStatus === 'ESTIMATE'
+                      ? 'ESTIMATE'
+                      : effectiveBill.paymentStatus === 'PAID'
+                      ? 'PAID'
+                      : 'DUE / CREDIT'}
                   </span>
                   <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.5 rounded shrink-0">
                     {settings.paperWidth || '80mm'} Roll
@@ -582,6 +597,52 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
             </div>
           </div>
 
+          {/* Bill Print Size Selector: Normal / Large (Default) / Extra Large */}
+          <div className="flex items-center justify-between px-2.5 py-1 text-xs bg-stone-50 rounded-xl border border-stone-200/80">
+            <span className="text-[11px] font-bold text-stone-700 flex items-center gap-1">
+              <span>🔍</span>
+              <span>{language === 'bn' ? 'বিল প্রিন্ট সাইজ (Print Size):' : 'Print Size / Scale:'}</span>
+            </span>
+            <div className="inline-flex items-center bg-stone-200/70 rounded-lg p-0.5 text-[11px] font-bold">
+              <button
+                type="button"
+                onClick={() => setPrintScale('normal')}
+                className={`px-2.5 py-0.5 rounded-md transition-all cursor-pointer ${
+                  printScale === 'normal'
+                    ? 'bg-stone-900 text-white shadow-xs'
+                    : 'text-stone-600 hover:text-stone-900'
+                }`}
+                title="Normal 100%"
+              >
+                {language === 'bn' ? 'নরমাল' : 'Normal'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setPrintScale('large')}
+                className={`px-2.5 py-0.5 rounded-md transition-all cursor-pointer flex items-center gap-1 ${
+                  printScale === 'large'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-stone-600 hover:text-stone-900'
+                }`}
+                title="Large 120% (Default - ক্লিয়ার ও বড়)"
+              >
+                <span>★ {language === 'bn' ? 'বড় (Large)' : 'Large'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPrintScale('xlarge')}
+                className={`px-2.5 py-0.5 rounded-md transition-all cursor-pointer ${
+                  printScale === 'xlarge'
+                    ? 'bg-purple-600 text-white shadow-xs'
+                    : 'text-stone-600 hover:text-stone-900'
+                }`}
+                title="Extra Large 140%"
+              >
+                {language === 'bn' ? 'সবচেয়ে বড়' : 'X-Large'}
+              </button>
+            </div>
+          </div>
+
           {/* Top 2 Side-by-Side Print Buttons: Connect & Print (Left) and Print (Right) */}
           <div className="flex items-center justify-center gap-3">
             <button
@@ -700,6 +761,7 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
                 settings={effectiveSettings}
                 isTotalOnlySlip={isTotalOnlySlip}
                 language={language}
+                printScale={printScale}
               />
             )}
           </div>

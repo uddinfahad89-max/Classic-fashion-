@@ -271,22 +271,21 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
     setValidationError(null);
 
     // Determine final paid & due balance
+    const isEst = paymentMethod === 'estimate';
     const finalPaid =
-      paymentMethod === 'estimate'
-        ? hasExplicitPaid
-          ? Math.max(0, paidNum)
-          : 0
+      isEst
+        ? 0
         : paymentMethod === 'due'
         ? Math.min(grandTotal, Math.max(0, paidNum))
         : hasExplicitPaid && paidNum < grandTotal
         ? Math.max(0, paidNum)
         : grandTotal;
     const finalBalance =
-      paymentMethod === 'estimate'
+      isEst
         ? 0
         : Math.max(0, Math.round((grandTotal - finalPaid) * 100) / 100);
     const finalPaymentMethod: PaymentMethod =
-      paymentMethod === 'estimate'
+      isEst
         ? 'estimate'
         : paymentMethod === 'due' || finalBalance > 0
         ? 'due'
@@ -294,7 +293,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
 
     let paymentStatus: 'PAID' | 'DUE' | 'PARTIAL' | 'ESTIMATE' = 'PAID';
     if (finalPaymentMethod === 'estimate') {
-      paymentStatus = finalPaid >= grandTotal && grandTotal > 0 ? 'PAID' : finalPaid > 0 ? 'PARTIAL' : 'ESTIMATE';
+      paymentStatus = 'ESTIMATE';
     } else if (finalPaymentMethod === 'due' || finalBalance > 0) {
       paymentStatus = finalPaid > 0 && finalBalance > 0 ? 'PARTIAL' : 'DUE';
     } else {
@@ -314,11 +313,11 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
       grandTotal,
       paymentMethod: finalPaymentMethod,
       paymentStatus,
-      paidAmount: finalPaid,
-      changeAmount: finalPaymentMethod === 'due' ? 0 : changeAmount,
-      balance: finalBalance,
-      currentBalance: finalBalance,
-      isEstimate: finalPaymentMethod === 'estimate',
+      paidAmount: isEst ? 0 : finalPaid,
+      changeAmount: isEst || finalPaymentMethod === 'due' ? 0 : changeAmount,
+      balance: isEst ? 0 : finalBalance,
+      currentBalance: isEst ? 0 : finalBalance,
+      isEstimate: isEst,
       isTailoring,
       deliveryDate: isTailoring && deliveryDate.trim() ? deliveryDate.trim() : undefined,
       tailoringStatus: isTailoring ? tailoringStatus : undefined,

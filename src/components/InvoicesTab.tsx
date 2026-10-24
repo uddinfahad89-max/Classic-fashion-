@@ -201,6 +201,12 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
 
       if (paymentFilter === 'tailoring') {
         if (!bill.isTailoring) return false;
+      } else if (paymentFilter === 'estimate') {
+        const isEst =
+          bill.paymentMethod === 'estimate' ||
+          bill.paymentStatus === 'ESTIMATE' ||
+          Boolean(bill.isEstimate);
+        if (!isEst) return false;
       } else if (paymentFilter !== 'all') {
         if (bill.paymentMethod !== paymentFilter) return false;
       }
@@ -230,6 +236,12 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
     const totalCount = filteredBills.length;
     const totalRevenue = filteredBills.reduce((sum, b) => sum + b.grandTotal, 0);
     const dueRevenue = filteredBills.reduce((sum, b) => {
+      const isEst =
+        b.paymentMethod === 'estimate' ||
+        b.paymentStatus === 'ESTIMATE' ||
+        Boolean(b.isEstimate);
+      if (isEst) return sum; // Estimates are quotations, not outstanding customer dues
+
       const isDue =
         b.paymentMethod === 'due' ||
         b.paymentStatus === 'DUE' ||
@@ -528,11 +540,16 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
           {filteredBills.map((bill) => {
             const partyName = getPartyDisplayName(bill.customerName);
             const formattedDate = formatPartyDate(bill.timestamp, bill.date);
+            const isEstBill =
+              bill.paymentMethod === 'estimate' ||
+              bill.paymentStatus === 'ESTIMATE' ||
+              Boolean(bill.isEstimate);
             const isDue =
-              bill.paymentMethod === 'due' ||
-              bill.paymentStatus === 'DUE' ||
-              bill.paymentStatus === 'PARTIAL' ||
-              (bill.balance !== undefined && bill.balance > 0);
+              !isEstBill &&
+              (bill.paymentMethod === 'due' ||
+                bill.paymentStatus === 'DUE' ||
+                bill.paymentStatus === 'PARTIAL' ||
+                (bill.balance !== undefined && bill.balance > 0));
             const dueAmt = isDue
               ? bill.balance !== undefined && bill.balance > 0
                 ? bill.balance
@@ -574,7 +591,7 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
                         <span>-{sym}{bill.discount}</span>
                       </span>
                     )}
-                    {bill.paymentMethod === 'estimate' || bill.paymentStatus === 'ESTIMATE' ? (
+                    {isEstBill ? (
                       <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-700 text-[10px] font-bold border border-blue-200">
                         {isBn ? 'এস্টিমেট (Estimate)' : 'ESTIMATE'}
                       </span>
@@ -646,17 +663,35 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
                   <div className="text-right">
                     <div
                       className={`text-[15px] sm:text-[16px] font-semibold leading-snug ${
-                        isDue ? 'text-rose-600' : 'text-[#129958]'
+                        isEstBill
+                          ? 'text-blue-600'
+                          : isDue
+                          ? 'text-rose-600'
+                          : 'text-[#129958]'
                       }`}
                     >
                       {sym} {formatAmount(isDue ? dueAmt : bill.grandTotal)}
                     </div>
                     <div
                       className={`text-[12px] font-medium mt-0.5 ${
-                        isDue ? 'text-rose-600' : 'text-[#129958]'
+                        isEstBill
+                          ? 'text-blue-600 font-bold'
+                          : isDue
+                          ? 'text-rose-600'
+                          : 'text-[#129958]'
                       }`}
                     >
-                      {isDue ? (isBn ? 'বাকি (Due)' : "You'll Get (Due)") : isBn ? 'নগদ (Paid)' : 'Paid'}
+                      {isEstBill
+                        ? isBn
+                          ? 'এস্টিমেট (Estimate)'
+                          : 'Estimate'
+                        : isDue
+                        ? isBn
+                          ? 'বাকি (Due)'
+                          : "You'll Get (Due)"
+                        : isBn
+                        ? 'নগদ (Paid)'
+                        : 'Paid'}
                     </div>
                     {bill.discount > 0 && (
                       <div className="text-[10px] font-bold text-emerald-600 mt-0.5">

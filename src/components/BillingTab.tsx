@@ -1382,13 +1382,11 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       finalInvoiceNo = storageService.getNextInvoiceNumber();
     }
 
-    const isThisAnEstimate = paymentMethod === 'estimate';
+    const isThisAnEstimate = paymentMethod === 'estimate' || isEstimateBill;
 
     const actualPaid =
-      paymentMethod === 'estimate'
-        ? paidAmount.trim() !== ''
-          ? Math.max(0, paidNum)
-          : 0
+      isThisAnEstimate
+        ? 0
         : paymentMethod === 'due'
         ? paidAmount.trim() !== '' && paidNum < finalGrandTotal
           ? paidNum
@@ -1399,8 +1397,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         ? 0
         : finalGrandTotal;
     const balanceAmount =
-      paymentMethod === 'estimate'
-        ? Math.max(0, finalGrandTotal - actualPaid)
+      isThisAnEstimate
+        ? 0
         : paymentMethod === 'due' || isTailoring || (paidAmount.trim() !== '' && paidNum < finalGrandTotal)
         ? Math.max(0, finalGrandTotal - actualPaid)
         : 0;
@@ -1420,24 +1418,19 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       discountType,
       discountValue: rawDiscount,
       grandTotal: finalGrandTotal,
-      paymentMethod: paymentMethod,
-      paymentStatus:
-        paymentMethod === 'estimate'
-          ? actualPaid >= finalGrandTotal && finalGrandTotal > 0
-            ? 'PAID'
-            : actualPaid > 0
-            ? 'PARTIAL'
-            : 'ESTIMATE'
-          : balanceAmount <= 0
-          ? 'PAID'
-          : actualPaid > 0
-          ? 'PARTIAL'
-          : 'DUE',
-      paidAmount: actualPaid,
-      changeAmount: paymentMethod === 'estimate' ? 0 : paidNum > finalGrandTotal ? finalChangeAmount : 0,
-      balance: balanceAmount,
+      paymentMethod: isThisAnEstimate ? 'estimate' : paymentMethod,
+      paymentStatus: isThisAnEstimate
+        ? 'ESTIMATE'
+        : balanceAmount <= 0
+        ? 'PAID'
+        : actualPaid > 0
+        ? 'PARTIAL'
+        : 'DUE',
+      paidAmount: isThisAnEstimate ? 0 : actualPaid,
+      changeAmount: isThisAnEstimate ? 0 : paidNum > finalGrandTotal ? finalChangeAmount : 0,
+      balance: isThisAnEstimate ? 0 : balanceAmount,
       previousBalance: 0,
-      currentBalance: balanceAmount,
+      currentBalance: isThisAnEstimate ? 0 : balanceAmount,
       isEstimate: isThisAnEstimate,
       ...(isTailoring
         ? {
@@ -2659,7 +2652,9 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                   onChange={(e) => setPaidAmount(e.target.value)}
                   placeholder={
                     paymentMethod === 'estimate'
-                      ? '0.00 (এস্টিমেট)'
+                      ? isBn
+                        ? '0.00 (এস্টিমেট কোটেশন)'
+                        : '0.00 (Estimate Quotation)'
                       : grandTotal > 0
                       ? grandTotal.toFixed(2)
                       : '0.00'
@@ -2762,7 +2757,24 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             </div>
           </div>
 
-          {paidNum > grandTotal && (
+          {/* Estimate Mode Banner */}
+          {paymentMethod === 'estimate' && (
+            <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-900 text-xs font-bold flex items-center justify-between animate-in fade-in">
+              <span className="flex items-center gap-1.5">
+                <FileText className="w-4 h-4 text-blue-600 shrink-0" />
+                <span>
+                  {isBn
+                    ? '📋 এস্টিমেট বিল / কোটেশন (হিসাব স্লিপ — কোনো বাকি বা ক্যাশ জমা নয়)'
+                    : '📋 Estimate Bill / Quotation (Quotation Slip — No Due or Cash Settlement)'}
+                </span>
+              </span>
+              <span className="font-mono text-sm font-black text-blue-700">
+                {sym}{grandTotal.toFixed(2)}
+              </span>
+            </div>
+          )}
+
+          {paymentMethod !== 'estimate' && paidNum > grandTotal && (
             <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-900 text-xs font-bold flex items-center justify-between">
               <span>{t.changeToReturn}</span>
               <span className="font-mono text-sm">
@@ -2772,7 +2784,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             </div>
           )}
 
-          {(isTailoring || paymentMethod === 'due' || (paidAmount.trim() !== '' && paidNum < grandTotal)) &&
+          {paymentMethod !== 'estimate' &&
+            (isTailoring || paymentMethod === 'due' || (paidAmount.trim() !== '' && paidNum < grandTotal)) &&
             grandTotal > 0 &&
             Math.max(0, grandTotal - (paidAmount.trim() !== '' ? paidNum : 0)) > 0 && (
               <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-bold flex items-center justify-between">
@@ -2816,9 +2829,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                     setPaymentMethod(nextMode);
                     if (nextMode === 'estimate') {
                       setIsEstimateBill(true);
-                      if (paidAmount === grandTotal.toFixed(2)) {
-                        setPaidAmount('');
-                      }
+                      setPaidAmount('');
                     } else {
                       setIsEstimateBill(false);
                       if (nextMode === 'due' && paidNum >= grandTotal) {
