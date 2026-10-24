@@ -106,6 +106,14 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
   };
 
   const sheetRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = 0;
+      scrollContainerRef.current.scrollLeft = 0;
+    }
+  }, [bill?.id]);
 
   const [printScale, setPrintScale] = useState<'normal' | 'large' | 'xlarge'>('large');
   const [estimateMode, setEstimateMode] = useState<boolean>(() =>
@@ -563,83 +571,85 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
             </button>
           </div>
 
-          {/* Roll Width Selector: 80mm Wide Receipt vs 58mm Standard */}
-          <div className="flex items-center justify-between px-1 py-0.5 text-xs bg-stone-50 rounded-xl border border-stone-200/80 px-2.5 py-1">
-            <span className="text-[11px] font-bold text-stone-700 flex items-center gap-1">
-              <span>🖨️</span>
-              <span>{language === 'bn' ? 'রসিদের সাইজ (Paper Roll):' : 'Receipt Paper Roll:'}</span>
-            </span>
-            <div className="inline-flex items-center bg-stone-200/70 rounded-lg p-0.5 text-[11px] font-bold">
-              <button
-                type="button"
-                onClick={() => onUpdatePaperWidth && onUpdatePaperWidth('80mm')}
-                className={`px-2.5 py-0.5 rounded-md transition-all cursor-pointer flex items-center gap-1 ${
-                  (settings.paperWidth || '80mm') === '80mm'
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-stone-600 hover:text-stone-900'
-                }`}
-              >
-                <span>✓ 80mm</span>
-                <span className="text-[10px] opacity-90">({language === 'bn' ? 'ওয়াইড রসিদ' : 'Wide'})</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => onUpdatePaperWidth && onUpdatePaperWidth('58mm')}
-                className={`px-2.5 py-0.5 rounded-md transition-all cursor-pointer flex items-center gap-1 ${
-                  settings.paperWidth === '58mm'
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-stone-600 hover:text-stone-900'
-                }`}
-              >
-                <span>58mm</span>
-                <span className="text-[10px] opacity-90">({language === 'bn' ? 'ছোট' : 'Small'})</span>
-              </button>
+          {/* Paper Roll & Print Scale Quick Bar */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+            {/* Paper Roll Selector: 80mm Wide Receipt vs 58mm Standard */}
+            <div className="flex items-center justify-between px-2.5 py-1 text-xs bg-stone-50 rounded-xl border border-stone-200/80">
+              <span className="text-[11px] font-bold text-stone-700 flex items-center gap-1">
+                <span>🖨️</span>
+                <span>{language === 'bn' ? 'রসিদ (Roll):' : 'Paper Roll:'}</span>
+              </span>
+              <div className="inline-flex items-center bg-stone-200/70 rounded-lg p-0.5 text-[11px] font-bold">
+                <button
+                  type="button"
+                  onClick={() => onUpdatePaperWidth && onUpdatePaperWidth('80mm')}
+                  className={`px-2 py-0.5 rounded-md transition-all cursor-pointer flex items-center gap-0.5 ${
+                    (settings.paperWidth || '80mm') === '80mm'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-stone-600 hover:text-stone-900'
+                  }`}
+                >
+                  <span>80mm</span>
+                  <span className="text-[9px] opacity-90 hidden xs:inline">({language === 'bn' ? 'ওয়াইড' : 'Wide'})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onUpdatePaperWidth && onUpdatePaperWidth('58mm')}
+                  className={`px-2 py-0.5 rounded-md transition-all cursor-pointer flex items-center gap-0.5 ${
+                    settings.paperWidth === '58mm'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-stone-600 hover:text-stone-900'
+                  }`}
+                >
+                  <span>58mm</span>
+                </button>
+              </div>
             </div>
-          </div>
 
-          {/* Bill Print Size Selector: Normal / Large (Default) / Extra Large */}
-          <div className="flex items-center justify-between px-2.5 py-1 text-xs bg-stone-50 rounded-xl border border-stone-200/80">
-            <span className="text-[11px] font-bold text-stone-700 flex items-center gap-1">
-              <span>🔍</span>
-              <span>{language === 'bn' ? 'বিল প্রিন্ট সাইজ (Print Size):' : 'Print Size / Scale:'}</span>
-            </span>
-            <div className="inline-flex items-center bg-stone-200/70 rounded-lg p-0.5 text-[11px] font-bold">
-              <button
-                type="button"
-                onClick={() => setPrintScale('normal')}
-                className={`px-2.5 py-0.5 rounded-md transition-all cursor-pointer ${
-                  printScale === 'normal'
-                    ? 'bg-stone-900 text-white shadow-xs'
-                    : 'text-stone-600 hover:text-stone-900'
-                }`}
-                title="Normal 100%"
-              >
-                {language === 'bn' ? 'নরমাল' : 'Normal'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setPrintScale('large')}
-                className={`px-2.5 py-0.5 rounded-md transition-all cursor-pointer flex items-center gap-1 ${
-                  printScale === 'large'
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-stone-600 hover:text-stone-900'
-                }`}
-                title="Large 120% (Default - ক্লিয়ার ও বড়)"
-              >
-                <span>★ {language === 'bn' ? 'বড় (Large)' : 'Large'}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setPrintScale('xlarge')}
-                className={`px-2.5 py-0.5 rounded-md transition-all cursor-pointer ${
-                  printScale === 'xlarge'
-                    ? 'bg-purple-600 text-white shadow-xs'
-                    : 'text-stone-600 hover:text-stone-900'
-                }`}
-                title="Extra Large 140%"
-              >
-                {language === 'bn' ? 'সবচেয়ে বড়' : 'X-Large'}
-              </button>
+            {/* Bill Print Size Selector: Normal / Large (Default) / Extra Large */}
+            <div className="flex items-center justify-between px-2.5 py-1 text-xs bg-stone-50 rounded-xl border border-stone-200/80">
+              <span className="text-[11px] font-bold text-stone-700 flex items-center gap-1">
+                <span>🔍</span>
+                <span>{language === 'bn' ? 'সাইজ (Size):' : 'Print Size:'}</span>
+              </span>
+              <div className="inline-flex items-center bg-stone-200/70 rounded-lg p-0.5 text-[11px] font-bold">
+                <button
+                  type="button"
+                  onClick={() => setPrintScale('normal')}
+                  className={`px-1.5 py-0.5 rounded-md transition-all cursor-pointer ${
+                    printScale === 'normal'
+                      ? 'bg-stone-900 text-white shadow-xs'
+                      : 'text-stone-600 hover:text-stone-900'
+                  }`}
+                  title="Normal 100%"
+                >
+                  {language === 'bn' ? 'নরমাল' : 'Normal'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPrintScale('large')}
+                  className={`px-1.5 py-0.5 rounded-md transition-all cursor-pointer flex items-center gap-0.5 ${
+                    printScale === 'large'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-stone-600 hover:text-stone-900'
+                  }`}
+                  title="Large 120% (Default - ক্লিয়ার ও বড়)"
+                >
+                  <span>★ {language === 'bn' ? 'বড়' : 'Large'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPrintScale('xlarge')}
+                  className={`px-1.5 py-0.5 rounded-md transition-all cursor-pointer ${
+                    printScale === 'xlarge'
+                      ? 'bg-purple-600 text-white shadow-xs'
+                      : 'text-stone-600 hover:text-stone-900'
+                  }`}
+                  title="Extra Large 140%"
+                >
+                  {language === 'bn' ? 'এক্সট্রা' : 'XL'}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -747,8 +757,8 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
         )}
 
         {/* 3. Document Preview Area: Tax Invoice vs Product Labels */}
-        <div className="p-2 sm:p-6 overflow-x-auto overflow-y-auto flex-1 bg-stone-200/70 flex justify-center">
-          <div ref={sheetRef} className="w-full flex justify-center">
+        <div ref={scrollContainerRef} className="p-1 sm:p-5 overflow-x-auto overflow-y-auto flex-1 bg-stone-200/70 flex flex-col items-center">
+          <div ref={sheetRef} className="w-full max-w-full sm:max-w-[760px] mx-auto flex flex-col items-stretch">
             {isLabelMode ? (
               <ProductLabelSheet
                 bill={bill}
