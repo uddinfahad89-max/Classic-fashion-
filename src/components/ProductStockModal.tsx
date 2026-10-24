@@ -152,6 +152,7 @@ interface ProductStockModalProps {
   onSelectForBill?: (product: ProductStockItem, qty?: number) => void;
   onOpenBarcodeStudio?: (product: ProductStockItem) => void;
   onOpenRecycleBin?: () => void;
+  onOpenPurchaseBillUpload?: () => void;
   settings: ThermalPrinterSettings;
   language?: Language;
 }
@@ -166,6 +167,7 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
   onSelectForBill,
   onOpenBarcodeStudio,
   onOpenRecycleBin,
+  onOpenPurchaseBillUpload,
   settings,
   language = 'bn',
 }) => {

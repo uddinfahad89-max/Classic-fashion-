@@ -2,11 +2,12 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
+import { GoogleGenAI } from '@google/genai';
 
 const app = express();
 const PORT = 3000;
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '25mb' }));
 
 // Server-side persistent storage directory for user accounts and invoices
 const DATA_DIR = path.join(process.cwd(), 'data', 'vaults');
@@ -819,6 +820,113 @@ app.post('/api/products/delete', (req, res) => {
     return res.json({ success: true });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
+  }
+});
+
+// ----------------- AI PURCHASE BILL OCR & INVENTORY PARSER -----------------
+app.post('/api/ai/parse-purchase-bill', async (req, res) => {
+  try {
+    const { imageBase64, mimeType = 'image/jpeg', defaultMarginPercent = 25 } = req.body;
+    if (!imageBase64) {
+      return res.status(400).json({ success: false, error: 'Image data is required' });
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({
+        success: false,
+        error: 'Gemini API key is not configured on the server.',
+      });
+    }
+
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
+
+    const cleanBase64 = String(imageBase64).replace(/^data:[a-zA-Z0-9/+-]+;base64,/, '');
+
+    const promptText = `
+You are an intelligent billing and inventory OCR specialist for retail and wholesale businesses in South Asia and Bangladesh.
+Examine this uploaded purchase invoice / challan / memo / receipt.
+Extract all purchased items and bill metadata.
+
+Return strict JSON only (no markdown, no backticks, no code blocks, no other text).
+JSON structure:
+{
+  "supplierName": "Name of supplier / company / vendor (or empty string)",
+  "billNo": "Invoice or memo number (or empty string)",
+  "billDate": "Invoice date as string (e.g. DD-MM-YYYY)",
+  "items": [
+    {
+      "name": "Clear product description in English or Bengali",
+      "qty": 1,
+      "unit": "Pcs or Box or Kg or Meter or Set or Dozen",
+      "purchasePrice": 100,
+      "totalAmount": 100,
+      "suggestedSalePrice": 130,
+      "category": "Clothing or Grocery or General"
+    }
+  ],
+  "totalBillAmount": 0,
+  "notes": "Any other key details"
+}
+
+Parsing rules:
+1. Extract EVERY product/goods item listed on the bill.
+2. "name": Standard product title (e.g. "Cotton Shirt", "Polo T-Shirt", "Chinos Pant", "Shari Silk", "Basmati Rice 25kg"). Include size or style if written.
+3. "qty": Quantity as a positive number (default 1).
+4. "unit": Unit of measure (e.g. "Pcs", "Box", "Set", "Meter", "Kg", "Dozen", "Bale"). Default to "Pcs".
+5. "purchasePrice": Unit cost / purchase price (কেনা দাম / পাইকারি রেট) per piece or unit. If only total item cost is given, calculate purchasePrice = total / qty.
+6. "suggestedSalePrice": Retail selling price (বিক্রয় দর). If MRP is on bill, use it; otherwise compute roughly ${defaultMarginPercent}% markup over purchasePrice (rounded up to a whole number).
+7. If the bill contains handwritten numerals or Bengali/Hindi script, extract them accurately.
+`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: [
+        {
+          inlineData: {
+            mimeType: mimeType || 'image/jpeg',
+            data: cleanBase64,
+          },
+        },
+        {
+          text: promptText,
+        },
+      ],
+      config: {
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const rawText = response.text || '{}';
+    let parsedData: any = {};
+    try {
+      parsedData = JSON.parse(rawText.trim());
+    } catch {
+      const match = rawText.match(/\{[\s\S]*\}/);
+      if (match) {
+        parsedData = JSON.parse(match[0]);
+      } else {
+        throw new Error('AI could not parse structured data from this bill image.');
+      }
+    }
+
+    return res.json({
+      success: true,
+      data: parsedData,
+    });
+  } catch (err: any) {
+    console.error('Purchase bill OCR error:', err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to process purchase bill image',
+    });
   }
 });
 
