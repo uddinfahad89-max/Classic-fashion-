@@ -14,6 +14,28 @@
   font-family: 'Hind Siliguri', sans-serif;
 }
 
+/* Screen Bill Size Scaling for Live Preview (Normal, Large, Extra Large) */
+.bill-scale-normal {
+  font-size: 14.5px;
+}
+.bill-scale-normal table {
+  font-size: 14px;
+}
+
+.bill-scale-large {
+  font-size: 16.5px;
+}
+.bill-scale-large table {
+  font-size: 15.5px;
+}
+
+.bill-scale-xlarge {
+  font-size: 19px;
+}
+.bill-scale-xlarge table {
+  font-size: 18px;
+}
+
 /* Hidden on screen, visible during window.print() */
 #thermal-print-root,
 #invoice-print-root {

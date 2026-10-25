@@ -43,6 +43,7 @@ import { ExitConfirmModal } from './components/ExitConfirmModal';
 import { BackExitPill } from './components/BackExitPill';
 import { SuperAdminModal } from './components/SuperAdminModal';
 import { RecycleBinModal } from './components/RecycleBinModal';
+import { PurchaseBillUploadModal } from './components/PurchaseBillUploadModal';
 import { useNetworkStatus } from './utils/useNetworkStatus';
 import { backHandler, useBackHandler } from './utils/backHandler';
 import { firebaseService } from './services/firebaseService';
@@ -95,6 +96,7 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSuperAdminOpen, setIsSuperAdminOpen] = useState(false);
   const [isRecycleBinOpen, setIsRecycleBinOpen] = useState(false);
+  const [isPurchaseBillUploadOpen, setIsPurchaseBillUploadOpen] = useState(false);
   const [isPrintingBill, setIsPrintingBill] = useState(false);
   const [isExitConfirmOpen, setIsExitConfirmOpen] = useState(false);
   const [isExitPillVisible, setIsExitPillVisible] = useState(false);
@@ -1659,6 +1661,83 @@ export default function App() {
     );
   };
 
+  // Batch Save Products from Purchase Bill Upload Modal
+  const handleBatchSaveProducts = (
+    items: Array<{
+      id?: string;
+      name: string;
+      price: number;
+      purchasePrice?: number;
+      stock?: number;
+      unit?: string;
+      barcode?: string;
+    }>,
+    meta?: {
+      recordExpenseInCashbook?: boolean;
+      supplierName?: string;
+      billNumber?: string;
+      billDate?: string;
+      billImage?: string;
+    }
+  ) => {
+    let totalSpent = 0;
+
+    items.forEach((item) => {
+      const saved = storageService.addOrUpdateProduct({
+        id: item.id,
+        name: item.name,
+        price: item.price,
+        purchasePrice: item.purchasePrice,
+        stock: item.stock || 0,
+        unit: item.unit || 'Pcs',
+        barcode: item.barcode,
+      });
+
+      if (item.purchasePrice && item.stock) {
+        totalSpent += item.purchasePrice * item.stock;
+      }
+
+      // Sync to Firebase
+      firebaseService.syncProduct(saved);
+      if (saved.barcode) {
+        firebaseService.syncBarcode({
+          id: `bc_${saved.id}`,
+          barcode: saved.barcode,
+          productName: saved.name,
+          productId: saved.id,
+          price: saved.price,
+          purchasePrice: saved.purchasePrice,
+          category: saved.category,
+          unit: saved.unit,
+        });
+      }
+    });
+
+    setProducts(storageService.getProducts());
+
+    // Record expense in cashbook if requested
+    if (meta?.recordExpenseInCashbook && totalSpent > 0) {
+      const noteParts: string[] = ['মাল খরিদ (Purchase Bill)'];
+      if (meta.supplierName) noteParts.push(`সাপ্লায়ার: ${meta.supplierName}`);
+      if (meta.billNumber) noteParts.push(`বিল নং: ${meta.billNumber}`);
+      noteParts.push(`(${items.length}টি আইটেম)`);
+
+      const entry = storageService.addCashEntry('Expense', totalSpent, noteParts.join(' | '));
+      const freshCash = storageService.getCashEntries();
+      setCashEntries(freshCash);
+      if (freshCash[0]) {
+        firebaseService.syncCashEntry(freshCash[0]);
+      }
+    }
+
+    showToast(
+      language === 'bn'
+        ? `✓ ${items.length}টি প্রোডাক্ট স্টকে যুক্ত ও বারকোড তৈরি সম্পন্ন হয়েছে!`
+        : `✓ ${items.length} products added to inventory with barcodes generated!`,
+      'success'
+    );
+  };
+
   const handleAdjustProductStock = (productId: string, delta: number) => {
     const updated = storageService.adjustProductStock(productId, delta);
     setProducts(storageService.getProducts());
@@ -2018,6 +2097,7 @@ export default function App() {
                 setReceiptBill(bill);
               }}
               onOpenRecycleBin={() => setIsRecycleBinOpen(true)}
+              onOpenPurchaseBillUpload={() => setIsPurchaseBillUploadOpen(true)}
             />
           ))}
 
@@ -2295,7 +2375,38 @@ export default function App() {
         settings={settings}
         language={language}
         onOpenRecycleBin={() => setIsRecycleBinOpen(true)}
+        onOpenPurchaseBillUpload={() => setIsPurchaseBillUploadOpen(true)}
       />
+
+      {/* Purchase Bill Upload & Automatic AI Product + Barcode Generator Modal */}
+      {isPurchaseBillUploadOpen && (
+        <PurchaseBillUploadModal
+          isOpen={isPurchaseBillUploadOpen}
+          onClose={() => setIsPurchaseBillUploadOpen(false)}
+          onSaveProductsBatch={handleBatchSaveProducts}
+          onOpenBarcodeStudioWithProducts={(items) => {
+            if (items.length > 0) {
+              const firstItem = items[0];
+              const matched = products.find(
+                (p) => (firstItem.barcode && p.barcode === firstItem.barcode) || p.name === firstItem.name
+              );
+              if (matched) {
+                setBarcodeTargetProduct(matched);
+              }
+            }
+            setActiveTab('barcode');
+            showToast(
+              language === 'bn'
+                ? 'বারকোড স্টুডিও খোলা হয়েছে! স্টিকার প্রিন্ট করতে পারেন।'
+                : 'Barcode Studio opened! Ready to print labels.',
+              'info'
+            );
+          }}
+          settings={settings}
+          language={language}
+          existingProducts={products}
+        />
+      )}
 
       {/* Bluetooth Setup & Troubleshooting Guide Modal */}
       <BluetoothHelpModal

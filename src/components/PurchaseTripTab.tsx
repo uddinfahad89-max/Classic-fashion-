@@ -30,6 +30,7 @@ import {
   ArrowUpRight,
   Check,
   MoreVertical,
+  Camera,
 } from 'lucide-react';
 import {
   PurchaseTrip,
@@ -74,6 +75,7 @@ interface PurchaseTripTabProps {
   onSyncTripToCashbook: (trip: PurchaseTrip) => void;
   onPrintTripSlip: (bill: BillInvoice) => void;
   onOpenRecycleBin?: () => void;
+  onOpenPurchaseBillUpload?: () => void;
 }
 
 export const PurchaseTripTab: React.FC<PurchaseTripTabProps> = ({
@@ -91,6 +93,7 @@ export const PurchaseTripTab: React.FC<PurchaseTripTabProps> = ({
   onSyncTripToCashbook,
   onPrintTripSlip,
   onOpenRecycleBin,
+  onOpenPurchaseBillUpload,
 }) => {
   const t = translations[language];
   const isBn = language === 'bn';
@@ -355,6 +358,18 @@ export const PurchaseTripTab: React.FC<PurchaseTripTabProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
+            {onOpenPurchaseBillUpload && (
+              <button
+                type="button"
+                onClick={onOpenPurchaseBillUpload}
+                className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                title={isBn ? 'বিল আপলোড করে স্বয়ংক্রিয় প্রোডাক্ট ও বারকোড যোগ (AI)' : 'Upload Purchase Bill & Generate Barcodes'}
+              >
+                <Camera className="w-3.5 h-3.5 text-emerald-600" />
+                <span>{isBn ? 'বিল স্ক্যান' : 'Scan Bill'}</span>
+              </button>
+            )}
+
             {onOpenCalculator && (
               <button
                 type="button"
@@ -403,6 +418,20 @@ export const PurchaseTripTab: React.FC<PurchaseTripTabProps> = ({
                   )}
 
                   <div className="py-1">
+                    {onOpenPurchaseBillUpload && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowTripMoreMenu(false);
+                          onOpenPurchaseBillUpload();
+                        }}
+                        className="w-full text-left px-3.5 py-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-50 flex items-center gap-2.5 cursor-pointer"
+                      >
+                        <Camera className="w-4 h-4 text-emerald-600" />
+                        <span>{isBn ? '📷 বিল আপলোড ও বারকোড যোগ' : '📷 Upload Bill & Barcode'}</span>
+                      </button>
+                    )}
+
                     {onOpenCalculator && (
                       <button
                         type="button"
@@ -827,16 +856,30 @@ export const PurchaseTripTab: React.FC<PurchaseTripTabProps> = ({
         </div>
       )}
 
-      {/* 5. FLOATING "+ ADD PURCHASE" BUTTON (Khatabook Style) */}
-      <button
-        id="floating-add-purchase-btn"
-        type="button"
-        onClick={() => setIsAddPurchaseModalOpen(true)}
-        className="fixed bottom-20 right-4 sm:right-8 z-30 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs sm:text-sm px-4 py-3 rounded-full shadow-xl flex items-center gap-2 border-2 border-white cursor-pointer transition-all animate-in fade-in duration-200"
-      >
-        <Plus className="w-5 h-5 stroke-[2.5]" />
-        <span>{isBn ? '+ কেনাকাটা যোগ' : '+ ADD PURCHASE'}</span>
-      </button>
+      {/* 5. FLOATING ACTIONS (Khatabook Style) */}
+      <div className="fixed bottom-20 right-3 sm:right-6 z-30 flex items-center gap-2">
+        {onOpenPurchaseBillUpload && (
+          <button
+            id="floating-bill-scan-btn"
+            type="button"
+            onClick={onOpenPurchaseBillUpload}
+            className="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs sm:text-sm px-3.5 py-3 rounded-full shadow-xl flex items-center gap-2 border-2 border-white cursor-pointer transition-all animate-in fade-in duration-200"
+            title={isBn ? 'বিল আপলোড করে প্রোডাক্ট ও বারকোড যোগ' : 'Upload Bill & Generate Barcodes'}
+          >
+            <Camera className="w-4 h-4 stroke-[2.2]" />
+            <span className="hidden sm:inline">{isBn ? 'বিল স্ক্যান (AI)' : 'Scan Bill'}</span>
+          </button>
+        )}
+        <button
+          id="floating-add-purchase-btn"
+          type="button"
+          onClick={() => setIsAddPurchaseModalOpen(true)}
+          className="bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-xs sm:text-sm px-4 py-3 rounded-full shadow-xl flex items-center gap-2 border-2 border-white cursor-pointer transition-all animate-in fade-in duration-200"
+        >
+          <Plus className="w-5 h-5 stroke-[2.5]" />
+          <span>{isBn ? '+ কেনাকাটা যোগ' : '+ ADD PURCHASE'}</span>
+        </button>
+      </div>
 
       {/* 6. MODAL: ADD PURCHASE / EXPENSE ENTRY (WITH EMBEDDED KHATABOOK CALCULATOR) */}
       {isAddPurchaseModalOpen && (

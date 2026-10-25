@@ -119,7 +119,7 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
     return (
       <div
         id={`tax-invoice-${bill.id}`}
-        className="tax-invoice-sheet bg-white text-stone-900 w-full max-w-[480px] mx-auto p-5 sm:p-6 rounded-2xl shadow-sm border border-stone-200 print:border-none print:shadow-none print:p-2 font-sans"
+        className={`tax-invoice-sheet bg-white text-stone-900 w-full max-w-[480px] mx-auto p-5 sm:p-6 rounded-2xl shadow-sm border border-stone-200 print:border-none print:shadow-none print:p-2 font-sans bill-scale-${printScale}`}
       >
         {/* 1. Shop name */}
         <div className="text-center space-y-1 pb-3 border-b border-stone-200">
@@ -127,21 +127,21 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
             {storeName}
           </h1>
           {storeAddress && (
-            <p className="text-xs sm:text-base text-stone-600 font-medium">
+            <p className="text-sm sm:text-base text-stone-700 font-medium">
               {storeAddress}
             </p>
           )}
           {storePhone && (
-            <p className="text-xs sm:text-base text-stone-600 font-medium">
+            <p className="text-sm sm:text-base text-stone-700 font-medium">
               Phone: {storePhone}
             </p>
           )}
-          <div className="flex items-center justify-between text-xs sm:text-sm font-semibold text-stone-600 pt-2 px-1">
+          <div className="flex items-center justify-between text-sm sm:text-base font-semibold text-stone-700 pt-2 px-1">
             <span>Bill: #{bill.invoiceNo}</span>
             <span>Date: {formattedDate}</span>
           </div>
           {bill.customerName && (
-            <div className="text-left text-xs sm:text-sm pt-1 text-stone-700 px-1">
+            <div className="text-left text-sm sm:text-base pt-1 text-stone-800 px-1">
               <span className="text-stone-500 font-normal">Customer: </span>
               <strong className="text-stone-900 uppercase">{bill.customerName}</strong>
               {bill.customerPhone && <span className="text-stone-500"> ({bill.customerPhone})</span>}
@@ -279,7 +279,7 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
   return (
     <div
       id={`tax-invoice-${bill.id}`}
-      className={`tax-invoice-sheet bg-white text-stone-900 w-full max-w-full sm:max-w-[760px] mx-auto p-2.5 sm:p-7 rounded-xl shadow-xs border border-stone-200 print:border-none print:shadow-none print:p-2 print:max-w-full font-sans text-xs sm:text-base bill-scale-${printScale} box-border`}
+      className={`tax-invoice-sheet bg-white text-stone-900 w-full max-w-full sm:max-w-[760px] mx-auto p-3.5 sm:p-7 rounded-2xl shadow-xs border border-stone-200 print:border-none print:shadow-none print:p-2 print:max-w-full font-sans text-sm sm:text-base bill-scale-${printScale} box-border leading-relaxed`}
     >
       {/* 1. Header: Store Info */}
       <div className="text-left space-y-1">
@@ -287,12 +287,12 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
           {storeName}
         </h1>
         {storeAddress && (
-          <p className="text-xs sm:text-lg print:text-lg text-stone-700 font-semibold leading-snug">
+          <p className="text-sm sm:text-lg print:text-lg text-stone-700 font-semibold leading-snug">
             {storeAddress}
           </p>
         )}
         {storePhone && (
-          <p className="text-xs sm:text-lg print:text-lg text-stone-700 font-semibold">
+          <p className="text-sm sm:text-lg print:text-lg text-stone-700 font-semibold">
             Phone no.: {storePhone}
           </p>
         )}
@@ -322,29 +322,29 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
       </div>
 
       {/* 3. Bill To & Invoice Details (2 Columns) */}
-      <div className="flex justify-between items-start pt-1 pb-3 text-xs sm:text-base gap-2">
+      <div className="flex justify-between items-start pt-1 pb-3 text-sm sm:text-base gap-2">
         {/* Left: Customer Info */}
         <div className="space-y-0.5 min-w-0">
-          <div className="font-bold text-stone-500 text-[11px] sm:text-sm uppercase tracking-wider">
+          <div className="font-bold text-stone-500 text-xs sm:text-sm uppercase tracking-wider">
             {bill.isTailoring ? 'Customer' : 'Bill To'}
           </div>
-          <div className="font-black text-stone-900 text-sm sm:text-2xl tracking-wide uppercase truncate">
+          <div className="font-black text-stone-900 text-base sm:text-2xl tracking-wide uppercase truncate">
             {bill.customerName || 'Cash Customer'}
           </div>
           {bill.customerPhone && (
-            <div className="text-stone-700 font-semibold text-xs sm:text-base">
+            <div className="text-stone-700 font-semibold text-sm sm:text-base">
               Ph: {bill.customerPhone}
             </div>
           )}
           {bill.isTailoring && bill.measurements?.garmentType && (
-            <div className="text-stone-700 font-semibold text-xs sm:text-base">
+            <div className="text-stone-700 font-semibold text-sm sm:text-base">
               Item: <span className="font-bold text-stone-900">{bill.measurements.garmentType}</span>
             </div>
           )}
         </div>
 
         {/* Right: Invoice Metadata (Concise) */}
-        <div className="text-right space-y-0.5 font-semibold text-stone-800 text-xs sm:text-base shrink-0">
+        <div className="text-right space-y-0.5 font-semibold text-stone-800 text-sm sm:text-base shrink-0">
           <div className="font-bold text-stone-900">
             {bill.isTailoring ? 'Order Info' : isBillEstimate ? 'Estimate Details' : 'Invoice Details'}
           </div>
@@ -490,20 +490,20 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
         </div>
       ) : (
         <div className="mt-1 mb-2 overflow-x-auto w-full">
-          <table className="w-full text-xs sm:text-base print:text-base text-left border-collapse table-auto">
+          <table className="w-full text-sm sm:text-base print:text-base text-left border-collapse table-auto">
             <thead>
               <tr className="bg-[#8C8EE8] text-white print:bg-[#8C8EE8] print:text-white">
-                <th className="py-2 px-1.5 sm:py-3 sm:px-3 text-left font-black text-white w-7 sm:w-10">#</th>
-                <th className="py-2 px-1.5 sm:py-3 sm:px-3 text-left font-black text-white min-w-[70px]">
+                <th className="py-2.5 px-2 sm:py-3 sm:px-3 text-left font-black text-white w-7 sm:w-10">#</th>
+                <th className="py-2.5 px-2 sm:py-3 sm:px-3 text-left font-black text-white min-w-[80px]">
                   {bill.isTailoring ? 'Item' : 'Item name'}
                 </th>
-                <th className="py-2 px-1.5 sm:py-3 sm:px-3 text-right font-black text-white w-12 sm:w-20">
+                <th className="py-2.5 px-2 sm:py-3 sm:px-3 text-right font-black text-white w-12 sm:w-20">
                   {bill.isTailoring ? 'Qty' : 'Qty'}
                 </th>
-                <th className="py-2 px-1.5 sm:py-3 sm:px-3 text-right font-black text-white w-14 sm:w-24">
+                <th className="py-2.5 px-2 sm:py-3 sm:px-3 text-right font-black text-white w-14 sm:w-24">
                   {bill.isTailoring ? 'Rate' : 'Rate'}
                 </th>
-                <th className="py-2 px-1.5 sm:py-3 sm:px-3 text-right font-black text-white w-16 sm:w-28">Amount</th>
+                <th className="py-2.5 px-2 sm:py-3 sm:px-3 text-right font-black text-white w-16 sm:w-28">Amount</th>
               </tr>
             </thead>
             <tbody>
@@ -518,23 +518,23 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
 
                 return (
                   <tr key={item.id || idx} className="bg-white border-b border-stone-100">
-                    <td className="py-2 px-1.5 sm:py-3 sm:px-3 text-left text-stone-900 font-semibold">
+                    <td className="py-2.5 px-2 sm:py-3 sm:px-3 text-left text-stone-900 font-semibold">
                       {idx + 1}
                     </td>
-                    <td className="py-2 px-1.5 sm:py-3 sm:px-3 text-left font-bold text-stone-900 break-words">
+                    <td className="py-2.5 px-2 sm:py-3 sm:px-3 text-left font-bold text-stone-900 break-words">
                       {item.name}
                     </td>
-                    <td className="py-2 px-1.5 sm:py-3 sm:px-3 text-right text-stone-900 font-semibold whitespace-nowrap">
+                    <td className="py-2.5 px-2 sm:py-3 sm:px-3 text-right text-stone-900 font-semibold whitespace-nowrap">
                       {item.qty}
                       {item.unit ? ` ${item.unit}` : ''}
                     </td>
-                    <td className="py-2 px-1.5 sm:py-3 sm:px-3 text-right text-stone-900 font-semibold whitespace-nowrap">
+                    <td className="py-2.5 px-2 sm:py-3 sm:px-3 text-right text-stone-900 font-semibold whitespace-nowrap">
                       {hasDiscount ? (
                         <div>
                           <div className="font-bold text-stone-900">
                             {finalUnitPrice.toFixed(0)}
                           </div>
-                          <div className="line-through text-stone-400 text-[10px] sm:text-xs leading-none mt-0.5">
+                          <div className="line-through text-stone-400 text-xs sm:text-xs leading-none mt-0.5">
                             {item.price.toFixed(0)}
                           </div>
                         </div>
@@ -542,13 +542,13 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
                         <div className="font-bold text-stone-900">{item.price.toFixed(0)}</div>
                       )}
                     </td>
-                    <td className="py-2 px-1.5 sm:py-3 sm:px-3 text-right text-stone-900 font-extrabold whitespace-nowrap">
+                    <td className="py-2.5 px-2 sm:py-3 sm:px-3 text-right text-stone-900 font-extrabold whitespace-nowrap">
                       {hasDiscount ? (
                         <div>
                           <div className="font-extrabold text-stone-900">
                             {finalItemTotal.toFixed(1)}
                           </div>
-                          <div className="line-through text-stone-400 text-[10px] sm:text-xs font-normal leading-none mt-0.5">
+                          <div className="line-through text-stone-400 text-xs sm:text-xs font-normal leading-none mt-0.5">
                             {item.total.toFixed(1)}
                           </div>
                         </div>
@@ -562,17 +562,17 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
             </tbody>
             <tfoot>
               <tr className="border-t-2 border-b-2 border-stone-800 font-extrabold text-stone-900">
-                <td className="py-2 px-1.5 sm:py-3 sm:px-3"></td>
-                <td className="py-2 px-1.5 sm:py-3 sm:px-3 font-black text-stone-900 text-xs sm:text-xl">Total</td>
-                <td className="py-2 px-1.5 sm:py-3 sm:px-3 text-right font-black text-stone-900 text-xs sm:text-xl">
+                <td className="py-2.5 px-2 sm:py-3 sm:px-3"></td>
+                <td className="py-2.5 px-2 sm:py-3 sm:px-3 font-black text-stone-900 text-sm sm:text-xl">Total</td>
+                <td className="py-2.5 px-2 sm:py-3 sm:px-3 text-right font-black text-stone-900 text-sm sm:text-xl">
                   {totalQty}
                 </td>
-                <td className="py-2 px-1.5 sm:py-3 sm:px-3"></td>
-                <td className="py-2 px-1.5 sm:py-3 sm:px-3 text-right font-black text-stone-900 text-xs sm:text-xl whitespace-nowrap">
+                <td className="py-2.5 px-2 sm:py-3 sm:px-3"></td>
+                <td className="py-2.5 px-2 sm:py-3 sm:px-3 text-right font-black text-stone-900 text-sm sm:text-xl whitespace-nowrap">
                   {discountAmount > 0 ? (
                     <div>
                       <div>{currencyPrefix}{bill.grandTotal.toFixed(1)}</div>
-                      <div className="line-through text-stone-400 text-[10px] sm:text-xs font-normal">
+                      <div className="line-through text-stone-400 text-xs sm:text-sm font-normal">
                         {currencyPrefix}{bill.subtotal.toFixed(1)}
                       </div>
                     </div>
@@ -590,14 +590,14 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-6 pt-3 sm:pt-5 pb-3 sm:pb-6">
         {/* Left: Invoice Amount in Words */}
         <div className="space-y-1 pr-0 sm:pr-2">
-          <div className="font-bold text-stone-900 text-xs sm:text-lg">Invoice Amount In Words</div>
-          <p className="text-xs sm:text-lg font-medium text-stone-800 leading-normal">
+          <div className="font-bold text-stone-900 text-sm sm:text-lg">Invoice Amount In Words</div>
+          <p className="text-sm sm:text-lg font-medium text-stone-800 leading-normal">
             {amountInWords}
           </p>
         </div>
 
         {/* Right: Discount, Total, Received, Balance */}
-        <div className="space-y-1.5 sm:space-y-2 text-xs sm:text-base text-stone-800">
+        <div className="space-y-1.5 sm:space-y-2 text-sm sm:text-base text-stone-800">
           {(isTotalOnly || discountAmount > 0) && (
             <div className="flex justify-between items-center py-0.5">
               <span className="font-medium text-stone-800">
