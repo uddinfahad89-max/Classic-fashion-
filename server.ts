@@ -923,9 +923,23 @@ Parsing rules:
     });
   } catch (err: any) {
     console.error('Purchase bill OCR error:', err);
-    return res.status(500).json({
+    let errorMsg = err.message || 'Failed to process purchase bill image';
+    let needApiKey = false;
+
+    if (
+      errorMsg.includes('API key not valid') ||
+      errorMsg.includes('UNAUTHENTICATED') ||
+      errorMsg.includes('ACCESS_TOKEN_TYPE_UNSUPPORTED') ||
+      errorMsg.includes('API_KEY_INVALID')
+    ) {
+      errorMsg = 'Gemini API কী সক্রিয় নয়। অনুগ্রহ করে AI Studio প্যানেল থেকে একটি সক্রিয় Gemini API Key সিলেক্ট করুন।';
+      needApiKey = true;
+    }
+
+    return res.json({
       success: false,
-      error: err.message || 'Failed to process purchase bill image',
+      needApiKey,
+      error: errorMsg,
     });
   }
 });

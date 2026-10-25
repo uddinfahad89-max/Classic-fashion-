@@ -1,9 +1,8 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   X,
   Upload,
   Camera,
-  FileText,
   Sparkles,
   CheckCircle2,
   AlertCircle,
@@ -12,19 +11,25 @@ import {
   Trash2,
   Printer,
   Package,
-  Layers,
-  ArrowRight,
   Eye,
   Store,
-  DollarSign,
   Tag,
-  Barcode as BarcodeIcon,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
+  RotateCcw,
+  Zap,
+  Info,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import JsBarcode from 'jsbarcode';
+import Tesseract from 'tesseract.js';
 import { ProductStockItem, ThermalPrinterSettings, Language } from '../types';
 import { bengaliToEnglishDigits, makeValidEan13 } from '../utils/barcodeUtils';
 import { generateAutoSkuFromName } from './ProductStockModal';
+import { parseBillOcrText } from '../utils/billOcrParser';
 
 // Crisp Barcode Canvas for live preview in the extracted table
 const MiniBarcodePreview: React.FC<{ value: string; className?: string }> = ({
@@ -72,7 +77,9 @@ const MiniBarcodePreview: React.FC<{ value: string; className?: string }> = ({
   }
 
   return (
-    <div className={`inline-flex flex-col items-center bg-white p-1 rounded-md border border-stone-200 shadow-2xs ${className}`}>
+    <div
+      className={`inline-flex flex-col items-center bg-white p-1 rounded-md border border-stone-200 shadow-2xs ${className}`}
+    >
       <img src={dataUrl} alt={value} className="h-8 max-w-[130px] object-contain select-none" />
     </div>
   );
@@ -109,6 +116,7 @@ interface PurchaseBillUploadModalProps {
   onRecordCashExpense?: (amount: number, note: string) => void;
   settings: ThermalPrinterSettings;
   language?: Language;
+  existingProducts?: ProductStockItem[];
 }
 
 export const PurchaseBillUploadModal: React.FC<PurchaseBillUploadModalProps> = ({
@@ -124,10 +132,12 @@ export const PurchaseBillUploadModal: React.FC<PurchaseBillUploadModalProps> = (
   const sym = settings.currencySymbol || '₹';
 
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [imageMime, setImageMime] = useState<string>('image/jpeg');
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [processingStep, setProcessingStep] = useState<string>('');
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [processingProgress, setProcessingProgress] = useState<number>(0);
+  const [ocrEngineUsed, setOcrEngineUsed] = useState<'cloud' | 'local' | null>(null);
+  const [detectedRawLines, setDetectedRawLines] = useState<string[]>([]);
+  const [showDetectedLines, setShowDetectedLines] = useState<boolean>(false);
 
   // Profit markup setting for calculating selling price from wholesale cost
   const [profitMargin, setProfitMargin] = useState<number>(25);
@@ -137,8 +147,11 @@ export const PurchaseBillUploadModal: React.FC<PurchaseBillUploadModalProps> = (
   const [billNo, setBillNo] = useState<string>('');
   const [billDate, setBillDate] = useState<string>('');
   const [extractedItems, setExtractedItems] = useState<ExtractedBillItem[]>([]);
-  const [totalBillAmount, setTotalBillAmount] = useState<number>(0);
-  const [showImagePreview, setShowImagePreview] = useState<boolean>(false);
+  const [, setTotalBillAmount] = useState<number>(0);
+
+  // Image viewer controls (Zoom, Pan, Expand)
+  const [showImagePreview, setShowImagePreview] = useState<boolean>(true);
+  const [zoomLevel, setZoomLevel] = useState<number>(1);
 
   // Options
   const [recordCashExpense, setRecordCashExpense] = useState<boolean>(false);
@@ -148,15 +161,33 @@ export const PurchaseBillUploadModal: React.FC<PurchaseBillUploadModalProps> = (
   const [savedCount, setSavedCount] = useState<number>(0);
   const [savedProductsList, setSavedProductsList] = useState<ProductStockItem[]>([]);
 
+  // Live Camera Viewfinder State
+  const [isLiveCameraActive, setIsLiveCameraActive] = useState<boolean>(false);
+  const [cameraFacing, setCameraFacing] = useState<'environment' | 'user'>('environment');
+  const [hasTorch, setHasTorch] = useState<boolean>(false);
+  const [isTorchOn, setIsTorchOn] = useState<boolean>(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+
+  // Stop camera stream cleanly
+  const stopLiveCamera = useCallback(() => {
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+    }
+    setIsLiveCameraActive(false);
+    setIsTorchOn(false);
+  }, []);
 
   // Reset state when modal opens/closes
   useEffect(() => {
     if (!isOpen) {
+      stopLiveCamera();
       setImagePreview(null);
       setIsProcessing(false);
-      setErrorMsg(null);
       setSupplierName('');
       setBillNo('');
       setBillDate('');
@@ -165,22 +196,111 @@ export const PurchaseBillUploadModal: React.FC<PurchaseBillUploadModalProps> = (
       setIsSavedSuccess(false);
       setSavedCount(0);
       setSavedProductsList([]);
+      setDetectedRawLines([]);
+      setZoomLevel(1);
     }
-  }, [isOpen]);
+  }, [isOpen, stopLiveCamera]);
+
+  // Clean up camera on unmount
+  useEffect(() => {
+    return () => {
+      stopLiveCamera();
+    };
+  }, [stopLiveCamera]);
 
   if (!isOpen) return null;
 
-  // Process chosen image file
+  // Start in-app live camera viewfinder
+  const startLiveCamera = async (facing: 'environment' | 'user' = 'environment') => {
+    try {
+      stopLiveCamera();
+      const constraints: MediaStreamConstraints = {
+        video: {
+          facingMode: { ideal: facing },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+        audio: false,
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      mediaStreamRef.current = stream;
+      setIsLiveCameraActive(true);
+      setCameraFacing(facing);
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play().catch((err) => console.warn('Video play warning:', err));
+      }
+
+      // Check torch / flash support
+      const videoTrack = stream.getVideoTracks()[0];
+      if (videoTrack) {
+        const capabilities: any = videoTrack.getCapabilities ? videoTrack.getCapabilities() : {};
+        if (capabilities.torch) {
+          setHasTorch(true);
+        } else {
+          setHasTorch(false);
+        }
+      }
+    } catch (err) {
+      console.warn('Live camera access error, falling back to file camera input:', err);
+      // Fallback directly to native mobile camera via file input
+      setIsLiveCameraActive(false);
+      cameraInputRef.current?.click();
+    }
+  };
+
+  // Toggle torch / flash
+  const toggleTorch = async () => {
+    if (!mediaStreamRef.current) return;
+    const videoTrack = mediaStreamRef.current.getVideoTracks()[0];
+    if (videoTrack) {
+      try {
+        const newTorch = !isTorchOn;
+        await (videoTrack as any).applyConstraints({
+          advanced: [{ torch: newTorch }],
+        });
+        setIsTorchOn(newTorch);
+      } catch (e) {
+        console.warn('Could not toggle torch:', e);
+      }
+    }
+  };
+
+  // Capture photo from live camera video frame
+  const handleCaptureLiveFrame = () => {
+    if (!videoRef.current) return;
+    const video = videoRef.current;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 720;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const capturedDataUrl = canvas.toDataURL('image/jpeg', 0.9);
+
+    stopLiveCamera();
+    setImagePreview(capturedDataUrl);
+    processBillImage(capturedDataUrl, 'image/jpeg');
+  };
+
+  // Switch between back and front camera
+  const handleSwitchCameraFacing = () => {
+    const nextFacing = cameraFacing === 'environment' ? 'user' : 'environment';
+    startLiveCamera(nextFacing);
+  };
+
+  // Process chosen image file from gallery or native camera input
   const handleFileSelect = (file: File) => {
     if (!file) return;
-    setErrorMsg(null);
     setIsSavedSuccess(false);
 
     const reader = new FileReader();
     reader.onload = (e) => {
       const result = e.target?.result as string;
       if (result) {
-        // Compress/resize if needed using a canvas to ensure quick upload
         const img = new Image();
         img.onload = () => {
           const maxDim = 1800;
@@ -202,14 +322,12 @@ export const PurchaseBillUploadModal: React.FC<PurchaseBillUploadModalProps> = (
           const ctx = canvas.getContext('2d');
           if (ctx) {
             ctx.drawImage(img, 0, 0, width, height);
-            const optimizedBase64 = canvas.toDataURL('image/jpeg', 0.88);
+            const optimizedBase64 = canvas.toDataURL('image/jpeg', 0.9);
             setImagePreview(optimizedBase64);
-            setImageMime('image/jpeg');
-            triggerAiParse(optimizedBase64, 'image/jpeg');
+            processBillImage(optimizedBase64, 'image/jpeg');
           } else {
             setImagePreview(result);
-            setImageMime(file.type || 'image/jpeg');
-            triggerAiParse(result, file.type || 'image/jpeg');
+            processBillImage(result, file.type || 'image/jpeg');
           }
         };
         img.src = result;
@@ -218,19 +336,27 @@ export const PurchaseBillUploadModal: React.FC<PurchaseBillUploadModalProps> = (
     reader.readAsDataURL(file);
   };
 
-  // Trigger Gemini AI Multimodal Parsing
-  const triggerAiParse = async (base64Str: string, mime: string) => {
+  // Master Extraction Pipeline: Dual Engine (Tries Cloud, Seamlessly falls back to Free On-Device OCR)
+  const processBillImage = async (base64Str: string, mime: string) => {
     setIsProcessing(true);
+    setProcessingProgress(10);
     setProcessingStep(
-      isBn ? '📄 বিলের ছবি স্ক্যান করা হচ্ছে...' : 'Scanning purchase bill image...'
+      isBn ? '📄 বিলের ছবি প্রস্তুত করা হচ্ছে...' : 'Preparing bill image...'
     );
 
+    let parsedSuccess = false;
+
+    // 1. Try Server Endpoint (if available with Gemini API)
     try {
       setProcessingStep(
         isBn
-          ? '🤖 AI দিয়ে পণ্য, পাইকারি দর ও পরিমাণ বের করা হচ্ছে...'
-          : 'Extracting products, quantities & wholesale rates...'
+          ? '🔍 বিল স্ক্যান করা হচ্ছে...'
+          : 'Scanning purchase invoice...'
       );
+      setProcessingProgress(30);
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 7000); // 7s quick timeout
 
       const res = await fetch('/api/ai/parse-purchase-bill', {
         method: 'POST',
@@ -240,73 +366,124 @@ export const PurchaseBillUploadModal: React.FC<PurchaseBillUploadModalProps> = (
           mimeType: mime,
           defaultMarginPercent: profitMargin,
         }),
+        signal: controller.signal,
       });
 
-      const json = await res.json();
-      if (!res.ok || !json.success) {
-        throw new Error(json.error || 'Failed to parse bill');
-      }
+      clearTimeout(timeoutId);
 
-      const data = json.data || {};
-      setSupplierName(data.supplierName || '');
-      setBillNo(data.billNo || '');
-      setBillDate(data.billDate || new Date().toISOString().slice(0, 10));
+      if (res.ok) {
+        const rawText = await res.text();
+        const json = JSON.parse(rawText);
+        if (json && json.success && json.data) {
+          const data = json.data;
+          setSupplierName(data.supplierName || '');
+          setBillNo(data.billNo || '');
+          setBillDate(data.billDate || new Date().toISOString().slice(0, 10));
 
-      setProcessingStep(isBn ? '🏷️ স্বয়ংক্রিয় বারকোড তৈরি হচ্ছে...' : 'Generating automatic barcodes...');
+          const rawItems: any[] = Array.isArray(data.items) ? data.items : [];
+          if (rawItems.length > 0) {
+            let calculatedTotal = 0;
+            const formatted: ExtractedBillItem[] = rawItems.map((item, idx) => {
+              const cleanName = (item.name || `Product ${idx + 1}`).trim();
+              const qty = parseFloat(item.qty) > 0 ? parseFloat(item.qty) : 1;
+              const purchasePrice =
+                parseFloat(item.purchasePrice) >= 0 ? parseFloat(item.purchasePrice) : 0;
+              const total =
+                parseFloat(item.totalAmount) > 0 ? parseFloat(item.totalAmount) : purchasePrice * qty;
+              calculatedTotal += total;
 
-      const rawItems: any[] = Array.isArray(data.items) ? data.items : [];
-      let calculatedTotal = 0;
+              let salePrice = parseFloat(item.suggestedSalePrice);
+              if (isNaN(salePrice) || salePrice <= purchasePrice) {
+                salePrice = Math.round(purchasePrice * (1 + profitMargin / 100));
+              }
 
-      const formatted: ExtractedBillItem[] = rawItems.map((item, idx) => {
-        const cleanName = (item.name || `Product ${idx + 1}`).trim();
-        const qty = parseFloat(item.qty) > 0 ? parseFloat(item.qty) : 1;
-        const purchasePrice =
-          parseFloat(item.purchasePrice) >= 0 ? parseFloat(item.purchasePrice) : 0;
-        const total =
-          parseFloat(item.totalAmount) > 0 ? parseFloat(item.totalAmount) : purchasePrice * qty;
-        calculatedTotal += total;
+              const seed = String(Math.floor(100000 + Math.random() * 900000));
+              const autoBarcode = generateAutoSkuFromName(cleanName, seed, purchasePrice);
 
-        let salePrice = parseFloat(item.suggestedSalePrice);
-        if (isNaN(salePrice) || salePrice <= purchasePrice) {
-          salePrice = Math.round(purchasePrice * (1 + profitMargin / 100));
+              return {
+                id: `item-${Date.now()}-${idx}`,
+                name: cleanName,
+                qty,
+                unit: item.unit || 'Pcs',
+                purchasePrice,
+                totalAmount: total,
+                suggestedSalePrice: salePrice,
+                category: item.category || 'General',
+                barcode: autoBarcode,
+              };
+            });
+
+            setExtractedItems(formatted);
+            setTotalBillAmount(data.totalBillAmount || calculatedTotal);
+            setOcrEngineUsed('cloud');
+            parsedSuccess = true;
+          }
         }
-
-        // Generate smart automatic barcode encoding the purchase cost
-        const seed = String(Math.floor(100000 + Math.random() * 900000));
-        const autoBarcode = generateAutoSkuFromName(cleanName, seed, purchasePrice);
-
-        return {
-          id: `item-${Date.now()}-${idx}`,
-          name: cleanName,
-          qty,
-          unit: item.unit || 'Pcs',
-          purchasePrice,
-          totalAmount: total,
-          suggestedSalePrice: salePrice,
-          category: item.category || 'General',
-          barcode: autoBarcode,
-        };
-      });
-
-      setExtractedItems(formatted);
-      setTotalBillAmount(data.totalBillAmount || calculatedTotal);
-
-      if (formatted.length === 0) {
-        setErrorMsg(
-          isBn
-            ? 'বিলের ছবিতে কোনো পণ্যের স্পষ্ট তালিকা পাওয়া যায়নি। পরিষ্কার ছবি দিয়ে পুনরায় চেষ্টা করুন।'
-            : 'No clear product items found in this bill image. Please try with a clearer photo.'
-        );
       }
-    } catch (e: any) {
-      console.error('AI Parse error:', e);
-      setErrorMsg(
-        e.message || (isBn ? 'বিল স্ক্যান করতে ব্যর্থ হয়েছে।' : 'Failed to scan bill.')
-      );
-    } finally {
-      setIsProcessing(false);
-      setProcessingStep('');
+    } catch {
+      // Cloud OCR not available or timed out — silently transition to free local OCR
     }
+
+    // 2. Free On-Device OCR with Tesseract.js (Zero Cost, No Paid API Required)
+    if (!parsedSuccess) {
+      try {
+        setProcessingStep(
+          isBn
+            ? '🔍 বিনামূল্যে অন-ডিভাইস OCR দিয়ে বিল রিড হচ্ছে...'
+            : 'Reading bill text with free on-device OCR...'
+        );
+        setProcessingProgress(45);
+
+        const ocrResult = await Tesseract.recognize(base64Str, 'eng', {
+          logger: (m) => {
+            if (m.status === 'recognizing text' && typeof m.progress === 'number') {
+              const pct = Math.min(95, Math.round(m.progress * 100));
+              setProcessingProgress(pct);
+            }
+          },
+        });
+
+        const recognizedText = ocrResult?.data?.text || '';
+        const parsed = parseBillOcrText(recognizedText, profitMargin);
+
+        if (parsed.supplierName) setSupplierName(parsed.supplierName);
+        if (parsed.billNo) setBillNo(parsed.billNo);
+        if (parsed.billDate) setBillDate(parsed.billDate);
+        if (parsed.totalBillAmount) setTotalBillAmount(parsed.totalBillAmount);
+        setDetectedRawLines(parsed.rawLines || []);
+
+        if (parsed.items.length > 0) {
+          setExtractedItems(parsed.items);
+          setOcrEngineUsed('local');
+          parsedSuccess = true;
+        }
+      } catch (localOcrErr) {
+        console.warn('Local OCR notice:', localOcrErr);
+      }
+    }
+
+    // 3. Fallback: If OCR found 0 items (e.g. handwriting or poor lighting),
+    // NEVER fail with an error! Open the visual review screen with starter row and the photo pinned!
+    if (!parsedSuccess || extractedItems.length === 0) {
+      const seed = String(Math.floor(100000 + Math.random() * 900000));
+      const starterItem: ExtractedBillItem = {
+        id: `starter-${Date.now()}`,
+        name: '',
+        qty: 1,
+        unit: 'Pcs',
+        purchasePrice: 0,
+        totalAmount: 0,
+        suggestedSalePrice: 0,
+        category: 'General',
+        barcode: generateAutoSkuFromName('ITEM', seed, 0),
+      };
+      setExtractedItems([starterItem]);
+      setOcrEngineUsed('local');
+    }
+
+    setIsProcessing(false);
+    setProcessingStep('');
+    setProcessingProgress(100);
   };
 
   // Re-generate Barcode for an item
@@ -331,7 +508,6 @@ export const PurchaseBillUploadModal: React.FC<PurchaseBillUploadModalProps> = (
         const updated = { ...it, [field]: value };
         if (field === 'qty' || field === 'purchasePrice') {
           updated.totalAmount = updated.qty * updated.purchasePrice;
-          // If cost changed, regenerate auto barcode encoding cost
           if (field === 'purchasePrice') {
             const seed = String(Math.floor(100000 + Math.random() * 900000));
             updated.barcode = generateAutoSkuFromName(updated.name, seed, updated.purchasePrice);
@@ -340,18 +516,23 @@ export const PurchaseBillUploadModal: React.FC<PurchaseBillUploadModalProps> = (
             );
           }
         }
+        if (field === 'name') {
+          const seed = String(Math.floor(100000 + Math.random() * 900000));
+          updated.barcode = generateAutoSkuFromName(updated.name, seed, updated.purchasePrice);
+        }
         return updated;
       })
     );
   };
 
   // Add extra empty row
-  const handleAddRow = () => {
+  const handleAddRow = (prefilledName?: string) => {
     const seed = String(Math.floor(100000 + Math.random() * 900000));
-    const newBarcode = generateAutoSkuFromName('ITEM', seed, 0);
+    const name = prefilledName || '';
+    const newBarcode = generateAutoSkuFromName(name || 'ITEM', seed, 0);
     const newItem: ExtractedBillItem = {
       id: `item-${Date.now()}-${Math.random()}`,
-      name: '',
+      name,
       qty: 1,
       unit: 'Pcs',
       purchasePrice: 0,
@@ -442,29 +623,29 @@ export const PurchaseBillUploadModal: React.FC<PurchaseBillUploadModalProps> = (
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-2.5 sm:p-4 overflow-y-auto animate-in fade-in duration-150">
-      <div className="bg-white rounded-3xl shadow-2xl border border-stone-200 w-full max-w-4xl overflow-hidden my-auto flex flex-col max-h-[92vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-2 sm:p-4 overflow-y-auto animate-in fade-in duration-150">
+      <div className="bg-white rounded-3xl shadow-2xl border border-stone-200 w-full max-w-4xl overflow-hidden my-auto flex flex-col max-h-[94vh]">
         {/* 1. Header */}
-        <div className="px-4 py-3.5 sm:px-6 sm:py-4 bg-gradient-to-r from-blue-700 via-indigo-700 to-purple-800 text-white flex items-center justify-between shrink-0 shadow-sm">
+        <div className="px-4 py-3 sm:px-6 sm:py-3.5 bg-gradient-to-r from-blue-700 via-indigo-700 to-purple-800 text-white flex items-center justify-between shrink-0 shadow-sm">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-white/20 flex items-center justify-center shadow-inner">
+            <div className="w-9 h-9 rounded-2xl bg-white/20 flex items-center justify-center shadow-inner shrink-0">
               <Sparkles className="w-5 h-5 text-amber-300" />
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-sm sm:text-base font-black tracking-tight">
                   {isBn
-                    ? 'AI পারচেজ বিল স্ক্যান ও অটো স্টক বারকোড'
-                    : 'AI Purchase Bill to Stock & Barcodes'}
+                    ? 'বিল স্ক্যান ও অটো স্টক বারকোড'
+                    : 'Bill Scanner to Stock & Barcodes'}
                 </h2>
-                <span className="px-2 py-0.5 rounded-full bg-amber-400 text-stone-900 font-black text-[10px] uppercase">
-                  AUTO SKU
+                <span className="px-2 py-0.5 rounded-full bg-amber-400 text-stone-900 font-black text-[9px] uppercase tracking-wider">
+                  FREE OCR & SKU
                 </span>
               </div>
-              <p className="text-[11px] text-blue-100 font-medium">
+              <p className="text-[11px] text-blue-100 font-medium line-clamp-1">
                 {isBn
-                  ? 'বিলের ছবি আপলোড করলেই স্বয়ংক্রিয়ভাবে প্রোডাক্ট বের হবে, স্টকে যোগ হবে এবং বারকোড তৈরি হয়ে যাবে'
-                  : 'Upload bill image to automatically extract products, add stock & generate barcodes'}
+                  ? 'বিলের ছবি তুলুন বা সিলেক্ট করুন — আইটেম ও বারকোড সরাসরি স্টকে যোগ হবে'
+                  : 'Snap or upload bill — items & auto-SKU barcodes are saved straight to stock'}
               </p>
             </div>
           </div>
@@ -472,14 +653,14 @@ export const PurchaseBillUploadModal: React.FC<PurchaseBillUploadModalProps> = (
           <button
             type="button"
             onClick={onClose}
-            className="w-8 h-8 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center text-white transition-colors cursor-pointer"
+            className="w-8 h-8 rounded-full bg-white/15 hover:bg-white/25 flex items-center justify-center text-white transition-colors cursor-pointer shrink-0"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* 2. Body Area */}
-        <div className="p-3.5 sm:p-5 overflow-y-auto space-y-4 flex-1">
+        <div className="p-3 sm:p-5 overflow-y-auto space-y-4 flex-1">
           {/* SUCCESS SCREEN */}
           {isSavedSuccess ? (
             <div className="py-8 px-4 text-center space-y-4 animate-in zoom-in-95 duration-200">
@@ -528,44 +709,177 @@ export const PurchaseBillUploadModal: React.FC<PurchaseBillUploadModalProps> = (
             </div>
           ) : (
             <>
-              {/* UPLOAD / CAPTURE BUTTONS (If no image or want to change) */}
-              {!imagePreview && (
-                <div className="border-2 border-dashed border-blue-300 hover:border-blue-500 bg-blue-50/30 hover:bg-blue-50/60 rounded-3xl p-6 sm:p-10 text-center space-y-4 transition-all">
-                  <div className="w-16 h-16 rounded-2xl bg-blue-600/10 text-blue-600 flex items-center justify-center mx-auto">
-                    <Upload className="w-8 h-8" />
+              {/* LIVE CAMERA VIEWFINDER MODAL OVERLAY */}
+              {isLiveCameraActive && (
+                <div className="p-3 bg-stone-950 rounded-3xl border border-stone-800 text-white space-y-3 animate-in zoom-in-95 duration-150">
+                  <div className="flex items-center justify-between text-xs px-1">
+                    <span className="font-bold flex items-center gap-1.5 text-amber-300">
+                      <Camera className="w-4 h-4" />
+                      <span>{isBn ? 'লাইভ ক্যামেরা ভিউফাইন্ডার' : 'Live Camera Viewfinder'}</span>
+                    </span>
+                    <div className="flex items-center gap-2">
+                      {hasTorch && (
+                        <button
+                          type="button"
+                          onClick={toggleTorch}
+                          className={`p-1.5 rounded-xl border text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors ${
+                            isTorchOn
+                              ? 'bg-amber-400 text-stone-950 border-amber-300'
+                              : 'bg-stone-800 text-stone-300 border-stone-700 hover:bg-stone-700'
+                          }`}
+                        >
+                          <Zap className="w-3.5 h-3.5" />
+                          <span>{isTorchOn ? (isBn ? 'ফ্ল্যাশ অন' : 'Torch On') : (isBn ? 'ফ্ল্যাশ' : 'Torch')}</span>
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={handleSwitchCameraFacing}
+                        className="p-1.5 rounded-xl bg-stone-800 hover:bg-stone-700 border border-stone-700 text-stone-300 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                        title={isBn ? 'ক্যামেরা পরিবর্তন' : 'Switch Camera'}
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        <span>{cameraFacing === 'environment' ? 'Back' : 'Front'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={stopLiveCamera}
+                        className="p-1.5 rounded-xl bg-stone-800 hover:bg-rose-900 border border-stone-700 text-stone-300 text-xs font-bold cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
 
-                  <div className="space-y-1">
-                    <h3 className="text-base font-black text-stone-900">
-                      {isBn
-                        ? 'পারচেজ বিল বা মেমোর ছবি আপলোড করুন'
-                        : 'Upload Purchase Bill or Invoice Photo'}
-                    </h3>
-                    <p className="text-xs text-stone-500 max-w-md mx-auto">
-                      {isBn
-                        ? 'দোকানদার বা পাইকারদের দেওয়া যেকোনো হাতে লেখা বা ছাপানো ক্যাশ মেমো, ইনভয়েস বা চালানের ছবি তুলুন।'
-                        : 'Take a photo or upload any printed or handwritten wholesale invoice, memo, or challan.'}
-                    </p>
+                  {/* Video Viewport with Target Framing Overlay */}
+                  <div className="relative rounded-2xl overflow-hidden bg-black aspect-4/3 sm:aspect-16/9 flex items-center justify-center border border-stone-800">
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="w-full h-full object-cover"
+                    />
+
+                    {/* Framing guide */}
+                    <div className="absolute inset-4 sm:inset-8 border-2 border-dashed border-white/60 rounded-2xl pointer-events-none flex flex-col justify-between p-3">
+                      <div className="flex justify-between text-[10px] text-white/80 font-mono">
+                        <span>┌ TOP LEFT</span>
+                        <span>TOP RIGHT ┐</span>
+                      </div>
+                      <div className="text-center">
+                        <span className="px-3 py-1 rounded-full bg-black/60 text-white text-[11px] font-bold backdrop-blur-xs">
+                          {isBn ? 'বিলের পুরো অংশটি ফ্রেমের মাঝে রাখুন' : 'Align bill within frame'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-[10px] text-white/80 font-mono">
+                        <span>└ BTM LEFT</span>
+                        <span>BTM RIGHT ┘</span>
+                      </div>
+                    </div>
                   </div>
 
-                  {/* Dual Action Buttons: Camera vs File Upload */}
-                  <div className="flex items-center justify-center gap-3 pt-2 flex-wrap">
+                  {/* Shutter Button */}
+                  <div className="flex items-center justify-center gap-4 pt-1">
                     <button
                       type="button"
-                      onClick={() => cameraInputRef.current?.click()}
-                      className="px-5 py-3 rounded-2xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-extrabold text-xs sm:text-sm flex items-center gap-2 shadow-md shadow-blue-600/20 cursor-pointer active:scale-95 transition-all"
+                      onClick={() => {
+                        stopLiveCamera();
+                        fileInputRef.current?.click();
+                      }}
+                      className="px-3.5 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 text-xs font-bold cursor-pointer"
                     >
-                      <Camera className="w-4 h-4" />
-                      <span>{isBn ? '📸 ক্যামেরা দিয়ে ছবি তুলুন' : 'Take Photo (Camera)'}</span>
+                      {isBn ? '📁 গ্যালারি থেকে' : 'From Gallery'}
                     </button>
 
                     <button
                       type="button"
+                      onClick={handleCaptureLiveFrame}
+                      className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-white hover:bg-stone-100 p-1 flex items-center justify-center shadow-lg cursor-pointer active:scale-90 transition-transform"
+                    >
+                      <div className="w-full h-full rounded-full border-4 border-blue-600 bg-white flex items-center justify-center">
+                        <div className="w-6 h-6 rounded-full bg-blue-600" />
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={stopLiveCamera}
+                      className="px-3.5 py-2 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-300 text-xs font-bold cursor-pointer"
+                    >
+                      {isBn ? 'বাতিল' : 'Cancel'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* UPLOAD / CAPTURE HERO AREA (When no image or before scan) */}
+              {!imagePreview && !isLiveCameraActive && (
+                <div className="border-2 border-dashed border-blue-300 hover:border-blue-500 bg-blue-50/30 hover:bg-blue-50/60 rounded-3xl p-5 sm:p-8 text-center space-y-4 transition-all">
+                  <div className="w-14 h-14 rounded-2xl bg-blue-600/10 text-blue-600 flex items-center justify-center mx-auto shadow-inner">
+                    <Camera className="w-7 h-7" />
+                  </div>
+
+                  <div className="space-y-1">
+                    <h3 className="text-sm sm:text-base font-black text-stone-900">
+                      {isBn
+                        ? 'পারচেজ বিল বা মেমোর ছবি তুলুন অথবা আপলোড করুন'
+                        : 'Take Photo or Upload Purchase Bill / Invoice'}
+                    </h3>
+                    <p className="text-xs text-stone-500 max-w-md mx-auto">
+                      {isBn
+                        ? 'পাইকারি বা খুচরা মেমো, চালান বা রসিদের ছবি তুলুন। বিনামূল্যে OCR দিয়ে পণ্যের তালিকা ও স্বয়ংক্রিয় SKU বারকোড তৈরি হয়ে যাবে।'
+                        : 'Capture any wholesale invoice, memo, or challan. Free OCR automatically extracts items and creates SKU barcodes.'}
+                    </p>
+                  </div>
+
+                  {/* Action Buttons: Live Camera vs Native Camera vs Gallery */}
+                  <div className="flex items-center justify-center gap-2.5 pt-2 flex-wrap">
+                    {/* Live In-App Camera */}
+                    <button
+                      type="button"
+                      onClick={() => startLiveCamera('environment')}
+                      className="px-4 py-2.5 rounded-2xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-black text-xs sm:text-sm flex items-center gap-2 shadow-md shadow-blue-600/20 cursor-pointer active:scale-95 transition-all"
+                    >
+                      <Camera className="w-4 h-4" />
+                      <span>{isBn ? '📸 সরাসরি ক্যামেরা চালু করুন' : 'Open Live Camera'}</span>
+                    </button>
+
+                    {/* Native Camera App File Input Trigger */}
+                    <button
+                      type="button"
+                      onClick={() => cameraInputRef.current?.click()}
+                      className="px-4 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-black text-xs sm:text-sm flex items-center gap-2 shadow-md shadow-indigo-600/20 cursor-pointer active:scale-95 transition-all"
+                    >
+                      <Camera className="w-4 h-4" />
+                      <span>{isBn ? '📱 ফোনের ক্যামেরা অ্যাপ' : 'Phone Camera App'}</span>
+                    </button>
+
+                    {/* Gallery / File Picker */}
+                    <button
+                      type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      className="px-5 py-3 rounded-2xl bg-stone-900 hover:bg-stone-800 active:bg-stone-950 text-white font-extrabold text-xs sm:text-sm flex items-center gap-2 shadow-md cursor-pointer active:scale-95 transition-all"
+                      className="px-4 py-2.5 rounded-2xl bg-stone-900 hover:bg-stone-800 active:bg-stone-950 text-white font-black text-xs sm:text-sm flex items-center gap-2 shadow-md cursor-pointer active:scale-95 transition-all"
                     >
                       <Upload className="w-4 h-4" />
-                      <span>{isBn ? '📁 গ্যালারি বা ফাইল থেকে নিন' : 'Choose File / Gallery'}</span>
+                      <span>{isBn ? '📁 গ্যালারি / ফাইল' : 'Gallery / File'}</span>
+                    </button>
+                  </div>
+
+                  {/* Manual entry fallback */}
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleAddRow();
+                      }}
+                      className="text-xs font-bold text-stone-500 hover:text-blue-600 underline cursor-pointer"
+                    >
+                      {isBn
+                        ? '+ ছবি ছাড়া সরাসরি প্রোডাক্টের নাম ও রেট লিখে বারকোড তৈরি করতে চান?'
+                        : '+ Or enter products directly without photo?'}
                     </button>
                   </div>
 
@@ -594,61 +908,54 @@ export const PurchaseBillUploadModal: React.FC<PurchaseBillUploadModalProps> = (
                 </div>
               )}
 
-              {/* PROCESSING ANIMATION */}
+              {/* PROCESSING ANIMATION (With Live Percentage Bar) */}
               {isProcessing && (
-                <div className="py-12 px-4 text-center space-y-4 bg-stone-50 rounded-3xl border border-stone-200">
-                  <div className="relative w-16 h-16 mx-auto">
-                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-600 to-purple-600 flex items-center justify-center text-white animate-pulse shadow-lg">
-                      <Sparkles className="w-8 h-8 animate-spin" />
+                <div className="py-10 px-4 text-center space-y-4 bg-stone-50 rounded-3xl border border-stone-200 animate-in fade-in">
+                  <div className="relative w-14 h-14 mx-auto">
+                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-blue-600 to-purple-600 flex items-center justify-center text-white shadow-lg">
+                      <Sparkles className="w-7 h-7 animate-spin" />
                     </div>
                   </div>
 
-                  <div className="space-y-1">
+                  <div className="space-y-1.5 max-w-sm mx-auto">
                     <h4 className="text-sm font-black text-stone-900">{processingStep}</h4>
-                    <p className="text-xs text-stone-500">
+                    {processingProgress > 0 && (
+                      <div className="space-y-1">
+                        <div className="w-full bg-stone-200 rounded-full h-2 overflow-hidden">
+                          <div
+                            className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                            style={{ width: `${processingProgress}%` }}
+                          />
+                        </div>
+                        <span className="text-[10px] font-mono font-bold text-stone-500">
+                          {processingProgress}%
+                        </span>
+                      </div>
+                    )}
+                    <p className="text-[11px] text-stone-500">
                       {isBn
-                        ? 'মডেল বিলের প্রতিটি পণ্যের নাম, দাম, সংখ্যা ও বারকোড সাজাচ্ছে...'
-                        : 'AI is reading each item name, rate, quantity & encoding barcodes...'}
+                        ? 'বিলের লেখা ও সংখ্যা রিড করে স্বয়ংক্রিয়ভাবে প্রোডাক্ট তালিকা তৈরি হচ্ছে...'
+                        : 'Reading bill text and auto-generating product items and barcodes...'}
                     </p>
                   </div>
-                </div>
-              )}
-
-              {/* ERROR ALERT */}
-              {errorMsg && (
-                <div className="p-3.5 bg-rose-50 border border-rose-200 text-rose-800 rounded-2xl text-xs flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-                    <span>{errorMsg}</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setErrorMsg(null);
-                      setImagePreview(null);
-                    }}
-                    className="px-2.5 py-1 bg-rose-200/70 hover:bg-rose-200 rounded-lg text-rose-900 font-bold shrink-0 cursor-pointer"
-                  >
-                    {isBn ? 'নতুন ছবি দিন' : 'Try Again'}
-                  </button>
                 </div>
               )}
 
               {/* 3. EXTRACTED PRODUCTS REVIEW TABLE */}
               {!isProcessing && extractedItems.length > 0 && (
                 <div className="space-y-4 animate-in fade-in duration-200">
-                  {/* Bill Metadata Banner */}
+                  {/* Bill Photo & OCR Status Header Banner */}
                   <div className="p-3 bg-stone-50 rounded-2xl border border-stone-200 flex items-center justify-between gap-3 flex-wrap text-xs">
                     <div className="flex items-center gap-3 flex-wrap">
                       <div className="flex items-center gap-1.5 font-bold text-stone-800">
-                        <Store className="w-3.5 h-3.5 text-blue-600" />
+                        <Store className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                         <span className="text-stone-500">{isBn ? 'সাপ্লায়ার:' : 'Supplier:'}</span>
                         <input
                           type="text"
                           value={supplierName}
                           onChange={(e) => setSupplierName(e.target.value)}
                           placeholder={isBn ? 'দোকান বা মহাজনের নাম' : 'Supplier Name'}
-                          className="bg-white border border-stone-200 rounded-lg px-2 py-1 font-bold text-stone-900 focus:outline-none focus:border-blue-500"
+                          className="bg-white border border-stone-200 rounded-lg px-2 py-1 font-bold text-stone-900 focus:outline-none focus:border-blue-500 text-xs"
                         />
                       </div>
 
@@ -665,6 +972,21 @@ export const PurchaseBillUploadModal: React.FC<PurchaseBillUploadModalProps> = (
                           <strong className="text-stone-900">{billDate}</strong>
                         </span>
                       )}
+
+                      {ocrEngineUsed && (
+                        <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 font-bold text-[10px] flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" />
+                          <span>
+                            {ocrEngineUsed === 'cloud'
+                              ? isBn
+                                ? 'ক্লাউড স্ক্যান'
+                                : 'Cloud Scan'
+                              : isBn
+                              ? 'ফ্রি অন-ডিভাইস OCR'
+                              : 'Free On-Device OCR'}
+                          </span>
+                        </span>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-2">
@@ -672,10 +994,18 @@ export const PurchaseBillUploadModal: React.FC<PurchaseBillUploadModalProps> = (
                         <button
                           type="button"
                           onClick={() => setShowImagePreview((prev) => !prev)}
-                          className="px-2.5 py-1 bg-white hover:bg-stone-100 border border-stone-200 rounded-lg font-bold text-stone-700 flex items-center gap-1 cursor-pointer"
+                          className="px-2.5 py-1 bg-white hover:bg-stone-100 border border-stone-200 rounded-lg font-bold text-stone-700 flex items-center gap-1 cursor-pointer text-xs"
                         >
                           <Eye className="w-3.5 h-3.5 text-stone-500" />
-                          <span>{showImagePreview ? (isBn ? 'ছবি লুকান' : 'Hide Bill') : (isBn ? 'আসল ছবি দেখুন' : 'View Bill')}</span>
+                          <span>
+                            {showImagePreview
+                              ? isBn
+                                ? 'ছবি লুকান'
+                                : 'Hide Bill'
+                              : isBn
+                              ? 'ছবি দেখুন'
+                              : 'View Bill'}
+                          </span>
                         </button>
                       )}
 
@@ -684,22 +1014,113 @@ export const PurchaseBillUploadModal: React.FC<PurchaseBillUploadModalProps> = (
                         onClick={() => {
                           setImagePreview(null);
                           setExtractedItems([]);
+                          setDetectedRawLines([]);
                         }}
-                        className="px-2.5 py-1 text-rose-600 hover:bg-rose-50 rounded-lg font-bold cursor-pointer"
+                        className="px-2.5 py-1 text-rose-600 hover:bg-rose-50 rounded-lg font-bold cursor-pointer text-xs"
                       >
-                        {isBn ? 'পুনরায় স্ক্যান' : 'Rescan'}
+                        {isBn ? 'নতুন ছবি' : 'New Photo'}
                       </button>
                     </div>
                   </div>
 
-                  {/* Original Image Toggle Preview */}
+                  {/* Bill Photo Viewer with Zoom Controls (Pinned for Easy Cross-Verification) */}
                   {showImagePreview && imagePreview && (
-                    <div className="p-2 bg-stone-900 rounded-2xl flex justify-center max-h-64 overflow-hidden border border-stone-800 animate-in fade-in duration-150">
-                      <img
-                        src={imagePreview}
-                        alt="Uploaded Bill"
-                        className="max-h-60 object-contain rounded-lg"
-                      />
+                    <div className="p-3 bg-stone-900 rounded-2xl border border-stone-800 space-y-2 animate-in fade-in duration-150">
+                      <div className="flex items-center justify-between text-xs text-stone-300 px-1">
+                        <span className="font-bold flex items-center gap-1.5">
+                          <Info className="w-3.5 h-3.5 text-blue-400" />
+                          <span>
+                            {isBn
+                              ? 'বিলের ছবি দেখে নিচে প্রোডাক্টের নাম ও দর মিলিয়ে নিন:'
+                              : 'Cross-verify products and wholesale prices with your bill photo:'}
+                          </span>
+                        </span>
+
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setZoomLevel((z) => Math.max(0.7, z - 0.2))}
+                            className="p-1 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 cursor-pointer"
+                            title="Zoom Out"
+                          >
+                            <ZoomOut className="w-3.5 h-3.5" />
+                          </button>
+                          <span className="font-mono text-[10px] text-stone-400 px-1">
+                            {Math.round(zoomLevel * 100)}%
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setZoomLevel((z) => Math.min(2.5, z + 0.2))}
+                            className="p-1 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 cursor-pointer"
+                            title="Zoom In"
+                          >
+                            <ZoomIn className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setZoomLevel(1)}
+                            className="p-1 rounded-lg bg-stone-800 hover:bg-stone-700 text-stone-200 cursor-pointer ml-1"
+                            title="Reset"
+                          >
+                            <Maximize2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="max-h-64 sm:max-h-80 overflow-auto rounded-xl bg-stone-950 flex items-center justify-center p-2 border border-stone-800">
+                        <img
+                          src={imagePreview}
+                          alt="Bill reference"
+                          style={{
+                            transform: `scale(${zoomLevel})`,
+                            transformOrigin: 'top center',
+                            transition: 'transform 0.15s ease-out',
+                          }}
+                          className="max-h-72 sm:max-h-96 object-contain rounded-lg select-none"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Detected Raw Lines Chips (Allows 1-tap quick add if any item was missed) */}
+                  {detectedRawLines.length > 0 && (
+                    <div className="border border-stone-200 bg-stone-50 rounded-2xl p-2.5 text-xs space-y-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowDetectedLines((prev) => !prev)}
+                        className="w-full flex items-center justify-between text-left font-bold text-stone-700 cursor-pointer"
+                      >
+                        <span className="flex items-center gap-1.5">
+                          <Tag className="w-3.5 h-3.5 text-blue-600" />
+                          <span>
+                            {isBn
+                              ? `📝 বিলে পাওয়া লেখাগুলো (${detectedRawLines.length}টি লাইন) — ট্যাপ করে আইটেম বানান`
+                              : `Detected text lines (${detectedRawLines.length}) — tap to create item`}
+                          </span>
+                        </span>
+                        {showDetectedLines ? (
+                          <ChevronUp className="w-4 h-4 text-stone-500" />
+                        ) : (
+                          <ChevronDown className="w-4 h-4 text-stone-500" />
+                        )}
+                      </button>
+
+                      {showDetectedLines && (
+                        <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto pt-1">
+                          {detectedRawLines.map((line, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => handleAddRow(line)}
+                              className="px-2 py-1 rounded-lg bg-white hover:bg-blue-50 border border-stone-200 hover:border-blue-300 text-stone-800 text-[11px] font-medium flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                              title={isBn ? 'এই লেখা দিয়ে নতুন আইটেম যোগ করুন' : 'Add as new item'}
+                            >
+                              <Plus className="w-3 h-3 text-blue-600" />
+                              <span className="truncate max-w-[200px]">{line}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -769,7 +1190,7 @@ export const PurchaseBillUploadModal: React.FC<PurchaseBillUploadModalProps> = (
                                   value={item.name}
                                   onChange={(e) => handleUpdateItem(item.id, 'name', e.target.value)}
                                   className="w-full bg-transparent font-bold text-stone-900 border-b border-transparent hover:border-stone-300 focus:border-blue-500 focus:bg-white px-1.5 py-0.5 rounded text-xs"
-                                  placeholder="Product Name"
+                                  placeholder={isBn ? 'পণ্যের নাম লিখুন...' : 'Product Name...'}
                                 />
                               </td>
 
@@ -873,7 +1294,7 @@ export const PurchaseBillUploadModal: React.FC<PurchaseBillUploadModalProps> = (
                     <div className="p-3 bg-stone-50 border-t border-stone-200 flex items-center justify-between gap-2 flex-wrap text-xs">
                       <button
                         type="button"
-                        onClick={handleAddRow}
+                        onClick={() => handleAddRow()}
                         className="px-3 py-1.5 bg-white hover:bg-stone-100 border border-stone-200 rounded-xl font-bold text-stone-700 flex items-center gap-1.5 cursor-pointer shadow-2xs"
                       >
                         <Plus className="w-3.5 h-3.5 text-blue-600 stroke-[3]" />
@@ -940,7 +1361,7 @@ export const PurchaseBillUploadModal: React.FC<PurchaseBillUploadModalProps> = (
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2.5 rounded-xl border border-stone-200 text-xs font-bold text-stone-600 hover:bg-stone-100 cursor-pointer transition-colors"
+              className="px-4 py-2 rounded-xl border border-stone-200 text-xs font-bold text-stone-600 hover:bg-stone-100 cursor-pointer transition-colors"
             >
               {isBn ? 'বাতিল' : 'Cancel'}
             </button>
