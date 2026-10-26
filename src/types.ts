@@ -316,6 +316,9 @@ export interface ThermalPrinterSettings {
   isLabelMode?: boolean;
   autoCapitalizeItemNames?: boolean;
   isTotalOnlySlip?: boolean;
+  defaultPaymentMethod?: PaymentMethod;
+  tabletMode?: 'auto' | 'always' | 'disabled';
+  uiScale?: 'normal' | 'large' | 'extra_large';
 }
 
 export interface NetworkStatusInfo {

@@ -81,13 +81,16 @@ const DEFAULT_SETTINGS: ThermalPrinterSettings = {
   hideCurrencySymbol: false,
   footerNote: '(Thank you! Visit again)',
   autoPrintOnCheckout: true,
-  defaultInvoiceFormat: 'tax_invoice',
+  defaultInvoiceFormat: 'estimate',
+  defaultPaymentMethod: 'estimate',
   isDataSaverEnabled: false,
   invoicePrefix: '',
   nextInvoiceNumber: 1,
   isLabelMode: false,
   autoCapitalizeItemNames: true,
   isTotalOnlySlip: false,
+  tabletMode: 'auto',
+  uiScale: 'normal',
 };
 
 class StorageService {
@@ -212,6 +215,9 @@ class StorageService {
         } catch {}
       } else if (!parsed.paperWidth) {
         parsed.paperWidth = '80mm';
+      }
+      if (!parsed.defaultPaymentMethod) {
+        parsed.defaultPaymentMethod = 'estimate';
       }
       return { ...DEFAULT_SETTINGS, ...parsed };
     } catch {

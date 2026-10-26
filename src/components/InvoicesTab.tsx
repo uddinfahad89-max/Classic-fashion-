@@ -271,7 +271,7 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
   const hasActiveFilters = datePreset !== 'all' || paymentFilter !== 'all';
 
   return (
-    <div className="max-w-3xl mx-auto bg-white min-h-[calc(100vh-120px)] pb-24 shadow-2xs">
+    <div className="w-full max-w-5xl lg:max-w-6xl xl:max-w-7xl mx-auto bg-white min-h-[calc(100vh-120px)] pb-24 shadow-2xs">
       {/* 1. TOP BAR: SEARCH PARTY | FILTER ICON | + New Party | 3-DOTS (Exact match to uploaded reference) */}
       <div className="px-4 py-3 border-b border-stone-200 flex items-center justify-between gap-2 bg-white sticky top-0 z-20">
         {/* Left: Blue Magnifying Glass + SEARCH PARTY Input */}

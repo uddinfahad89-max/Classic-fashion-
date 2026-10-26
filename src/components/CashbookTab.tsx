@@ -234,7 +234,7 @@ export const CashbookTab: React.FC<CashbookTabProps> = ({
   }, [filteredBills, filteredEntries, categoryFilter, searchTerm, isBn]);
 
   return (
-    <div className="max-w-2xl mx-auto px-3 sm:px-4 py-3 sm:py-5 space-y-3.5 pb-28">
+    <div className="w-full max-w-5xl lg:max-w-6xl xl:max-w-7xl mx-auto px-3 sm:px-4 py-3 sm:py-5 space-y-3.5 pb-28">
       {/* 1. KHATABOOK TOP SUMMARY: 3 COMPACT METRICS (CASH IN, CASH OUT, NET BALANCE) */}
       <div className="bg-white rounded-3xl shadow-sm border border-stone-200/90 overflow-hidden">
         <div className="grid grid-cols-3 divide-x divide-stone-200/80 p-3 sm:p-4 text-center">

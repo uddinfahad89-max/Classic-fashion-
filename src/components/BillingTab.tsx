@@ -54,6 +54,7 @@ import {
 } from '../services/storageService';
 import { translations } from '../utils/i18n';
 import { useBackHandler } from '../utils/useBackHandler';
+import { useTabletMode } from '../utils/useTabletMode';
 import { KhatabookEntryModal, KhatabookEntryPayload } from './KhatabookEntryModal';
 import {
   BarcodeScannerModal,
@@ -136,6 +137,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
 }) => {
   const t = translations[language];
   const isBn = language === 'bn';
+  const tabletInfo = useTabletMode(settings);
 
   const initialDraft = useMemo(() => loadSavedBillingDraft(), []);
 
@@ -351,12 +353,26 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     () => initialDraft?.discountType || 'fixed'
   );
   const [discountValue, setDiscountValue] = useState(() => initialDraft?.discountValue || '');
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(
-    () => initialDraft?.paymentMethod || 'cash'
-  );
-  const [isEstimateBill, setIsEstimateBill] = useState<boolean>(
-    () => initialDraft?.paymentMethod === 'estimate' || Boolean(initialDraft?.isEstimate)
-  );
+  const defaultMethod: PaymentMethod = settings.defaultPaymentMethod || 'estimate';
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(() => {
+    if (initialDraft?.paymentMethod && initialDraft.paymentMethod !== 'cash') {
+      return initialDraft.paymentMethod;
+    }
+    // If draft had default 'cash' or empty, switch to estimate as requested by user
+    if (initialDraft?.paymentMethod === 'cash' && (!initialDraft.billItems || initialDraft.billItems.length === 0)) {
+      return defaultMethod;
+    }
+    return initialDraft?.paymentMethod || defaultMethod;
+  });
+  const [isEstimateBill, setIsEstimateBill] = useState<boolean>(() => {
+    if (initialDraft?.paymentMethod && initialDraft.paymentMethod !== 'cash') {
+      return initialDraft.paymentMethod === 'estimate' || Boolean(initialDraft.isEstimate);
+    }
+    if (initialDraft?.paymentMethod === 'cash' && (!initialDraft.billItems || initialDraft.billItems.length === 0)) {
+      return defaultMethod === 'estimate';
+    }
+    return defaultMethod === 'estimate';
+  });
   const [paidAmount, setPaidAmount] = useState(() => initialDraft?.paidAmount || '');
 
   // Restore saved cart items on mount if parent state was empty, then auto-save cart changes to localStorage
@@ -1460,8 +1476,9 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     setCustomerPhone('');
     setDiscountValue('');
     setPaidAmount('');
-    setPaymentMethod('cash');
-    setIsEstimateBill(false);
+    const resetMethod = settings.defaultPaymentMethod || 'estimate';
+    setPaymentMethod(resetMethod);
+    setIsEstimateBill(resetMethod === 'estimate');
     setDeliveryDate('');
     setTrialDate('');
     setMeasurements({
@@ -1512,7 +1529,12 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   };
 
   return (
-    <div className="max-w-2xl mx-auto px-3 py-2 sm:py-3 space-y-2">
+    <div
+      className={tabletInfo.containerClass}
+      style={{
+        fontSize: tabletInfo.scaleMultiplier !== 1 ? `${tabletInfo.scaleMultiplier * 100}%` : undefined,
+      }}
+    >
       {/* 1. CUSTOMER DETAILS CARD (SECTION 1 - TOP) */}
       <div
         id="billing-customer-section"
@@ -1612,7 +1634,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                     setCustomerName(val);
                   }}
                   placeholder={t.customerNameOptionalPlaceholder}
-                  className="w-full border border-stone-200 bg-stone-50/80 pl-9 pr-3 py-2 rounded-xl text-xs sm:text-sm font-medium focus:outline-none focus:border-blue-500 focus:bg-white transition-all font-mono"
+                  className="w-full border border-stone-200 bg-stone-50/80 pl-9 md:pl-11 pr-3 py-2 md:py-3.5 rounded-xl text-xs sm:text-sm md:text-base font-medium focus:outline-none focus:border-blue-500 focus:bg-white transition-all font-mono"
                 />
               </div>
 
@@ -1620,14 +1642,14 @@ export const BillingTab: React.FC<BillingTabProps> = ({
               <button
                 type="button"
                 onClick={handlePickContact}
-                className="px-2.5 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 active:scale-95 text-blue-700 border border-blue-200 flex items-center gap-1.5 text-xs font-bold transition-all cursor-pointer shrink-0 shadow-2xs"
+                className="px-2.5 py-2 md:px-3.5 md:py-3.5 rounded-xl bg-blue-50 hover:bg-blue-100 active:scale-95 text-blue-700 border border-blue-200 flex items-center gap-1.5 text-xs md:text-sm font-bold transition-all cursor-pointer shrink-0 shadow-2xs"
                 title={
                   isBn
                     ? 'মোবাইলের কন্টাক্ট লিস্ট বা খাতা থেকে কাস্টমার বাছুন'
                     : 'Pick customer from phone contacts or saved accounts'
                 }
               >
-                <BookUser className="w-3.5 h-3.5 text-blue-600" />
+                <BookUser className="w-3.5 h-3.5 md:w-4 md:h-4 text-blue-600" />
                 <span>{isBn ? 'কন্টাক্ট' : 'Contacts'}</span>
               </button>
             </div>
@@ -1637,7 +1659,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
           <div>
             <div className="relative">
               <div className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none">
-                <Phone className="w-4 h-4" />
+                <Phone className="w-4 h-4 md:w-5 md:h-5" />
               </div>
               <input
                 type="tel"
@@ -1645,7 +1667,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 value={customerPhone}
                 onChange={(e) => setCustomerPhone(e.target.value)}
                 placeholder={t.customerPhoneOptionalPlaceholder}
-                className="w-full border border-stone-200 bg-stone-50/80 pl-9 pr-3 py-2 rounded-xl text-xs sm:text-sm font-mono font-medium focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
+                className="w-full border border-stone-200 bg-stone-50/80 pl-9 md:pl-11 pr-3 py-2 md:py-3.5 rounded-xl text-xs sm:text-sm md:text-base font-mono font-medium focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
               />
             </div>
           </div>
@@ -1904,8 +1926,9 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                     setCustomerPhone('');
                     setDiscountValue('');
                     setPaidAmount('');
-                    setPaymentMethod('cash');
-                    setIsEstimateBill(false);
+                    const resetMethod = settings.defaultPaymentMethod || 'estimate';
+                    setPaymentMethod(resetMethod);
+                    setIsEstimateBill(resetMethod === 'estimate');
                   }
                 }}
                 className="text-[11px] text-stone-500 hover:text-red-600 flex items-center gap-1 transition-colors cursor-pointer shrink-0"
@@ -2049,19 +2072,19 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                       </td>
 
                       {/* 2. QTY: Circular green stepper */}
-                      <td className="p-2 sm:p-2.5 text-center">
-                        <div className="inline-flex items-center justify-center gap-1 sm:gap-1.5">
+                      <td className="p-2 sm:p-2.5 md:p-3.5 text-center">
+                        <div className="inline-flex items-center justify-center gap-1 sm:gap-1.5 md:gap-2">
                           <button
                             type="button"
                             onClick={() => handleUpdateQty(item.id, item.qty - 1)}
-                            className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#E2F4EB] hover:bg-[#cdecdb] active:scale-90 text-[#0A8057] font-bold text-sm sm:text-base flex items-center justify-center transition-all cursor-pointer select-none"
+                            className="w-7 h-7 sm:w-8 sm:h-8 md:w-11 md:h-11 rounded-full bg-[#E2F4EB] hover:bg-[#cdecdb] active:scale-90 text-[#0A8057] font-bold text-sm sm:text-base md:text-2xl flex items-center justify-center transition-all cursor-pointer select-none"
                             title={isBn ? 'একটি কমান' : 'Decrease'}
                           >
                             −
                           </button>
                           <span
                             onClick={() => handleStartEditItem(item, 'qty')}
-                            className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#0A8057] text-white font-bold text-xs sm:text-sm flex items-center justify-center shadow-2xs cursor-pointer select-none"
+                            className="w-7 h-7 sm:w-8 sm:h-8 md:w-11 md:h-11 rounded-full bg-[#0A8057] text-white font-bold text-xs sm:text-sm md:text-base flex items-center justify-center shadow-2xs cursor-pointer select-none"
                             title={isBn ? 'সংখ্যা এডিট করতে ট্যাপ করুন' : 'Tap to edit quantity'}
                           >
                             {item.qty}
@@ -2069,7 +2092,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                           <button
                             type="button"
                             onClick={() => handleUpdateQty(item.id, item.qty + 1)}
-                            className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#E2F4EB] hover:bg-[#cdecdb] active:scale-90 text-[#0A8057] font-bold text-sm sm:text-base flex items-center justify-center transition-all cursor-pointer select-none"
+                            className="w-7 h-7 sm:w-8 sm:h-8 md:w-11 md:h-11 rounded-full bg-[#E2F4EB] hover:bg-[#cdecdb] active:scale-90 text-[#0A8057] font-bold text-sm sm:text-base md:text-2xl flex items-center justify-center transition-all cursor-pointer select-none"
                             title={isBn ? 'একটি বাড়ান' : 'Increase'}
                           >
                             +
@@ -2298,7 +2321,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                     ? 'পণ্যের নাম লিখুন (যেমন: SHIRT, PANT, PUNJABI...)'
                     : t.itemNamePlaceholder
                 }
-                className="w-full border border-stone-200 bg-stone-50/80 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-medium focus:outline-none focus:border-blue-500 focus:bg-white transition-all font-mono"
+                className="w-full border border-stone-200 bg-stone-50/80 px-3 md:px-4 py-2.5 md:py-3.5 rounded-xl text-xs sm:text-sm md:text-base font-medium focus:outline-none focus:border-blue-500 focus:bg-white transition-all font-mono"
               />
 
               {/* OPTIONAL SAVED PRODUCTS DROPDOWN (Only shown if explicitly enabled from 3-dot menu) */}
@@ -2497,7 +2520,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 value={itemQty}
                 onChange={(e) => setItemQty(e.target.value)}
                 placeholder={isBn ? 'সংখ্যা (Quantity)' : 'Quantity'}
-                className="w-full border border-stone-200 bg-stone-50/80 px-3 py-2.5 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
+                className="w-full border border-stone-200 bg-stone-50/80 px-3 md:px-4 py-2.5 md:py-3.5 rounded-xl text-xs sm:text-sm md:text-base font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
               />
             </div>
 
@@ -2507,18 +2530,18 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 type="button"
                 id="btn-select-unit"
                 onClick={() => setShowUnitSelectorModal(true)}
-                className="w-full border border-stone-200 bg-stone-50/80 hover:bg-stone-100 hover:border-blue-400 active:scale-[0.99] px-3 py-2.5 rounded-xl text-xs sm:text-sm font-bold text-stone-900 flex items-center justify-between cursor-pointer transition-all shadow-2xs text-left"
+                className="w-full border border-stone-200 bg-stone-50/80 hover:bg-stone-100 hover:border-blue-400 active:scale-[0.99] px-3 md:px-4 py-2.5 md:py-3.5 rounded-xl text-xs sm:text-sm md:text-base font-bold text-stone-900 flex items-center justify-between cursor-pointer transition-all shadow-2xs text-left"
                 title={isBn ? 'ইউনিট সিলেক্ট করুন (বা নতুন ইউনিট যোগ করুন)' : 'Select Unit'}
               >
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <span className="text-[11px] text-stone-400 font-semibold shrink-0">
+                  <span className="text-[11px] md:text-xs text-stone-400 font-semibold shrink-0">
                     {isBn ? 'ইউনিট:' : 'Unit:'}
                   </span>
                   <span className="font-extrabold text-blue-700 truncate">
                     {itemUnit || 'Pcs'}
                   </span>
                 </div>
-                <ChevronDown className="w-4 h-4 text-stone-400 shrink-0 ml-1" />
+                <ChevronDown className="w-4 h-4 md:w-5 md:h-5 text-stone-400 shrink-0 ml-1" />
               </button>
             </div>
           </div>
@@ -2526,7 +2549,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
           {/* ROW 3: RATE (PRICE / UNIT) */}
           <div className="relative">
             {sym ? (
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs font-mono">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs md:text-sm font-mono">
                 {sym}
               </span>
             ) : null}
@@ -2540,8 +2563,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
               onChange={(e) => setItemPrice(e.target.value)}
               placeholder={isBn ? 'দর / রেট (Rate / Price per Unit)' : 'Rate (Price/Unit)'}
               className={`w-full border border-stone-200 bg-stone-50/80 ${
-                sym ? (sym.length > 2 ? 'pl-11' : 'pl-8') : 'pl-3'
-              } pr-8 py-2.5 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all`}
+                sym ? (sym.length > 2 ? 'pl-11 md:pl-14' : 'pl-8 md:pl-10') : 'pl-3 md:pl-4'
+              } pr-8 md:pr-10 py-2.5 md:py-3.5 rounded-xl text-xs sm:text-sm md:text-base font-mono font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all`}
             />
             <button
               type="button"
@@ -2549,19 +2572,19 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 setCalculatorTarget('item');
                 setIsCalculatorModalOpen(true);
               }}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400 hover:text-blue-600 p-1 rounded-md transition-colors cursor-pointer"
+              className="absolute right-2 md:right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-blue-600 p-1 md:p-1.5 rounded-md transition-colors cursor-pointer"
               title={isBn ? 'ক্যালকুলেটর খুলুন' : 'Open Calculator'}
             >
-              <Calculator className="w-3.5 h-3.5" />
+              <Calculator className="w-3.5 h-3.5 md:w-4.5 md:h-4.5" />
             </button>
           </div>
 
           <button
             type="submit"
             id="btn-add-item"
-            className="w-full bg-blue-600 hover:bg-blue-500 active:scale-[0.99] text-white py-2.5 sm:py-3 rounded-xl font-bold text-xs sm:text-sm shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+            className="w-full bg-blue-600 hover:bg-blue-500 active:scale-[0.99] text-white py-2.5 sm:py-3 md:py-4 rounded-xl font-bold text-xs sm:text-sm md:text-base lg:text-lg shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
           >
-            <Plus className="w-4 h-4 stroke-[3]" />
+            <Plus className="w-4 h-4 md:w-5 md:h-5 stroke-[3]" />
             <span>{t.addItemToBill}</span>
           </button>
         </form>
@@ -2878,20 +2901,20 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         </div>
 
         {/* 5. VERY BOTTOM: Three Side-by-Side Action Buttons (Save Bill, WhatsApp Bill, Direct Print) */}
-        <div className="grid grid-cols-3 gap-1.5 sm:gap-2.5 pt-1">
+        <div className="grid grid-cols-3 gap-1.5 sm:gap-2.5 md:gap-3.5 pt-1">
           {/* Button 1: Save Bill Only */}
           <button
             type="button"
             id="billing-save-btn"
             onClick={() => handleCheckoutAndPrint('save')}
             disabled={!canCheckout || isPrinting}
-            className={`w-full py-3.5 px-2 rounded-2xl font-bold text-xs sm:text-sm shadow-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+            className={`w-full py-3.5 md:py-5 px-2 md:px-4 rounded-2xl font-bold text-xs sm:text-sm md:text-base lg:text-lg shadow-xs flex items-center justify-center gap-1.5 md:gap-2.5 transition-all cursor-pointer ${
               canCheckout && !isPrinting
                 ? 'bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white shadow-md active:scale-[0.99]'
                 : 'bg-stone-200 text-stone-400 cursor-not-allowed'
             }`}
           >
-            <Check className="w-4 h-4 shrink-0 stroke-[2.5]" />
+            <Check className="w-4 h-4 md:w-5 md:h-5 shrink-0 stroke-[2.5]" />
             <span className="truncate">
               {isEstimateBill
                 ? isBn
@@ -2911,14 +2934,14 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             id="billing-whatsapp-btn"
             onClick={() => handleCheckoutAndPrint('whatsapp')}
             disabled={!canCheckout || isPrinting}
-            className={`w-full py-3.5 px-2 rounded-2xl font-bold text-xs sm:text-sm shadow-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+            className={`w-full py-3.5 md:py-5 px-2 md:px-4 rounded-2xl font-bold text-xs sm:text-sm md:text-base lg:text-lg shadow-xs flex items-center justify-center gap-1.5 md:gap-2.5 transition-all cursor-pointer ${
               canCheckout && !isPrinting
                 ? 'bg-[#25D366] hover:bg-[#20bd5a] active:bg-[#1caa51] text-white shadow-md active:scale-[0.99]'
                 : 'bg-stone-200 text-stone-400 cursor-not-allowed'
             }`}
             title={isBn ? 'হোয়াটসঅ্যাপে বিল পাঠান ও সেভ করুন' : 'Save and send WhatsApp bill'}
           >
-            <MessageCircle className="w-4 h-4 shrink-0 fill-current" />
+            <MessageCircle className="w-4 h-4 md:w-5 md:h-5 shrink-0 fill-current" />
             <span className="truncate font-extrabold">
               {isBn ? 'WhatsApp বিল' : 'WhatsApp'}
             </span>
@@ -2930,7 +2953,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             id="billing-print-btn"
             onClick={() => handleCheckoutAndPrint('print')}
             disabled={!canCheckout || isPrinting}
-            className={`w-full py-3.5 px-2 rounded-2xl font-bold text-xs sm:text-sm shadow-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+            className={`w-full py-3.5 md:py-5 px-2 md:px-4 rounded-2xl font-bold text-xs sm:text-sm md:text-base lg:text-lg shadow-xs flex items-center justify-center gap-1.5 md:gap-2.5 transition-all cursor-pointer ${
               canCheckout && !isPrinting
                 ? 'bg-[#6E68D8] hover:bg-[#5E58C8] active:bg-[#534DA8] text-white shadow-md active:scale-[0.99]'
                 : 'bg-stone-200 text-stone-400 cursor-not-allowed'
@@ -2938,12 +2961,12 @@ export const BillingTab: React.FC<BillingTabProps> = ({
           >
             {isPrinting ? (
               <>
-                <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
+                <RefreshCw className="w-4 h-4 md:w-5 md:h-5 animate-spin shrink-0" />
                 <span className="truncate">{t.generatingInvoice}</span>
               </>
             ) : (
               <>
-                <Printer className="w-4 h-4 shrink-0" />
+                <Printer className="w-4 h-4 md:w-5 md:h-5 shrink-0" />
                 <span className="truncate">
                   {isEstimateBill
                     ? isBn

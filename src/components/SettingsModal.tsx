@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, X, Save, Check, Bluetooth, Power, Trash2, FileText, CheckCircle2, Zap, HelpCircle, Download, Upload, Database, Tag, Copy, Cloud, ShieldCheck, Receipt, Flame, Barcode, RefreshCw, Crown, UserCheck } from 'lucide-react';
+import { Settings, X, Save, Check, Bluetooth, Power, Trash2, FileText, CheckCircle2, Zap, HelpCircle, Download, Upload, Database, Tag, Copy, Cloud, ShieldCheck, Receipt, Flame, Barcode, RefreshCw, Crown, UserCheck, Tablet } from 'lucide-react';
 import { ThermalPrinterSettings, BluetoothDeviceInfo, Language } from '../types';
 import { translations } from '../utils/i18n';
 import { storageService, BarcodeScanPreferences } from '../services/storageService';
@@ -525,6 +525,79 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           </div>
 
+          {/* 10" Tablet & Large Screen Mode */}
+          <div className="p-3.5 bg-indigo-50/60 rounded-2xl border border-indigo-200/90 space-y-2.5 shadow-2xs">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Tablet className="w-4 h-4 text-indigo-600" />
+                <span className="font-bold text-indigo-950 text-xs sm:text-sm">
+                  {isBn ? '🖥️ ১০" ট্যাবলেট ও বড় স্ক্রিন মোড' : '🖥️ 10" Tablet & Large Screen Mode'}
+                </span>
+              </div>
+              <span className="text-[10px] font-mono font-bold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-full">
+                {form.tabletMode === 'always'
+                  ? isBn ? 'সবসময় ফুল স্ক্রিন' : 'Always Full'
+                  : form.tabletMode === 'disabled'
+                  ? isBn ? 'কম্প্যাক্ট ফোন' : 'Compact'
+                  : isBn ? 'অটো ডিটেক্ট' : 'Auto Detect'}
+              </span>
+            </div>
+
+            <p className="text-[11px] text-stone-600 leading-snug">
+              {isBn
+                ? '১০ ইঞ্চি বা বড় স্ক্রিনের ট্যাবলেটে পুরো স্ক্রিন জুড়ে বিলিং ইন্টারফেস ছড়িয়ে যাবে এবং বাটন ও লেখা বড় হয়ে আসবে।'
+                : 'Expands the POS interface to full width with larger buttons and typography for 10" tablets.'}
+            </p>
+
+            <div className="grid grid-cols-3 gap-1.5 pt-1">
+              {[
+                { id: 'auto', labelBn: '🤖 অটো ডিটেক্ট', labelEn: '🤖 Auto' },
+                { id: 'always', labelBn: '🖥️ সবসময় বড়', labelEn: '🖥️ Always' },
+                { id: 'disabled', labelBn: '📱 ছোট ফোন', labelEn: '📱 Phone' },
+              ].map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setForm({ ...form, tabletMode: opt.id as any })}
+                  className={`py-2 px-1 rounded-xl text-[11px] font-bold border transition-all cursor-pointer text-center ${
+                    (form.tabletMode || 'auto') === opt.id
+                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                      : 'bg-white hover:bg-indigo-50 text-stone-700 border-indigo-200'
+                  }`}
+                >
+                  {isBn ? opt.labelBn : opt.labelEn}
+                </button>
+              ))}
+            </div>
+
+            {/* Font scale buttons */}
+            <div className="pt-1 border-t border-indigo-100 flex items-center justify-between">
+              <span className="text-[11px] font-semibold text-stone-600">
+                {isBn ? 'লেখার সাইজ (Font Scale):' : 'Font Size Scale:'}
+              </span>
+              <div className="flex gap-1">
+                {[
+                  { id: 'normal', label: '100%' },
+                  { id: 'large', label: '115%' },
+                  { id: 'extra_large', label: '130%' },
+                ].map((sc) => (
+                  <button
+                    key={sc.id}
+                    type="button"
+                    onClick={() => setForm({ ...form, uiScale: sc.id as any })}
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold border cursor-pointer transition-all ${
+                      (form.uiScale || 'normal') === sc.id
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-white text-stone-700 border-stone-200 hover:bg-stone-50'
+                    }`}
+                  >
+                    {sc.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
           {/* Label Mode Toggle in Settings */}
           <div className="p-3 bg-gradient-to-r from-amber-50/90 to-orange-50/80 rounded-2xl border border-amber-200 flex items-center justify-between gap-3 shadow-2xs">
             <div className="space-y-0.5">
@@ -590,6 +663,42 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               >
                 {isBn ? '🏛️ ট্যাক্স ইনভয়েস' : 'Tax Invoice'}
               </button>
+            </div>
+          </div>
+
+          {/* Default Payment Mode: Estimate vs Cash vs UPI vs Due */}
+          <div className="p-3 bg-emerald-50/70 rounded-2xl border border-emerald-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="space-y-0.5">
+              <div className="font-bold text-emerald-950 text-xs flex items-center gap-1.5">
+                <FileText className="w-3.5 h-3.5 text-emerald-600" />
+                <span>{isBn ? 'ডিফল্ট পেমেন্ট মেথড (Default Payment Mode)' : 'Default Payment Mode'}</span>
+              </div>
+              <div className="text-[11px] text-emerald-900/80 leading-tight">
+                {isBn
+                  ? 'নতুন বিল শুরু করার সময় স্বয়ংক্রিয়ভাবে কোন অপশনটি সিলেক্ট থাকবে (যেমন: এস্টিমেট বা ক্যাশ)।'
+                  : 'Choose which payment method is pre-selected when starting a new bill (e.g. Estimate or Cash).'}
+              </div>
+            </div>
+            <div className="flex items-center bg-white rounded-xl p-1 border border-emerald-200 text-xs font-bold shrink-0 self-start sm:self-auto shadow-2xs gap-0.5">
+              {[
+                { id: 'estimate', labelBn: '📋 এস্টিমেট', labelEn: 'Estimate' },
+                { id: 'cash', labelBn: '💵 ক্যাশ', labelEn: 'Cash' },
+                { id: 'upi', labelBn: '📱 UPI', labelEn: 'UPI' },
+                { id: 'due', labelBn: '⏳ বাকি', labelEn: 'Due' },
+              ].map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setForm({ ...form, defaultPaymentMethod: opt.id as any })}
+                  className={`px-2 py-1 rounded-lg transition-all cursor-pointer ${
+                    (form.defaultPaymentMethod || 'estimate') === opt.id
+                      ? 'bg-emerald-600 text-white shadow-2xs'
+                      : 'text-stone-600 hover:text-stone-900'
+                  }`}
+                >
+                  {isBn ? opt.labelBn : opt.labelEn}
+                </button>
+              ))}
             </div>
           </div>
 

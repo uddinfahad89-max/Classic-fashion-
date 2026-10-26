@@ -538,7 +538,7 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
   };
 
   return (
-    <div className="max-w-2xl mx-auto px-3 sm:px-4 py-3 sm:py-5 space-y-3.5 pb-28">
+    <div className="w-full max-w-5xl lg:max-w-6xl xl:max-w-7xl mx-auto px-3 sm:px-4 py-3 sm:py-5 space-y-3.5 pb-28">
       {/* 1. KHATABOOK COMPACT TOP CARD: YOU WILL GIVE & YOU WILL GET */}
       <div className="bg-white rounded-3xl shadow-sm border border-stone-200/90 overflow-hidden">
         {/* Top Two Metrics: Give vs Get */}

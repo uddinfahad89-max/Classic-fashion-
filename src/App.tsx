@@ -1903,6 +1903,7 @@ export default function App() {
         onDisconnectBluetooth={handleDisconnectBluetooth}
         onTestPrint={handleTestPrint}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onUpdateSettings={handleSaveSettings}
         userProfile={userProfile}
         onOpenLogin={handleOpenOwnerLogin}
         onOpenStaffLogin={handleOpenStaffLogin}

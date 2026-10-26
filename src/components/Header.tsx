@@ -39,6 +39,7 @@ import {
   Package,
   Crown,
   KeyRound,
+  Tablet,
 } from 'lucide-react';
 import {
   ThermalPrinterSettings,
@@ -49,6 +50,8 @@ import {
   NetworkStatusInfo,
 } from '../types';
 import { storageService } from '../services/storageService';
+import { useTabletMode } from '../utils/useTabletMode';
+import { TabletModeSwitcherModal } from './TabletModeSwitcherModal';
 
 export type SortOption = 'date-desc' | 'date-asc' | 'amount-desc' | 'name-asc';
 
@@ -85,6 +88,7 @@ interface HeaderProps {
   onManualSync?: () => void;
   onOpenSuperAdmin?: () => void;
   onOpenRecycleBin?: () => void;
+  onUpdateSettings?: (settings: ThermalPrinterSettings) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -94,6 +98,7 @@ export const Header: React.FC<HeaderProps> = ({
   onDisconnectBluetooth,
   onTestPrint,
   onOpenSettings,
+  onUpdateSettings,
   userProfile,
   onOpenLogin,
   onOpenStaffLogin,
@@ -133,6 +138,9 @@ export const Header: React.FC<HeaderProps> = ({
   const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false);
   const [isFolderMenuOpen, setIsFolderMenuOpen] = useState(false);
   const [isTopMoreMenuOpen, setIsTopMoreMenuOpen] = useState(false);
+  const [isTabletModalOpen, setIsTabletModalOpen] = useState(false);
+
+  const tabletInfo = useTabletMode(settings);
 
   const profileRef = useRef<HTMLDivElement>(null);
   const sortRef = useRef<HTMLDivElement>(null);
@@ -220,7 +228,7 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="h-1 bg-gradient-to-r from-red-500 via-emerald-500 to-blue-500 w-full" />
 
         {/* 1. MAIN TOP APP BAR (Hamburger + Pill Search + User Avatar) */}
-        <div className="max-w-4xl mx-auto px-3 sm:px-4 py-2 flex items-center justify-between gap-2 sm:gap-3">
+        <div className="w-full max-w-5xl lg:max-w-6xl xl:max-w-7xl mx-auto px-3 sm:px-4 py-2 flex items-center justify-between gap-2 sm:gap-3">
           {/* Left: Hamburger Menu Button (☰) */}
           <button
             id="header-drawer-menu-btn"
@@ -744,6 +752,24 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </div>
 
+          {/* Tablet Mode Quick Button */}
+          <button
+            id="header-tablet-mode-btn"
+            type="button"
+            onClick={() => setIsTabletModalOpen(true)}
+            className={`p-2 rounded-full transition-colors cursor-pointer shrink-0 relative flex items-center justify-center ${
+              tabletInfo.isTabletActive
+                ? 'bg-blue-100 text-blue-800 ring-2 ring-blue-500/40'
+                : 'text-stone-700 hover:text-stone-950 hover:bg-stone-100 active:bg-stone-200'
+            }`}
+            title={isBn ? '১০" ট্যাবলেট / বড় স্ক্রিন মোড' : '10" Tablet & Large Screen Mode'}
+          >
+            <Tablet className="w-5 h-5 text-current" />
+            {tabletInfo.isTabletActive && (
+              <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 rounded-full ring-2 ring-white" />
+            )}
+          </button>
+
           {/* Top 3-Dot More Menu Button (৩ ডট মেনু) */}
           <div className="relative shrink-0" ref={moreMenuRef}>
             <button
@@ -804,6 +830,24 @@ export const Header: React.FC<HeaderProps> = ({
 
                 {/* 3. Common Quick Actions */}
                 <div className="py-1">
+                  {/* Tablet Mode Option */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsTopMoreMenuOpen(false);
+                      setIsTabletModalOpen(true);
+                    }}
+                    className="w-full text-left px-3.5 py-2 text-xs font-semibold text-stone-700 hover:bg-stone-50 flex items-center justify-between transition-colors cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2.5">
+                      <Tablet className="w-4 h-4 text-indigo-600" />
+                      <span>{isBn ? '১০" ট্যাবলেট মোড (Tablet Mode)' : '10" Tablet Mode'}</span>
+                    </span>
+                    <span className="text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-200">
+                      {tabletInfo.isTabletActive ? (isBn ? 'চালু' : 'Active') : (isBn ? 'অটো' : 'Auto')}
+                    </span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={() => {
@@ -1297,6 +1341,24 @@ export const Header: React.FC<HeaderProps> = ({
                   </button>
                 )}
 
+                {/* Tablet Mode Setting */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsDrawerOpen(false);
+                    setIsTabletModalOpen(true);
+                  }}
+                  className="w-full text-left px-3.5 py-2 rounded-xl text-xs font-semibold text-stone-700 hover:bg-stone-100 flex items-center justify-between transition-colors cursor-pointer"
+                >
+                  <span className="flex items-center gap-3">
+                    <Tablet className="w-4 h-4 text-indigo-600" />
+                    <span>{isBn ? '১০" ট্যাবলেট ও বড় স্ক্রিন মোড' : '10" Tablet & Large Screen'}</span>
+                  </span>
+                  <span className="text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-200">
+                    {tabletInfo.isTabletActive ? (isBn ? 'চালু' : 'Active') : (isBn ? 'অটো' : 'Auto')}
+                  </span>
+                </button>
+
                 {/* App Settings */}
                 <button
                   type="button"
@@ -1342,6 +1404,21 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
       )}
+
+      {/* Tablet Mode Configuration Modal */}
+      <TabletModeSwitcherModal
+        isOpen={isTabletModalOpen}
+        onClose={() => setIsTabletModalOpen(false)}
+        settings={settings}
+        onUpdateSettings={(updated) => {
+          if (onUpdateSettings) {
+            onUpdateSettings(updated);
+          } else {
+            storageService.saveSettings(updated);
+          }
+        }}
+        language={language}
+      />
     </>
   );
 };
