@@ -345,335 +345,44 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-0 sm:p-4 overflow-y-auto">
       <div className="bg-stone-100 sm:rounded-2xl shadow-2xl border-0 sm:border border-stone-300 w-full max-w-4xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-auto flex flex-col h-full sm:h-auto sm:max-h-[96vh]">
-        {/* 1. Modal Top Bar */}
-        <div className="px-3 py-2.5 sm:px-4 sm:py-3 border-b border-stone-200 bg-white space-y-2.5">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="w-8 h-8 rounded-xl bg-[#8C8EE8]/15 flex items-center justify-center text-[#8C8EE8] shrink-0">
-                <FileCheck className="w-4 h-4" />
-              </div>
-              <div className="min-w-0">
-                <div className="font-mono font-bold text-xs sm:text-sm text-stone-900 flex items-center gap-1.5 flex-wrap">
-                  <span className="truncate">{pdfFilename}</span>
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ${
-                    effectiveBill.isEstimate || effectiveBill.paymentMethod === 'estimate' || effectiveBill.paymentStatus === 'ESTIMATE'
-                      ? 'bg-blue-100 text-blue-800'
-                      : effectiveBill.paymentStatus === 'PAID'
-                      ? 'bg-emerald-100 text-emerald-800'
-                      : 'bg-rose-100 text-rose-800'
-                  }`}>
-                    {effectiveBill.isEstimate || effectiveBill.paymentMethod === 'estimate' || effectiveBill.paymentStatus === 'ESTIMATE'
-                      ? 'ESTIMATE'
-                      : effectiveBill.paymentStatus === 'PAID'
-                      ? 'PAID'
-                      : 'DUE / CREDIT'}
-                  </span>
-                  <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.5 rounded shrink-0">
-                    {settings.paperWidth || '80mm'} Roll
-                  </span>
-                </div>
-              </div>
-            </div>
+        {/* 1. Modal Top Bar - Clean: Connect & Print option and Close button only */}
+        <div className="px-3 py-2.5 sm:px-4 sm:py-3 border-b border-stone-200 bg-white flex items-center justify-between gap-3 shrink-0">
+          <button
+            type="button"
+            id="modal-bt-print-btn"
+            onClick={handleBluetoothPrint}
+            disabled={isPrintingBt}
+            className={`flex-1 py-2.5 sm:py-3 px-4 rounded-xl text-white text-xs sm:text-sm font-bold flex items-center justify-center gap-2 shadow-sm cursor-pointer transition-all active:scale-[0.98] ${
+              bluetoothStatus?.connected
+                ? 'bg-emerald-600 hover:bg-emerald-500'
+                : 'bg-indigo-600 hover:bg-indigo-500'
+            }`}
+            title="Bluetooth Thermal Print"
+          >
+            {isPrintingBt ? (
+              <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
+            ) : (
+              <Bluetooth className="w-4 h-4 shrink-0" />
+            )}
+            <span className="truncate font-extrabold tracking-tight">
+              {bluetoothStatus?.connected
+                ? language === 'bn'
+                  ? '⚡ ব্লুটুথ প্রিন্ট (Bluetooth Print)'
+                  : '⚡ Bluetooth Print'
+                : language === 'bn'
+                ? '⚡ কানেক্ট ও প্রিন্ট (Connect & Print)'
+                : '⚡ Connect & Print'}
+            </span>
+          </button>
 
-            <div className="flex items-center gap-1.5 shrink-0">
-              {/* 3-Dot More Options Menu (Contains Print, PDF, Image, WhatsApp, Label Mode, RawBT, 58mm/80mm) */}
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowMoreMenu((prev) => !prev)}
-                  className={`p-1.5 rounded-xl border text-xs font-bold flex items-center justify-center cursor-pointer transition-colors ${
-                    showMoreMenu
-                      ? 'bg-stone-900 text-white border-stone-900'
-                      : 'bg-stone-50 hover:bg-stone-100 text-stone-600 border-stone-200'
-                  }`}
-                  title={language === 'bn' ? 'আরও অপশন' : 'More Options'}
-                >
-                  <MoreVertical className="w-4 h-4" />
-                </button>
-
-                {showMoreMenu && (
-                  <>
-                    <div
-                      className="fixed inset-0 z-40"
-                      onClick={() => setShowMoreMenu(false)}
-                    />
-                    <div className="absolute right-0 top-full mt-1.5 z-50 w-56 bg-white rounded-2xl shadow-xl border border-stone-200 p-1.5 space-y-1 animate-in fade-in zoom-in-95 duration-150">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowMoreMenu(false);
-                          handlePrintTaxInvoice();
-                        }}
-                        className="w-full px-3 py-2 rounded-xl text-left text-xs font-bold text-stone-800 hover:bg-stone-100 flex items-center gap-2.5 cursor-pointer transition-colors"
-                      >
-                        <Printer className="w-3.5 h-3.5 text-[#8C8EE8]" />
-                        <span>{language === 'bn' ? 'প্রিন্ট করুন (Print)' : 'Print Document'}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowMoreMenu(false);
-                          handleSavePdf();
-                        }}
-                        disabled={isSavingPdf}
-                        className="w-full px-3 py-2 rounded-xl text-left text-xs font-bold text-stone-800 hover:bg-stone-100 flex items-center gap-2.5 cursor-pointer transition-colors"
-                      >
-                        <Download className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>{language === 'bn' ? 'পিডিএফ সেভ (Save PDF)' : 'Save PDF'}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowMoreMenu(false);
-                          handleSaveImage();
-                        }}
-                        disabled={isSavingImage}
-                        className="w-full px-3 py-2 rounded-xl text-left text-xs font-bold text-stone-800 hover:bg-stone-100 flex items-center gap-2.5 cursor-pointer transition-colors"
-                      >
-                        <ImageIcon className="w-3.5 h-3.5 text-stone-700" />
-                        <span>{language === 'bn' ? 'ছবি সেভ (Save Image)' : 'Save Image'}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowMoreMenu(false);
-                          handleWhatsAppShare();
-                        }}
-                        className="w-full px-3 py-2 rounded-xl text-left text-xs font-bold text-stone-800 hover:bg-stone-100 flex items-center gap-2.5 cursor-pointer transition-colors"
-                      >
-                        <Share2 className="w-3.5 h-3.5 text-[#25D366]" />
-                        <span>WhatsApp Share</span>
-                      </button>
-
-                      <div className="border-t border-stone-100 my-1" />
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowMoreMenu(false);
-                          handleRawBtPrint();
-                        }}
-                        className="w-full px-3 py-2 rounded-xl text-left text-xs font-bold text-stone-700 hover:bg-stone-100 flex items-center gap-2.5 cursor-pointer transition-colors"
-                      >
-                        <Smartphone className="w-3.5 h-3.5 text-stone-600" />
-                        <span>RawBT App Print</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEstimateMode(!estimateMode);
-                          setShowMoreMenu(false);
-                        }}
-                        className="w-full px-3 py-2 rounded-xl text-left text-xs font-bold text-stone-700 hover:bg-stone-100 flex items-center justify-between cursor-pointer transition-colors"
-                      >
-                        <span className="flex items-center gap-2.5">
-                          <FileText className="w-3.5 h-3.5 text-blue-600" />
-                          <span>{language === 'bn' ? 'এস্টিমেট বিল (Estimate Bill)' : 'Estimate Bill'}</span>
-                        </span>
-                        {estimateMode && <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />}
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          handleToggleTotalOnlySlip(!isTotalOnlySlip);
-                          setShowMoreMenu(false);
-                        }}
-                        className="w-full px-3 py-2 rounded-xl text-left text-xs font-bold text-stone-700 hover:bg-stone-100 flex items-center justify-between cursor-pointer transition-colors"
-                      >
-                        <span className="flex items-center gap-2.5">
-                          <Receipt className="w-3.5 h-3.5 text-indigo-600" />
-                          <span>{language === 'bn' ? 'শুধু টোটাল হিসাব (Total Slip)' : 'Total Only Slip'}</span>
-                        </span>
-                        {isTotalOnlySlip && <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600" />}
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          handleToggleLabelMode(!isLabelMode);
-                          setShowMoreMenu(false);
-                        }}
-                        className="w-full px-3 py-2 rounded-xl text-left text-xs font-bold text-stone-700 hover:bg-stone-100 flex items-center justify-between cursor-pointer transition-colors"
-                      >
-                        <span className="flex items-center gap-2.5">
-                          <Tag className="w-3.5 h-3.5 text-amber-600" />
-                          <span>{language === 'bn' ? 'লেবেল মোড (Label Mode)' : 'Label Mode'}</span>
-                        </span>
-                        {isLabelMode && <CheckCircle2 className="w-3.5 h-3.5 text-amber-600" />}
-                      </button>
-
-                      <div className="border-t border-stone-100 my-1" />
-
-                      {/* Paper Roll Option (moved to 3-dots) */}
-                      {onUpdatePaperWidth && (
-                        <div className="px-3 py-1.5 space-y-1 bg-stone-50 rounded-xl border border-stone-200/80">
-                          <div className="flex items-center justify-between text-[11px] font-bold text-stone-700">
-                            <span>🖨️ {language === 'bn' ? 'কাগজের রোল:' : 'Paper Roll:'}</span>
-                            <span className="text-[10px] text-blue-700 font-extrabold">{settings.paperWidth || '80mm'}</span>
-                          </div>
-                          <div className="grid grid-cols-2 gap-1 bg-stone-200/70 p-0.5 rounded-lg text-[10px] font-bold">
-                            <button
-                              type="button"
-                              onClick={() => onUpdatePaperWidth('80mm')}
-                              className={`py-1 rounded-md transition-all cursor-pointer text-center ${
-                                (settings.paperWidth || '80mm') === '80mm'
-                                  ? 'bg-blue-600 text-white shadow-xs'
-                                  : 'text-stone-600 hover:text-stone-900'
-                              }`}
-                            >
-                              80mm ({language === 'bn' ? 'ওয়াইড' : 'Wide'})
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => onUpdatePaperWidth('58mm')}
-                              className={`py-1 rounded-md transition-all cursor-pointer text-center ${
-                                settings.paperWidth === '58mm'
-                                  ? 'bg-blue-600 text-white shadow-xs'
-                                  : 'text-stone-600 hover:text-stone-900'
-                              }`}
-                            >
-                              58mm
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Print Size Option (moved to 3-dots) */}
-                      <div className="px-3 py-1.5 space-y-1 bg-stone-50 rounded-xl border border-stone-200/80">
-                        <div className="flex items-center justify-between text-[11px] font-bold text-stone-700">
-                          <span>🔍 {language === 'bn' ? 'লেখার সাইজ:' : 'Print Size:'}</span>
-                          <span className="text-[10px] text-purple-700 font-extrabold capitalize">{printScale}</span>
-                        </div>
-                        <div className="grid grid-cols-3 gap-1 bg-stone-200/70 p-0.5 rounded-lg text-[10px] font-bold text-center">
-                          <button
-                            type="button"
-                            onClick={() => handleSetPrintScale('normal')}
-                            className={`py-1 rounded-md transition-all cursor-pointer ${
-                              printScale === 'normal'
-                                ? 'bg-stone-900 text-white shadow-xs'
-                                : 'text-stone-600 hover:text-stone-900'
-                            }`}
-                          >
-                            {language === 'bn' ? 'নরমাল' : 'Normal'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleSetPrintScale('large')}
-                            className={`py-1 rounded-md transition-all cursor-pointer ${
-                              printScale === 'large'
-                                ? 'bg-blue-600 text-white shadow-xs'
-                                : 'text-stone-600 hover:text-stone-900'
-                            }`}
-                          >
-                            ★ {language === 'bn' ? 'বড়' : 'Large'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleSetPrintScale('xlarge')}
-                            className={`py-1 rounded-md transition-all cursor-pointer ${
-                              printScale === 'xlarge'
-                                ? 'bg-purple-600 text-white shadow-xs'
-                                : 'text-stone-600 hover:text-stone-900'
-                            }`}
-                          >
-                            {language === 'bn' ? 'এক্সট্রা' : 'XL'}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              <button
-                onClick={onClose}
-                className="p-1.5 rounded-xl text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition-colors cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
-
-          {/* Format Selector Segment: Full Bill vs Total Only Slip */}
-          <div className="flex items-center justify-center p-1 bg-stone-100 rounded-xl gap-1">
-            <button
-              type="button"
-              onClick={() => {
-                handleToggleTotalOnlySlip(false);
-                handleToggleLabelMode(false);
-              }}
-              className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                !isTotalOnlySlip && !isLabelMode
-                  ? 'bg-white text-stone-900 shadow-xs border border-stone-200'
-                  : 'text-stone-500 hover:text-stone-800'
-              }`}
-            >
-              <FileText className="w-3.5 h-3.5 text-[#8C8EE8]" />
-              <span>{language === 'bn' ? '📋 পূর্ণাঙ্গ বিল (Full Bill)' : 'Full Bill'}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                handleToggleTotalOnlySlip(true);
-                handleToggleLabelMode(false);
-              }}
-              className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                isTotalOnlySlip && !isLabelMode
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'text-stone-600 hover:text-stone-900'
-              }`}
-            >
-              <Receipt className="w-3.5 h-3.5" />
-              <span>{language === 'bn' ? '💰 শুধু টোটাল হিসাব (Total Slip)' : 'Total Only Slip'}</span>
-            </button>
-          </div>
-
-          {/* Top 2 Side-by-Side Print Buttons: Connect & Print (Left) and Print (Right) */}
-          <div className="flex items-center justify-center gap-3">
-            <button
-              type="button"
-              id="modal-bt-print-btn"
-              onClick={handleBluetoothPrint}
-              disabled={isPrintingBt}
-              className={`flex-1 max-w-[200px] py-2.5 px-3 rounded-xl text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm cursor-pointer transition-all active:scale-[0.98] ${
-                bluetoothStatus?.connected
-                  ? 'bg-emerald-600 hover:bg-emerald-500'
-                  : 'bg-indigo-600 hover:bg-indigo-500'
-              }`}
-              title="Bluetooth Thermal Print"
-            >
-              {isPrintingBt ? (
-                <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
-              ) : (
-                <Bluetooth className="w-3.5 h-3.5 shrink-0" />
-              )}
-              <span className="truncate">
-                {bluetoothStatus?.connected
-                  ? language === 'bn'
-                    ? 'ব্লুটুথ প্রিন্ট'
-                    : 'Bluetooth Print'
-                  : language === 'bn'
-                  ? 'কানেক্ট ও প্রিন্ট'
-                  : 'Connect & Print'}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handlePrintTaxInvoice}
-              className="flex-1 max-w-[200px] py-2.5 px-3 rounded-xl bg-[#6E68D8] hover:bg-[#5E58C8] active:scale-[0.98] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm cursor-pointer transition-all"
-              title={language === 'bn' ? 'সরাসরি প্রিন্ট করুন' : 'Print Invoice'}
-            >
-              <Printer className="w-3.5 h-3.5 shrink-0" />
-              <span className="truncate">{language === 'bn' ? 'প্রিন্ট (Print)' : 'Print'}</span>
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-10 h-10 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-600 hover:text-stone-900 flex items-center justify-center transition-colors cursor-pointer shrink-0"
+            title={language === 'bn' ? 'বন্ধ করুন' : 'Close'}
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
         {/* Delete Confirmation Modal inside PrintReceiptModal */}

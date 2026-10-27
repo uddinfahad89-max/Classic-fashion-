@@ -1114,9 +1114,15 @@ export default function App() {
       localStorage.removeItem('simple_pos_billing_cart_draft_v1');
     } catch {}
 
-    // 4A. If mode is 'save', only save the bill and show confirmation toast
+    // 4. Determine if the full receipt slip modal should automatically open
+    const shouldAutoOpenModal = Boolean(settings.autoOpenReceiptAfterBill);
+
+    // 4A. If mode is 'save', save bill, show confirmation toast and stay on billing counter
     if (mode === 'save') {
       setAutoPrintReceipt(false);
+      if (shouldAutoOpenModal) {
+        setReceiptBill(bill);
+      }
       showToast(
         language === 'bn'
           ? `✓ বিল #${bill.invoiceNo} সফলভাবে সেভ হয়েছে!`
@@ -1127,9 +1133,11 @@ export default function App() {
       return;
     }
 
-    // 4B. If mode is 'print', open receipt modal with Thermal Printer options & trigger Bluetooth Thermal Printer
+    // 4B. If mode is 'print', handle printing without automatically interrupting the billing screen
     setAutoPrintReceipt(false);
-    setReceiptBill(bill);
+    if (shouldAutoOpenModal) {
+      setReceiptBill(bill);
+    }
 
     if (thermalPrinterService.getIsConnected()) {
       setIsPrintingBill(true);
@@ -1172,7 +1180,24 @@ export default function App() {
         }
       } else {
         setIsPrintingBill(false);
+        // Saved cleanly on billing counter
+        showToast(
+          language === 'bn'
+            ? `✓ বিল #${bill.invoiceNo} সফলভাবে সেভ হয়েছে!`
+            : `✓ Bill #${bill.invoiceNo} saved successfully!`,
+          'success',
+          bill
+        );
       }
+    } else {
+      // Bluetooth not supported on device; bill is saved cleanly
+      showToast(
+        language === 'bn'
+          ? `✓ বিল #${bill.invoiceNo} সফলভাবে সেভ হয়েছে!`
+          : `✓ Bill #${bill.invoiceNo} saved successfully!`,
+        'success',
+        bill
+      );
     }
   };
 
@@ -2551,7 +2576,7 @@ export default function App() {
                 }}
                 className="px-2.5 py-1 bg-white/15 hover:bg-white/25 rounded-lg text-xs font-bold text-white transition-colors cursor-pointer"
               >
-                View Slip
+                {language === 'bn' ? 'রসিদ দেখুন' : language === 'hi' ? 'रसीद देखें' : 'View Slip'}
               </button>
             )}
             <button

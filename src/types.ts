@@ -319,6 +319,7 @@ export interface ThermalPrinterSettings {
   defaultPaymentMethod?: PaymentMethod;
   tabletMode?: 'auto' | 'always' | 'disabled';
   uiScale?: 'normal' | 'large' | 'extra_large';
+  autoOpenReceiptAfterBill?: boolean;
 }
 
 export interface NetworkStatusInfo {

@@ -91,6 +91,7 @@ const DEFAULT_SETTINGS: ThermalPrinterSettings = {
   isTotalOnlySlip: false,
   tabletMode: 'auto',
   uiScale: 'normal',
+  autoOpenReceiptAfterBill: false,
 };
 
 class StorageService {

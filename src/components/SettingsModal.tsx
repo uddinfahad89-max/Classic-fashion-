@@ -731,6 +731,43 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </label>
           </div>
 
+          {/* Auto-Open Receipt Slip Modal After Bill Checkout */}
+          <div className="p-3 bg-gradient-to-r from-purple-50/90 to-indigo-50/80 rounded-2xl border border-purple-200 flex items-center justify-between gap-3 shadow-2xs">
+            <div className="space-y-0.5">
+              <div className="font-bold text-purple-950 text-xs flex items-center gap-1.5">
+                <FileText className="w-3.5 h-3.5 text-purple-600" />
+                <span>
+                  {isBn
+                    ? 'বিল করার পর রসিদ পেজ অটো খোলা (Auto-open Receipt Slip)'
+                    : 'Auto-Open Receipt Slip Page After Save/Print'}
+                </span>
+                {form.autoOpenReceiptAfterBill ? (
+                  <span className="text-[10px] bg-purple-200 text-purple-900 font-bold px-1.5 py-0.2 rounded-full">
+                    {isBn ? 'চালু' : 'Active'}
+                  </span>
+                ) : (
+                  <span className="text-[10px] bg-stone-200 text-stone-700 font-bold px-1.5 py-0.2 rounded-full">
+                    {isBn ? 'ডিফল্ট বন্ধ (কাউন্টারেই থাকবে)' : 'Off (Fast Counter)'}
+                  </span>
+                )}
+              </div>
+              <div className="text-[11px] text-purple-900/85 leading-tight">
+                {isBn
+                  ? 'বন্ধ রাখলে (সুপারিশকৃত): বিল সেভ বা প্রিন্ট করার পর অটো রসিদ পেজ ওপেন হবে না, আপনি সরাসরি নতুন বিল করার জন্য কাউন্টারেই থাকবেন।'
+                  : 'When Off (Recommended): Keeps you immediately on the billing counter ready for the next customer without opening the receipt popup.'}
+              </div>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+              <input
+                type="checkbox"
+                checked={Boolean(form.autoOpenReceiptAfterBill)}
+                onChange={(e) => setForm({ ...form, autoOpenReceiptAfterBill: e.target.checked })}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-stone-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+            </label>
+          </div>
+
           {/* Data Saver Mode in Settings */}
           <div className="p-3 bg-emerald-50/70 rounded-2xl border border-emerald-200 flex items-center justify-between gap-3">
             <div>
