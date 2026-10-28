@@ -323,6 +323,7 @@ export interface ThermalPrinterSettings {
   isLabelMode?: boolean;
   autoCapitalizeItemNames?: boolean;
   isTotalOnlySlip?: boolean;
+  discountPrintMode?: DiscountPrintMode;
   defaultPaymentMethod?: PaymentMethod;
   tabletMode?: 'auto' | 'always' | 'disabled';
   uiScale?: 'normal' | 'large' | 'extra_large';

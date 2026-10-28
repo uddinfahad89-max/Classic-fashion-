@@ -96,8 +96,8 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
   }, [bill?.id, bill?.discountPrintMode]);
 
   const effectiveSettings = useMemo(
-    () => ({ ...settings, isLabelMode, isTotalOnlySlip }),
-    [settings, isLabelMode, isTotalOnlySlip]
+    () => ({ ...settings, isLabelMode, isTotalOnlySlip, discountPrintMode }),
+    [settings, isLabelMode, isTotalOnlySlip, discountPrintMode]
   );
 
   const handleToggleLabelMode = (enabled: boolean) => {
@@ -249,10 +249,18 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
 
       const res = await thermalPrinterService.printViaBluetooth(effectiveBill, effectiveSettings);
       if (res.success) {
+        const modeLabel = isTotalOnlySlip
+          ? (language === 'bn' ? '(টোটাল স্লিপ)' : '(Total Slip)')
+          : isLabelMode
+          ? (language === 'bn' ? '(লেবেল মোড)' : '(Label Mode)')
+          : discountPrintMode === 'item_discount' && rawBillDiscount > 0
+          ? (language === 'bn' ? '(ডিসকাউন্ট বিল)' : '(Discount Bill)')
+          : (language === 'bn' ? '(ফুল বিল)' : '(Full Bill)');
+
         setFeedbackMessage(
           language === 'bn'
-            ? `✓ বিল #${bill.invoiceNo} ${isTotalOnlySlip ? '(টোটাল স্লিপ)' : isLabelMode ? '(লেবেল মোড)' : ''} ব্লুটুথ থার্মাল প্রিন্টারে প্রিন্ট হয়েছে!`
-            : `✓ Invoice #${bill.invoiceNo} ${isTotalOnlySlip ? '(Total Slip)' : isLabelMode ? '(Label Mode)' : ''} printed directly via Bluetooth!`
+            ? `✓ বিল #${bill.invoiceNo} ${modeLabel} ব্লুটুথ থার্মাল প্রিন্টারে প্রিন্ট হয়েছে!`
+            : `✓ Invoice #${bill.invoiceNo} ${modeLabel} printed directly via Bluetooth!`
         );
       } else {
         setFeedbackMessage(

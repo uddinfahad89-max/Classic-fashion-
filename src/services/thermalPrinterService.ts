@@ -728,6 +728,8 @@ export class ThermalPrinterService {
     const isTailoring = Boolean(bill.isTailoring);
     const method = String(bill.paymentMethod || 'cash').toLowerCase();
     const isEstimate = method === 'estimate' || (Boolean(bill.isEstimate) && method === 'estimate');
+    const effectiveDiscountMode = bill.discountPrintMode || settings.discountPrintMode || 'standard_discount';
+    const isDiscountBill = effectiveDiscountMode === 'item_discount' && (bill.discount || 0) > 0;
 
     // Dynamic Bill Title, Prefix, and Payment Label based on user selection
     let billTitle = '*** CASH BILL ***';
@@ -735,9 +737,13 @@ export class ThermalPrinterService {
     let payLabel = 'CASH';
 
     if (isTailoring) {
-      billTitle = '*** TAILORING ORDER SLIP ***';
+      billTitle = isDiscountBill ? '*** TAILORING DISCOUNT SLIP ***' : '*** TAILORING ORDER SLIP ***';
       billDocPrefix = 'Order:';
       payLabel = method === 'due' ? 'CREDIT' : method === 'estimate' ? 'ESTIMATE' : method.toUpperCase();
+    } else if (isDiscountBill) {
+      billTitle = isEstimate ? '*** DISCOUNT ESTIMATE BILL ***' : '*** DISCOUNT BILL ***';
+      billDocPrefix = isEstimate ? 'Est:' : 'Bill:';
+      payLabel = method === 'due' ? 'CREDIT' : method === 'estimate' ? 'ESTIMATE' : method === 'upi' ? 'UPI' : 'CASH';
     } else if (method === 'estimate' || isEstimate) {
       billTitle = '*** ESTIMATE BILL ***';
       billDocPrefix = 'Est:';
@@ -761,6 +767,9 @@ export class ThermalPrinterService {
     }
 
     lines.push(padCenter(billTitle));
+    if (isDiscountBill) {
+      lines.push(padCenter('>> SPECIAL DISCOUNT APPLIED <<'));
+    }
     lines.push(doubleDiv);
 
     // Bill Meta - Compact & Side-by-Side to save paper
@@ -807,16 +816,43 @@ export class ThermalPrinterService {
       lines.push(padBetween('ITEM', 'QTY  TOTAL'));
     }
 
+    const eligibleSubtotal = bill.items.reduce(
+      (sum, it) => sum + (it.noDiscount ? 0 : it.total),
+      0
+    );
+    const discRatio =
+      isDiscountBill && eligibleSubtotal > 0 ? (bill.discount || 0) / eligibleSubtotal : 0;
+
     bill.items.forEach((item) => {
       const qtyLabel = item.unit ? `${item.qty} ${item.unit}` : `${item.qty}x`;
-      if (width === 48) {
-        const itemLine = `${item.name.slice(0, 20)}`;
-        const rightCol = `${qtyLabel}  ${sym}${item.price.toFixed(2)}  ${sym}${item.total.toFixed(2)}`;
-        lines.push(padBetween(itemLine, rightCol));
+      const hasDiscountOnItem = isDiscountBill && !item.noDiscount && discRatio > 0;
+
+      if (hasDiscountOnItem) {
+        const netUnitPrice = Math.round(item.price * (1 - discRatio) * 100) / 100;
+        const netItemTotal = Math.round(item.total * (1 - discRatio) * 100) / 100;
+        const itemSaved = Math.max(0, item.total - netItemTotal);
+
+        if (width === 48) {
+          const itemLine = `${item.name.slice(0, 18)}`;
+          const rightCol = `${qtyLabel}  ${sym}${netUnitPrice.toFixed(2)}  ${sym}${netItemTotal.toFixed(2)}`;
+          lines.push(padBetween(itemLine, rightCol));
+          lines.push(` (Regular: ${sym}${item.price.toFixed(2)} | Save: -${sym}${itemSaved.toFixed(2)})`);
+        } else {
+          const itemLine = `${item.name.slice(0, 15)}`;
+          const rightCol = `${qtyLabel} ${sym}${netItemTotal.toFixed(2)}`;
+          lines.push(padBetween(itemLine, rightCol));
+          lines.push(` (Orig:${item.price.toFixed(0)} Net:${netUnitPrice.toFixed(0)} -${itemSaved.toFixed(0)})`);
+        }
       } else {
-        const itemLine = `${item.name.slice(0, 16)}`;
-        const rightCol = `${qtyLabel} ${sym}${item.total.toFixed(2)}`;
-        lines.push(padBetween(itemLine, rightCol));
+        if (width === 48) {
+          const itemLine = `${item.name.slice(0, 20)}`;
+          const rightCol = `${qtyLabel}  ${sym}${item.price.toFixed(2)}  ${sym}${item.total.toFixed(2)}`;
+          lines.push(padBetween(itemLine, rightCol));
+        } else {
+          const itemLine = `${item.name.slice(0, 16)}`;
+          const rightCol = `${qtyLabel} ${sym}${item.total.toFixed(2)}`;
+          lines.push(padBetween(itemLine, rightCol));
+        }
       }
     });
 
@@ -824,12 +860,21 @@ export class ThermalPrinterService {
 
     // Subtotal & Discount: Side-by-Side to save vertical space (only if discount > 0)
     if (bill.discount > 0) {
-      lines.push(
-        padBetween(
-          `SUBTOTAL: ${sym}${bill.subtotal.toFixed(2)}`,
-          `DISC: -${sym}${bill.discount.toFixed(2)}`
-        )
-      );
+      if (isDiscountBill) {
+        lines.push(
+          padBetween(
+            `SUBTOTAL: ${sym}${bill.subtotal.toFixed(2)}`,
+            `DISC: -${sym}${bill.discount.toFixed(2)}`
+          )
+        );
+      } else {
+        lines.push(
+          padBetween(
+            `SUBTOTAL: ${sym}${bill.subtotal.toFixed(2)}`,
+            `DISC: -${sym}${bill.discount.toFixed(2)}`
+          )
+        );
+      }
     }
 
     // (Slash 4 removed): No double divider above Grand Total
@@ -841,6 +886,10 @@ export class ThermalPrinterService {
         `PAY: ${payLabel}`
       )
     );
+
+    if (isDiscountBill) {
+      lines.push(padCenter(`*** YOU SAVED: ${sym}${bill.discount.toFixed(2)} ***`));
+    }
 
     const isDueFull =
       (bill.balance !== undefined && bill.balance > 0) ||
