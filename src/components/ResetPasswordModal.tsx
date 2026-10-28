@@ -20,6 +20,7 @@ interface ResetPasswordModalProps {
   language?: Language;
   onSuccess?: (msg: string) => void;
   prefilledEmail?: string;
+  initialMode?: 'request_link' | 'update_password';
   onSwitchToLogin?: (email?: string) => void;
 }
 

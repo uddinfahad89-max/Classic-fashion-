@@ -20,16 +20,203 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@600;700&family=Hind+Siliguri:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+      /* Essential ES5 Polyfills for older mobile devices, WebViews & legacy browsers */
+      (function() {
+        if (typeof window === 'undefined') return;
+
+        // globalThis polyfill
+        if (typeof globalThis === 'undefined') {
+          window.globalThis = window;
+        }
+
+        // Crypto polyfill for older Android / iOS
+        if (!window.crypto) {
+          window.crypto = {};
+        }
+        if (!window.crypto.getRandomValues) {
+          window.crypto.getRandomValues = function(buf) {
+            for (var i = 0; i < buf.length; i++) {
+              buf[i] = Math.floor(Math.random() * 256);
+            }
+            return buf;
+          };
+        }
+        if (!window.crypto.randomUUID) {
+          window.crypto.randomUUID = function() {
+            return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, function(c) {
+              var rnd = window.crypto.getRandomValues(new Uint8Array(1))[0];
+              return (+c ^ (rnd & 15 >> +c / 4)).toString(16);
+            });
+          };
+        }
+
+        // structuredClone polyfill
+        if (typeof window.structuredClone !== 'function') {
+          window.structuredClone = function(obj) {
+            try {
+              return JSON.parse(JSON.stringify(obj));
+            } catch (e) {
+              return obj;
+            }
+          };
+        }
+
+        // Object.fromEntries polyfill
+        if (!Object.fromEntries) {
+          Object.fromEntries = function(entries) {
+            if (!entries) return {};
+            var obj = {};
+            for (var i = 0; i < entries.length; i++) {
+              var pair = entries[i];
+              if (pair && pair.length >= 2) {
+                obj[pair[0]] = pair[1];
+              }
+            }
+            return obj;
+          };
+        }
+
+        // Array.prototype.flat polyfill
+        if (!Array.prototype.flat) {
+          Array.prototype.flat = function(depth) {
+            var d = depth === undefined ? 1 : Math.floor(depth);
+            if (d < 1) return Array.prototype.slice.call(this);
+            return (function flatten(arr, curDepth) {
+              var res = [];
+              for (var i = 0; i < arr.length; i++) {
+                var el = arr[i];
+                if (Array.isArray(el) && curDepth < d) {
+                  res = res.concat(flatten(el, curDepth + 1));
+                } else if (el !== undefined) {
+                  res.push(el);
+                }
+              }
+              return res;
+            })(this, 0);
+          };
+        }
+
+        // Array.prototype.flatMap polyfill
+        if (!Array.prototype.flatMap) {
+          Array.prototype.flatMap = function(cb, thisArg) {
+            return Array.prototype.map.call(this, cb, thisArg).flat(1);
+          };
+        }
+
+        // Promise.allSettled polyfill
+        if (!Promise.allSettled) {
+          Promise.allSettled = function(promises) {
+            return Promise.all(
+              Array.from(promises).map(function(p) {
+                return Promise.resolve(p).then(
+                  function(value) { return { status: 'fulfilled', value: value }; },
+                  function(reason) { return { status: 'rejected', reason: reason }; }
+                );
+              })
+            );
+          };
+        }
+
+        // queueMicrotask polyfill
+        if (typeof window.queueMicrotask !== 'function') {
+          window.queueMicrotask = function(cb) {
+            Promise.resolve().then(cb).catch(function(err) {
+              setTimeout(function() { throw err; }, 0);
+            });
+          };
+        }
+
+        // ResizeObserver dummy polyfill for older devices without support
+        if (typeof window.ResizeObserver !== 'function') {
+          window.ResizeObserver = function() {
+            this.observe = function() {};
+            this.unobserve = function() {};
+            this.disconnect = function() {};
+          };
+        }
+
+        // matchMedia addEventListener compatibility for older Android WebViews
+        if (window.matchMedia) {
+          var origMM = window.matchMedia;
+          window.matchMedia = function(query) {
+            var mql = origMM.call(window, query);
+            if (mql && !mql.addEventListener && mql.addListener) {
+              mql.addEventListener = function(type, listener) {
+                if (type === 'change') mql.addListener(listener);
+              };
+              mql.removeEventListener = function(type, listener) {
+                if (type === 'change') mql.removeListener(listener);
+              };
+            }
+            return mql;
+          };
+        }
+
+        // Safe localStorage wrapper to prevent crashes in private mode or storage-locked devices
+        try {
+          var testKey = '__test_pos_storage__';
+          window.localStorage.setItem(testKey, testKey);
+          window.localStorage.removeItem(testKey);
+        } catch (e) {
+          var memStore = {};
+          var mockStorage = {
+            getItem: function(k) { return memStore[k] || null; },
+            setItem: function(k, v) { memStore[k] = String(v); },
+            removeItem: function(k) { delete memStore[k]; },
+            clear: function() { memStore = {}; },
+            get length() { return Object.keys(memStore).length; },
+            key: function(i) { return Object.keys(memStore)[i] || null; }
+          };
+          try {
+            Object.defineProperty(window, 'localStorage', { value: mockStorage, configurable: true, writable: true });
+            Object.defineProperty(window, 'sessionStorage', { value: mockStorage, configurable: true, writable: true });
+          } catch (err) {}
+        }
+      })();
+    </script>
   </head>
   <body class="bg-stone-100 text-stone-900 antialiased selection:bg-amber-100 selection:text-amber-900">
-    <div id="root"></div>
+    <div id="root">
+      <!-- Lightweight loading skeleton displayed while JS loads on older or slow devices -->
+      <div id="pos-initial-loader" style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; text-align: center; padding: 24px; background: #fafaf9;">
+        <div style="width: 54px; height: 54px; border: 4px solid #e7e5e4; border-top-color: #2563eb; border-radius: 50%; animation: pos-spin 0.8s linear infinite; margin-bottom: 20px;"></div>
+        <h2 style="font-size: 20px; font-weight: 700; color: #1c1917; margin: 0 0 8px 0;">Classic Fashion POS</h2>
+        <p style="font-size: 14px; color: #78716c; margin: 0 0 20px 0;">লোড হচ্ছে, অনুগ্রহ করে একটু অপেক্ষা করুন...</p>
+        
+        <div id="pos-slow-notice" style="display: none; margin-top: 16px; max-width: 320px; background: #fff; padding: 16px; border-radius: 12px; border: 1px solid #e7e5e4; box-shadow: 0 2px 8px rgba(0,0,0,0.06);">
+          <p style="font-size: 13px; color: #44403c; margin: 0 0 12px 0; line-height: 1.4;">
+            পুরনো মডেলের ডিভাইসে লোড হতে দেরি হলে বা আটকে থাকলে নিচের বাটনে ক্লিক করুন:
+          </p>
+          <button onclick="window.location.reload(true)" style="width: 100%; padding: 10px; background: #2563eb; color: #fff; border: none; border-radius: 8px; font-weight: 600; font-size: 14px; cursor: pointer; margin-bottom: 8px;">
+            🔄 পুনরায় লোড করুন (Reload)
+          </button>
+          <button onclick="if(window.caches){caches.keys().then(function(k){k.forEach(function(c){caches.delete(c);});});}localStorage.clear();window.location.reload(true);" style="width: 100%; padding: 8px; background: #f5f5f4; color: #57534e; border: 1px solid #d6d3d1; border-radius: 8px; font-size: 12px; cursor: pointer;">
+            🧹 ক্যাশ ক্লিয়ার ও ফ্রেশ স্টার্ট
+          </button>
+        </div>
+      </div>
+      <style>
+        @keyframes pos-spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+      </style>
+      <script>
+        // Show slow-network / older device helper if not loaded within 6 seconds
+        setTimeout(function() {
+          var notice = document.getElementById('pos-slow-notice');
+          if (notice) notice.style.display = 'block';
+        }, 6000);
+      </script>
+    </div>
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', function() {
           navigator.serviceWorker.register('/sw.js').then(function(reg) {
             reg.update().catch(function() {});
           }).catch(function(err) {
-            console.log('SW registration note:', err);
+            console.log('SW note:', err);
           });
         });
       }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BillInvoice, ThermalPrinterSettings, Language } from '../types';
+import { BillInvoice, ThermalPrinterSettings, Language, DiscountPrintMode } from '../types';
 import { numberToWords } from '../utils/numberToWords';
 import { buildUpiUri, generateQrDataUrl } from '../utils/qrCode';
 
@@ -9,6 +9,7 @@ interface TaxInvoiceSheetProps {
   isTotalOnlySlip?: boolean;
   language?: Language;
   printScale?: 'normal' | 'large' | 'xlarge';
+  discountPrintMode?: DiscountPrintMode;
 }
 
 export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
@@ -17,6 +18,7 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
   isTotalOnlySlip = false,
   language = 'en',
   printScale = 'large',
+  discountPrintMode,
 }) => {
   const isBn = language === 'bn';
   const isTotalOnly = Boolean(isTotalOnlySlip);
@@ -36,6 +38,13 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
   const storePhone = settings.storePhone?.trim() || '';
   const signatoryName = settings.signatoryName || '';
 
+  // Discount Printing Preferences
+  const effectiveDiscountMode: DiscountPrintMode =
+    discountPrintMode ||
+    bill.discountPrintMode ||
+    'standard_discount';
+  const isItemStrikeDiscount = effectiveDiscountMode === 'item_discount' && (bill.discount || 0) > 0;
+
   // Calculate totals & balances
   const totalQty = bill.items.reduce((sum, it) => sum + (it.qty || 1), 0);
   const discountAmount = bill.discount || 0;
@@ -46,10 +55,12 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
       ? Math.round((discountAmount / bill.subtotal) * 100 * 10) / 10
       : 0;
 
+  const displayedGrandTotal = bill.grandTotal;
+
   const isFullDue =
     bill.paymentMethod === 'due' &&
     (bill.paymentStatus === 'DUE' ||
-      (bill.paidAmount === bill.grandTotal && (!bill.balance || bill.balance === 0)));
+      (bill.paidAmount === displayedGrandTotal && (!bill.balance || bill.balance === 0)));
 
   const paidAmount = isFullDue
     ? 0
@@ -58,18 +69,18 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
     : bill.paidAmount !== undefined
     ? bill.paidAmount
     : bill.paymentStatus === 'PAID'
-    ? bill.grandTotal
+    ? displayedGrandTotal
     : 0;
   const balance = isBillEstimate
     ? 0
     : isFullDue
-    ? bill.grandTotal
+    ? displayedGrandTotal
     : bill.balance !== undefined && bill.balance > 0
     ? bill.balance
-    : Math.max(0, bill.grandTotal - paidAmount);
+    : Math.max(0, displayedGrandTotal - paidAmount);
 
   // Amount in words
-  const amountInWords = numberToWords(bill.grandTotal, currencyName);
+  const amountInWords = numberToWords(displayedGrandTotal, currencyName);
 
   // Date and Time parsing
   let formattedDate = bill.date;
@@ -319,6 +330,13 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
             ? (isBn ? 'কার্ড বিল / CARD BILL' : 'CARD BILL')
             : (isBn ? 'ক্যাশ মেমো / CASH MEMO' : 'CASH MEMO')}
         </h2>
+        {isItemStrikeDiscount && (
+          <div className="mt-1">
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-black bg-amber-100 text-amber-800 border border-amber-300">
+              🏷️ {isBn ? 'ডিসকাউন্ট বিল (DISCOUNT BILL)' : 'DISCOUNT BILL'}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* 3. Bill To & Invoice Details (2 Columns) */}
@@ -508,13 +526,21 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
             </thead>
             <tbody>
               {bill.items.map((item, idx) => {
+                const rawBillDiscount = bill.discount || 0;
+                const eligibleSubtotal = bill.items.reduce(
+                  (sum, it) => sum + (it.noDiscount ? 0 : it.total),
+                  0
+                );
                 const itemDiscountRatio =
-                  discountAmount > 0 && bill.subtotal > 0
-                    ? discountAmount / bill.subtotal
+                  !item.noDiscount && rawBillDiscount > 0 && eligibleSubtotal > 0
+                    ? rawBillDiscount / eligibleSubtotal
                     : 0;
-                const finalUnitPrice = Math.round(item.price * (1 - itemDiscountRatio) * 100) / 100;
-                const finalItemTotal = Math.round(item.total * (1 - itemDiscountRatio) * 100) / 100;
-                const hasDiscount = discountAmount > 0 && finalUnitPrice !== item.price;
+                const netUnitPrice = Math.round(item.price * (1 - itemDiscountRatio) * 100) / 100;
+                const netItemTotal = Math.round(item.total * (1 - itemDiscountRatio) * 100) / 100;
+
+                const displayUnitPrice = item.price;
+                const displayItemTotal = item.total;
+                const hasDiscount = isItemStrikeDiscount && !item.noDiscount && netUnitPrice !== item.price;
 
                 return (
                   <tr key={item.id || idx} className="bg-white border-b border-stone-100">
@@ -522,7 +548,14 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
                       {idx + 1}
                     </td>
                     <td className="py-2.5 px-2 sm:py-3 sm:px-3 text-left font-bold text-stone-900 break-words">
-                      {item.name}
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span>{item.name}</span>
+                        {item.noDiscount && (
+                          <span className="text-[10px] px-1.5 py-0.2 rounded font-normal text-stone-500 bg-stone-100 border border-stone-200">
+                            (No Disc)
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="py-2.5 px-2 sm:py-3 sm:px-3 text-right text-stone-900 font-semibold whitespace-nowrap">
                       {item.qty}
@@ -532,28 +565,32 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
                       {hasDiscount ? (
                         <div>
                           <div className="font-bold text-stone-900">
-                            {finalUnitPrice.toFixed(0)}
+                            {netUnitPrice.toFixed(0)}
                           </div>
                           <div className="line-through text-stone-400 text-xs sm:text-xs leading-none mt-0.5">
                             {item.price.toFixed(0)}
                           </div>
                         </div>
                       ) : (
-                        <div className="font-bold text-stone-900">{item.price.toFixed(0)}</div>
+                        <div className="font-bold text-stone-900">
+                          {displayUnitPrice.toFixed(0)}
+                        </div>
                       )}
                     </td>
-                    <td className="py-2.5 px-2 sm:py-3 sm:px-3 text-right text-stone-900 font-extrabold whitespace-nowrap">
+                    <td className="py-2.5 px-2 sm:py-3 sm:px-3 text-right text-stone-900 font-bold whitespace-nowrap">
                       {hasDiscount ? (
                         <div>
-                          <div className="font-extrabold text-stone-900">
-                            {finalItemTotal.toFixed(1)}
+                          <div className="font-bold text-stone-900">
+                            {currencyPrefix}{netItemTotal.toFixed(1)}
                           </div>
-                          <div className="line-through text-stone-400 text-xs sm:text-xs font-normal leading-none mt-0.5">
-                            {item.total.toFixed(1)}
+                          <div className="line-through text-stone-400 text-xs sm:text-xs leading-none mt-0.5">
+                            {currencyPrefix}{item.total.toFixed(1)}
                           </div>
                         </div>
                       ) : (
-                        item.total.toFixed(1)
+                        <div>
+                          {currencyPrefix}{displayItemTotal.toFixed(1)}
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -569,7 +606,7 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
                 </td>
                 <td className="py-2.5 px-2 sm:py-3 sm:px-3"></td>
                 <td className="py-2.5 px-2 sm:py-3 sm:px-3 text-right font-black text-stone-900 text-sm sm:text-xl whitespace-nowrap">
-                  {discountAmount > 0 ? (
+                  {isItemStrikeDiscount ? (
                     <div>
                       <div>{currencyPrefix}{bill.grandTotal.toFixed(1)}</div>
                       <div className="line-through text-stone-400 text-xs sm:text-sm font-normal">
@@ -624,7 +661,7 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
           <div className="bill-total-bar bg-[#8C8EE8] text-white print:bg-[#8C8EE8] print:text-white font-black py-2.5 sm:py-3 px-3 sm:px-4 flex justify-between items-center my-1 sm:my-1.5 text-base sm:text-2xl print:text-2xl rounded-lg">
             <span>Total</span>
             <span>
-              {currencyPrefix}{bill.grandTotal.toFixed(1)}
+              {currencyPrefix}{displayedGrandTotal.toFixed(1)}
             </span>
           </div>
 

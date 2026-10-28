@@ -17,7 +17,7 @@ import {
   MoreVertical,
   Receipt,
 } from 'lucide-react';
-import { BillInvoice, ThermalPrinterSettings, BluetoothDeviceInfo, Language } from '../types';
+import { BillInvoice, ThermalPrinterSettings, BluetoothDeviceInfo, Language, DiscountPrintMode } from '../types';
 import { thermalPrinterService } from '../services/thermalPrinterService';
 import { exportElementAsPdf, exportElementAsImage } from '../utils/exportInvoice';
 import { TaxInvoiceSheet } from './TaxInvoiceSheet';
@@ -79,6 +79,21 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
       setIsTotalOnlySlip(false);
     }
   }, [bill?.id, initialTotalOnlySlip]);
+
+  const [discountPrintMode, setDiscountPrintMode] = useState<DiscountPrintMode>(() => {
+    if (bill?.discountPrintMode === 'item_discount') return 'item_discount';
+    return 'standard_discount';
+  });
+
+  useEffect(() => {
+    if (bill) {
+      if (bill.discountPrintMode === 'item_discount') {
+        setDiscountPrintMode('item_discount');
+      } else {
+        setDiscountPrintMode('standard_discount');
+      }
+    }
+  }, [bill?.id, bill?.discountPrintMode]);
 
   const effectiveSettings = useMemo(
     () => ({ ...settings, isLabelMode, isTotalOnlySlip }),
@@ -164,8 +179,18 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
 
   if (!bill) return null;
 
+  const rawBillDiscount = bill.discount || 0;
+  const eligibleSubtotal = bill.items.reduce(
+    (sum, it) => sum + (it.noDiscount ? 0 : it.total),
+    0
+  );
   const effectiveBill: BillInvoice = {
     ...bill,
+    items: bill.items,
+    subtotal: bill.subtotal,
+    discount: rawBillDiscount,
+    grandTotal: bill.grandTotal,
+    discountPrintMode,
     isEstimate: estimateMode,
     paymentMethod: estimateMode ? 'estimate' : (bill.paymentMethod === 'estimate' ? 'cash' : bill.paymentMethod),
     paymentStatus: estimateMode ? 'ESTIMATE' : (bill.paymentStatus === 'ESTIMATE' ? 'PAID' : bill.paymentStatus),
@@ -181,6 +206,8 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
     ? 'Labels'
     : isEstimate
     ? 'EstimateBill'
+    : discountPrintMode === 'item_discount' && rawBillDiscount > 0
+    ? 'Discount_Bill'
     : bill.paymentMethod === 'upi'
     ? 'UPI_Bill'
     : bill.paymentMethod === 'due'
@@ -339,7 +366,7 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
       return;
     }
 
-    sendWhatsAppBillForInvoice(bill, effectiveSettings);
+    sendWhatsAppBillForInvoice(effectiveBill, effectiveSettings);
   };
 
   return (
@@ -383,6 +410,64 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
           >
             <X className="w-5 h-5" />
           </button>
+        </div>
+
+        {/* Single Row Print Format Selector (Top line only, aligned neatly across the bar) */}
+        <div className="px-2.5 sm:px-4 py-2 bg-stone-100/90 border-b border-stone-200 shrink-0">
+          <div className="flex items-center gap-1 sm:gap-1.5 bg-stone-200/90 p-1 rounded-xl border border-stone-300 shadow-2xs w-full">
+            {/* 1. Full Bill (আগের মতো ফুল বিল: টেবিলে সাধারণ দাম, নিচে মোট ডিসকাউন্ট) */}
+            <button
+              type="button"
+              onClick={() => {
+                handleToggleTotalOnlySlip(false);
+                setDiscountPrintMode('standard_discount');
+              }}
+              className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap ${
+                !isTotalOnlySlip && discountPrintMode === 'standard_discount'
+                  ? 'bg-white text-stone-900 shadow-xs font-black'
+                  : 'text-stone-600 hover:text-stone-900'
+              }`}
+              title={language === 'bn' ? 'আগের মতো সাধারণ বিল (টেবিলে সাধারণ দাম, নিচে মোট ডিসকাউন্ট)' : 'Full bill with standard rates and discount at bottom'}
+            >
+              <FileText className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+              <span>{language === 'bn' ? 'ফুল বিল (Full Bill)' : 'Full Bill'}</span>
+            </button>
+
+            {/* 2. Discount Bill (কাটা রেট ডিসকাউন্ট বিল: প্রতিটি আইটেমে কাটা রেট সহ - only shown if bill has discount) */}
+            {bill.discount > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  handleToggleTotalOnlySlip(false);
+                  setDiscountPrintMode('item_discount');
+                }}
+                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap ${
+                  !isTotalOnlySlip && discountPrintMode === 'item_discount'
+                    ? 'bg-indigo-600 text-white shadow-xs font-black'
+                    : 'text-stone-600 hover:text-stone-900'
+                }`}
+                title={language === 'bn' ? 'কাটা রেট ও ছাড় সহ স্পেশাল ডিসকাউন্ট বিল' : 'Discount bill with strike-through rates'}
+              >
+                <Tag className="w-3.5 h-3.5 shrink-0" />
+                <span>{language === 'bn' ? 'ডিসকাউন্ট বিল' : 'Discount Bill'}</span>
+              </button>
+            )}
+
+            {/* 3. Only Slip (সংক্ষিপ্ত মোট টাকার স্লিপ) */}
+            <button
+              type="button"
+              onClick={() => handleToggleTotalOnlySlip(true)}
+              className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap ${
+                isTotalOnlySlip
+                  ? 'bg-indigo-600 text-white shadow-xs font-black'
+                  : 'text-stone-600 hover:text-stone-900'
+              }`}
+              title={language === 'bn' ? 'সংক্ষিপ্ত মোট টাকার স্লিপ' : 'Total Only Slip'}
+            >
+              <Receipt className="w-3.5 h-3.5 shrink-0" />
+              <span>{language === 'bn' ? 'অনলি স্লিপ (Only Slip)' : 'Only Slip'}</span>
+            </button>
+          </div>
         </div>
 
         {/* Delete Confirmation Modal inside PrintReceiptModal */}
@@ -462,6 +547,7 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
                 isTotalOnlySlip={isTotalOnlySlip}
                 language={language}
                 printScale={printScale}
+                discountPrintMode={discountPrintMode}
               />
             )}
           </div>

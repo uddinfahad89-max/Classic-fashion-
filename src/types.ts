@@ -114,6 +114,7 @@ export interface BillItem {
   barcode?: string;
   productId?: string;
   tailoringNote?: string;
+  noDiscount?: boolean;
 }
 
 export interface ProductStockItem {
@@ -125,6 +126,7 @@ export interface ProductStockItem {
   unit?: string;
   category?: string;
   barcode?: string;
+  noDiscount?: boolean;
   updatedAt: number;
   // Multi-Vendor & Soft Delete
   storeId?: string;
@@ -172,7 +174,12 @@ export interface BillInvoice {
   isDeleted?: boolean;
   deletedAt?: number | string;
   deletedBy?: string;
+  // Discount Printing Preferences (Allows user to print discount bill vs clean regular bill per customer)
+  discountPrintMode?: DiscountPrintMode;
+  showDiscountOnPrint?: boolean;
 }
+
+export type DiscountPrintMode = 'standard_discount' | 'item_discount';
 
 export type CashEntryType = 'Income' | 'Expense';
 

@@ -146,6 +146,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   const [itemPrice, setItemPrice] = useState(() => initialDraft?.itemPrice || '');
   const [itemQty, setItemQty] = useState(() => initialDraft?.itemQty || '1');
   const [itemUnit, setItemUnit] = useState(() => initialDraft?.itemUnit || 'Pcs');
+  const [itemNoDiscount, setItemNoDiscount] = useState<boolean>(false);
+  const [editItemNoDiscount, setEditItemNoDiscount] = useState<boolean>(false);
 
   // Auto-Capitalization / All Caps for Item & Customer Names (Default true)
   const [isAllCaps] = useState<boolean>(() => {
@@ -353,6 +355,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     () => initialDraft?.discountType || 'fixed'
   );
   const [discountValue, setDiscountValue] = useState(() => initialDraft?.discountValue || '');
+  const [showDiscountOnPrint, setShowDiscountOnPrint] = useState<boolean>(true);
   const defaultMethod: PaymentMethod = settings.defaultPaymentMethod || 'estimate';
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(() => {
     if (initialDraft?.paymentMethod && initialDraft.paymentMethod !== 'cash') {
@@ -366,7 +369,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   });
   const [isEstimateBill, setIsEstimateBill] = useState<boolean>(() => {
     if (initialDraft?.paymentMethod && initialDraft.paymentMethod !== 'cash') {
-      return initialDraft.paymentMethod === 'estimate' || Boolean(initialDraft.isEstimate);
+      return initialDraft.paymentMethod === 'estimate' || Boolean((initialDraft as any).isEstimate);
     }
     if (initialDraft?.paymentMethod === 'cash' && (!initialDraft.billItems || initialDraft.billItems.length === 0)) {
       return defaultMethod === 'estimate';
@@ -1158,21 +1161,27 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   const subtotal =
     billItems.reduce((sum, item) => sum + item.total, 0) +
     (billItems.length === 0 ? pendingItemTotal : 0);
+
+  // Subtotal of items eligible for discount (excluding items marked with noDiscount)
+  const eligibleSubtotal =
+    billItems.reduce((sum, item) => sum + (item.noDiscount ? 0 : item.total), 0) +
+    (billItems.length === 0 && !itemNoDiscount ? pendingItemTotal : 0);
+
   const rawDiscount = Math.max(0, parseFloat(discountValue) || 0);
 
   let discountAmount = 0;
   if (discountType === 'percent') {
     const clampedPercent = Math.min(100, rawDiscount);
-    discountAmount = Math.round(((subtotal * clampedPercent) / 100) * 100) / 100;
+    discountAmount = Math.round(((eligibleSubtotal * clampedPercent) / 100) * 100) / 100;
   } else {
-    discountAmount = Math.min(subtotal, rawDiscount);
+    discountAmount = Math.min(eligibleSubtotal, rawDiscount);
   }
 
   const liveDiscountPercent =
     discountType === 'percent'
       ? Math.min(100, rawDiscount)
-      : subtotal > 0
-      ? Math.round((discountAmount / subtotal) * 100 * 10) / 10
+      : eligibleSubtotal > 0
+      ? Math.round((discountAmount / eligibleSubtotal) * 100 * 10) / 10
       : 0;
 
   const grandTotal = Math.max(0, subtotal - discountAmount);
@@ -1245,6 +1254,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       qty: validQty,
       unit: cleanUnit,
       total: Math.round(price * validQty * 100) / 100,
+      noDiscount: itemNoDiscount,
     };
 
     setBillItems((prev) => [...prev, newItem]);
@@ -1254,10 +1264,18 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     setItemPrice('');
     setItemQty('1');
     setItemStockInput('');
+    setItemNoDiscount(false);
     setShowSuggestions(false);
     if (nameInputRef.current) {
       nameInputRef.current.focus();
     }
+  };
+
+  // Quick Toggle No Discount for an Item
+  const handleToggleItemNoDiscount = (id: string) => {
+    setBillItems((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, noDiscount: !item.noDiscount } : item))
+    );
   };
 
   // Remove Item
@@ -1290,6 +1308,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     setEditItemPrice(String(item.price));
     setEditItemQty(String(item.qty));
     setEditItemUnit(item.unit || '');
+    setEditItemNoDiscount(Boolean(item.noDiscount));
     setEditFocusField(focusField);
   };
 
@@ -1323,6 +1342,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             price: parsedPrice,
             unit: cleanUnit || item.unit || 'Pcs',
             barcode: itemBarcode,
+            noDiscount: editItemNoDiscount,
           });
           if (onQuickSaveProduct) {
             onQuickSaveProduct({
@@ -1340,6 +1360,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
           unit: cleanUnit,
           barcode: itemBarcode || item.barcode,
           total: Math.round(parsedPrice * finalQty * 100) / 100,
+          noDiscount: editItemNoDiscount,
         };
       })
     );
@@ -1363,6 +1384,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         qty: validQty,
         unit: cleanUnit,
         total: Math.round(pendingPrice * validQty * 100) / 100,
+        noDiscount: itemNoDiscount,
       });
     }
 
@@ -1372,12 +1394,16 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     }
 
     const finalSubtotal = finalItems.reduce((sum, item) => sum + item.total, 0);
+    const finalEligibleSubtotal = finalItems.reduce(
+      (sum, item) => sum + (item.noDiscount ? 0 : item.total),
+      0
+    );
     let finalDiscountAmount = 0;
     if (discountType === 'percent') {
       const clampedPercent = Math.min(100, rawDiscount);
-      finalDiscountAmount = Math.round(((finalSubtotal * clampedPercent) / 100) * 100) / 100;
+      finalDiscountAmount = Math.round(((finalEligibleSubtotal * clampedPercent) / 100) * 100) / 100;
     } else {
-      finalDiscountAmount = Math.min(finalSubtotal, rawDiscount);
+      finalDiscountAmount = Math.min(finalEligibleSubtotal, rawDiscount);
     }
     const finalGrandTotal = Math.max(0, finalSubtotal - finalDiscountAmount);
     const finalChangeAmount = Math.max(0, paidNum - finalGrandTotal);
@@ -1433,6 +1459,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       discount: finalDiscountAmount,
       discountType,
       discountValue: rawDiscount,
+      showDiscountOnPrint,
+      discountPrintMode: showDiscountOnPrint ? 'item_discount' : 'standard_discount',
       grandTotal: finalGrandTotal,
       paymentMethod: isThisAnEstimate ? 'estimate' : paymentMethod,
       paymentStatus: isThisAnEstimate
@@ -1978,6 +2006,17 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                             placeholder={isBn ? 'পণ্যের নাম' : 'Item Name'}
                             className="w-full min-w-[75px] bg-white border border-[#0A8057] rounded-lg px-2 py-1.5 text-xs sm:text-sm font-bold text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#0A8057]"
                           />
+                          <label className="inline-flex items-center gap-1.5 mt-1 text-[11px] font-bold text-stone-600 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={editItemNoDiscount}
+                              onChange={(e) => setEditItemNoDiscount(e.target.checked)}
+                              className="w-3.5 h-3.5 rounded text-rose-600 focus:ring-rose-500 cursor-pointer"
+                            />
+                            <span className={editItemNoDiscount ? 'text-rose-700 font-extrabold' : 'text-stone-500'}>
+                              {isBn ? '🚫 ছাড় হবে না (No Disc)' : '🚫 No Discount'}
+                            </span>
+                          </label>
                         </td>
                         <td className="p-2 sm:p-2.5 text-center">
                           <div className="inline-flex items-center gap-1 justify-center">
@@ -2056,13 +2095,34 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                       {/* 1. ITEM: Bold uppercase */}
                       <td className="p-2 sm:p-2.5">
                         <div className="flex flex-col">
-                          <span
-                            onClick={() => handleStartEditItem(item, 'name')}
-                            className="font-bold text-xs sm:text-sm text-stone-900 tracking-wide uppercase cursor-pointer hover:text-[#0A8057] transition-colors"
-                            title={isBn ? 'নাম এডিট করতে ট্যাপ করুন' : 'Tap to edit item name'}
-                          >
-                            {item.name}
-                          </span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span
+                              onClick={() => handleStartEditItem(item, 'name')}
+                              className="font-bold text-xs sm:text-sm text-stone-900 tracking-wide uppercase cursor-pointer hover:text-[#0A8057] transition-colors"
+                              title={isBn ? 'নাম এডিট করতে ট্যাপ করুন' : 'Tap to edit item name'}
+                            >
+                              {item.name}
+                            </span>
+                            {item.noDiscount ? (
+                              <button
+                                type="button"
+                                onClick={() => handleToggleItemNoDiscount(item.id)}
+                                className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 cursor-pointer transition-all leading-none"
+                                title={isBn ? 'এই আইটেমে ছাড় বন্ধ আছে (ট্যাপ করে ছাড় চালু করতে পারেন)' : 'No discount applied (tap to allow discount)'}
+                              >
+                                🚫 {isBn ? 'ছাড় নেই' : 'No Disc'}
+                              </button>
+                            ) : discountAmount > 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => handleToggleItemNoDiscount(item.id)}
+                                className="inline-flex items-center gap-0.5 text-[9px] font-medium text-stone-400 hover:text-stone-700 hover:bg-stone-100 px-1 py-0.5 rounded cursor-pointer transition-colors leading-none"
+                                title={isBn ? 'এই আইটেমে ছাড় বন্ধ করতে ট্যাপ করুন' : 'Tap to exclude from discount'}
+                              >
+                                🚫 {isBn ? 'ছাড় বন্ধ?' : 'No disc?'}
+                              </button>
+                            ) : null}
+                          </div>
                           {item.unit && item.unit !== 'Pcs' && (
                             <span className="text-[10px] text-stone-500 font-medium">
                               ({item.unit})
@@ -2103,14 +2163,14 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                       {/* 3. UNIT PRICE: Clean font */}
                       <td className="p-2 sm:p-2.5 text-right">
                         <div className="flex flex-col items-end">
-                          {discountAmount > 0 && liveDiscountPercent > 0 ? (
+                          {!item.noDiscount && discountAmount > 0 && liveDiscountPercent > 0 ? (
                             <>
                               <span
                                 onClick={() => handleStartEditItem(item, 'price')}
                                 className="font-bold text-xs sm:text-sm text-stone-900 cursor-pointer hover:text-[#0A8057] transition-colors"
                                 title={isBn ? 'দর এডিট করতে ট্যাপ করুন' : 'Tap to edit unit price'}
                               >
-                                {(item.price * (1 - discountAmount / subtotal)).toFixed(2)}
+                                {(item.price * (1 - (eligibleSubtotal > 0 ? discountAmount / eligibleSubtotal : 0))).toFixed(2)}
                               </span>
                               <span className="line-through text-stone-400 text-[11px] leading-tight">
                                 {item.price.toFixed(2)}
@@ -2130,10 +2190,10 @@ export const BillingTab: React.FC<BillingTabProps> = ({
 
                       {/* 4. TOTAL: e.g. Rs.300.00 */}
                       <td className="p-2 sm:p-2.5 text-right font-medium text-xs sm:text-sm text-stone-900 whitespace-nowrap">
-                        {discountAmount > 0 && liveDiscountPercent > 0 ? (
+                        {!item.noDiscount && discountAmount > 0 && liveDiscountPercent > 0 ? (
                           <div className="flex flex-col items-end">
                             <span className="font-bold text-stone-900">
-                              {sym || 'Rs.'}{(item.total * (1 - discountAmount / subtotal)).toFixed(2)}
+                              {sym || 'Rs.'}{(item.total * (1 - (eligibleSubtotal > 0 ? discountAmount / eligibleSubtotal : 0))).toFixed(2)}
                             </span>
                             <span className="line-through text-stone-400 text-[11px] leading-tight">
                               {sym || 'Rs.'}{item.total.toFixed(2)}
@@ -2579,6 +2639,27 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             </button>
           </div>
 
+          {/* Quick No-Discount Toggle for this Item */}
+          <div className="flex items-center justify-between px-1 py-0.5">
+            <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                id="itemNoDiscountCheckbox"
+                checked={itemNoDiscount}
+                onChange={(e) => setItemNoDiscount(e.target.checked)}
+                className="w-4 h-4 rounded text-rose-600 focus:ring-rose-500 border-stone-300 cursor-pointer"
+              />
+              <span className={`text-xs font-bold transition-colors ${itemNoDiscount ? 'text-rose-700' : 'text-stone-600'}`}>
+                {isBn ? '🚫 এই আইটেমে ছাড় / ডিসকাউন্ট হবে না' : '🚫 Exclude from bill discount'}
+              </span>
+            </label>
+            {itemNoDiscount && (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 border border-rose-200 animate-in fade-in">
+                {isBn ? 'ফিক্সড রেট' : 'Fixed Price'}
+              </span>
+            )}
+          </div>
+
           <button
             type="submit"
             id="btn-add-item"
@@ -2777,6 +2858,26 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                   <Calculator className="w-3.5 h-3.5" />
                 </button>
               </div>
+
+              {/* Discount Print Option Toggle */}
+              {rawDiscount > 0 && (
+                <div className="mt-2 p-2 rounded-xl bg-amber-50/90 border border-amber-200 flex items-center justify-between gap-2 text-xs animate-in fade-in">
+                  <label className="flex items-center gap-2 cursor-pointer font-bold text-amber-950 select-none">
+                    <input
+                      type="checkbox"
+                      checked={showDiscountOnPrint}
+                      onChange={(e) => setShowDiscountOnPrint(e.target.checked)}
+                      className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                    />
+                    <span>{isBn ? '🏷️ এই কাস্টমারকে ডিসকাউন্ট বিল প্রিন্ট দিন' : '🏷️ Print Discount Bill for this customer'}</span>
+                  </label>
+                  <span className="text-[11px] font-semibold text-amber-800 shrink-0">
+                    {showDiscountOnPrint
+                      ? (isBn ? '✓ ছাড় সহ বিল' : '✓ Discount Bill')
+                      : (isBn ? 'ক্লিন বিল' : 'Clean Bill')}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 

@@ -2222,7 +2222,7 @@ export default function App() {
         cartCount={billItems.length}
         invoicesCount={bills.length}
         purchasesCount={purchaseTrips.filter((t) => t.status === 'active').length}
-        duesCount={customerDues.filter((c) => c.totalDue > 0).length}
+        duesCount={customerDues.filter((c) => (c.dueAmount || 0) > 0).length}
         language={language}
         userProfile={userProfile}
       />

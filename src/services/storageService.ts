@@ -2243,6 +2243,7 @@ class StorageService {
     unit?: string;
     category?: string;
     barcode?: string;
+    noDiscount?: boolean;
   }): ProductStockItem {
     const products = this.getProducts();
     const cleanName = data.name.trim();

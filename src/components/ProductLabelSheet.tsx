@@ -15,7 +15,7 @@ interface SingleLabelItemProps {
   index: number;
   invoiceNo: string;
   currencySymbol: string;
-  paperWidth: '58mm' | '80mm';
+  paperWidth: '58mm' | '80mm' | '50mm_label';
 }
 
 const SingleLabelItem: React.FC<SingleLabelItemProps> = ({

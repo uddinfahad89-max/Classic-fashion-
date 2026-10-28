@@ -140,14 +140,18 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
 
   // Math Calculations
   const subtotal = items.reduce((sum, item) => sum + (item.total || item.price * item.qty), 0);
+  const eligibleSubtotal = items.reduce(
+    (sum, item) => sum + (item.noDiscount ? 0 : (item.total || item.price * item.qty)),
+    0
+  );
   const rawDiscount = Math.max(0, parseFloat(discountValue) || 0);
 
   let discountAmount = 0;
   if (discountType === 'percent') {
     const clampedPercent = Math.min(100, rawDiscount);
-    discountAmount = Math.round(((subtotal * clampedPercent) / 100) * 100) / 100;
+    discountAmount = Math.round(((eligibleSubtotal * clampedPercent) / 100) * 100) / 100;
   } else {
-    discountAmount = Math.min(subtotal, rawDiscount);
+    discountAmount = Math.min(eligibleSubtotal, rawDiscount);
   }
 
   const grandTotal = Math.max(0, subtotal - discountAmount);

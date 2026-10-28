@@ -1361,12 +1361,12 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
                       <div className="flex items-center gap-2">
                         <span
                           className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                            tx.type === 'payment'
+                            tx.type === 'paid' || (tx.type as string) === 'payment'
                               ? 'bg-emerald-100 text-emerald-800'
                               : 'bg-rose-100 text-rose-800'
                           }`}
                         >
-                          {tx.type === 'payment'
+                          {tx.type === 'paid' || (tx.type as string) === 'payment'
                             ? isBn
                               ? 'পরিশোধ / জমা'
                               : 'Payment'
@@ -1380,10 +1380,10 @@ export const CustomerDueTab: React.FC<CustomerDueTabProps> = ({
                     </div>
                     <div
                       className={`text-sm font-black font-mono ${
-                        tx.type === 'payment' ? 'text-emerald-600' : 'text-rose-600'
+                        tx.type === 'paid' || (tx.type as string) === 'payment' ? 'text-emerald-600' : 'text-rose-600'
                       }`}
                     >
-                      {tx.type === 'payment' ? '-' : '+'}
+                      {tx.type === 'paid' || (tx.type as string) === 'payment' ? '-' : '+'}
                       {sym}{tx.amount.toFixed(2)}
                     </div>
                   </div>
