@@ -1842,9 +1842,29 @@ class StorageService {
   getSavedPrinter(): SavedPrinterInfo | null {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.SAVED_PRINTER);
-      return data ? JSON.parse(data) : null;
+      if (data) {
+        const parsed = JSON.parse(data);
+        if (parsed && parsed.name) {
+          return parsed;
+        }
+      }
+      // Default to user's printer model 4B-2034PA-1B0D so Bluetooth connects to it instantly
+      const defaultPrinter: SavedPrinterInfo = {
+        id: 'dev-4b-2034pa-1b0d',
+        name: '4B-2034PA-1B0D',
+        macAddress: 'E0:6E:41:12:1B:0D',
+        type: 'bluetooth',
+        savedAt: Date.now(),
+      };
+      return defaultPrinter;
     } catch {
-      return null;
+      return {
+        id: 'dev-4b-2034pa-1b0d',
+        name: '4B-2034PA-1B0D',
+        macAddress: 'E0:6E:41:12:1B:0D',
+        type: 'bluetooth',
+        savedAt: Date.now(),
+      };
     }
   }
 
@@ -1869,30 +1889,47 @@ class StorageService {
   getPairedPrinters(): SavedPrinterInfo[] {
     try {
       const raw = localStorage.getItem(STORAGE_KEYS.PAIRED_PRINTERS);
+      let list: SavedPrinterInfo[] = [];
       if (raw) {
-        return JSON.parse(raw);
+        list = JSON.parse(raw);
       }
-      // Seed initial devices as seen in user's device screenshot
-      const defaultDevices: SavedPrinterInfo[] = [
+      
+      // Ensure 4B-2034PA-1B0D is ALWAYS the top prioritized device
+      const targetName = '4B-2034PA-1B0D';
+      const targetIndex = list.findIndex(
+        (p) => p.name?.toUpperCase() === targetName.toUpperCase() || p.id === 'dev-4b-2034pa-1b0d'
+      );
+
+      const primaryDevice: SavedPrinterInfo =
+        targetIndex >= 0
+          ? list[targetIndex]
+          : {
+              id: 'dev-4b-2034pa-1b0d',
+              name: '4B-2034PA-1B0D',
+              macAddress: 'E0:6E:41:12:1B:0D',
+              type: 'bluetooth',
+              savedAt: Date.now(),
+            };
+
+      const others = list.filter(
+        (p, idx) =>
+          idx !== targetIndex &&
+          p.name?.toUpperCase() !== targetName.toUpperCase() &&
+          p.id !== 'dev-4b-2034pa-1b0d'
+      );
+
+      const result = [primaryDevice, ...others];
+      return result;
+    } catch {
+      return [
         {
           id: 'dev-4b-2034pa-1b0d',
           name: '4B-2034PA-1B0D',
           macAddress: 'E0:6E:41:12:1B:0D',
           type: 'bluetooth',
-          savedAt: Date.now() - 3600000,
-        },
-        {
-          id: 'dev-ptron-tws',
-          name: 'pTron TWS',
-          macAddress: '15:5E:0D:DF:92:E3',
-          type: 'bluetooth',
-          savedAt: Date.now() - 7200000,
+          savedAt: Date.now(),
         },
       ];
-      localStorage.setItem(STORAGE_KEYS.PAIRED_PRINTERS, JSON.stringify(defaultDevices));
-      return defaultDevices;
-    } catch {
-      return [];
     }
   }
 

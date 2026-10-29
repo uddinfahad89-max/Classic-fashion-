@@ -4496,8 +4496,8 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                         {isBtPrinting
                           ? (isBn ? 'প্রিন্ট হচ্ছে...' : 'Printing...')
                           : btConnected
-                          ? (isBn ? '✓ প্রিন্টার রেডি' : '✓ Ready')
-                          : (isBn ? 'অটো-কানেক্ট' : 'Auto-Connect')}
+                          ? (isBn ? '✓ 4B-2034PA রেডি' : '✓ 4B-2034PA Ready')
+                          : '4B-2034PA-1B0D'}
                       </div>
                     </div>
                   </div>

@@ -148,9 +148,14 @@ export const ProductLabelSheet: React.FC<ProductLabelSheetProps> = ({
               : `Label Mode (${bill.items.length} Product Tag${bill.items.length > 1 ? 's' : ''})`}
           </span>
         </div>
-        <span className="text-[11px] font-mono font-semibold bg-white/80 px-2 py-0.5 rounded-md border border-amber-200">
-          {paperWidth} Roll
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] font-mono font-bold bg-amber-100/90 text-amber-950 px-2 py-0.5 rounded-md border border-amber-300">
+            4B-2034PA-1B0D
+          </span>
+          <span className="text-[11px] font-mono font-semibold bg-white/80 px-2 py-0.5 rounded-md border border-amber-200">
+            {paperWidth} Roll
+          </span>
+        </div>
       </div>
 
       {/* Product Sticker Tags List */}

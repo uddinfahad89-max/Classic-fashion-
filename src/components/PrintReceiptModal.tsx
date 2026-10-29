@@ -23,6 +23,7 @@ import { exportElementAsPdf, exportElementAsImage } from '../utils/exportInvoice
 import { TaxInvoiceSheet } from './TaxInvoiceSheet';
 import { ProductLabelSheet } from './ProductLabelSheet';
 import { sendWhatsAppBillForInvoice } from '../utils/whatsappHelper';
+import { storageService } from '../services/storageService';
 
 interface PrintReceiptModalProps {
   bill: BillInvoice | null;
@@ -222,9 +223,14 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
 
     try {
       if (!bluetoothStatus?.connected || !thermalPrinterService.getIsConnected()) {
+        const saved = storageService.getSavedPrinter();
         setFeedbackMessage(
           language === 'bn'
-            ? 'ব্লুটুথ থার্মাল প্রিন্টার খোঁজা হচ্ছে...'
+            ? saved?.name
+              ? `⚡ ${saved.name} কানেক্ট করা হচ্ছে...`
+              : 'ব্লুটুথ থার্মাল প্রিন্টার খোঁজা হচ্ছে...'
+            : saved?.name
+            ? `⚡ Connecting to ${saved.name}...`
             : 'Searching for Bluetooth Thermal Printer...'
         );
         const connectRes = await thermalPrinterService.connectBluetooth();
@@ -402,11 +408,11 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
             <span className="truncate font-extrabold tracking-tight">
               {bluetoothStatus?.connected
                 ? language === 'bn'
-                  ? '⚡ ব্লুটুথ প্রিন্ট (Bluetooth Print)'
-                  : '⚡ Bluetooth Print'
+                  ? `⚡ ব্লুটুথ প্রিন্ট (${bluetoothStatus.deviceName || '4B-2034PA-1B0D'})`
+                  : `⚡ Bluetooth Print (${bluetoothStatus.deviceName || '4B-2034PA-1B0D'})`
                 : language === 'bn'
-                ? '⚡ কানেক্ট ও প্রিন্ট (Connect & Print)'
-                : '⚡ Connect & Print'}
+                ? '⚡ 4B-2034PA-1B0D কানেক্ট ও প্রিন্ট'
+                : '⚡ Connect & Print (4B-2034PA-1B0D)'}
             </span>
           </button>
 

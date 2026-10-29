@@ -25,20 +25,36 @@ export const POS_SERVICES = [
 
 // Targeted thermal printer filters for instant, clutter-free discovery in browser dialog
 export const POS_PRINTER_FILTERS = [
-  // Primary BLE POS Print Services
-  { services: ['000018f0-0000-1000-8000-00805f9b34fb'] },
-  { services: ['0000ffe0-0000-1000-8000-00805f9b34fb'] },
-  { services: ['0000ff00-0000-1000-8000-00805f9b34fb'] },
-  { services: ['49535343-fe7d-4ae5-8fa9-9fafd205e455'] },
-  { services: ['e7810a71-73ae-499d-8c15-faa9aef0c3f2'] },
-  { services: ['6e400001-b5a3-f393-e0a9-e50e24dcca9e'] },
-  { services: ['0000fee7-0000-1000-8000-00805f9b34fb'] },
-  { services: ['0000fff0-0000-1000-8000-00805f9b34fb'] },
-  // Common Thermal Printer Name Prefixes (fast matching in Chrome without scanning non-printer devices)
+  // 1. TOP PRIORITY: Exact user thermal printer model and series (4B-2034PA-1B0D)
+  { name: '4B-2034PA-1B0D' },
+  { namePrefix: '4B-2034PA-1B0D' },
+  { namePrefix: '4B-2034PA' },
+  { namePrefix: '4B-2034' },
+  { namePrefix: '4B-20' },
+  { namePrefix: '4B-' },
+  { namePrefix: '4B' },
+  { name: '4b-2034pa-1b0d' },
+  { namePrefix: '4b-2034pa' },
+  { namePrefix: '4b-' },
+  { namePrefix: '4b' },
+  { namePrefix: '4Barcode' },
+  { namePrefix: '4barcode' },
+  { namePrefix: '4BARCODE' },
+  { namePrefix: 'Printer' },
+  { namePrefix: 'printer' },
+  { namePrefix: 'PRINTER' },
   { namePrefix: 'POS' },
   { namePrefix: 'pos' },
-  { namePrefix: 'Print' },
-  { namePrefix: 'print' },
+  { namePrefix: 'GP' },
+  { namePrefix: 'gp' },
+  { namePrefix: 'Gprinter' },
+  { namePrefix: 'gprinter' },
+  { namePrefix: 'Barcode' },
+  { namePrefix: 'barcode' },
+  { namePrefix: 'EZD' },
+  { namePrefix: 'ezd' },
+  { namePrefix: 'ESC' },
+  { namePrefix: 'esc' },
   { namePrefix: 'MPT' },
   { namePrefix: 'mpt' },
   { namePrefix: 'MTP' },
@@ -46,8 +62,6 @@ export const POS_PRINTER_FILTERS = [
   { namePrefix: 'xp' },
   { namePrefix: 'RP' },
   { namePrefix: 'rp' },
-  { namePrefix: 'GP' },
-  { namePrefix: 'gp' },
   { namePrefix: '58' },
   { namePrefix: '80' },
   { namePrefix: 'BT' },
@@ -69,6 +83,17 @@ export const POS_PRINTER_FILTERS = [
   { namePrefix: 'Epson' },
   { namePrefix: 'Star' },
   { namePrefix: 'Bixolon' },
+  { namePrefix: 'QR' },
+  { namePrefix: 'DL' },
+  // 2. Primary BLE POS Print Services (including 4Barcode / Tencent & HM-10)
+  { services: ['0000fee7-0000-1000-8000-00805f9b34fb'] }, // 4Barcode / Tencent BLE
+  { services: ['0000ffe0-0000-1000-8000-00805f9b34fb'] }, // HM-10 / 4Barcode / POS-58
+  { services: ['000018f0-0000-1000-8000-00805f9b34fb'] }, // Standard POS Print Service
+  { services: ['0000ff00-0000-1000-8000-00805f9b34fb'] }, // POS-58 / Zjiang / GP
+  { services: ['49535343-fe7d-4ae5-8fa9-9fafd205e455'] }, // ISSC Transparent UART
+  { services: ['e7810a71-73ae-499d-8c15-faa9aef0c3f2'] }, // Rongta / Goojprt / 4Barcode
+  { services: ['6e400001-b5a3-f393-e0a9-e50e24dcca9e'] }, // Nordic UART Service (NUS)
+  { services: ['0000fff0-0000-1000-8000-00805f9b34fb'] }, // Generic POS
 ];
 
 export class ThermalPrinterService {
@@ -181,16 +206,42 @@ export class ThermalPrinterService {
   private async setupCharacteristics(server: any): Promise<boolean> {
     try {
       this.characteristic = null;
+
+      // 1. Instant 1-Shot Reconnect: Check remembered service UUID from previous successful print
+      const savedPrinter = storageService.getSavedPrinter();
+      if (savedPrinter?.serviceUuid) {
+        try {
+          const directPromise = server.getPrimaryService(savedPrinter.serviceUuid);
+          const timeoutPromise = new Promise<null>((_, reject) =>
+            setTimeout(() => reject(new Error('timeout')), 400)
+          );
+          const directService: any = await Promise.race([directPromise, timeoutPromise]);
+          if (directService) {
+            const characteristics = await directService.getCharacteristics();
+            for (const char of characteristics) {
+              const props = char.properties;
+              if (props?.writeWithoutResponse || props?.write) {
+                this.characteristic = char;
+                console.log('Instant connect via remembered service UUID:', savedPrinter.serviceUuid);
+                return true;
+              }
+            }
+          }
+        } catch {
+          // Direct probe failed, proceed with auto-discovery
+        }
+      }
+
       let services: any[] = [];
 
-      // 1. Try listing all primary services advertised by GATT server
+      // 2. Try listing all primary services advertised by GATT server
       try {
         services = await server.getPrimaryServices();
       } catch (e) {
         console.warn('Could not list all services at once, will query known POS services:', e);
       }
 
-      // First pass: inspect already discovered services
+      // Inspect already discovered services
       if (services && services.length > 0) {
         for (const service of services) {
           try {
@@ -208,32 +259,40 @@ export class ThermalPrinterService {
                   'write:',
                   !!props?.write
                 );
+                // Remember successful service UUID for next instant connection
+                if (savedPrinter) {
+                  storageService.saveSavedPrinter({
+                    ...savedPrinter,
+                    serviceUuid: service.uuid,
+                    charUuid: char.uuid,
+                  });
+                }
                 return true;
               }
             }
-          } catch (e) {
-            // Service characteristic query error, continue to next
+          } catch {
+            // Continue
           }
         }
       }
 
-      // Second pass: query top priority POS UUIDs with fast timeouts (max 900ms per probe)
+      // 3. Fast Targeted Probe: query priority POS & 4Barcode UUIDs (fast 350ms timeouts)
       const topPriorityServices = [
+        '0000fee7-0000-1000-8000-00805f9b34fb', // 4Barcode / Tencent BLE Serial
+        '0000ffe0-0000-1000-8000-00805f9b34fb', // HM-10 / 4Barcode / POS-58
+        '0000ff00-0000-1000-8000-00805f9b34fb', // Zjiang / Xprinter / GP
         '000018f0-0000-1000-8000-00805f9b34fb', // Standard POS
-        '0000ffe0-0000-1000-8000-00805f9b34fb', // HM-10 / MPT-II / POS-58
-        '0000ff00-0000-1000-8000-00805f9b34fb', // Zjiang / Xprinter
-        '49535343-fe7d-4ae5-8fa9-9fafd205e455', // ISSC
-        'e7810a71-73ae-499d-8c15-faa9aef0c3f2', // Rongta / Goojprt
-        '6e400001-b5a3-f393-e0a9-e50e24dcca9e', // Nordic NUS
-        '0000fee7-0000-1000-8000-00805f9b34fb', // Tencent BLE
+        'e7810a71-73ae-499d-8c15-faa9aef0c3f2', // Rongta / Goojprt / 4Barcode
+        '49535343-fe7d-4ae5-8fa9-9fafd205e455', // ISSC Transparent
         '0000fff0-0000-1000-8000-00805f9b34fb', // Generic POS
+        '6e400001-b5a3-f393-e0a9-e50e24dcca9e', // Nordic NUS
       ];
 
       for (const uuid of topPriorityServices) {
         try {
           const servicePromise = server.getPrimaryService(uuid);
           const timeoutPromise = new Promise<null>((_, reject) =>
-            setTimeout(() => reject(new Error('timeout')), 900)
+            setTimeout(() => reject(new Error('timeout')), 350)
           );
           const service: any = await Promise.race([servicePromise, timeoutPromise]);
           if (!service) continue;
@@ -251,11 +310,18 @@ export class ThermalPrinterService {
                 'write:',
                 !!props?.write
               );
+              if (savedPrinter) {
+                storageService.saveSavedPrinter({
+                  ...savedPrinter,
+                  serviceUuid: uuid,
+                  charUuid: char.uuid,
+                });
+              }
               return true;
             }
           }
         } catch {
-          // Service not present on this device, proceed quickly
+          // Service not present, check next quickly
         }
       }
 
@@ -285,13 +351,22 @@ export class ThermalPrinterService {
       // 1. If we already hold the device reference in memory:
       if (this.bluetoothDevice && this.bluetoothDevice.gatt) {
         this.attachDeviceListeners(this.bluetoothDevice);
-        const server = await this.bluetoothDevice.gatt.connect();
-        const found = await this.setupCharacteristics(server);
-        if (found) {
-          this.isConnected = true;
-          this.isConnecting = false;
-          this.notifyStatus();
-          return true;
+        let server = this.bluetoothDevice.gatt;
+        if (!server.connected) {
+          const connectPromise = this.bluetoothDevice.gatt.connect();
+          server = await Promise.race([
+            connectPromise,
+            new Promise<null>((_, reject) => setTimeout(() => reject(new Error('timeout')), 3500)),
+          ]);
+        }
+        if (server) {
+          const found = await this.setupCharacteristics(server);
+          if (found) {
+            this.isConnected = true;
+            this.isConnecting = false;
+            this.notifyStatus();
+            return true;
+          }
         }
       }
 
@@ -299,17 +374,30 @@ export class ThermalPrinterService {
       if (this.isBluetoothSupported() && (navigator as any).bluetooth?.getDevices) {
         const devices = await (navigator as any).bluetooth.getDevices();
         if (devices && devices.length > 0) {
-          const target = devices.find((d: any) => d.id === saved.id) || devices[0];
+          const target =
+            devices.find((d: any) => d.name === '4B-2034PA-1B0D' || d.id === 'dev-4b-2034pa-1b0d') ||
+            devices.find((d: any) => d.id === saved.id || d.name === saved.name) ||
+            devices.find((d: any) => d.name?.startsWith('4B-2034PA') || d.name?.startsWith('4B') || d.name?.toLowerCase().includes('pos')) ||
+            devices[0];
           if (target && target.gatt) {
             this.bluetoothDevice = target;
             this.attachDeviceListeners(target);
-            const server = await target.gatt.connect();
-            const found = await this.setupCharacteristics(server);
-            if (found) {
-              this.isConnected = true;
-              this.isConnecting = false;
-              this.notifyStatus();
-              return true;
+            let server = target.gatt;
+            if (!server.connected) {
+              const connectPromise = target.gatt.connect();
+              server = await Promise.race([
+                connectPromise,
+                new Promise<null>((_, reject) => setTimeout(() => reject(new Error('timeout')), 3500)),
+              ]);
+            }
+            if (server) {
+              const found = await this.setupCharacteristics(server);
+              if (found) {
+                this.isConnected = true;
+                this.isConnecting = false;
+                this.notifyStatus();
+                return true;
+              }
             }
           }
         }
@@ -435,6 +523,8 @@ export class ThermalPrinterService {
         macAddress,
         type: 'bluetooth' as const,
         savedAt: Date.now(),
+        serviceUuid: this.characteristic?.service?.uuid,
+        charUuid: this.characteristic?.uuid,
       };
       storageService.saveSavedPrinter(printerInfo);
 

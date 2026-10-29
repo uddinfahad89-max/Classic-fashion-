@@ -253,10 +253,15 @@ export const InvoicePrintingModal: React.FC<InvoicePrintingModalProps> = ({
                           className="py-3.5 flex items-center justify-between gap-3 first:pt-1 last:pb-1"
                         >
                           <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <p className="text-sm sm:text-base font-medium text-stone-900 truncate">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-sm sm:text-base font-bold text-stone-900 truncate">
                                 {device.name || 'Thermal POS Printer'}
                               </p>
+                              {device.name?.includes('4B-2034PA') && (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 shrink-0">
+                                  ★ {isBn ? 'আপনার প্রিন্টার' : 'Your Printer'}
+                                </span>
+                              )}
                               {connected && (
                                 <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 shrink-0">
                                   <Check className="w-3 h-3 stroke-[2.5]" />

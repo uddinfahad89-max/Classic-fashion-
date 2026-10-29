@@ -345,6 +345,8 @@ export interface SavedPrinterInfo {
   macAddress?: string;
   type?: 'bluetooth' | 'usb' | 'wifi';
   savedAt: number;
+  serviceUuid?: string;
+  charUuid?: string;
 }
 
 export interface BluetoothDeviceInfo {
