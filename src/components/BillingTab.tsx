@@ -2881,22 +2881,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             </div>
           </div>
 
-          {/* Estimate Mode Banner */}
-          {paymentMethod === 'estimate' && (
-            <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-900 text-xs font-bold flex items-center justify-between animate-in fade-in">
-              <span className="flex items-center gap-1.5">
-                <FileText className="w-4 h-4 text-blue-600 shrink-0" />
-                <span>
-                  {isBn
-                    ? '📋 এস্টিমেট বিল / কোটেশন (হিসাব স্লিপ — কোনো বাকি বা ক্যাশ জমা নয়)'
-                    : '📋 Estimate Bill / Quotation (Quotation Slip — No Due or Cash Settlement)'}
-                </span>
-              </span>
-              <span className="font-mono text-sm font-black text-blue-700">
-                {sym}{grandTotal.toFixed(2)}
-              </span>
-            </div>
-          )}
+
 
           {paymentMethod !== 'estimate' && paidNum > grandTotal && (
             <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-900 text-xs font-bold flex items-center justify-between">
@@ -2981,25 +2966,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
           </div>
         </div>
 
-        {/* Total Only Slip Quick Preference */}
-        <div className="flex items-center justify-between px-3 py-2 bg-indigo-50/70 hover:bg-indigo-50 rounded-xl border border-indigo-100 transition-colors">
-          <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-stone-700 select-none">
-            <input
-              type="checkbox"
-              checked={isTotalOnlyCheckout}
-              onChange={(e) => setIsTotalOnlyCheckout(e.target.checked)}
-              className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-            />
-            <span className="flex items-center gap-1.5">
-              <span>💰 {isBn ? 'শুধু মোট টাকার হিসাব স্লিপ (পণ্যের তালিকা ছাড়া)' : 'Total Only Slip (Without items list)'}</span>
-            </span>
-          </label>
-          {isTotalOnlyCheckout && (
-            <span className="text-[10px] font-bold bg-indigo-200 text-indigo-900 px-2 py-0.5 rounded-full font-mono">
-              Total Only
-            </span>
-          )}
-        </div>
+
 
         {/* 5. VERY BOTTOM: Three Side-by-Side Action Buttons (Save Bill, WhatsApp Bill, Direct Print) */}
         <div className="grid grid-cols-3 gap-1.5 sm:gap-2.5 md:gap-3.5 pt-1">

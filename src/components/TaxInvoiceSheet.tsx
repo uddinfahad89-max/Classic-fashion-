@@ -578,20 +578,9 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
                       )}
                     </td>
                     <td className="py-2.5 px-2 sm:py-3 sm:px-3 text-right text-stone-900 font-bold whitespace-nowrap">
-                      {hasDiscount ? (
-                        <div>
-                          <div className="font-bold text-stone-900">
-                            {currencyPrefix}{netItemTotal.toFixed(1)}
-                          </div>
-                          <div className="line-through text-stone-400 text-xs sm:text-xs leading-none mt-0.5">
-                            {currencyPrefix}{item.total.toFixed(1)}
-                          </div>
-                        </div>
-                      ) : (
-                        <div>
-                          {currencyPrefix}{displayItemTotal.toFixed(1)}
-                        </div>
-                      )}
+                      <div>
+                        {currencyPrefix}{hasDiscount ? netItemTotal.toFixed(1) : displayItemTotal.toFixed(1)}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -607,12 +596,7 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
                 <td className="py-2.5 px-2 sm:py-3 sm:px-3"></td>
                 <td className="py-2.5 px-2 sm:py-3 sm:px-3 text-right font-black text-stone-900 text-sm sm:text-xl whitespace-nowrap">
                   {isItemStrikeDiscount ? (
-                    <div>
-                      <div>{currencyPrefix}{bill.grandTotal.toFixed(1)}</div>
-                      <div className="line-through text-stone-400 text-xs sm:text-sm font-normal">
-                        {currencyPrefix}{bill.subtotal.toFixed(1)}
-                      </div>
-                    </div>
+                    `${currencyPrefix}${bill.grandTotal.toFixed(1)}`
                   ) : (
                     `${currencyPrefix}${bill.subtotal.toFixed(1)}`
                   )}

@@ -854,11 +854,10 @@ export class ThermalPrinterService {
             const cAmt = `${sym}${netItemTotal.toFixed(1)}`.padStart(14, ' ');
             lines.push(`${cItem}${cQty}${cRate}${cAmt}`);
 
-            // Line 2: Original Rate and Original Total directly below (clean & readable without messy text)
+            // Line 2: Original Rate only directly below Rate column (original price removed from Amount column as requested)
             const origRate = `(${item.price.toFixed(0)})`.padStart(8, ' ');
-            const origAmt = `(${sym}${item.total.toFixed(1)})`.padStart(14, ' ');
             const emptyPrefix = ''.padStart(26, ' ');
-            lines.push(`${emptyPrefix}${origRate}${origAmt}`);
+            lines.push(`${emptyPrefix}${origRate}`);
           } else {
             // 32-column
             const cItem = item.name.slice(0, 13).padEnd(13, ' ');
@@ -866,10 +865,9 @@ export class ThermalPrinterService {
             const cAmt = `${sym}${netItemTotal.toFixed(1)}`.padStart(12, ' ');
             lines.push(`${cItem}${cQty}${cAmt}`);
 
-            const origInfo = `(${item.price.toFixed(0)}->${netUnitPrice.toFixed(0)})`.padStart(10, ' ');
-            const origAmt = `(${sym}${item.total.toFixed(1)})`.padStart(12, ' ');
-            const emptyPrefix = ''.padStart(10, ' ');
-            lines.push(`${emptyPrefix}${origInfo}${origAmt}`);
+            const origInfo = `(${item.price.toFixed(0)})`.padStart(7, ' ');
+            const emptyPrefix = ''.padStart(13, ' ');
+            lines.push(`${emptyPrefix}${origInfo}`);
           }
         } else {
           // No discount on this item
@@ -902,22 +900,18 @@ export class ThermalPrinterService {
 
     if (isDiscountBill) {
       lines.push(divider);
-      // Table footer total row exactly like screenshot:
+      // Table footer total row: clean discounted total without duplicate original amount
       const totalQty = bill.items.reduce((sum, it) => sum + (it.qty || 1), 0);
       if (width === 48) {
         const tLabel = 'Total'.padEnd(18, ' ');
         const tQty = String(totalQty).padStart(8, ' ');
         const tAmt = `${sym}${bill.grandTotal.toFixed(1)}`.padStart(22, ' ');
         lines.push(`${tLabel}${tQty}${tAmt}`);
-        const origTotal = `(${sym}${bill.subtotal.toFixed(1)})`.padStart(48, ' ');
-        lines.push(origTotal);
       } else {
         const tLabel = 'Total'.padEnd(13, ' ');
         const tQty = String(totalQty).padStart(7, ' ');
         const tAmt = `${sym}${bill.grandTotal.toFixed(1)}`.padStart(12, ' ');
         lines.push(`${tLabel}${tQty}${tAmt}`);
-        const origTotal = `(${sym}${bill.subtotal.toFixed(1)})`.padStart(32, ' ');
-        lines.push(origTotal);
       }
       lines.push(divider);
     }
