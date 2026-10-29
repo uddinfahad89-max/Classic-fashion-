@@ -767,9 +767,6 @@ export class ThermalPrinterService {
     }
 
     lines.push(padCenter(billTitle));
-    if (isDiscountBill) {
-      lines.push(padCenter('>> SPECIAL DISCOUNT APPLIED <<'));
-    }
     lines.push(doubleDiv);
 
     // Bill Meta - Compact & Side-by-Side to save paper
@@ -809,11 +806,28 @@ export class ThermalPrinterService {
       }
     }
 
-    // Items table header (Slashes 1 & 2 removed: no extra dividers above/below)
-    if (width === 48) {
-      lines.push(padBetween('ITEM', 'QTY   PRICE   TOTAL'));
+    // Items table header (matching screenshot columns: Item, Qty, Rate, Amount)
+    if (isDiscountBill) {
+      if (width === 48) {
+        const hItem = 'ITEM'.padEnd(18, ' ');
+        const hQty = 'QTY'.padStart(8, ' ');
+        const hRate = 'RATE'.padStart(8, ' ');
+        const hAmt = 'AMOUNT'.padStart(14, ' ');
+        lines.push(`${hItem}${hQty}${hRate}${hAmt}`);
+        lines.push(divider);
+      } else {
+        const hItem = 'ITEM'.padEnd(13, ' ');
+        const hQty = 'QTY'.padStart(7, ' ');
+        const hAmt = 'AMOUNT'.padStart(12, ' ');
+        lines.push(`${hItem}${hQty}${hAmt}`);
+        lines.push(divider);
+      }
     } else {
-      lines.push(padBetween('ITEM', 'QTY  TOTAL'));
+      if (width === 48) {
+        lines.push(padBetween('ITEM', 'QTY   PRICE   TOTAL'));
+      } else {
+        lines.push(padBetween('ITEM', 'QTY  TOTAL'));
+      }
     }
 
     const eligibleSubtotal = bill.items.reduce(
@@ -827,23 +841,53 @@ export class ThermalPrinterService {
       const qtyLabel = item.unit ? `${item.qty} ${item.unit}` : `${item.qty}x`;
       const hasDiscountOnItem = isDiscountBill && !item.noDiscount && discRatio > 0;
 
-      if (hasDiscountOnItem) {
-        const netUnitPrice = Math.round(item.price * (1 - discRatio) * 100) / 100;
-        const netItemTotal = Math.round(item.total * (1 - discRatio) * 100) / 100;
-        const itemSaved = Math.max(0, item.total - netItemTotal);
+      if (isDiscountBill) {
+        if (hasDiscountOnItem) {
+          const netUnitPrice = Math.round(item.price * (1 - discRatio) * 100) / 100;
+          const netItemTotal = Math.round(item.total * (1 - discRatio) * 100) / 100;
 
-        if (width === 48) {
-          const itemLine = `${item.name.slice(0, 18)}`;
-          const rightCol = `${qtyLabel}  ${sym}${netUnitPrice.toFixed(2)}  ${sym}${netItemTotal.toFixed(2)}`;
-          lines.push(padBetween(itemLine, rightCol));
-          lines.push(` (Regular: ${sym}${item.price.toFixed(2)} | Save: -${sym}${itemSaved.toFixed(2)})`);
+          if (width === 48) {
+            // Line 1: Item Name, Qty, Discounted Rate, Discounted Total (clean numbers like screenshot)
+            const cItem = item.name.slice(0, 18).padEnd(18, ' ');
+            const cQty = qtyLabel.padStart(8, ' ');
+            const cRate = netUnitPrice.toFixed(0).padStart(8, ' ');
+            const cAmt = `${sym}${netItemTotal.toFixed(1)}`.padStart(14, ' ');
+            lines.push(`${cItem}${cQty}${cRate}${cAmt}`);
+
+            // Line 2: Original Rate and Original Total directly below (clean & readable without messy text)
+            const origRate = `(${item.price.toFixed(0)})`.padStart(8, ' ');
+            const origAmt = `(${sym}${item.total.toFixed(1)})`.padStart(14, ' ');
+            const emptyPrefix = ''.padStart(26, ' ');
+            lines.push(`${emptyPrefix}${origRate}${origAmt}`);
+          } else {
+            // 32-column
+            const cItem = item.name.slice(0, 13).padEnd(13, ' ');
+            const cQty = qtyLabel.padStart(7, ' ');
+            const cAmt = `${sym}${netItemTotal.toFixed(1)}`.padStart(12, ' ');
+            lines.push(`${cItem}${cQty}${cAmt}`);
+
+            const origInfo = `(${item.price.toFixed(0)}->${netUnitPrice.toFixed(0)})`.padStart(10, ' ');
+            const origAmt = `(${sym}${item.total.toFixed(1)})`.padStart(12, ' ');
+            const emptyPrefix = ''.padStart(10, ' ');
+            lines.push(`${emptyPrefix}${origInfo}${origAmt}`);
+          }
         } else {
-          const itemLine = `${item.name.slice(0, 15)}`;
-          const rightCol = `${qtyLabel} ${sym}${netItemTotal.toFixed(2)}`;
-          lines.push(padBetween(itemLine, rightCol));
-          lines.push(` (Orig:${item.price.toFixed(0)} Net:${netUnitPrice.toFixed(0)} -${itemSaved.toFixed(0)})`);
+          // No discount on this item
+          if (width === 48) {
+            const cItem = item.name.slice(0, 18).padEnd(18, ' ');
+            const cQty = qtyLabel.padStart(8, ' ');
+            const cRate = item.price.toFixed(0).padStart(8, ' ');
+            const cAmt = `${sym}${item.total.toFixed(1)}`.padStart(14, ' ');
+            lines.push(`${cItem}${cQty}${cRate}${cAmt}`);
+          } else {
+            const cItem = item.name.slice(0, 13).padEnd(13, ' ');
+            const cQty = qtyLabel.padStart(7, ' ');
+            const cAmt = `${sym}${item.total.toFixed(1)}`.padStart(12, ' ');
+            lines.push(`${cItem}${cQty}${cAmt}`);
+          }
         }
       } else {
+        // Standard non-discount bill
         if (width === 48) {
           const itemLine = `${item.name.slice(0, 20)}`;
           const rightCol = `${qtyLabel}  ${sym}${item.price.toFixed(2)}  ${sym}${item.total.toFixed(2)}`;
@@ -856,25 +900,36 @@ export class ThermalPrinterService {
       }
     });
 
-    // (Slash 3 removed): No divider below items
+    if (isDiscountBill) {
+      lines.push(divider);
+      // Table footer total row exactly like screenshot:
+      const totalQty = bill.items.reduce((sum, it) => sum + (it.qty || 1), 0);
+      if (width === 48) {
+        const tLabel = 'Total'.padEnd(18, ' ');
+        const tQty = String(totalQty).padStart(8, ' ');
+        const tAmt = `${sym}${bill.grandTotal.toFixed(1)}`.padStart(22, ' ');
+        lines.push(`${tLabel}${tQty}${tAmt}`);
+        const origTotal = `(${sym}${bill.subtotal.toFixed(1)})`.padStart(48, ' ');
+        lines.push(origTotal);
+      } else {
+        const tLabel = 'Total'.padEnd(13, ' ');
+        const tQty = String(totalQty).padStart(7, ' ');
+        const tAmt = `${sym}${bill.grandTotal.toFixed(1)}`.padStart(12, ' ');
+        lines.push(`${tLabel}${tQty}${tAmt}`);
+        const origTotal = `(${sym}${bill.subtotal.toFixed(1)})`.padStart(32, ' ');
+        lines.push(origTotal);
+      }
+      lines.push(divider);
+    }
 
     // Subtotal & Discount: Side-by-Side to save vertical space (only if discount > 0)
     if (bill.discount > 0) {
-      if (isDiscountBill) {
-        lines.push(
-          padBetween(
-            `SUBTOTAL: ${sym}${bill.subtotal.toFixed(2)}`,
-            `DISC: -${sym}${bill.discount.toFixed(2)}`
-          )
-        );
-      } else {
-        lines.push(
-          padBetween(
-            `SUBTOTAL: ${sym}${bill.subtotal.toFixed(2)}`,
-            `DISC: -${sym}${bill.discount.toFixed(2)}`
-          )
-        );
-      }
+      lines.push(
+        padBetween(
+          `SUBTOTAL: ${sym}${bill.subtotal.toFixed(2)}`,
+          `DISC: -${sym}${bill.discount.toFixed(2)}`
+        )
+      );
     }
 
     // (Slash 4 removed): No double divider above Grand Total
