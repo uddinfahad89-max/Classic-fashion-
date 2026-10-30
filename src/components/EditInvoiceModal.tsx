@@ -14,6 +14,7 @@ import {
   Tag,
   Percent,
   FileText,
+  Building2,
 } from 'lucide-react';
 import {
   BillInvoice,
@@ -85,6 +86,13 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
     designNotes: '',
   });
 
+  // GST optional fields
+  const [isGstBill, setIsGstBill] = useState(false);
+  const [customerGst, setCustomerGst] = useState('');
+  const [gstRate, setGstRate] = useState(5);
+  const [taxType, setTaxType] = useState<'intra' | 'inter'>('intra');
+  const [isGstInclusive, setIsGstInclusive] = useState(true);
+
   // Sync state whenever active bill changes
   useEffect(() => {
     if (bill) {
@@ -129,6 +137,11 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
         bottom: bill.measurements?.bottom || '',
         designNotes: bill.measurements?.designNotes || '',
       });
+      setIsGstBill(Boolean(bill.isGstBill));
+      setCustomerGst(bill.customerGst || '');
+      setGstRate(bill.gstRate || settings.defaultGstRate || 5);
+      setTaxType(bill.taxType || settings.defaultTaxType || 'intra');
+      setIsGstInclusive(bill.isGstInclusive ?? (settings.defaultIsGstInclusive ?? true));
       setNewItemName('');
       setNewItemPrice('');
       setNewItemQty('1');
@@ -154,7 +167,36 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
     discountAmount = Math.min(eligibleSubtotal, rawDiscount);
   }
 
-  const grandTotal = Math.max(0, subtotal - discountAmount);
+  const postDiscountTotal = Math.max(0, subtotal - discountAmount);
+  let liveTaxable = 0;
+  let liveTax = 0;
+  let liveCgst = 0;
+  let liveSgst = 0;
+  let liveIgst = 0;
+  let computedGrand = postDiscountTotal;
+
+  if (isGstBill && postDiscountTotal > 0 && gstRate > 0) {
+    if (isGstInclusive) {
+      liveTaxable = Math.round((postDiscountTotal / (1 + (gstRate / 100))) * 100) / 100;
+      liveTax = Math.round((postDiscountTotal - liveTaxable) * 100) / 100;
+      computedGrand = postDiscountTotal;
+    } else {
+      liveTaxable = postDiscountTotal;
+      liveTax = Math.round(((liveTaxable * gstRate) / 100) * 100) / 100;
+      computedGrand = Math.round((liveTaxable + liveTax) * 100) / 100;
+    }
+
+    if (taxType === 'intra') {
+      liveCgst = Math.round((liveTax / 2) * 100) / 100;
+      liveSgst = Math.round((liveTax - liveCgst) * 100) / 100;
+    } else {
+      liveIgst = liveTax;
+    }
+  } else if (isGstBill) {
+    liveTaxable = postDiscountTotal;
+  }
+
+  const grandTotal = computedGrand;
   const rawPaidNum = parseFloat(paidAmount);
   const hasExplicitPaid = paidAmount.trim() !== '' && !isNaN(rawPaidNum);
   const effectivePaidNum =
@@ -322,6 +364,30 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
       balance: isEst ? 0 : finalBalance,
       currentBalance: isEst ? 0 : finalBalance,
       isEstimate: isEst,
+      isGstBill: Boolean(isGstBill),
+      ...(isGstBill
+        ? {
+            customerGst: customerGst.trim().toUpperCase() || undefined,
+            gstRate,
+            taxType,
+            isGstInclusive,
+            taxableAmount: liveTaxable,
+            cgstAmount: liveCgst,
+            sgstAmount: liveSgst,
+            igstAmount: liveIgst,
+            totalTaxAmount: liveTax,
+          }
+        : {
+            customerGst: undefined,
+            gstRate: undefined,
+            taxType: undefined,
+            isGstInclusive: undefined,
+            taxableAmount: undefined,
+            cgstAmount: undefined,
+            sgstAmount: undefined,
+            igstAmount: undefined,
+            totalTaxAmount: undefined,
+          }),
       isTailoring,
       deliveryDate: isTailoring && deliveryDate.trim() ? deliveryDate.trim() : undefined,
       tailoringStatus: isTailoring ? tailoringStatus : undefined,
@@ -471,6 +537,140 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
                 className="w-full border border-stone-200 bg-white px-3 py-2 rounded-xl text-xs font-mono focus:outline-none focus:border-blue-600"
               />
             </div>
+          </div>
+
+          {/* 1C. GST Bill Optional Settings */}
+          <div className="bg-emerald-50/70 p-3.5 rounded-2xl border border-emerald-200 space-y-3">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2">
+                <Building2 className="w-4 h-4 text-emerald-700" />
+                <span className="text-sm font-black text-emerald-950">
+                  {language === 'bn' ? '🏛️ জিএসটি ট্যাক্স ইনভয়েস (ঐচ্ছিক / Optional)' : '🏛️ GST Tax Invoice (Optional)'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsGstBill((prev) => !prev)}
+                className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  isGstBill
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'bg-white text-emerald-700 border border-emerald-300 hover:bg-emerald-100'
+                }`}
+              >
+                {isGstBill
+                  ? (language === 'bn' ? '✓ GST চালু আছে' : '✓ GST Enabled')
+                  : (language === 'bn' ? '+ GST বিল করুন' : '+ Enable GST')}
+              </button>
+            </div>
+
+            {isGstBill && (
+              <div className="space-y-2.5 pt-1 border-t border-emerald-200/80 animate-in fade-in">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block text-xs font-bold text-stone-700 mb-1">
+                      {language === 'bn' ? 'কাস্টমারের GSTIN নম্বর (ঐচ্ছিক)' : 'Customer GSTIN (Optional)'}
+                    </label>
+                    <input
+                      type="text"
+                      value={customerGst}
+                      onChange={(e) => setCustomerGst(e.target.value.toUpperCase())}
+                      placeholder="e.g. 19ABCDE1234F1Z5"
+                      style={{ textTransform: 'uppercase' }}
+                      className="w-full border border-stone-200 bg-white px-3 py-1.5 rounded-xl text-xs font-mono font-bold uppercase focus:outline-none focus:border-emerald-600"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-stone-700 mb-1">
+                      {language === 'bn' ? 'দোকানের GSTIN' : 'Shop GSTIN'}
+                    </label>
+                    <div className="border border-stone-200 bg-white px-3 py-1.5 rounded-xl text-xs font-mono font-bold text-stone-700 select-none truncate">
+                      {settings.storeGstin?.trim() || (language === 'bn' ? '(দোকান সেটিংস থেকে দিন)' : '(Set in Shop Settings)')}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-0.5">
+                  <div>
+                    <span className="block text-xs font-bold text-stone-700 mb-1">
+                      {language === 'bn' ? 'GST রেট:' : 'GST Rate:'} <strong className="text-emerald-700 font-mono">{gstRate}%</strong>
+                    </span>
+                    <div className="flex flex-wrap gap-1">
+                      {[0, 5, 12, 18, 28].map((rate) => (
+                        <button
+                          key={rate}
+                          type="button"
+                          onClick={() => setGstRate(rate)}
+                          className={`px-2 py-0.5 rounded-lg text-xs font-mono font-bold border transition-all cursor-pointer ${
+                            gstRate === rate
+                              ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                              : 'bg-white text-stone-700 border-stone-200 hover:bg-stone-100'
+                          }`}
+                        >
+                          {rate}%
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <span className="block text-xs font-bold text-stone-700 mb-1">
+                      {language === 'bn' ? 'ট্যাক্স ধরন ও হিসাব:' : 'Tax Type & Calculation:'}
+                    </span>
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => setTaxType('intra')}
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-all cursor-pointer ${
+                          taxType === 'intra'
+                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                            : 'bg-white text-stone-700 border-stone-200 hover:bg-stone-100'
+                        }`}
+                      >
+                        {language === 'bn' ? 'রাজ্যীয় (CGST+SGST)' : 'Intra (CGST+SGST)'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTaxType('inter')}
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-all cursor-pointer ${
+                          taxType === 'inter'
+                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                            : 'bg-white text-stone-700 border-stone-200 hover:bg-stone-100'
+                        }`}
+                      >
+                        {language === 'bn' ? 'আন্তঃরাজ্য (IGST)' : 'Inter (IGST)'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsGstInclusive((prev) => !prev)}
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-all cursor-pointer ${
+                          isGstInclusive
+                            ? 'bg-stone-800 text-white border-stone-800'
+                            : 'bg-amber-100 text-amber-900 border-amber-300'
+                        }`}
+                      >
+                        {isGstInclusive ? (language === 'bn' ? 'ইনক্লুসিভ' : 'Inclusive') : (language === 'bn' ? '+এক্সক্লুসিভ' : '+Exclusive')}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {liveTax > 0 && (
+                  <div className="p-2 rounded-lg bg-white border border-emerald-200 flex items-center justify-between text-xs font-mono font-bold text-stone-800 flex-wrap gap-1">
+                    <span>Taxable: {sym}{liveTaxable.toFixed(2)}</span>
+                    {taxType === 'intra' ? (
+                      <>
+                        <span className="text-emerald-700">CGST ({(gstRate / 2).toFixed(1)}%): {sym}{liveCgst.toFixed(2)}</span>
+                        <span className="text-emerald-700">SGST ({(gstRate / 2).toFixed(1)}%): {sym}{liveSgst.toFixed(2)}</span>
+                      </>
+                    ) : (
+                      <span className="text-emerald-700">IGST ({gstRate}%): {sym}{liveIgst.toFixed(2)}</span>
+                    )}
+                    <span className="text-stone-900 font-black">Total GST: {sym}{liveTax.toFixed(2)}</span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* 1B. Tailoring Order Mode & Measurements Editor */}

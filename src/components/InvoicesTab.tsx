@@ -578,6 +578,11 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
                     <span className="text-[11px] font-mono font-bold text-stone-500 bg-stone-100 px-1.5 py-0.5 rounded">
                       #{bill.invoiceNo}
                     </span>
+                    {bill.isGstBill && (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-[10px] font-mono font-black border border-emerald-300">
+                        GST {bill.gstRate ? `${bill.gstRate}%` : ''}
+                      </span>
+                    )}
                     {bill.discount > 0 && (
                       <span
                         className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200"

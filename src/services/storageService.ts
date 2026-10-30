@@ -92,6 +92,10 @@ const DEFAULT_SETTINGS: ThermalPrinterSettings = {
   tabletMode: 'auto',
   uiScale: 'normal',
   autoOpenReceiptAfterBill: false,
+  storeGstin: '',
+  defaultGstRate: 5,
+  defaultTaxType: 'intra',
+  defaultIsGstInclusive: true,
 };
 
 class StorageService {

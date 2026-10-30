@@ -307,6 +307,11 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
             Phone no.: {storePhone}
           </p>
         )}
+        {bill.isGstBill && settings.storeGstin && (
+          <p className="text-sm sm:text-base print:text-base text-stone-900 font-black tracking-wider">
+            GSTIN: <span className="font-mono">{settings.storeGstin}</span>
+          </p>
+        )}
       </div>
 
       <div className="border-t border-stone-300 my-2 sm:my-3"></div>
@@ -320,6 +325,8 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
             ? '✂️ Tailoring Invoice'
             : isBillEstimate
             ? (isBn ? 'এস্টিমেট বিল / ESTIMATE BILL' : 'ESTIMATE BILL')
+            : bill.isGstBill
+            ? (isBn ? '🏛️ ট্যাক্স ইনভয়েস (জিএসটি) / TAX INVOICE' : '🏛️ TAX INVOICE (GST BILL)')
             : bill.paymentMethod === 'cash'
             ? (isBn ? 'ক্যাশ মেমো / CASH MEMO' : 'CASH MEMO')
             : bill.paymentMethod === 'upi'
@@ -352,6 +359,11 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
           {bill.customerPhone && (
             <div className="text-stone-700 font-semibold text-sm sm:text-base">
               Ph: {bill.customerPhone}
+            </div>
+          )}
+          {bill.isGstBill && bill.customerGst && (
+            <div className="text-stone-800 font-bold text-xs sm:text-sm">
+              GSTIN: <span className="font-mono font-black text-stone-900">{bill.customerGst}</span>
             </div>
           )}
           {bill.isTailoring && bill.measurements?.garmentType && (
@@ -641,6 +653,43 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
             </div>
           )}
 
+          {/* GST Tax Breakdown (Rendered ONLY when bill is a GST Bill and tax > 0) */}
+          {bill.isGstBill && (bill.totalTaxAmount || 0) > 0 && (
+            <div className="my-1.5 p-2 rounded-lg bg-stone-50 border border-stone-300 text-xs sm:text-sm space-y-1">
+              <div className="font-extrabold text-stone-900 flex justify-between border-b border-stone-200 pb-1">
+                <span>Tax Breakdown</span>
+                <span className="text-emerald-700 font-bold">GST {bill.gstRate || 0}% ({bill.isGstInclusive ? 'Incl.' : '+Excl.'})</span>
+              </div>
+              {bill.taxableAmount !== undefined && (
+                <div className="flex justify-between text-stone-700">
+                  <span>Taxable Value</span>
+                  <span className="font-mono font-bold">{currencyPrefix}{bill.taxableAmount.toFixed(1)}</span>
+                </div>
+              )}
+              {bill.taxType === 'inter' ? (
+                <div className="flex justify-between text-stone-700">
+                  <span>IGST ({bill.gstRate || 0}%)</span>
+                  <span className="font-mono font-bold">{currencyPrefix}{(bill.igstAmount || bill.totalTaxAmount || 0).toFixed(1)}</span>
+                </div>
+              ) : (
+                <>
+                  <div className="flex justify-between text-stone-700">
+                    <span>CGST ({((bill.gstRate || 0) / 2).toFixed(1)}%)</span>
+                    <span className="font-mono font-bold">{currencyPrefix}{(bill.cgstAmount || 0).toFixed(1)}</span>
+                  </div>
+                  <div className="flex justify-between text-stone-700">
+                    <span>SGST ({((bill.gstRate || 0) / 2).toFixed(1)}%)</span>
+                    <span className="font-mono font-bold">{currencyPrefix}{(bill.sgstAmount || 0).toFixed(1)}</span>
+                  </div>
+                </>
+              )}
+              <div className="flex justify-between font-bold text-stone-900 border-t border-stone-200 pt-1">
+                <span>Total Tax (GST)</span>
+                <span className="font-mono font-black text-emerald-800">{currencyPrefix}{(bill.totalTaxAmount || 0).toFixed(1)}</span>
+              </div>
+            </div>
+          )}
+
           {/* Purple Total Highlight Bar */}
           <div className="bill-total-bar bg-[#8C8EE8] text-white print:bg-[#8C8EE8] print:text-white font-black py-2.5 sm:py-3 px-3 sm:px-4 flex justify-between items-center my-1 sm:my-1.5 text-base sm:text-2xl print:text-2xl rounded-lg">
             <span>Total</span>
@@ -769,6 +818,15 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
           </div>
         </div>
       </div>
+
+      {/* 7. Bottom Center: Receipt Footer Note (রসিদের নিচের কাস্টম বার্তা) */}
+      {settings.footerNote && settings.footerNote.trim() && (
+        <div className="mt-4 pt-3 border-t border-dashed border-stone-300 text-center">
+          <p className="text-xs sm:text-sm font-bold text-stone-800 tracking-wide">
+            *** {settings.footerNote.trim()} ***
+          </p>
+        </div>
+      )}
     </div>
   );
 };

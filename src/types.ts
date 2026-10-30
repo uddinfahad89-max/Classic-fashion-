@@ -159,6 +159,17 @@ export interface BillInvoice {
   currentBalance?: number;
   // Estimate vs Tax Invoice
   isEstimate?: boolean;
+  // GST Bill Optional Fields
+  isGstBill?: boolean;
+  customerGst?: string;
+  gstRate?: number;
+  taxType?: 'intra' | 'inter';
+  isGstInclusive?: boolean;
+  taxableAmount?: number;
+  cgstAmount?: number;
+  sgstAmount?: number;
+  igstAmount?: number;
+  totalTaxAmount?: number;
   // Tailoring Purpose Fields
   isTailoring?: boolean;
   deliveryDate?: string;
@@ -328,6 +339,11 @@ export interface ThermalPrinterSettings {
   tabletMode?: 'auto' | 'always' | 'disabled';
   uiScale?: 'normal' | 'large' | 'extra_large';
   autoOpenReceiptAfterBill?: boolean;
+  // GST Settings (Optional)
+  storeGstin?: string;
+  defaultGstRate?: number;
+  defaultTaxType?: 'intra' | 'inter';
+  defaultIsGstInclusive?: boolean;
 }
 
 export interface NetworkStatusInfo {

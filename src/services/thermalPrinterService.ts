@@ -815,6 +815,10 @@ export class ThermalPrinterService {
     lines.push(padCenter(settings.storeName.trim().toUpperCase()));
     if (settings.storeAddress) lines.push(padCenter(settings.storeAddress.trim().toUpperCase()));
     if (settings.storePhone) lines.push(padCenter(`Tel: ${settings.storePhone.trim()}`));
+    const isGst = Boolean(bill.isGstBill);
+    if (isGst && settings.storeGstin) {
+      lines.push(padCenter(`GSTIN: ${settings.storeGstin.trim().toUpperCase()}`));
+    }
     const isTailoring = Boolean(bill.isTailoring);
     const method = String(bill.paymentMethod || 'cash').toLowerCase();
     const isEstimate = method === 'estimate' || (Boolean(bill.isEstimate) && method === 'estimate');
@@ -830,6 +834,10 @@ export class ThermalPrinterService {
       billTitle = isDiscountBill ? '*** TAILORING DISCOUNT SLIP ***' : '*** TAILORING ORDER SLIP ***';
       billDocPrefix = 'Order:';
       payLabel = method === 'due' ? 'CREDIT' : method === 'estimate' ? 'ESTIMATE' : method.toUpperCase();
+    } else if (isGst) {
+      billTitle = isDiscountBill ? '*** GST DISCOUNT INVOICE ***' : '*** TAX INVOICE (GST) ***';
+      billDocPrefix = 'Inv:';
+      payLabel = method === 'due' ? 'CREDIT' : method === 'estimate' ? 'ESTIMATE' : method === 'upi' ? 'UPI' : 'CASH';
     } else if (isDiscountBill) {
       billTitle = isEstimate ? '*** DISCOUNT ESTIMATE BILL ***' : '*** DISCOUNT BILL ***';
       billDocPrefix = isEstimate ? 'Est:' : 'Bill:';
@@ -867,6 +875,9 @@ export class ThermalPrinterService {
 
     if (bill.customerPhone) {
       lines.push(padBetween('Phone:', bill.customerPhone));
+    }
+    if (isGst && bill.customerGst) {
+      lines.push(padBetween('CUST GST:', bill.customerGst.trim().toUpperCase()));
     }
     if (bill.isTailoring && bill.deliveryDate) {
       lines.push(padBetween('DELIVERY:', bill.deliveryDate));
@@ -1016,6 +1027,21 @@ export class ThermalPrinterService {
       );
     }
 
+    // GST Breakdown on thermal receipt
+    if (isGst && (bill.totalTaxAmount || 0) > 0) {
+      if (bill.taxableAmount !== undefined) {
+        lines.push(padBetween('TAXABLE AMOUNT:', `${sym}${bill.taxableAmount.toFixed(2)}`));
+      }
+      if (bill.taxType === 'inter') {
+        lines.push(padBetween(`IGST (${bill.gstRate || 0}%):`, `${sym}${(bill.igstAmount || bill.totalTaxAmount || 0).toFixed(2)}`));
+      } else {
+        const halfRate = (bill.gstRate || 0) / 2;
+        lines.push(padBetween(`CGST (${halfRate}%):`, `${sym}${(bill.cgstAmount || 0).toFixed(2)}`));
+        lines.push(padBetween(`SGST (${halfRate}%):`, `${sym}${(bill.sgstAmount || 0).toFixed(2)}`));
+      }
+      lines.push(padBetween('TOTAL GST:', `${sym}${(bill.totalTaxAmount || 0).toFixed(2)}`));
+    }
+
     // (Slash 4 removed): No double divider above Grand Total
 
     // Grand Total & Payment Method: Side-by-Side on 1 single line!
@@ -1051,6 +1077,21 @@ export class ThermalPrinterService {
     }
 
     lines.push(divider);
+
+    // Custom Receipt Footer Note (রসিদের নিচের কাস্টম বার্তা)
+    const rawFooter = (settings.footerNote || '').trim();
+    if (rawFooter) {
+      // Clean non-printable characters for safe thermal printing
+      const cleanFooter = rawFooter.replace(/[^\x20-\x7E\n]/g, '').trim();
+      const targetFooter = cleanFooter || rawFooter;
+      targetFooter.split('\n').forEach((line) => {
+        const cleanL = line.trim();
+        if (cleanL) {
+          lines.push(padCenter(cleanL));
+        }
+      });
+      lines.push(divider);
+    }
 
     return lines.join('\n');
   }

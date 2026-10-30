@@ -314,6 +314,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 className="w-full border border-stone-200 bg-white p-2 rounded-xl text-xs focus:outline-none focus:border-blue-500"
               />
             </div>
+            <div>
+              <label className="block text-stone-700 font-semibold mb-1 flex items-center justify-between">
+                <span>{isBn ? 'দোকানের GSTIN নম্বর (ঐচ্ছিক)' : 'Shop GSTIN (Optional)'}</span>
+                {form.storeGstin && form.storeGstin.trim() && (
+                  <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded font-bold">
+                    ✓ GST Enabled
+                  </span>
+                )}
+              </label>
+              <input
+                type="text"
+                value={form.storeGstin || ''}
+                onChange={(e) => setForm({ ...form, storeGstin: e.target.value.toUpperCase() })}
+                placeholder="e.g. 19AAAAA0000A1Z5"
+                style={{ textTransform: 'uppercase' }}
+                className="w-full border border-stone-200 bg-white p-2 rounded-xl text-xs font-mono font-bold focus:outline-none focus:border-blue-500"
+              />
+              <p className="text-[10px] text-stone-500 pt-0.5">
+                {isBn
+                  ? '💡 যদি জিএসটি বিল তৈরি করতে চান তবে এটি দিন। সাধারণ ক্যাশ মেমো তৈরির ক্ষেত্রে এটি ফাঁকা রাখা যাবে।'
+                  : '💡 Leave blank if you make regular non-GST bills. Used when GST Bill is enabled.'}
+              </p>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-2.5">
@@ -927,29 +950,76 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           </div>
 
-          <div>
-            <label className="block text-stone-700 font-semibold mb-1">{isBn ? 'রসিদের ফুটার বার্তা' : 'Receipt Footer Note'}</label>
+          {/* Receipt Footer Note (রসিদের নিচের কাস্টম বার্তা ও পরিবর্তন সেটিংস) */}
+          <div className="p-3.5 bg-amber-50/70 rounded-2xl border border-amber-200 space-y-2.5 shadow-2xs">
+            <div className="font-bold text-stone-900 text-xs flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <FileText className="w-4 h-4 text-amber-600" />
+                <span>{isBn ? 'রসিদের ফুটার বার্তা (Receipt Footer Note)' : 'Receipt Footer Note'}</span>
+              </span>
+              <span className="text-[10px] text-amber-800 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full font-bold">
+                {isBn ? 'রসিদের নিচে প্রিন্ট হবে' : 'Prints at bottom'}
+              </span>
+            </div>
+
+            <p className="text-[11px] text-stone-600 leading-tight">
+              {isBn
+                ? 'বিল প্রিন্ট করার পরে রসিদ ও কাগজের একদম নিচে এই বার্তাটি সুন্দরভাবে প্রিন্ট হবে।'
+                : 'This message prints cleanly at the very bottom of printed thermal receipts & sheets.'}
+            </p>
+
             <div className="space-y-1.5">
               <input
                 type="text"
-                value={form.footerNote}
+                value={form.footerNote || ''}
                 onChange={(e) => setForm({ ...form, footerNote: e.target.value })}
                 placeholder="Thank you! Visit again."
-                className="w-full border border-stone-200 bg-stone-50/80 p-2 rounded-xl text-xs focus:outline-none focus:border-blue-500 font-medium"
+                className="w-full border border-stone-300 bg-white p-2.5 rounded-xl text-xs font-bold text-stone-800 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
               />
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setForm({ ...form, footerNote: 'Thank you! Visit again.' })}
-                  className="text-[10px] text-blue-600 hover:text-blue-700 font-semibold underline cursor-pointer"
-                >
-                  {isBn ? '✓ ডিফল্ট বার্তা: "Thank you! Visit again."' : '✓ Set: "Thank you! Visit again."'}
-                </button>
+
+              {/* Quick Preset Buttons */}
+              <div className="space-y-1 pt-1">
+                <span className="text-[10px] font-bold text-stone-600">
+                  {isBn ? '১-ক্লিকে রেডিমেড নোট বাছুন:' : '1-click quick presets:'}
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    'Thank you! Visit again.',
+                    'Goods once sold cannot be returned.',
+                    'No exchange without bill.',
+                    'Thank you for shopping with us!',
+                    'Special deal items are non-refundable.',
+                  ].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setForm({ ...form, footerNote: preset })}
+                      className={`px-2 py-0.5 rounded-lg text-[10px] font-medium border transition-colors cursor-pointer ${
+                        form.footerNote === preset
+                          ? 'bg-amber-600 text-white border-amber-600 font-bold'
+                          : 'bg-white hover:bg-amber-100 text-stone-700 border-amber-200'
+                      }`}
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <p className="text-[10px] text-stone-400 leading-tight">
+
+              {/* Live Receipt Print Preview */}
+              <div className="mt-2 p-2 bg-white rounded-xl border border-dashed border-amber-300 text-center">
+                <div className="text-[9px] text-stone-400 uppercase font-black tracking-wider">
+                  {isBn ? 'রসিদে যেভাবে প্রিন্ট হবে (প্রিভিউ):' : 'Receipt Print Preview:'}
+                </div>
+                <div className="text-xs font-bold text-stone-800 font-mono pt-0.5">
+                  *** {form.footerNote ? form.footerNote.trim() : '(Thank you! Visit again)'} ***
+                </div>
+              </div>
+
+              <p className="text-[10px] text-stone-400 leading-tight pt-0.5">
                 {isBn
-                  ? 'থার্মাল রসিদে "???" চিহ্ন আসা এড়াতে শুধুমাত্র ইংরেজি অক্ষর ব্যবহার করুন।'
-                  : 'Use standard English to ensure thermal printers print cleanly without "???"'}
+                  ? '💡 ব্লুটুথ থার্মাল প্রিন্টারে প্রশ্নচিহ্ন (???) এড়াতে ইংরেজি বার্তা ব্যবহারের পরামর্শ দেওয়া হলো।'
+                  : '💡 Standard English ensures question-mark-free printing on all thermal POS printers.'}
               </p>
             </div>
           </div>

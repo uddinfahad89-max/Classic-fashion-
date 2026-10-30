@@ -33,6 +33,7 @@ import {
   BookUser,
   ShieldCheck,
   MessageCircle,
+  Building2,
 } from 'lucide-react';
 import { sendWhatsAppBillForInvoice } from '../utils/whatsappHelper';
 import {
@@ -104,6 +105,11 @@ interface BillingCartDraft {
   trialDate?: string;
   tailoringStatus?: TailoringOrderStatus;
   measurements?: TailoringMeasurements;
+  isGstBill?: boolean;
+  customerGst?: string;
+  gstRate?: number;
+  taxType?: 'intra' | 'inter';
+  isGstInclusive?: boolean;
   updatedAt?: number;
 }
 
@@ -378,6 +384,15 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   });
   const [paidAmount, setPaidAmount] = useState(() => initialDraft?.paidAmount || '');
 
+  // GST Bill (Optional / ঐচ্ছিক - Default: OFF)
+  const [isGstBill, setIsGstBill] = useState<boolean>(() => {
+    return Boolean(initialDraft?.isGstBill);
+  });
+  const [customerGst, setCustomerGst] = useState<string>(() => initialDraft?.customerGst || '');
+  const [gstRate, setGstRate] = useState<number>(() => initialDraft?.gstRate || settings.defaultGstRate || 5);
+  const [taxType, setTaxType] = useState<'intra' | 'inter'>(() => initialDraft?.taxType || settings.defaultTaxType || 'intra');
+  const [isGstInclusive, setIsGstInclusive] = useState<boolean>(() => initialDraft?.isGstInclusive ?? (settings.defaultIsGstInclusive ?? true));
+
   // Restore saved cart items on mount if parent state was empty, then auto-save cart changes to localStorage
   const hasHydratedDraftRef = useRef(false);
   useEffect(() => {
@@ -403,7 +418,9 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         paidAmount.trim() !== '' ||
         itemName.trim() !== '' ||
         itemPrice.trim() !== '' ||
-        isTailoring;
+        isTailoring ||
+        isGstBill ||
+        customerGst.trim() !== '';
 
       if (!hasAnyDraftData) {
         localStorage.removeItem(BILLING_CART_DRAFT_KEY);
@@ -425,6 +442,11 @@ export const BillingTab: React.FC<BillingTabProps> = ({
           trialDate,
           tailoringStatus,
           measurements,
+          isGstBill,
+          customerGst,
+          gstRate,
+          taxType,
+          isGstInclusive,
           updatedAt: Date.now(),
         };
         localStorage.setItem(BILLING_CART_DRAFT_KEY, JSON.stringify(draftPayload));
@@ -449,6 +471,11 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     trialDate,
     tailoringStatus,
     measurements,
+    isGstBill,
+    customerGst,
+    gstRate,
+    taxType,
+    isGstInclusive,
     initialDraft,
     setBillItems,
   ]);
@@ -1184,7 +1211,38 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       ? Math.round((discountAmount / eligibleSubtotal) * 100 * 10) / 10
       : 0;
 
-  const grandTotal = Math.max(0, subtotal - discountAmount);
+  const postDiscountSubtotal = Math.max(0, subtotal - discountAmount);
+  let liveTaxableAmount = 0;
+  let liveTotalTaxAmount = 0;
+  let liveCgstAmount = 0;
+  let liveSgstAmount = 0;
+  let liveIgstAmount = 0;
+  let finalCalculatedGrandTotal = postDiscountSubtotal;
+
+  if (isGstBill && postDiscountSubtotal > 0 && gstRate > 0) {
+    if (isGstInclusive) {
+      // Inclusive: Tax included within price
+      liveTaxableAmount = Math.round((postDiscountSubtotal / (1 + (gstRate / 100))) * 100) / 100;
+      liveTotalTaxAmount = Math.round((postDiscountSubtotal - liveTaxableAmount) * 100) / 100;
+      finalCalculatedGrandTotal = postDiscountSubtotal;
+    } else {
+      // Exclusive: Tax added on top of price
+      liveTaxableAmount = postDiscountSubtotal;
+      liveTotalTaxAmount = Math.round(((liveTaxableAmount * gstRate) / 100) * 100) / 100;
+      finalCalculatedGrandTotal = Math.round((liveTaxableAmount + liveTotalTaxAmount) * 100) / 100;
+    }
+
+    if (taxType === 'intra') {
+      liveCgstAmount = Math.round((liveTotalTaxAmount / 2) * 100) / 100;
+      liveSgstAmount = Math.round((liveTotalTaxAmount - liveCgstAmount) * 100) / 100;
+    } else {
+      liveIgstAmount = liveTotalTaxAmount;
+    }
+  } else if (isGstBill) {
+    liveTaxableAmount = postDiscountSubtotal;
+  }
+
+  const grandTotal = finalCalculatedGrandTotal;
   const paidNum = parseFloat(paidAmount) || 0;
   const changeAmount = Math.max(0, paidNum - grandTotal);
 
@@ -1405,7 +1463,36 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     } else {
       finalDiscountAmount = Math.min(finalEligibleSubtotal, rawDiscount);
     }
-    const finalGrandTotal = Math.max(0, finalSubtotal - finalDiscountAmount);
+    const finalPostDiscount = Math.max(0, finalSubtotal - finalDiscountAmount);
+    let finalTaxableAmount = 0;
+    let finalTotalTaxAmount = 0;
+    let finalCgstAmount = 0;
+    let finalSgstAmount = 0;
+    let finalIgstAmount = 0;
+    let computedFinalGrandTotal = finalPostDiscount;
+
+    if (isGstBill && finalPostDiscount > 0 && gstRate > 0) {
+      if (isGstInclusive) {
+        finalTaxableAmount = Math.round((finalPostDiscount / (1 + (gstRate / 100))) * 100) / 100;
+        finalTotalTaxAmount = Math.round((finalPostDiscount - finalTaxableAmount) * 100) / 100;
+        computedFinalGrandTotal = finalPostDiscount;
+      } else {
+        finalTaxableAmount = finalPostDiscount;
+        finalTotalTaxAmount = Math.round(((finalTaxableAmount * gstRate) / 100) * 100) / 100;
+        computedFinalGrandTotal = Math.round((finalTaxableAmount + finalTotalTaxAmount) * 100) / 100;
+      }
+
+      if (taxType === 'intra') {
+        finalCgstAmount = Math.round((finalTotalTaxAmount / 2) * 100) / 100;
+        finalSgstAmount = Math.round((finalTotalTaxAmount - finalCgstAmount) * 100) / 100;
+      } else {
+        finalIgstAmount = finalTotalTaxAmount;
+      }
+    } else if (isGstBill) {
+      finalTaxableAmount = finalPostDiscount;
+    }
+
+    const finalGrandTotal = computedFinalGrandTotal;
     const finalChangeAmount = Math.max(0, paidNum - finalGrandTotal);
 
     const now = new Date();
@@ -1462,6 +1549,20 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       showDiscountOnPrint,
       discountPrintMode: showDiscountOnPrint ? 'item_discount' : 'standard_discount',
       grandTotal: finalGrandTotal,
+      isGstBill: Boolean(isGstBill),
+      ...(isGstBill
+        ? {
+            customerGst: customerGst.trim().toUpperCase() || undefined,
+            gstRate,
+            taxType,
+            isGstInclusive,
+            taxableAmount: finalTaxableAmount,
+            cgstAmount: finalCgstAmount,
+            sgstAmount: finalSgstAmount,
+            igstAmount: finalIgstAmount,
+            totalTaxAmount: finalTotalTaxAmount,
+          }
+        : {}),
       paymentMethod: isThisAnEstimate ? 'estimate' : paymentMethod,
       paymentStatus: isThisAnEstimate
         ? 'ESTIMATE'
@@ -1568,77 +1669,108 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         id="billing-customer-section"
         className="bg-white rounded-2xl p-3 sm:p-4 shadow-xs border border-stone-200"
       >
-        <div className="flex items-center justify-between gap-2 mb-2.5 flex-wrap">
-          {/* Estimate / Tax Toggle + Tailoring Mode Toggle + Automatic Sequential Invoice Number Badge */}
-          <div className="flex items-center justify-between w-full gap-1.5 flex-wrap">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <button
-                type="button"
-                id="btn-toggle-estimate-bill"
-                onClick={() => {
-                  setIsEstimateBill((prev) => {
-                    const next = !prev;
-                    setPaymentMethod(next ? 'estimate' : 'cash');
-                    return next;
-                  });
-                }}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs ${
-                  isEstimateBill
-                    ? 'bg-blue-600 text-white border-blue-600 ring-2 ring-blue-200'
-                    : 'bg-stone-100 hover:bg-stone-200 text-stone-700 border-stone-300'
-                }`}
-                title={
-                  isBn
-                    ? 'এস্টিমেট বিল বা ট্যাক্স ইনভয়েস পরিবর্তন করুন'
-                    : 'Toggle between Estimate Bill and Tax Invoice'
-                }
-              >
-                <FileText className="w-3.5 h-3.5" />
-                <span>
-                  {isEstimateBill
-                    ? isBn
-                      ? '📋 এস্টিমেট বিল (Estimate)'
-                      : '📋 Estimate Bill'
-                    : isBn
-                    ? '🏛️ ট্যাক্স ইনভয়েস (Tax Invoice)'
-                    : '🏛️ Tax Invoice'}
-                </span>
-              </button>
+        {/* Top Aligned Bar: Bill / Estimate, GST Bill, Tailoring Invoice, Invoice Number (সারিবদ্ধভাবে এক লাইনে) */}
+        <div className="grid grid-cols-4 gap-1 sm:gap-2 mb-2.5 w-full">
+          {/* 1. BILL / ESTIMATE BILL TOGGLE */}
+          <button
+            type="button"
+            id="btn-toggle-estimate-bill"
+            onClick={() => {
+              setIsEstimateBill((prev) => {
+                const next = !prev;
+                setPaymentMethod(next ? 'estimate' : 'cash');
+                return next;
+              });
+            }}
+            className={`min-w-0 h-8 sm:h-9 px-1 sm:px-2 rounded-lg text-[10px] sm:text-xs font-bold border transition-all flex items-center justify-center gap-1 sm:gap-1.5 cursor-pointer shadow-2xs ${
+              isEstimateBill
+                ? 'bg-blue-600 text-white border-blue-600 ring-1 ring-blue-300 shadow-xs'
+                : 'bg-stone-100 hover:bg-stone-200 text-stone-700 border-stone-300'
+            }`}
+            title={
+              isBn
+                ? 'এস্টিমেট বিল বা সাধারণ বিল পরিবর্তন করুন'
+                : 'Toggle between Estimate Bill and Normal Bill'
+            }
+          >
+            <FileText className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
+            <span className="truncate">
+              {isEstimateBill
+                ? isBn
+                  ? 'এস্টিমেট'
+                  : 'Estimate'
+                : isBn
+                ? 'বিল'
+                : 'Bill'}
+            </span>
+          </button>
 
-              <button
-                type="button"
-                id="btn-toggle-tailoring-invoice"
-                onClick={() => setIsTailoring((prev) => !prev)}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs ${
-                  isTailoring
-                    ? 'bg-purple-600 text-white border-purple-600 ring-2 ring-purple-200'
-                    : 'bg-purple-50 hover:bg-purple-100 text-purple-800 border-purple-200'
-                }`}
-                title={
-                  isBn
-                    ? 'টেইলারিং অর্ডার ও মাপ সহ ইনভয়েস তৈরি করুন'
-                    : 'Switch to Tailoring Order & Measurement Invoice'
-                }
-              >
-                <Scissors className="w-3.5 h-3.5" />
-                <span>{isBn ? '✂️ টেইলারিং ইনভয়েস' : '✂️ Tailoring Invoice'}</span>
-              </button>
-            </div>
+          {/* 2. GST BILL (OPTIONAL / ঐচ্ছিক) TOGGLE */}
+          <button
+            type="button"
+            id="btn-toggle-gst-bill"
+            onClick={() => setIsGstBill((prev) => !prev)}
+            className={`min-w-0 h-8 sm:h-9 px-1 sm:px-2 rounded-lg text-[10px] sm:text-xs font-bold border transition-all flex items-center justify-center gap-1 sm:gap-1.5 cursor-pointer shadow-2xs ${
+              isGstBill
+                ? 'bg-emerald-600 text-white border-emerald-600 ring-1 ring-emerald-300 shadow-xs'
+                : 'bg-stone-100 hover:bg-stone-200 text-stone-700 border-stone-300'
+            }`}
+            title={
+              isBn
+                ? 'জিএসটি বিল তৈরি করুন (ঐচ্ছিক)'
+                : 'Create GST Bill (Optional)'
+            }
+          >
+            <Building2 className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
+            <span className="truncate">
+              {isGstBill
+                ? isBn
+                  ? 'GST চালু'
+                  : 'GST (ON)'
+                : isBn
+                ? 'GST বিল'
+                : 'GST Bill'}
+            </span>
+          </button>
 
-            <span
-              id="billing-auto-invoice-badge"
-              title={
-                isBn
-                  ? 'স্বয়ংক্রিয় পরবর্তী ইনভয়েস নম্বর'
-                  : 'Sequential Auto-Generated Invoice Number'
-              }
-              className="text-[11px] font-mono font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200 shadow-2xs flex items-center gap-1.5"
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-              <span>{invoiceNo || storageService.getNextInvoiceNumber()}</span>
-              <span className="text-[10px] text-blue-600 font-sans font-medium">
-                ({isBn ? 'অটো' : 'Auto'})
-              </span>
+          {/* 3. TAILORING INVOICE (TLR INVOICE) TOGGLE */}
+          <button
+            type="button"
+            id="btn-toggle-tailoring-invoice"
+            onClick={() => setIsTailoring((prev) => !prev)}
+            className={`min-w-0 h-8 sm:h-9 px-1 sm:px-2 rounded-lg text-[10px] sm:text-xs font-bold border transition-all flex items-center justify-center gap-1 sm:gap-1.5 cursor-pointer shadow-2xs ${
+              isTailoring
+                ? 'bg-purple-600 text-white border-purple-600 ring-1 ring-purple-300 shadow-xs'
+                : 'bg-purple-50 hover:bg-purple-100 text-purple-800 border-purple-200'
+            }`}
+            title={
+              isBn
+                ? 'টেইলারিং অর্ডার ও মাপ সহ ইনভয়েস তৈরি করুন'
+                : 'Switch to Tailoring Order & Measurement Invoice'
+            }
+          >
+            <Scissors className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
+            <span className="truncate">
+              {isBn ? 'টেইলারিং' : 'Tlr Invoice'}
+            </span>
+          </button>
+
+          {/* 4. INVOICE NUMBER BADGE */}
+          <div
+            id="billing-auto-invoice-badge"
+            title={
+              isBn
+                ? 'স্বয়ংক্রিয় পরবর্তী ইনভয়েস নম্বর'
+                : 'Sequential Auto-Generated Invoice Number'
+            }
+            className="min-w-0 h-8 sm:h-9 px-1 sm:px-2 rounded-lg text-[10px] sm:text-xs font-mono font-bold text-blue-700 bg-blue-50 border border-blue-200 shadow-2xs flex items-center justify-center gap-1 text-center"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
+            <span className="truncate font-semibold">
+              #{invoiceNo || storageService.getNextInvoiceNumber()}
+            </span>
+            <span className="text-[9px] text-blue-600 font-sans font-medium hidden sm:inline">
+              ({isBn ? 'অটো' : 'Auto'})
             </span>
           </div>
         </div>
@@ -1700,6 +1832,141 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             </div>
           </div>
         </div>
+
+        {/* OPTIONAL GST BILL CONFIGURATION CARD (Shown only when GST Bill is toggled ON) */}
+        {isGstBill && (
+          <div className="mt-2.5 p-3 rounded-xl border border-emerald-300 bg-emerald-50/70 text-xs space-y-2.5 animate-in fade-in">
+            <div className="flex items-center justify-between pb-1.5 border-b border-emerald-200">
+              <div className="flex items-center gap-1.5 font-bold text-emerald-950">
+                <Building2 className="w-4 h-4 text-emerald-700" />
+                <span>{isBn ? '🏛️ জিএসটি ইনভয়েস সেটিংস (ঐচ্ছিক)' : '🏛️ GST Invoice Details (Optional)'}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsGstBill(false)}
+                className="text-[11px] font-bold text-rose-600 hover:text-rose-700 underline cursor-pointer"
+              >
+                {isBn ? '✕ GST বন্ধ করুন' : '✕ Turn Off GST'}
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {/* Customer GSTIN */}
+              <div>
+                <label className="block text-[11px] font-bold text-stone-700 mb-0.5">
+                  {isBn ? 'কাস্টমারের GSTIN নম্বর (ঐচ্ছিক)' : 'Customer GSTIN (Optional)'}
+                </label>
+                <input
+                  type="text"
+                  value={customerGst}
+                  onChange={(e) => setCustomerGst(e.target.value.toUpperCase())}
+                  placeholder="e.g. 19ABCDE1234F1Z5"
+                  style={{ textTransform: 'uppercase' }}
+                  className="w-full border border-stone-300 bg-white px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold focus:outline-none focus:border-emerald-600 uppercase"
+                />
+              </div>
+
+              {/* Shop GSTIN Display */}
+              <div>
+                <label className="block text-[11px] font-bold text-stone-700 mb-0.5">
+                  {isBn ? 'দোকানের GSTIN' : 'Shop GSTIN'}
+                </label>
+                <div className="bg-white border border-stone-300 px-2.5 py-1.5 rounded-lg font-mono font-bold text-stone-800 text-xs truncate">
+                  {settings.storeGstin?.trim() || (isBn ? '(দোকান সেটিংস থেকে GSTIN নম্বর দিতে পারেন)' : '(Set in Shop Settings)')}
+                </div>
+              </div>
+            </div>
+
+            {/* GST Rate Quick Chips & Tax Type */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+              {/* GST Rate % Selector */}
+              <div>
+                <span className="block text-[11px] font-bold text-stone-700 mb-1">
+                  {isBn ? 'GST ট্যাক্স রেট:' : 'GST Rate:'} <strong className="text-emerald-700 font-mono">{gstRate}%</strong>
+                </span>
+                <div className="flex flex-wrap gap-1">
+                  {[0, 5, 12, 18, 28].map((rate) => (
+                    <button
+                      key={rate}
+                      type="button"
+                      onClick={() => setGstRate(rate)}
+                      className={`px-2 py-0.5 rounded-md text-[11px] font-mono font-bold border transition-all cursor-pointer ${
+                        gstRate === rate
+                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                          : 'bg-white text-stone-700 border-stone-200 hover:bg-stone-100'
+                      }`}
+                    >
+                      {rate}%
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tax Type & Calculation Mode */}
+              <div>
+                <span className="block text-[11px] font-bold text-stone-700 mb-1">
+                  {isBn ? 'ট্যাক্স ধরন ও হিসাব:' : 'Tax Type & Calculation:'}
+                </span>
+                <div className="flex items-center gap-1 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => setTaxType('intra')}
+                    className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-all cursor-pointer ${
+                      taxType === 'intra'
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                        : 'bg-white text-stone-700 border-stone-200 hover:bg-stone-100'
+                    }`}
+                  >
+                    {isBn ? 'রাজ্যীয় (CGST+SGST)' : 'Intra (CGST+SGST)'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTaxType('inter')}
+                    className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-all cursor-pointer ${
+                      taxType === 'inter'
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                        : 'bg-white text-stone-700 border-stone-200 hover:bg-stone-100'
+                    }`}
+                  >
+                    {isBn ? 'আন্তঃরাজ্য (IGST)' : 'Inter (IGST)'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsGstInclusive((prev) => !prev)}
+                    className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-all cursor-pointer ${
+                      isGstInclusive
+                        ? 'bg-stone-800 text-white border-stone-800'
+                        : 'bg-amber-100 text-amber-900 border-amber-300'
+                    }`}
+                    title={
+                      isGstInclusive
+                        ? (isBn ? 'মূল্যের ভেতরেই জিএসটি অন্তর্ভুক্ত' : 'Price is inclusive of GST')
+                        : (isBn ? 'মূল্যের সাথে অতিরিক্ত জিএসটি যোগ হবে' : 'GST added on top of price')
+                    }
+                  >
+                    {isGstInclusive ? (isBn ? 'ইনক্লুসিভ (Inclusive)' : 'Inclusive') : (isBn ? '+এক্সক্লুসিভ (+Exclusive)' : '+Exclusive')}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Live GST Calculation Pill */}
+            {liveTotalTaxAmount > 0 && (
+              <div className="p-2 rounded-lg bg-white border border-emerald-200 flex items-center justify-between text-[11px] font-mono font-bold text-stone-800 flex-wrap gap-1">
+                <span>Taxable: {sym}{liveTaxableAmount.toFixed(2)}</span>
+                {taxType === 'intra' ? (
+                  <>
+                    <span className="text-emerald-700">CGST ({(gstRate / 2).toFixed(1)}%): {sym}{liveCgstAmount.toFixed(2)}</span>
+                    <span className="text-emerald-700">SGST ({(gstRate / 2).toFixed(1)}%): {sym}{liveSgstAmount.toFixed(2)}</span>
+                  </>
+                ) : (
+                  <span className="text-emerald-700">IGST ({gstRate}%): {sym}{liveIgstAmount.toFixed(2)}</span>
+                )}
+                <span className="text-stone-900 font-black">Total GST: {sym}{liveTotalTaxAmount.toFixed(2)}</span>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* TAILORING ORDER & MEASUREMENTS SECTION (When Tailoring Mode is Active) */}
         {isTailoring && (

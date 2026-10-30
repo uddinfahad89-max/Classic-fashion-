@@ -2276,6 +2276,7 @@ export default function App() {
           onToggleLabelMode={handleToggleLabelMode}
           onToggleTotalOnlySlip={handleToggleTotalOnlySlip}
           initialTotalOnlySlip={receiptInitialTotalOnly}
+          onUpdateSettings={(updated) => setSettings(updated)}
           onEditBill={(bill) => {
             setAutoPrintReceipt(false);
             setReceiptBill(null);
