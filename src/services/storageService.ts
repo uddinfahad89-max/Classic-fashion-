@@ -415,23 +415,43 @@ class StorageService {
     // Guaranteed direct backup of this bill to server disk & vault
     try {
       const profile = this.getUserProfile();
-      if (profile.role === 'Staff') {
-        if (!bill.cashierName) {
+      const isStaff =
+        profile.role === 'Staff' ||
+        profile.role === 'Cashier' ||
+        Boolean(profile.staffId) ||
+        Boolean(profile.operatorCode);
+
+      if (isStaff) {
+        if (!bill.cashierName && profile.name) {
           bill.cashierName = profile.name;
         }
+        if (!bill.cashierId && profile.operatorCode) {
+          bill.cashierId = profile.operatorCode;
+        }
       }
-      const id =
-        profile.role === 'Staff'
-          ? profile.ownerEmail || profile.storeId || profile.shopId || ''
-          : profile.phone || profile.email || '';
-      if (!id) return;
 
-      if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
-        fetch('/api/bills/save', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ identifier: id, bill }),
-        }).catch((e) => console.warn('Server bill backup notice:', e));
+      const storedOwner =
+        (typeof window !== 'undefined' ? localStorage.getItem('thermal_pos_store_owner_email') : '') ||
+        'uddinfahad89@gmail.com';
+      const id = isStaff
+        ? (profile.ownerEmail || profile.storeId || profile.shopId || storedOwner || profile.email)
+        : (profile.phone || profile.email || storedOwner);
+
+      if (id) {
+        if (!bill.userId) {
+          bill.userId = id;
+        }
+        if (!bill.storeId) {
+          bill.storeId = profile.storeId || id;
+        }
+
+        if (typeof window !== 'undefined' && typeof fetch !== 'undefined') {
+          fetch('/api/bills/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ identifier: id, bill }),
+          }).catch((e) => console.warn('Server bill backup notice:', e));
+        }
       }
       this.syncActiveAccountVault();
     } catch {
@@ -1418,10 +1438,18 @@ class StorageService {
       if (!profile || !profile.isLoggedIn) {
         return;
       }
-      const isStaff = profile.role === 'Staff';
+      const isStaff =
+        profile.role === 'Staff' ||
+        profile.role === 'Cashier' ||
+        Boolean(profile.staffId) ||
+        Boolean(profile.operatorCode);
+      const storedOwner =
+        profile.ownerEmail ||
+        (typeof window !== 'undefined' ? localStorage.getItem('thermal_pos_store_owner_email') : '') ||
+        'uddinfahad89@gmail.com';
       const identifier = isStaff
-        ? profile.ownerEmail || profile.storeId || profile.shopId || profile.email
-        : profile.phone || profile.email;
+        ? (profile.ownerEmail || profile.storeId || profile.shopId || storedOwner || profile.email)
+        : (profile.phone || profile.email || storedOwner);
       if (!identifier) {
         return;
       }
@@ -1437,7 +1465,7 @@ class StorageService {
 
       const vaultData: AccountVaultData = {
         identifier: identifier || norm,
-        email: isStaff ? (profile.ownerEmail || identifier) : (profile.email || ''),
+        email: isStaff ? (profile.ownerEmail || storedOwner) : (profile.email || storedOwner),
         phone: isStaff ? '' : (profile.phone || ''),
         name: isStaff ? (settings.signatoryName || 'Store Owner') : (profile.name || 'Store Owner'),
         role: isStaff ? 'Owner' : (profile.role || 'Owner'),
@@ -1710,6 +1738,18 @@ class StorageService {
       loginMethod: loginMethod || (!isDifferentAccount ? current.loginMethod : undefined) || (finalPhone ? 'otp' : 'email_pin'),
       otpVerified: otpVerified !== undefined ? otpVerified : true,
     };
+
+    if (updated.role === 'Owner' || updated.role === 'Super Admin') {
+      if (finalEmail && typeof window !== 'undefined') {
+        localStorage.setItem('thermal_pos_store_owner_email', finalEmail);
+      }
+    } else if (updated.role === 'Staff' || (updated.role as string) === 'Cashier') {
+      const storedOwner =
+        updated.ownerEmail ||
+        (typeof window !== 'undefined' ? localStorage.getItem('thermal_pos_store_owner_email') : '') ||
+        'uddinfahad89@gmail.com';
+      updated.ownerEmail = storedOwner;
+    }
 
     this.saveUserProfile(updated);
     this.syncActiveAccountVault(updated);
@@ -2715,17 +2755,34 @@ class StorageService {
     try {
       const raw = localStorage.getItem(STORAGE_KEYS.STAFF);
       if (raw) {
-        return JSON.parse(raw);
+        const parsed: StaffMember[] = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Ensure every staff member has operatorCode and pin for Vishal Market style POS
+          return parsed.map((s, idx) => ({
+            ...s,
+            operatorCode: s.operatorCode || `OP-${String(idx + 1).padStart(2, '0')}`,
+            pin: s.pin || '1234',
+            permissions: s.permissions || {
+              canCreateBills: true,
+              canManageDues: true,
+              canManageInventory: s.role === 'manager',
+              canViewProfit: s.role === 'manager',
+              canDeleteInvoices: s.role === 'manager',
+            },
+          }));
+        }
       }
     } catch (e) {
       console.warn('Failed to load staff members:', e);
     }
-    // Default initial staff if none exists
+    // Default initial staff if none exists (Vishal Mega Mart style Operator IDs & PINs)
     const defaultStaff: StaffMember[] = [
       {
         id: 'staff-1',
         name: 'মো: রহিম মিয়া',
         phone: '01712-345678',
+        operatorCode: 'OP-01',
+        pin: '1234',
         designation: 'প্রধান ক্যাশিয়ার ও ম্যানেজার',
         role: 'cashier',
         joiningDate: '2024-01-01',
@@ -2738,12 +2795,21 @@ class StorageService {
         avatarColor: 'from-blue-500 to-indigo-600',
         isActive: true,
         createdAt: Date.now() - 90 * 86400000,
+        permissions: {
+          canCreateBills: true,
+          canManageDues: true,
+          canManageInventory: true,
+          canViewProfit: false,
+          canDeleteInvoices: false,
+        },
       },
       {
         id: 'staff-2',
         name: 'আল-আমিন হোসেন',
         phone: '01823-456789',
-        designation: 'সিনিয়র সেলসম্যান',
+        operatorCode: 'OP-02',
+        pin: '1234',
+        designation: 'সিনিয়র সেলসম্যান ও ক্যাশিয়ার',
         role: 'salesperson',
         joiningDate: '2024-02-15',
         monthlySalary: 14000,
@@ -2755,12 +2821,21 @@ class StorageService {
         avatarColor: 'from-emerald-500 to-teal-600',
         isActive: true,
         createdAt: Date.now() - 60 * 86400000,
+        permissions: {
+          canCreateBills: true,
+          canManageDues: true,
+          canManageInventory: true,
+          canViewProfit: false,
+          canDeleteInvoices: false,
+        },
       },
       {
         id: 'staff-3',
         name: 'শামীম রেজা',
         phone: '01934-567890',
-        designation: 'দোকান সহকারী ও ডেলিভারি',
+        operatorCode: 'OP-03',
+        pin: '1234',
+        designation: 'দোকান সহকারী ও কাউন্টার স্টাফ',
         role: 'helper',
         joiningDate: '2024-03-01',
         monthlySalary: 12000,
@@ -2770,6 +2845,13 @@ class StorageService {
         avatarColor: 'from-amber-500 to-orange-600',
         isActive: true,
         createdAt: Date.now() - 30 * 86400000,
+        permissions: {
+          canCreateBills: true,
+          canManageDues: false,
+          canManageInventory: false,
+          canViewProfit: false,
+          canDeleteInvoices: false,
+        },
       },
     ];
     this.saveStaffMembersList(defaultStaff);
@@ -2811,6 +2893,59 @@ class StorageService {
   deleteStaffMember(id: string): void {
     const list = this.getStaffMembers().filter((s) => s.id !== id);
     this.saveStaffMembersList(list);
+  }
+
+  loginStaffByPin(identifier: string, pin: string): { success: boolean; staff?: StaffMember; message?: string } {
+    const list = this.getStaffMembers();
+    const cleanId = identifier.trim().toLowerCase();
+    const cleanPin = pin.trim();
+
+    const matched = list.find((s) => {
+      const matchOp = s.operatorCode && s.operatorCode.trim().toLowerCase() === cleanId;
+      const matchId = s.id.toLowerCase() === cleanId;
+      const matchName = s.name.trim().toLowerCase() === cleanId;
+      const matchPhone = (s.phone || '').trim().replace(/[^0-9]/g, '') === cleanId.replace(/[^0-9]/g, '');
+      return matchOp || matchId || matchName || matchPhone;
+    });
+
+    if (!matched) {
+      return { success: false, message: 'অপারেটর বা স্টাফ পাওয়া যায়নি' };
+    }
+
+    const expectedPin = matched.pin || '1234';
+    if (cleanPin !== expectedPin) {
+      return { success: false, message: 'ভুল পিন নম্বর! সঠিক ৪-সংখ্যার পিন দিন।' };
+    }
+
+    // Set active cashier profile while strictly anchoring to the owner's master account
+    const currentProfile = this.getUserProfile();
+    const storedOwnerEmail =
+      currentProfile.ownerEmail ||
+      (currentProfile.role !== 'Staff' && currentProfile.role !== 'Cashier' && currentProfile.email ? currentProfile.email : '') ||
+      (typeof window !== 'undefined' ? localStorage.getItem('thermal_pos_store_owner_email') : '') ||
+      'uddinfahad89@gmail.com';
+
+    if (storedOwnerEmail && typeof window !== 'undefined') {
+      localStorage.setItem('thermal_pos_store_owner_email', storedOwnerEmail);
+    }
+
+    const updatedProfile: UserProfile = {
+      ...currentProfile,
+      name: matched.name,
+      email: storedOwnerEmail,
+      phone: matched.phone || currentProfile.phone,
+      role: 'Staff',
+      staffId: matched.id,
+      operatorCode: matched.operatorCode || 'OP-01',
+      ownerEmail: storedOwnerEmail,
+      storeId: currentProfile.storeId || currentProfile.shopId || storedOwnerEmail,
+      storeName: currentProfile.storeName || this.getSettings().storeName || 'Classic Fashion',
+      isLoggedIn: true,
+      permissions: matched.permissions,
+      loginTime: Date.now(),
+    };
+    this.saveUserProfile(updatedProfile);
+    return { success: true, staff: matched };
   }
 
   getAttendanceRecords(filter?: { date?: string; month?: string; staffId?: string }): AttendanceRecord[] {

@@ -45,23 +45,31 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Only allow HTML fallback for navigation requests
+  // Fast Stale-While-Revalidate for navigation: Open instantly in 10ms from cache whether Data is ON or OFF!
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request)
-        .then((response) => {
-          if (response && response.status === 200) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
-          }
-          return response;
-        })
-        .catch(() => caches.match('/index.html'))
+      caches.match('/index.html').then((cached) => {
+        const networkUpdate = fetch(request)
+          .then((networkResponse) => {
+            if (networkResponse && networkResponse.status === 200) {
+              const clone = networkResponse.clone();
+              caches.open(CACHE_NAME).then((cache) => cache.put('/index.html', clone));
+            }
+            return networkResponse;
+          })
+          .catch(() => cached);
+
+        // If cached shell is available, return it immediately for 0ms cold-start!
+        if (cached) {
+          return cached;
+        }
+        return networkUpdate;
+      })
     );
     return;
   }
 
-  // Network-First for real-time fresh updates, fallback to cache when offline
+  // Network-First for dynamic requests, fallback to cache
   event.respondWith(
     fetch(request)
       .then((networkResponse) => {

@@ -193,8 +193,18 @@ class FirebaseService {
       if (stored) {
         const parsed = JSON.parse(stored);
         if (parsed && parsed.isLoggedIn) {
-          if (parsed.role === 'Staff') {
-            const owner = parsed.ownerEmail || parsed.storeId || parsed.shopId;
+          const isStaff =
+            parsed.role === 'Staff' ||
+            parsed.role === 'Cashier' ||
+            Boolean(parsed.staffId) ||
+            Boolean(parsed.operatorCode);
+          if (isStaff) {
+            const owner =
+              parsed.ownerEmail ||
+              parsed.storeId ||
+              parsed.shopId ||
+              (typeof window !== 'undefined' ? localStorage.getItem('thermal_pos_store_owner_email') : '') ||
+              MASTER_ADMIN_EMAIL;
             if (owner && typeof owner === 'string' && owner.includes('@')) {
               return owner.trim().toLowerCase();
             }
@@ -210,9 +220,14 @@ class FirebaseService {
     }
     const authEmail = auth.currentUser?.email;
     if (authEmail) return authEmail.trim().toLowerCase();
+    const fallbackOwner =
+      typeof window !== 'undefined' ? localStorage.getItem('thermal_pos_store_owner_email') : null;
+    if (fallbackOwner && fallbackOwner.includes('@')) {
+      return fallbackOwner.trim().toLowerCase();
+    }
     const authUid = this.getActiveUserId();
     if (authUid) return authUid;
-    return '';
+    return MASTER_ADMIN_EMAIL.toLowerCase();
   }
 
   // Check if given user or active user is Super Admin (Master Account)

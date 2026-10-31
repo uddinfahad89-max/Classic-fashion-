@@ -20,7 +20,7 @@ import {
   UserCheck,
   Users,
 } from 'lucide-react';
-import { UserProfile, Language, SavedAccountItem, ThermalPrinterSettings } from '../types';
+import { UserProfile, Language, SavedAccountItem, ThermalPrinterSettings, StaffMember } from '../types';
 import { storageService } from '../services/storageService';
 import { ResetPasswordModal } from './ResetPasswordModal';
 
@@ -117,6 +117,12 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const [savedAccounts, setSavedAccounts] = useState<SavedAccountItem[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Vishal Mega Mart Cashier / Staff Operator Login State
+  const [staffMembers, setStaffMembers] = useState<StaffMember[]>([]);
+  const [selectedStaffOperator, setSelectedStaffOperator] = useState<string>('OP-01');
+  const [staffPin, setStaffPin] = useState<string>('');
+  const [staffLoginType, setStaffLoginType] = useState<'pin' | 'email'>('pin');
+
   useEffect(() => {
     if (isOpen) {
       setMode(userProfile.isLoggedIn ? 'view' : 'auth');
@@ -125,6 +131,12 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       }
       const accounts = storageService.getSavedAccounts();
       setSavedAccounts(accounts);
+      const staffList = storageService.getStaffMembers();
+      setStaffMembers(staffList);
+      if (staffList.length > 0) {
+        setSelectedStaffOperator(staffList[0].operatorCode || 'OP-01');
+      }
+      setStaffPin('');
       if (settings) {
         setEditStoreName(settings.storeName || '');
         setEditStoreAddress(settings.storeAddress || '');
@@ -633,9 +645,220 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 </div>
               )}
 
-              {/* LOG IN FORM (Handles both Owner and Staff Login) */}
-              {(authTab === 'login' || authTab === 'staff_login') && (
+              {/* 1. VISHAL MEGA MART OPERATOR & PIN LOGIN (When authTab === 'staff_login' and type === 'pin') */}
+              {authTab === 'staff_login' && staffLoginType === 'pin' && (
+                <div className="space-y-4">
+                  {loginError && (
+                    <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                      <span>{loginError}</span>
+                    </div>
+                  )}
+
+                  {/* Header / Intro */}
+                  <div className="bg-indigo-50/80 border border-indigo-200/90 p-2.5 rounded-2xl flex items-center justify-between">
+                    <div>
+                      <div className="text-xs font-black text-indigo-950 flex items-center gap-1.5">
+                        <Users className="w-4 h-4 text-indigo-600" />
+                        <span>{t('বিশাল মার্কেট স্টাইল ক্যাশিয়ার লগইন', 'Vishal Mega Mart Cashier Login', 'विशाल मार्केट कैशियर लॉगिन')}</span>
+                      </div>
+                      <p className="text-[10px] text-indigo-700 font-medium">
+                        {t('অপারেটর সিলেক্ট করে ৪-সংখ্যার পিন দিয়ে শিফট শুরু করুন', 'Select Operator and enter 4-digit PIN', 'ऑपरेटर चुनें और ४-अंक का पिन दर्ज करें')}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setStaffLoginType('email')}
+                      className="text-[10px] font-bold text-indigo-700 hover:text-indigo-950 underline cursor-pointer shrink-0"
+                    >
+                      {t('ইমেল লগইন', 'Email Login', 'ईमेल लॉगिन')}
+                    </button>
+                  </div>
+
+                  {/* Operator Cards Grid */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-stone-700 block">
+                      {t('ক্যাশিয়ার / অপারেটর নির্বাচন করুন:', 'Select Cashier / Operator:', 'कैशियर / ऑपरेटर चुनें:')}
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      {staffMembers.map((s, idx) => {
+                        const opCode = s.operatorCode || `OP-${String(idx + 1).padStart(2, '0')}`;
+                        const isSelected = selectedStaffOperator.toLowerCase() === opCode.toLowerCase() || selectedStaffOperator === s.id;
+
+                        return (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedStaffOperator(opCode);
+                              setLoginError(null);
+                            }}
+                            className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between gap-1 shadow-2xs ${
+                              isSelected
+                                ? 'bg-indigo-600 text-white border-indigo-700 ring-2 ring-indigo-300 shadow-md scale-[1.02]'
+                                : 'bg-white hover:bg-stone-50 border-stone-200 text-stone-800'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span
+                                className={`text-[11px] font-black font-mono px-1.5 py-0.5 rounded ${
+                                  isSelected ? 'bg-white/20 text-white' : 'bg-indigo-100 text-indigo-800'
+                                }`}
+                              >
+                                {opCode}
+                              </span>
+                              {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-white" />}
+                            </div>
+                            <div className="truncate font-bold text-xs leading-tight">
+                              {s.name}
+                            </div>
+                            <div className={`text-[10px] truncate ${isSelected ? 'text-indigo-100' : 'text-stone-500'}`}>
+                              {s.designation || (s.role === 'manager' ? 'ম্যানেজার' : 'ক্যাশিয়ার')}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* 4-Digit PIN Input & Keypad */}
+                  <div className="bg-stone-50 p-3.5 rounded-2xl border border-stone-200 space-y-2.5 text-center">
+                    <div className="text-xs font-bold text-stone-700 flex items-center justify-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>{t('৪-সংখ্যার ক্যাশিয়ার পিন (Default: 1234):', 'Enter 4-Digit Cashier PIN (Default: 1234):', '४-अंक का पिन (Default: 1234):')}</span>
+                    </div>
+
+                    <div className="flex justify-center items-center gap-2">
+                      <input
+                        type="password"
+                        maxLength={6}
+                        inputMode="numeric"
+                        value={staffPin}
+                        onChange={(e) => {
+                          setStaffPin(e.target.value);
+                          if (loginError) setLoginError(null);
+                        }}
+                        placeholder="••••"
+                        className="w-36 text-center text-xl font-mono font-black tracking-widest bg-white border-2 border-indigo-400 rounded-xl py-2 px-3 focus:outline-none focus:border-indigo-600 shadow-inner"
+                      />
+                      {staffPin && (
+                        <button
+                          type="button"
+                          onClick={() => setStaffPin('')}
+                          className="w-8 h-8 rounded-lg bg-stone-200 hover:bg-stone-300 text-stone-700 font-bold text-xs flex items-center justify-center cursor-pointer"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Touch Keypad (0-9) */}
+                    <div className="grid grid-cols-3 gap-1.5 max-w-[200px] mx-auto pt-1">
+                      {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'C', '0', '✓'].map((key) => (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => {
+                            if (key === 'C') {
+                              setStaffPin('');
+                            } else if (key === '✓') {
+                              const cleanPin = staffPin.trim();
+                              if (!cleanPin) {
+                                setLoginError(isBn ? 'পিন দিন' : 'Enter PIN');
+                                return;
+                              }
+                              const res = storageService.loginStaffByPin(selectedStaffOperator, cleanPin);
+                              if (res.success && res.staff) {
+                                const s = res.staff;
+                                const ownerEmail =
+                                  (typeof window !== 'undefined' ? localStorage.getItem('thermal_pos_store_owner_email') : '') ||
+                                  userProfile.ownerEmail ||
+                                  (userProfile.role !== 'Staff' && userProfile.role !== 'Cashier' && userProfile.email ? userProfile.email : '') ||
+                                  'uddinfahad89@gmail.com';
+                                onLogin(
+                                  ownerEmail,
+                                  s.name,
+                                  s.pin,
+                                  'Staff',
+                                  s.phone
+                                );
+                                onClose();
+                              } else {
+                                setLoginError(res.message || (isBn ? 'ভুল পিন' : 'Invalid PIN'));
+                              }
+                            } else {
+                              if (staffPin.length < 6) {
+                                setStaffPin((prev) => prev + key);
+                              }
+                            }
+                          }}
+                          className={`py-2 rounded-xl font-mono font-black text-sm transition-all cursor-pointer shadow-2xs active:scale-95 ${
+                            key === '✓'
+                              ? 'bg-indigo-600 text-white hover:bg-indigo-500'
+                              : key === 'C'
+                              ? 'bg-rose-100 text-rose-700 hover:bg-rose-200'
+                              : 'bg-white text-stone-900 border border-stone-200 hover:bg-stone-100'
+                          }`}
+                        >
+                          {key}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Submit Button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const cleanPin = staffPin.trim();
+                      if (!cleanPin) {
+                        setLoginError(isBn ? 'অনুগ্রহ করে ৪-সংখ্যার পিন দিন' : 'Please enter 4-digit PIN');
+                        return;
+                      }
+                      const res = storageService.loginStaffByPin(selectedStaffOperator, cleanPin);
+                      if (res.success && res.staff) {
+                        const s = res.staff;
+                        const ownerEmail =
+                          (typeof window !== 'undefined' ? localStorage.getItem('thermal_pos_store_owner_email') : '') ||
+                          userProfile.ownerEmail ||
+                          (userProfile.role !== 'Staff' && userProfile.role !== 'Cashier' && userProfile.email ? userProfile.email : '') ||
+                          'uddinfahad89@gmail.com';
+                        onLogin(
+                          ownerEmail,
+                          s.name,
+                          s.pin,
+                          'Staff',
+                          s.phone
+                        );
+                        onClose();
+                      } else {
+                        setLoginError(res.message || (isBn ? 'ভুল পিন নম্বর' : 'Invalid PIN'));
+                      }
+                    }}
+                    className="w-full py-3 px-4 rounded-2xl bg-indigo-600 hover:bg-indigo-500 active:scale-[0.99] text-white font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20 cursor-pointer transition-all"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>{t('🚀 শিফট শুরু করুন (Start Cashier Shift)', 'Start Cashier Shift', 'शिफ्ट शुरू करें')}</span>
+                  </button>
+                </div>
+              )}
+
+              {/* 2. STANDARD EMAIL & PASSWORD LOGIN (Owner OR Staff Email Login) */}
+              {(authTab === 'login' || (authTab === 'staff_login' && staffLoginType === 'email')) && (
                 <form onSubmit={handleLoginSubmit} className="space-y-3.5">
+                  {authTab === 'staff_login' && (
+                    <div className="flex justify-between items-center text-xs pb-1">
+                      <span className="font-bold text-stone-600">{t('স্টাফ ইমেল লগইন', 'Staff Email Login', 'स्टाफ ईमेल लॉगिन')}</span>
+                      <button
+                        type="button"
+                        onClick={() => setStaffLoginType('pin')}
+                        className="text-indigo-600 font-bold hover:underline cursor-pointer"
+                      >
+                        {t('← পিন দিয়ে লগইন', '← Login with PIN', '← पिन से लॉगिन')}
+                      </button>
+                    </div>
+                  )}
+
                   {loginError && (
                     <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-start gap-2">
                       <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />

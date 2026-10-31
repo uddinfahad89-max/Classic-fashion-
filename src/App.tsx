@@ -151,112 +151,85 @@ export default function App() {
       setIsOnboardingOpen(true);
     }
 
-    // Boot-time multi-device restore & sync with Firebase Firestore (ONLY for logged-in accounts)
-    if (prof.isLoggedIn && prof.email && firebaseService.isConfigured()) {
-      firebaseService.ensureAuthenticated().then(() => {
-        return firebaseService.restorePOSData(prof.email);
-      }).then((fbRes) => {
-        if (fbRes && fbRes.success) {
-          const deletedBillIds = storageService.getDeletedBillIds();
-          const deletedProdIds = storageService.getDeletedProductIds();
+    // Non-blocking background sync with Firestore & Server Vault (decoupled from initial UI render)
+    const bootTimer = setTimeout(() => {
+      // 1. Firebase Firestore sync in background
+      if (prof.isLoggedIn && prof.email && firebaseService.isConfigured()) {
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject('timeout'), 2500));
+        Promise.race([
+          firebaseService.ensureAuthenticated().then(() => firebaseService.restorePOSData(prof.email)),
+          timeoutPromise
+        ]).then((fbRes: any) => {
+          if (fbRes && fbRes.success) {
+            const deletedBillIds = storageService.getDeletedBillIds();
+            const deletedProdIds = storageService.getDeletedProductIds();
 
-          const activeFbBills = (fbRes.bills || []).filter(
-            (b) => !deletedBillIds.has(b.id) && !b.isDeleted
-          );
-          const activeFbProducts = (fbRes.products || []).filter(
-            (p) => !deletedProdIds.has(p.id)
-          );
+            const activeFbBills = (fbRes.bills || []).filter(
+              (b: any) => !deletedBillIds.has(b.id) && !b.isDeleted
+            );
+            const activeFbProducts = (fbRes.products || []).filter(
+              (p: any) => !deletedProdIds.has(p.id)
+            );
 
-          const localBills = storageService.getBills();
-          const localProducts = storageService.getProducts();
+            const localBills = storageService.getBills();
+            const localProducts = storageService.getProducts();
 
-          if (localBills.length === 0 && activeFbBills.length > 0) {
-            setBills(activeFbBills);
-            storageService.saveBills(activeFbBills);
-          } else if (activeFbBills.length > 0) {
-            const localBillIds = new Set(localBills.map((b) => b.id));
-            const newBills = activeFbBills.filter((b) => !localBillIds.has(b.id));
-            if (newBills.length > 0) {
-              const combined = [...localBills, ...newBills].sort(
-                (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
-              );
-              setBills(combined);
-              storageService.saveBills(combined);
+            if (localBills.length === 0 && activeFbBills.length > 0) {
+              setBills(activeFbBills);
+              storageService.saveBills(activeFbBills);
+            } else if (activeFbBills.length > 0) {
+              const localBillIds = new Set(localBills.map((b) => b.id));
+              const newBills = activeFbBills.filter((b: any) => !localBillIds.has(b.id));
+              if (newBills.length > 0) {
+                const combined = [...localBills, ...newBills].sort(
+                  (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
+                );
+                setBills(combined);
+                storageService.saveBills(combined);
+              }
+            }
+
+            if (localProducts.length === 0 && activeFbProducts.length > 0) {
+              setProducts(activeFbProducts);
+              storageService.saveProducts(activeFbProducts);
             }
           }
+        }).catch(() => {});
+      }
 
-          if (localProducts.length === 0 && activeFbProducts.length > 0) {
-            setProducts(activeFbProducts);
-            storageService.saveProducts(activeFbProducts);
-          } else if (activeFbProducts.length > 0) {
-            const localProdIds = new Set(localProducts.map((p) => p.id));
-            const newProds = activeFbProducts.filter((p) => !localProdIds.has(p.id));
-            if (newProds.length > 0) {
-              const combined = [...localProducts, ...newProds];
-              setProducts(combined);
-              storageService.saveProducts(combined);
+      // 2. Authoritative sync from server vault in background
+      const bootSyncId = prof.isLoggedIn ? (prof.email || prof.phone) : '';
+      if (bootSyncId) {
+        const norm = storageService.normalizeIdentifier(bootSyncId);
+        const controller = new AbortController();
+        const fetchTimeout = setTimeout(() => controller.abort(), 2000);
+        fetch(`/api/vault/${encodeURIComponent(norm)}`, { signal: controller.signal })
+          .then((r) => r.json())
+          .then((json) => {
+            clearTimeout(fetchTimeout);
+            if (json?.success && json.vault) {
+              const serverVault = json.vault;
+              const sBills = Array.isArray(serverVault.bills) ? serverVault.bills : [];
+              const sProds = Array.isArray(serverVault.products) ? serverVault.products : [];
+              if (sBills.length > 0 || sProds.length > 0 || serverVault.settings?.storeName) {
+                storageService.applyServerVaultSilently(serverVault);
+                setBills(storageService.getBills());
+                setProducts(storageService.getProducts());
+                if (Array.isArray(serverVault.cashEntries)) setCashEntries(storageService.getCashEntries());
+                if (Array.isArray(serverVault.customerDues)) setCustomerDues(storageService.getCustomerDues());
+                if (Array.isArray(serverVault.purchaseTrips)) setPurchaseTrips(storageService.getPurchaseTrips());
+                if (serverVault.settings) setSettings(serverVault.settings);
+                storageService.setLocalLastActive(Number(serverVault.lastActive) || Date.now());
+              }
             }
-          }
+          })
+          .catch(() => {});
+      }
+    }, 400);
 
-          if (fbRes.cashEntries && fbRes.cashEntries.length > 0 && storageService.getCashEntries().length === 0) {
-            setCashEntries(fbRes.cashEntries);
-            storageService.saveCashEntries(fbRes.cashEntries);
-          }
-          if (fbRes.customerDues && fbRes.customerDues.length > 0 && storageService.getCustomerDues().length === 0) {
-            setCustomerDues(fbRes.customerDues);
-            storageService.saveCustomerDues(fbRes.customerDues);
-          }
-          if (fbRes.purchaseTrips && fbRes.purchaseTrips.length > 0 && storageService.getPurchaseTrips().length === 0) {
-            setPurchaseTrips(fbRes.purchaseTrips);
-            storageService.savePurchaseTrips(fbRes.purchaseTrips);
-          }
-          if (fbRes.settings && (!currentSettings.storeName || currentSettings.storeName === 'My Store')) {
-            setSettings(fbRes.settings);
-            storageService.saveSettings(fbRes.settings);
-          }
-
-          // Always ensure all local POS data is securely backed up in Firestore
-          firebaseService.syncAllPOSData({
-            bills: storageService.getBills(),
-            products: storageService.getProducts(),
-            cashEntries: storageService.getCashEntries(),
-            customerDues: storageService.getCustomerDues(),
-            purchaseTrips: storageService.getPurchaseTrips(),
-            settings: storageService.getSettings(),
-            userProfile: prof
-          }).catch((err) => console.warn('Firebase initial sync notice:', err));
-        }
-      }).catch((err) => console.warn('Firebase boot check notice:', err));
-    }
-
-    // Boot-time authoritative sync from server vault for multi-device consistency (ONLY for logged-in accounts)
-    const bootSyncId = prof.isLoggedIn ? (prof.email || prof.phone) : '';
-    if (bootSyncId) {
-      const norm = storageService.normalizeIdentifier(bootSyncId);
-      fetch(`/api/vault/${encodeURIComponent(norm)}`)
-        .then((r) => r.json())
-        .then((json) => {
-          if (json?.success && json.vault) {
-            const serverVault = json.vault;
-            const sBills = Array.isArray(serverVault.bills) ? serverVault.bills : [];
-            const sProds = Array.isArray(serverVault.products) ? serverVault.products : [];
-            if (sBills.length > 0 || sProds.length > 0 || serverVault.settings?.storeName) {
-              storageService.applyServerVaultSilently(serverVault);
-              setBills(storageService.getBills());
-              setProducts(storageService.getProducts());
-              if (Array.isArray(serverVault.cashEntries)) setCashEntries(storageService.getCashEntries());
-              if (Array.isArray(serverVault.customerDues)) setCustomerDues(storageService.getCustomerDues());
-              if (Array.isArray(serverVault.purchaseTrips)) setPurchaseTrips(storageService.getPurchaseTrips());
-              if (serverVault.settings) setSettings(serverVault.settings);
-              storageService.setLocalLastActive(Number(serverVault.lastActive) || Date.now());
-            }
-          }
-        })
-        .catch(() => {});
-    }
-
-    // Multi-device real-time sync: poll and refresh on tab focus so all devices stay identical (ONLY for logged-in accounts)
+    // Multi-device real-time sync: Throttled to 12s and skipped when tab is in background
     const syncLiveVault = async () => {
+      if (typeof document !== 'undefined' && document.hidden) return;
       const currentProf = storageService.getUserProfile();
       if (!currentProf.isLoggedIn) return;
       const syncId = currentProf.email || currentProf.phone;
@@ -264,44 +237,36 @@ export default function App() {
 
       try {
         const norm = storageService.normalizeIdentifier(syncId);
-        const res = await fetch(`/api/vault/${encodeURIComponent(norm)}`);
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 2000);
+        const res = await fetch(`/api/vault/${encodeURIComponent(norm)}`, { signal: controller.signal });
+        clearTimeout(timer);
         if (res.ok) {
           const json = await res.json();
           if (json.success && json.vault) {
             const serverVault = json.vault;
             const currentBills = storageService.getBills();
             const currentProducts = storageService.getProducts();
-            const currentCash = storageService.getCashEntries();
-            const currentDues = storageService.getCustomerDues();
 
             const serverBills = Array.isArray(serverVault.bills) ? serverVault.bills : [];
             const serverProducts = Array.isArray(serverVault.products) ? serverVault.products : [];
-            const serverCash = Array.isArray(serverVault.cashEntries) ? serverVault.cashEntries : [];
-            const serverDues = Array.isArray(serverVault.customerDues) ? serverVault.customerDues : [];
-            const serverTrips = Array.isArray(serverVault.purchaseTrips) ? serverVault.purchaseTrips : [];
 
-            // Detect any updates from other devices across bills, products, dues, and cash
             const localActive = storageService.getLocalLastActive();
             const serverActive = Number(serverVault.lastActive) || 0;
             const billsDiffer =
               serverBills.length !== currentBills.length ||
               (serverBills.length > 0 &&
                 currentBills.length > 0 &&
-                (serverBills[0].id !== currentBills[0].id || serverBills[0].invoiceNo !== currentBills[0].invoiceNo));
-            const prodsDiffer = serverProducts.length !== currentProducts.length;
-            const duesDiffer = serverDues.length !== currentDues.length;
-            const cashDiffer = serverCash.length !== currentCash.length;
+                serverBills[0].id !== currentBills[0].id);
 
-            if (serverActive > localActive || billsDiffer || prodsDiffer || duesDiffer || cashDiffer) {
+            if (serverActive > localActive || billsDiffer) {
               storageService.applyServerVaultSilently(serverVault);
               setBills(storageService.getBills());
               setProducts(storageService.getProducts());
               setCashEntries(storageService.getCashEntries());
               setCustomerDues(storageService.getCustomerDues());
               setPurchaseTrips(storageService.getPurchaseTrips());
-              if (serverVault.settings) {
-                setSettings(serverVault.settings);
-              }
+              if (serverVault.settings) setSettings(serverVault.settings);
               storageService.setLocalLastActive(serverActive);
             }
           }
@@ -314,7 +279,7 @@ export default function App() {
     };
     window.addEventListener('focus', onFocusSync);
     document.addEventListener('visibilitychange', onFocusSync);
-    const liveSyncInterval = setInterval(syncLiveVault, 2500);
+    const liveSyncInterval = setInterval(syncLiveVault, 12000);
 
     thermalPrinterService.setStatusListener((status) => {
       setBluetoothStatus(status);
@@ -2007,6 +1972,11 @@ export default function App() {
             onOpenProductStock={() => setIsProductStockOpen(true)}
             totalInvoicesCount={bills.length}
             onOpenRecycleBin={() => setIsRecycleBinOpen(true)}
+            userProfile={userProfile}
+            onOpenStaffLogin={() => {
+              setLoginModalInitialTab('staff_login');
+              setIsLoginModalOpen(true);
+            }}
             onQuickSaveProduct={(data) => {
               storageService.addOrUpdateProduct(data);
               setProducts(storageService.getProducts());

@@ -383,6 +383,11 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
             <span className="font-extrabold text-stone-900">#{bill.invoiceNo}</span>
           </div>
           <div>Date: {formattedDate}</div>
+          {bill.cashierName && (
+            <div className="text-xs sm:text-sm font-semibold text-stone-700">
+              {isBn ? 'ক্যাশিয়ার:' : 'Cashier:'} <span className="font-bold text-stone-900">{bill.cashierName}{bill.cashierId ? ` (${bill.cashierId})` : ''}</span>
+            </div>
+          )}
           <div className="pt-0.5">
             {isBillEstimate ? (
               <span className="inline-block px-3 py-1 rounded text-sm sm:text-base font-black bg-blue-100 text-blue-800 border border-blue-300">

@@ -509,6 +509,9 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
               onClick={() => {
                 handleToggleTotalOnlySlip(false);
                 setDiscountPrintMode('standard_discount');
+                try {
+                  storageService.saveBill({ ...bill, discountPrintMode: 'standard_discount' });
+                } catch {}
               }}
               className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap ${
                 !isTotalOnlySlip && discountPrintMode === 'standard_discount'
@@ -528,6 +531,9 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
                 onClick={() => {
                   handleToggleTotalOnlySlip(false);
                   setDiscountPrintMode('item_discount');
+                  try {
+                    storageService.saveBill({ ...bill, discountPrintMode: 'item_discount' });
+                  } catch {}
                 }}
                 className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap ${
                   !isTotalOnlySlip && discountPrintMode === 'item_discount'

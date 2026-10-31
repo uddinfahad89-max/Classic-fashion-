@@ -46,6 +46,7 @@ import {
   ProductStockItem,
   TailoringMeasurements,
   TailoringOrderStatus,
+  UserProfile,
 } from '../types';
 import { bengaliToEnglishDigits } from '../utils/barcodeUtils';
 import {
@@ -53,6 +54,7 @@ import {
   BarcodeScanDuplicateMode,
   BarcodeScanPreferences,
 } from '../services/storageService';
+import { thermalPrinterService } from '../services/thermalPrinterService';
 import { translations } from '../utils/i18n';
 import { useBackHandler } from '../utils/useBackHandler';
 import { useTabletMode } from '../utils/useTabletMode';
@@ -78,6 +80,8 @@ interface BillingTabProps {
   onOpenProductStock?: () => void;
   totalInvoicesCount?: number;
   onOpenRecycleBin?: () => void;
+  userProfile?: UserProfile;
+  onOpenStaffLogin?: () => void;
   onQuickSaveProduct?: (data: {
     name: string;
     price: number;
@@ -139,11 +143,63 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   onOpenProductStock,
   totalInvoicesCount = 0,
   onOpenRecycleBin,
+  userProfile,
+  onOpenStaffLogin,
   onQuickSaveProduct,
 }) => {
   const t = translations[language];
   const isBn = language === 'bn';
   const tabletInfo = useTabletMode(settings);
+
+  // Active Cashier / Operator Profile (Vishal Mega Mart POS style)
+  const activeProfile = userProfile || storageService.getUserProfile();
+  const activeCashierName = activeProfile.name || 'Counter Staff';
+  const activeOperatorCode = activeProfile.operatorCode || 'OP-01';
+
+  // Handle printing cashier shift handover slip (Vishal Mega Mart style X-Report)
+  const handlePrintShiftReport = async () => {
+    const now = new Date();
+    const day = String(now.getDate()).padStart(2, '0');
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const year = now.getFullYear();
+    const dateFormatted = `${day}-${month}-${year}`;
+    const timeFormatted = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+
+    // Calculate this cashier's sales
+    const allBills = storageService.getBills();
+    const cashierBills = allBills.filter(
+      (b) => b.date === dateFormatted && (!b.cashierId || b.cashierId === activeOperatorCode || b.cashierName === activeCashierName)
+    );
+
+    let cashTotal = 0;
+    let upiTotal = 0;
+    let dueTotal = 0;
+    let grandTotal = 0;
+
+    for (const b of cashierBills) {
+      grandTotal += b.grandTotal;
+      if (b.paymentMethod === 'cash') cashTotal += b.grandTotal;
+      else if (b.paymentMethod === 'upi') upiTotal += b.grandTotal;
+      else if (b.paymentMethod === 'due') dueTotal += (b.balance !== undefined ? b.balance : b.grandTotal);
+      else cashTotal += b.grandTotal;
+    }
+
+    await thermalPrinterService.printShiftHandoverSlip(
+      {
+        cashierName: activeCashierName,
+        operatorCode: activeOperatorCode,
+        counterName: `COUNTER ${activeOperatorCode.replace(/[^0-9]/g, '') || '01'}`,
+        date: dateFormatted,
+        time: timeFormatted,
+        totalBills: cashierBills.length,
+        cashTotal,
+        upiTotal,
+        dueTotal,
+        grandTotal,
+      },
+      settings
+    );
+  };
 
   const initialDraft = useMemo(() => loadSavedBillingDraft(), []);
 
@@ -1541,6 +1597,10 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       timestamp: Date.now(),
       customerName: customerName.trim() || undefined,
       customerPhone: customerPhone.trim() || undefined,
+      cashierName: activeCashierName,
+      cashierId: activeOperatorCode,
+      userId: userProfile?.ownerEmail || userProfile?.email || (typeof window !== 'undefined' ? localStorage.getItem('thermal_pos_store_owner_email') : '') || 'uddinfahad89@gmail.com',
+      storeId: userProfile?.storeId || userProfile?.shopId || 'classic-fashion',
       items: finalItems,
       subtotal: finalSubtotal,
       discount: finalDiscountAmount,
@@ -1664,6 +1724,50 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         fontSize: tabletInfo.scaleMultiplier !== 1 ? `${tabletInfo.scaleMultiplier * 100}%` : undefined,
       }}
     >
+      {/* VISHAL MEGA MART CASHIER SHIFT BAR */}
+      <div className="bg-gradient-to-r from-stone-900 via-indigo-950 to-stone-900 text-white rounded-2xl px-3 py-2 sm:px-4 sm:py-2.5 mb-2.5 shadow-sm flex items-center justify-between gap-2 border border-indigo-900/40">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0 ring-4 ring-emerald-400/20" />
+          <div className="min-w-0">
+            <div className="text-[10px] text-indigo-300 font-bold uppercase tracking-wider leading-none">
+              {isBn ? 'কাউন্টার ক্যাশিয়ার (Vishal Mega Mart POS)' : 'Counter Cashier (Vishal Market POS)'}
+            </div>
+            <div className="text-xs sm:text-sm font-black truncate flex items-center gap-1.5 mt-0.5">
+              <span className="bg-indigo-500/30 text-indigo-200 font-mono text-[11px] font-black px-1.5 py-0.2 rounded border border-indigo-400/40">
+                {activeOperatorCode}
+              </span>
+              <span className="truncate">{activeCashierName}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* Shift Handover Report Print */}
+          <button
+            type="button"
+            onClick={handlePrintShiftReport}
+            className="px-2.5 py-1 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all border border-white/20 shadow-2xs"
+            title={isBn ? 'ক্যাশিয়ার শিফট বিক্রয় স্লিপ প্রিন্ট করুন' : 'Print Cashier Shift Report'}
+          >
+            <Printer className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="hidden xs:inline">{isBn ? 'শিফট রিপোর্ট' : 'Shift Report'}</span>
+          </button>
+
+          {/* Quick Cashier Switch */}
+          {onOpenStaffLogin && (
+            <button
+              type="button"
+              onClick={onOpenStaffLogin}
+              className="px-2.5 py-1 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all shadow-xs"
+              title={isBn ? 'অন্য ক্যাশিয়ারে পরিবর্তন করুন' : 'Switch Cashier'}
+            >
+              <RefreshCw className="w-3 h-3 text-white" />
+              <span>{isBn ? 'বদল' : 'Switch'}</span>
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* 1. CUSTOMER DETAILS CARD (SECTION 1 - TOP) */}
       <div
         id="billing-customer-section"

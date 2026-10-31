@@ -270,6 +270,7 @@ export interface UserProfile {
   otpVerified?: boolean;
   loginMethod?: 'email_pin' | 'otp' | 'email_password' | 'app_pin';
   staffId?: string;
+  operatorCode?: string; // e.g. 'OP-01' (Vishal Market style)
   permissions?: StaffPermissions;
 }
 
@@ -449,6 +450,8 @@ export interface StaffMember {
   hasPosAccess?: boolean;
   email?: string;
   password?: string;
+  operatorCode?: string; // e.g. 'OP-01', 'CASHIER-1' (Vishal Market style)
+  pin?: string; // 4-digit Cashier Shift PIN (e.g. '1234')
   permissions?: StaffPermissions;
   storeId?: string;
   isBlocked?: boolean;

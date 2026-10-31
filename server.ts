@@ -300,6 +300,9 @@ function findStaffInVaults(input: string): { staff: any; ownerVault: any } | nul
         if (v && Array.isArray(v.staffMembers)) {
           const found = v.staffMembers.find(
             (s: any) =>
+              (s.operatorCode && s.operatorCode.trim().toLowerCase() === clean) ||
+              (s.id && s.id.trim().toLowerCase() === clean) ||
+              (s.name && s.name.trim().toLowerCase() === clean) ||
               (s.email && s.email.trim().toLowerCase() === clean) ||
               (s.phone && s.phone.replace(/[\s+-]/g, '') === clean.replace(/[\s+-]/g, ''))
           );
@@ -493,7 +496,15 @@ app.post('/api/vault/sync', (req, res) => {
     }
 
     const lookupKey = incomingVault.email || incomingVault.phone || incomingVault.identifier;
-    const { vault: existingCanonical, linkedIds } = findCanonicalAccountVault(lookupKey);
+    let { vault: existingCanonical, linkedIds } = findCanonicalAccountVault(lookupKey);
+    if (!existingCanonical) {
+      const staffMatch = findStaffInVaults(lookupKey);
+      if (staffMatch && staffMatch.ownerVault) {
+        existingCanonical = staffMatch.ownerVault;
+        if (existingCanonical?.email) linkedIds.push(existingCanonical.email);
+        if (existingCanonical?.identifier) linkedIds.push(existingCanonical.identifier);
+      }
+    }
 
     const mergedVault: any = {
       ...(existingCanonical || {}),
@@ -633,7 +644,13 @@ app.post('/api/vault/sync', (req, res) => {
 app.get('/api/vault/:identifier/version', (req, res) => {
   try {
     const rawId = req.params.identifier;
-    const { vault } = findCanonicalAccountVault(rawId);
+    let { vault } = findCanonicalAccountVault(rawId);
+    if (!vault) {
+      const staffMatch = findStaffInVaults(rawId);
+      if (staffMatch && staffMatch.ownerVault) {
+        vault = staffMatch.ownerVault;
+      }
+    }
     if (vault) {
       return res.json({
         success: true,
@@ -651,7 +668,15 @@ app.get('/api/vault/:identifier/version', (req, res) => {
 app.get('/api/vault/:identifier', (req, res) => {
   try {
     const rawId = req.params.identifier;
-    const { vault, linkedIds } = findCanonicalAccountVault(rawId);
+    let { vault, linkedIds } = findCanonicalAccountVault(rawId);
+    if (!vault) {
+      const staffMatch = findStaffInVaults(rawId);
+      if (staffMatch && staffMatch.ownerVault) {
+        vault = staffMatch.ownerVault;
+        if (vault?.email) linkedIds.push(vault.email);
+        if (vault?.identifier) linkedIds.push(vault.identifier);
+      }
+    }
 
     if (vault) {
       // Re-broadcast canonical vault to all linked files so both devices stay synchronized
@@ -713,7 +738,19 @@ app.post('/api/bills/save', (req, res) => {
       return res.status(400).json({ error: 'Missing bill data' });
     }
 
-    const { vault: existingVault, linkedIds } = findCanonicalAccountVault(effectiveId);
+    let { vault: existingVault, linkedIds } = findCanonicalAccountVault(effectiveId);
+    if (!existingVault) {
+      const staffMatch =
+        findStaffInVaults(effectiveId) ||
+        (bill.cashierId ? findStaffInVaults(bill.cashierId) : null) ||
+        (bill.cashierName ? findStaffInVaults(bill.cashierName) : null);
+      if (staffMatch && staffMatch.ownerVault) {
+        existingVault = staffMatch.ownerVault;
+        if (existingVault?.email) linkedIds.push(existingVault.email);
+        if (existingVault?.identifier) linkedIds.push(existingVault.identifier);
+      }
+    }
+
     const vault = existingVault || {
       identifier: effectiveId,
       email: effectiveId.includes('@') ? effectiveId : '',

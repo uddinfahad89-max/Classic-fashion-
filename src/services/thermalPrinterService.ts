@@ -820,10 +820,13 @@ export class ThermalPrinterService {
       lines.push(padCenter(`GSTIN: ${settings.storeGstin.trim().toUpperCase()}`));
     }
     const isTailoring = Boolean(bill.isTailoring);
-    const method = String(bill.paymentMethod || 'cash').toLowerCase();
-    const isEstimate = method === 'estimate' || (Boolean(bill.isEstimate) && method === 'estimate');
-    const effectiveDiscountMode = bill.discountPrintMode || settings.discountPrintMode || 'standard_discount';
-    const isDiscountBill = effectiveDiscountMode === 'item_discount' && (bill.discount || 0) > 0;
+    const effectiveDiscountMode = settings.discountPrintMode || bill.discountPrintMode || 'standard_discount';
+    const isDiscountBill =
+      (effectiveDiscountMode === 'item_discount' || bill.discountPrintMode === 'item_discount' || settings.discountPrintMode === 'item_discount') &&
+      (bill.discount || 0) > 0;
+
+    const method = bill.paymentMethod || 'cash';
+    const isEstimate = method === 'estimate' || Boolean(bill.isEstimate);
 
     // Dynamic Bill Title, Prefix, and Payment Label based on user selection
     let billTitle = '*** CASH BILL ***';
@@ -872,6 +875,13 @@ export class ThermalPrinterService {
       ? ` (${bill.customerName.trim().slice(0, width === 48 ? 16 : 9)})`
       : '';
     lines.push(padBetween(`${billDocPrefix} #${bill.invoiceNo}${cleanCustName}`, bill.date));
+
+    // Cashier / Operator tagging (Vishal Mega Mart / Supermarket style)
+    if (bill.cashierName && bill.cashierName.trim()) {
+      const cleanCashier = bill.cashierName.replace(/[^\x20-\x7E]/g, '').trim() || bill.cashierName.trim();
+      const opBadge = bill.cashierId ? ` (${bill.cashierId.trim()})` : '';
+      lines.push(padBetween('CASHIER:', `${cleanCashier}${opBadge}`.slice(0, width === 48 ? 32 : 18)));
+    }
 
     if (bill.customerPhone) {
       lines.push(padBetween('Phone:', bill.customerPhone));
@@ -1259,8 +1269,8 @@ export class ThermalPrinterService {
       commands.push(0x1b, 0x61, 0x00); // ESC a 0 (Left align)
     }
 
-    // Feed and Paper Cut (2 lines - minimum needed for clean tear without wasting paper)
-    commands.push(0x0a, 0x0a);
+    // Feed and Paper Cut (6 lines - generous margin so manual tearing or automatic cutter never cuts the footer text)
+    commands.push(0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a);
     commands.push(0x1d, 0x56, 0x41, 0x10); // GS V 65: Partial Cut
 
     return new Uint8Array(commands);
@@ -2070,6 +2080,114 @@ export class ThermalPrinterService {
         }
       }, 1000);
     }, 60);
+  }
+
+  // Print Cashier Shift Handover Slip (Vishal Mega Mart / Supermarket X-Report)
+  async printShiftHandoverSlip(
+    summary: {
+      cashierName: string;
+      operatorCode: string;
+      counterName?: string;
+      date: string;
+      time: string;
+      totalBills: number;
+      cashTotal: number;
+      upiTotal: number;
+      dueTotal: number;
+      grandTotal: number;
+    },
+    settings: ThermalPrinterSettings
+  ): Promise<{ success: boolean; message: string }> {
+    const width = settings.paperWidth === '80mm' ? 48 : 32;
+    const divider = '-'.repeat(width);
+    const doubleDiv = '='.repeat(width);
+    const padCenter = (str: string) => {
+      if (str.length >= width) return str.slice(0, width);
+      const left = Math.floor((width - str.length) / 2);
+      return ' '.repeat(left) + str;
+    };
+    const padBetween = (left: string, right: string) => {
+      const space = width - left.length - right.length;
+      if (space <= 0) return `${left} ${right}`.slice(0, width);
+      return left + ' '.repeat(space) + right;
+    };
+
+    const storeName = (settings.storeName || 'POS STORE').replace(/[^\x20-\x7E]/g, '').trim().toUpperCase() || 'POS STORE';
+    const sym = settings.hideCurrencySymbol ? '' : 'Rs. ';
+
+    const lines: string[] = [
+      doubleDiv,
+      padCenter('*** CASHIER SHIFT REPORT ***'),
+      padCenter(storeName),
+      doubleDiv,
+      padBetween('COUNTER:', summary.counterName || 'COUNTER 01'),
+      padBetween('OPERATOR:', `${summary.cashierName} (${summary.operatorCode})`.slice(0, width - 10)),
+      padBetween('DATE & TIME:', `${summary.date} ${summary.time}`),
+      divider,
+      padBetween('TOTAL INVOICES:', String(summary.totalBills)),
+      padBetween('CASH COLLECTION:', `${sym}${summary.cashTotal.toFixed(2)}`),
+      padBetween('UPI / DIGITAL:', `${sym}${summary.upiTotal.toFixed(2)}`),
+      padBetween('DUE / CREDIT:', `${sym}${summary.dueTotal.toFixed(2)}`),
+      doubleDiv,
+      padBetween('TOTAL HANDOVER:', `${sym}${summary.grandTotal.toFixed(2)}`),
+      doubleDiv,
+      '\n',
+      padBetween('CASHIER SIGN:', 'MANAGER SIGN:'),
+      '\n\n',
+      divider,
+      padCenter('(Handover verified & accepted)'),
+      divider,
+      '\n\n\n',
+    ];
+
+    const slipText = lines.join('\n');
+
+    // 1. Try Bluetooth print if connected
+    if (this.isConnected && this.characteristic) {
+      try {
+        const commands: number[] = [
+          0x0d, 0x0a, 0x1b, 0x0a,
+          0x1b, 0x40, 0x1b, 0x40,
+          0x1b, 0x74, 0x00,
+          0x1c, 0x2e,
+          0x1b, 0x21, 0x00,
+          0x1b, 0x4d, 0x00,
+          0x1d, 0x21, 0x00,
+          0x1b, 0x20, 0x00,
+          0x1b, 0x61, 0x00,
+          0x1d, 0x50, 0x00, 0x00,
+          0x1d, 0x4c, 0x00, 0x00,
+          ...(settings.paperWidth === '80mm' ? [0x1d, 0x57, 0x40, 0x02] : [0x1d, 0x57, 0x80, 0x01]),
+        ];
+        for (let i = 0; i < slipText.length; i++) {
+          const charCode = slipText.charCodeAt(i);
+          if (charCode < 128) commands.push(charCode);
+        }
+        commands.push(0x0a, 0x0a, 0x0a, 0x0a, 0x0a);
+        commands.push(0x1d, 0x56, 0x41, 0x10); // Cut
+        await this.writeRawChunks(new Uint8Array(commands));
+        return { success: true, message: 'Shift slip printed directly to thermal printer!' };
+      } catch (err: any) {
+        console.warn('Bluetooth shift slip print error, falling back to browser print:', err);
+      }
+    }
+
+    // 2. Browser print fallback
+    let root = document.getElementById('thermal-print-root');
+    if (!root) {
+      root = document.createElement('div');
+      root.id = 'thermal-print-root';
+      document.body.appendChild(root);
+    }
+    const paperClass = settings.paperWidth === '80mm' ? 'thermal-paper-80mm' : 'thermal-paper-58mm';
+    root.innerHTML = `<div class="${paperClass} receipt-mono">${slipText}</div>`;
+    root.classList.add('active-print');
+    window.print();
+    setTimeout(() => {
+      if (root) root.classList.remove('active-print');
+    }, 1000);
+
+    return { success: true, message: 'Shift slip sent to printer!' };
   }
 }
 
