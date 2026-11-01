@@ -35,7 +35,12 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
 
-  // CRITICAL: Do NOT intercept or cache API requests or Vite dev modules / scripts with HTML fallback!
+  // NEVER intercept cross-origin requests (e.g. Google Fonts, Firebase, CDNs)
+  if (url.origin !== self.location.origin) {
+    return;
+  }
+
+  // CRITICAL: Do NOT intercept or cache API requests or Vite dev modules / scripts
   if (
     url.pathname.startsWith('/api/') ||
     url.pathname.startsWith('/@') ||
@@ -49,7 +54,8 @@ self.addEventListener('fetch', (event) => {
   if (request.mode === 'navigate') {
     event.respondWith(
       caches.match('/index.html').then((cached) => {
-        const networkUpdate = fetch(request)
+        // Background revalidation
+        const bgFetch = fetch(request)
           .then((networkResponse) => {
             if (networkResponse && networkResponse.status === 200) {
               const clone = networkResponse.clone();
@@ -57,29 +63,30 @@ self.addEventListener('fetch', (event) => {
             }
             return networkResponse;
           })
-          .catch(() => cached);
+          .catch(() => null);
 
-        // If cached shell is available, return it immediately for 0ms cold-start!
+        // If cached shell is available, return it immediately for instant 0ms cold-start!
         if (cached) {
           return cached;
         }
-        return networkUpdate;
+        return bgFetch.then((res) => res || fetch(request));
       })
     );
     return;
   }
 
-  // Network-First for dynamic requests, fallback to cache
+  // Cache-First for static assets (/icon.svg, /manifest.json), fallback to network
   event.respondWith(
-    fetch(request)
-      .then((networkResponse) => {
-        if (networkResponse && networkResponse.status === 200) {
+    caches.match(request).then((cached) => {
+      if (cached) return cached;
+      return fetch(request).then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200 && request.method === 'GET') {
           const clone = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
         }
         return networkResponse;
-      })
-      .catch(() => caches.match(request))
+      });
+    })
   );
 });
 

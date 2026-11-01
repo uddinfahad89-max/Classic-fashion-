@@ -126,8 +126,25 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
   const [datePreset, setDatePreset] = useState<DateFilterPreset>('all');
   const [customDate, setCustomDate] = useState('');
   const [paymentFilter, setPaymentFilter] = useState<'all' | 'estimate' | 'cash' | 'upi' | 'card' | 'due' | 'tailoring'>('all');
+  const [cashierFilter, setCashierFilter] = useState<string>('all');
   const [localSort, setLocalSort] = useState<SortOption>(sortOption);
   const [editingBill, setEditingBill] = useState<BillInvoice | null>(null);
+
+  const uniqueCashiers = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const b of bills) {
+      if (b.cashierName || b.cashierId) {
+        const id = b.cashierId || b.cashierName || '';
+        const label = b.cashierName
+          ? `${b.cashierName}${b.cashierId ? ` (${b.cashierId})` : ''}`
+          : id;
+        if (id && !map.has(id)) {
+          map.set(id, label);
+        }
+      }
+    }
+    return Array.from(map.entries()).map(([id, label]) => ({ id, label }));
+  }, [bills]);
   const [deleteConfirmBill, setDeleteConfirmBill] = useState<{
     id: string;
     invoiceNo: string;
@@ -179,7 +196,11 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
         const matchesPhone = bill.customerPhone?.toLowerCase().includes(query) || false;
         const matchesItem = bill.items.some((it) => it.name.toLowerCase().includes(query));
 
-        if (!matchesInvoice && !matchesCustomer && !matchesPhone && !matchesItem) {
+        const matchesCashier =
+          (bill.cashierName && bill.cashierName.toLowerCase().includes(query)) ||
+          (bill.cashierId && bill.cashierId.toLowerCase().includes(query));
+
+        if (!matchesInvoice && !matchesCustomer && !matchesPhone && !matchesItem && !matchesCashier) {
           return false;
         }
       }
@@ -211,6 +232,12 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
         if (bill.paymentMethod !== paymentFilter) return false;
       }
 
+      if (cashierFilter !== 'all') {
+        const matchId = bill.cashierId === cashierFilter;
+        const matchName = bill.cashierName === cashierFilter;
+        if (!matchId && !matchName) return false;
+      }
+
       return true;
     });
 
@@ -230,7 +257,7 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
           return b.timestamp - a.timestamp;
       }
     });
-  }, [bills, effectiveSearchTerm, datePreset, customDate, paymentFilter, localSort]);
+  }, [bills, effectiveSearchTerm, datePreset, customDate, paymentFilter, cashierFilter, localSort]);
 
   const stats = useMemo(() => {
     const totalCount = filteredBills.length;
@@ -268,7 +295,7 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
     });
   };
 
-  const hasActiveFilters = datePreset !== 'all' || paymentFilter !== 'all';
+  const hasActiveFilters = datePreset !== 'all' || paymentFilter !== 'all' || cashierFilter !== 'all';
 
   return (
     <div className="w-full max-w-5xl lg:max-w-6xl xl:max-w-7xl mx-auto bg-white min-h-[calc(100vh-120px)] pb-24 shadow-2xs">
@@ -478,7 +505,22 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
             ))}
           </div>
 
-          <div className="flex items-center gap-1.5 ml-auto">
+          <div className="flex items-center gap-1.5 ml-auto flex-wrap">
+            {uniqueCashiers.length > 0 && (
+              <select
+                value={cashierFilter}
+                onChange={(e) => setCashierFilter(e.target.value)}
+                className="bg-white border border-stone-200 text-stone-700 text-[11px] font-semibold px-2.5 py-1 rounded-full focus:outline-none focus:border-[#0066cc] cursor-pointer"
+              >
+                <option value="all">{isBn ? 'সব স্টাফ / ক্যাশিয়ার' : 'All Staff / Cashiers'}</option>
+                {uniqueCashiers.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    👤 {c.label}
+                  </option>
+                ))}
+              </select>
+            )}
+
             <select
               value={paymentFilter}
               onChange={(e) => setPaymentFilter(e.target.value as any)}
@@ -499,6 +541,7 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
                 onClick={() => {
                   setDatePreset('all');
                   setPaymentFilter('all');
+                  setCashierFilter('all');
                   setCustomDate('');
                 }}
                 className="text-[11px] text-rose-600 font-semibold px-2 py-0.5 hover:underline cursor-pointer"
@@ -578,6 +621,19 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
                     <span className="text-[11px] font-mono font-bold text-stone-500 bg-stone-100 px-1.5 py-0.5 rounded">
                       #{bill.invoiceNo}
                     </span>
+                    {bill.cashierName && (
+                      <span
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-indigo-50 text-indigo-700 text-[10px] font-bold border border-indigo-200"
+                        title={
+                          isBn
+                            ? `তৈরি করেছেন: ${bill.cashierName}${bill.cashierId ? ` (${bill.cashierId})` : ''}`
+                            : `Created by: ${bill.cashierName}${bill.cashierId ? ` (${bill.cashierId})` : ''}`
+                        }
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
+                        <span>{bill.cashierName}{bill.cashierId ? ` (${bill.cashierId})` : ''}</span>
+                      </span>
+                    )}
                     {bill.isGstBill && (
                       <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-[10px] font-mono font-black border border-emerald-300">
                         GST {bill.gstRate ? `${bill.gstRate}%` : ''}
