@@ -8,7 +8,8 @@ import {
   getDocsFromCache,
   deleteDoc,
   query,
-  where
+  where,
+  onSnapshot
 } from 'firebase/firestore';
 import {
   signInWithEmailAndPassword,
@@ -805,7 +806,16 @@ class FirebaseService {
   async syncInvoice(invoice: BillInvoice, userId?: string, shopId?: string): Promise<boolean> {
     try {
       await this.ensureAuthenticated();
-      const uid = this.getEffectiveUserId(userId);
+      const activeProf = storageService.getUserProfile();
+      const ownerEmail =
+        activeProf.ownerEmail ||
+        (typeof window !== 'undefined' ? localStorage.getItem('thermal_pos_store_owner_email') : '') ||
+        MASTER_ADMIN_EMAIL;
+      const effectiveOwner = (ownerEmail && ownerEmail.includes('@') ? ownerEmail : MASTER_ADMIN_EMAIL).trim().toLowerCase();
+
+      const cashierName = invoice.cashierName || activeProf.name || '';
+      const cashierId = invoice.cashierId || activeProf.operatorCode || activeProf.staffId || '';
+
       const invoiceRef = doc(db, 'invoices', invoice.id);
 
       const payload = {
@@ -815,6 +825,8 @@ class FirebaseService {
         time: invoice.time || '',
         customerName: invoice.customerName || '',
         customerPhone: invoice.customerPhone || '',
+        cashierName,
+        cashierId,
         items: invoice.items || [],
         subtotal: invoice.subtotal || 0,
         tax: (invoice as any).tax || 0,
@@ -833,11 +845,14 @@ class FirebaseService {
         trialDate: invoice.trialDate || '',
         tailoringStatus: invoice.tailoringStatus || '',
         timestamp: invoice.timestamp || Date.now(),
-        userId: uid,
-        userEmail: uid,
-        email: uid,
-        shopId: shopId || uid,
-        storeId: shopId || uid,
+        userId: effectiveOwner,
+        userEmail: effectiveOwner,
+        email: effectiveOwner,
+        ownerEmail: effectiveOwner,
+        storeOwnerEmail: effectiveOwner,
+        shopId: shopId || effectiveOwner,
+        storeId: shopId || effectiveOwner,
+        staffEmail: activeProf.email || '',
         isDeleted: Boolean(invoice.isDeleted),
         deletedAt: invoice.deletedAt || null,
         deletedBy: invoice.deletedBy || null,
@@ -967,7 +982,7 @@ class FirebaseService {
     }
   }
 
-  // Multi-vendor isolated fetch: only own store's bills (unless super admin requests all)
+  // Multi-vendor isolated fetch: retrieves all store bills including staff invoices
   async fetchInvoices(userId?: string, includeDeleted = false): Promise<BillInvoice[]> {
     try {
       await this.ensureAuthenticated();
@@ -976,52 +991,34 @@ class FirebaseService {
       const invoicesRef = collection(db, 'invoices');
       const map = new Map<string, BillInvoice>();
 
-      // Query by userId
-      try {
-        const q1 = query(invoicesRef, where('userId', '==', uid));
-        let snap1 = null;
+      const isStoreOwner = uid === MASTER_ADMIN_EMAIL.toLowerCase() || this.isSuperAdmin(uid);
+
+      if (isStoreOwner) {
+        // Store Owner: Retrieve all invoices in the store (including those created by staff members)
         try {
-          snap1 = await getDocs(q1);
-        } catch {
-          try {
-            snap1 = await getDocsFromCache(q1);
-          } catch {}
+          const allSnap = await getDocs(invoicesRef);
+          allSnap.forEach((d) => map.set(d.id, d.data() as BillInvoice));
+        } catch (err) {
+          console.warn('fetchInvoices allSnap notice:', err);
         }
-        if (snap1) {
+      } else {
+        // Staff / Sub-account: Query by userId, userEmail, or storeId
+        try {
+          const q1 = query(invoicesRef, where('userId', '==', uid));
+          const snap1 = await getDocs(q1);
           snap1.forEach((d) => map.set(d.id, d.data() as BillInvoice));
-        }
-      } catch {}
+        } catch {}
 
-      // Query by userEmail
-      try {
-        const q2 = query(invoicesRef, where('userEmail', '==', uid));
-        let snap2 = null;
         try {
-          snap2 = await getDocs(q2);
-        } catch {
-          try {
-            snap2 = await getDocsFromCache(q2);
-          } catch {}
-        }
-        if (snap2) {
+          const q2 = query(invoicesRef, where('userEmail', '==', uid));
+          const snap2 = await getDocs(q2);
           snap2.forEach((d) => map.set(d.id, d.data() as BillInvoice));
-        }
-      } catch {}
+        } catch {}
 
-      // Fallback: If 0 invoices, check storeId
-      if (map.size === 0) {
         try {
           const qStore = query(invoicesRef, where('storeId', '==', uid));
           const snapStore = await getDocs(qStore);
           snapStore.forEach((d) => map.set(d.id, d.data() as BillInvoice));
-        } catch {}
-      }
-
-      // Fallback: If Super Admin and still 0 invoices, retrieve all store invoices
-      if (map.size === 0 && this.isSuperAdmin(uid)) {
-        try {
-          const allSnap = await getDocs(invoicesRef);
-          allSnap.forEach((d) => map.set(d.id, d.data() as BillInvoice));
         } catch {}
       }
 
@@ -1045,6 +1042,47 @@ class FirebaseService {
     } catch (e: any) {
       console.warn('Firebase fetchInvoices notice:', e?.message || e);
       return [];
+    }
+  }
+
+  // Real-time Firestore Live Subscription: Automatically receive new staff invoices instantly
+  subscribeInvoices(
+    userId: string | undefined,
+    onUpdate: (bills: BillInvoice[]) => void
+  ): () => void {
+    try {
+      const invoicesRef = collection(db, 'invoices');
+      return onSnapshot(
+        invoicesRef,
+        (snap) => {
+          let deletedSet: Set<string>;
+          try {
+            const raw = typeof window !== 'undefined' ? localStorage.getItem('thermal_pos_deleted_bill_ids_v1') : null;
+            deletedSet = raw ? new Set(JSON.parse(raw)) : new Set();
+          } catch {
+            deletedSet = new Set();
+          }
+
+          const map = new Map<string, BillInvoice>();
+          snap.forEach((d) => {
+            const b = d.data() as BillInvoice;
+            if (!b.isDeleted && !deletedSet.has(b.id) && !deletedSet.has(b.invoiceNo || '')) {
+              map.set(d.id, b);
+            }
+          });
+
+          const bills = Array.from(map.values()).sort(
+            (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
+          );
+          onUpdate(bills);
+        },
+        (err) => {
+          console.warn('Firebase subscribeInvoices listener notice:', err);
+        }
+      );
+    } catch (e) {
+      console.warn('Failed to start Firestore invoices listener:', e);
+      return () => {};
     }
   }
 

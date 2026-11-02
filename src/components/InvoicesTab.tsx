@@ -13,6 +13,7 @@ import {
   Plus,
   CheckCircle2,
   SlidersHorizontal,
+  RefreshCw,
 } from 'lucide-react';
 import { BillInvoice, ThermalPrinterSettings, Language, UserProfile } from '../types';
 import { thermalPrinterService } from '../services/thermalPrinterService';
@@ -35,6 +36,8 @@ interface InvoicesTabProps {
   onNavigateToBilling?: () => void;
   onOpenRecycleBin?: () => void;
   userProfile?: UserProfile;
+  onSyncInvoices?: () => void;
+  isSyncing?: boolean;
 }
 
 type DateFilterPreset = 'all' | 'today' | 'yesterday' | 'week' | 'custom';
@@ -111,6 +114,8 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
   onNavigateToBilling,
   onOpenRecycleBin,
   userProfile,
+  onSyncInvoices,
+  isSyncing = false,
 }) => {
   const isBn = language === 'bn';
   const canDelete =
@@ -322,8 +327,24 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
           )}
         </div>
 
-        {/* Right: Filter Circle + "+ New Party" Pill + 3 Dots */}
-        <div className="flex items-center gap-2 shrink-0">
+        {/* Right: Sync Cloud Button + Filter Circle + "+ New Party" Pill + 3 Dots */}
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {/* Cloud Sync Button */}
+          {onSyncInvoices && (
+            <button
+              type="button"
+              onClick={onSyncInvoices}
+              disabled={isSyncing}
+              className={`px-2.5 py-1.5 rounded-full border border-blue-200 bg-blue-50/80 hover:bg-blue-100 text-blue-700 text-xs font-bold flex items-center gap-1 transition-all cursor-pointer active:scale-95 shadow-2xs ${
+                isSyncing ? 'animate-pulse opacity-70' : ''
+              }`}
+              title={isBn ? 'ক্লাউড থেকে স্টাফ ও সমস্ত ইনভয়েস সিঙ্ক করুন' : 'Sync staff & cloud invoices'}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-blue-600' : ''}`} />
+              <span className="hidden xs:inline">{isBn ? 'সিঙ্ক' : 'Sync'}</span>
+            </button>
+          )}
+
           {/* Circular Filter Button */}
           <button
             type="button"
@@ -369,6 +390,21 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
             {showMoreMenu && (
               <div className="absolute right-0 top-10 w-52 bg-white rounded-2xl shadow-xl border border-stone-200 py-1.5 z-40 animate-in fade-in zoom-in-95 duration-150 divide-y divide-stone-100">
                 <div className="py-1">
+                  {onSyncInvoices && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowMoreMenu(false);
+                        onSyncInvoices();
+                      }}
+                      className="w-full text-left px-3.5 py-2 text-xs font-bold text-blue-700 hover:bg-blue-50 flex items-center justify-between cursor-pointer"
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                        <span>{isBn ? '🔄 ক্লাউড ইনভয়েস সিঙ্ক (স্টাফ সহ)' : '🔄 Sync Invoices (With Staff)'}</span>
+                      </span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => {
@@ -621,17 +657,17 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
                     <span className="text-[11px] font-mono font-bold text-stone-500 bg-stone-100 px-1.5 py-0.5 rounded">
                       #{bill.invoiceNo}
                     </span>
-                    {bill.cashierName && (
+                    {(bill.cashierName || bill.cashierId) && (
                       <span
                         className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-indigo-50 text-indigo-700 text-[10px] font-bold border border-indigo-200"
                         title={
                           isBn
-                            ? `তৈরি করেছেন: ${bill.cashierName}${bill.cashierId ? ` (${bill.cashierId})` : ''}`
-                            : `Created by: ${bill.cashierName}${bill.cashierId ? ` (${bill.cashierId})` : ''}`
+                            ? `তৈরি করেছেন: ${bill.cashierName || 'স্টাফ'}${bill.cashierId ? ` (${bill.cashierId})` : ''}`
+                            : `Created by: ${bill.cashierName || 'Staff'}${bill.cashierId ? ` (${bill.cashierId})` : ''}`
                         }
                       >
                         <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
-                        <span>{bill.cashierName}{bill.cashierId ? ` (${bill.cashierId})` : ''}</span>
+                        <span>{bill.cashierName || 'Staff'}{bill.cashierId ? ` (${bill.cashierId})` : ''}</span>
                       </span>
                     )}
                     {bill.isGstBill && (

@@ -769,27 +769,12 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
 
       {/* 6. Footer: Terms, Dynamic UPI QR (Vyapar style) & Authorized Signatory */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end pt-5 border-t border-stone-200 gap-4">
-        {/* Left: Terms and Conditions */}
+        {/* Left: Notes / Terms (disclaimer removed) */}
         <div className="space-y-1 max-w-[280px]">
-          <div className="font-bold text-stone-900 text-sm sm:text-base">Terms and Conditions</div>
-          {bill.isTailoring ? (
-            <>
-              <p className="text-xs sm:text-sm text-stone-700 font-medium leading-normal">
-                1. Please bring this tailoring slip at the time of trial & delivery.
-              </p>
-              <p className="text-xs sm:text-sm text-stone-700 font-medium leading-normal">
-                2. Thank you for choosing our tailoring service!
-              </p>
-            </>
-          ) : (
-            <>
-              <p className="text-xs sm:text-sm text-stone-700 font-medium leading-normal">
-                1. Goods once sold will not be taken back without bill.
-              </p>
-              <p className="text-xs sm:text-sm text-stone-700 font-medium leading-normal">
-                2. Thank you for shopping with us! Please visit again.
-              </p>
-            </>
+          {bill.isTailoring && (
+            <p className="text-xs sm:text-sm text-stone-700 font-medium leading-normal">
+              Please bring this tailoring slip at the time of trial & delivery.
+            </p>
           )}
         </div>
 

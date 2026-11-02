@@ -92,6 +92,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
   const [gstRate, setGstRate] = useState(5);
   const [taxType, setTaxType] = useState<'intra' | 'inter'>('intra');
   const [isGstInclusive, setIsGstInclusive] = useState(true);
+  const [showDiscountOnPrint, setShowDiscountOnPrint] = useState(true);
 
   // Sync state whenever active bill changes
   useEffect(() => {
@@ -108,6 +109,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
           ? bill.discount.toString()
           : ''
       );
+      setShowDiscountOnPrint(bill.showDiscountOnPrint !== false);
       setPaymentMethod(bill.paymentMethod || 'cash');
       if (bill.paymentMethod === 'due') {
         if (bill.paidAmount && bill.paidAmount > 0 && bill.paidAmount < bill.grandTotal) {
@@ -356,6 +358,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
       discount: discountAmount,
       discountType,
       discountValue: rawDiscount,
+      showDiscountOnPrint,
       grandTotal,
       paymentMethod: finalPaymentMethod,
       paymentStatus,
@@ -985,65 +988,10 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
             </div>
           </div>
 
-          {/* 3. Discount & Payment Method */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-            {/* Discount Editor */}
-            <div className="bg-stone-50/70 p-3.5 rounded-2xl border border-stone-200 space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-bold text-stone-800 flex items-center gap-1">
-                  <Tag className="w-3.5 h-3.5 text-blue-600" />
-                  <span>{t.discountLabel}</span>
-                </label>
-                <div className="flex gap-1 bg-white p-0.5 border border-stone-200 rounded-lg text-[10px]">
-                  <button
-                    type="button"
-                    onClick={() => setDiscountType('fixed')}
-                    className={`px-2 py-0.5 rounded font-bold transition-colors cursor-pointer ${
-                      discountType === 'fixed'
-                        ? 'bg-blue-600 text-white'
-                        : 'text-stone-600 hover:bg-stone-100'
-                    }`}
-                  >
-                    {sym} {t.discountFixed}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDiscountType('percent')}
-                    className={`px-2 py-0.5 rounded font-bold transition-colors cursor-pointer ${
-                      discountType === 'percent'
-                        ? 'bg-blue-600 text-white'
-                        : 'text-stone-600 hover:bg-stone-100'
-                    }`}
-                  >
-                    % {t.discountPercent}
-                  </button>
-                </div>
-              </div>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs font-mono font-bold">
-                  {discountType === 'percent' ? '%' : sym}
-                </span>
-                <input
-                  type="number"
-                  min="0"
-                  step="any"
-                  value={discountValue}
-                  onChange={(e) => setDiscountValue(e.target.value)}
-                  placeholder="0"
-                  className="w-full border border-stone-200 bg-white pl-8 pr-3 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-600"
-                />
-              </div>
-              {discountAmount > 0 && (
-                <div className="text-[11px] text-rose-600 font-bold flex justify-between">
-                  <span>{language === 'bn' ? 'ছাড়ের পরিমাণ:' : 'Discount Amount:'}</span>
-                  <span className="font-mono">-{sym}{discountAmount.toFixed(2)}</span>
-                </div>
-              )}
-            </div>
-
-            {/* Payment Method & Paid Amount */}
-            <div className="bg-stone-50/70 p-3.5 rounded-2xl border border-stone-200 space-y-2.5">
-              <label className="text-xs font-bold text-stone-800 block">
+          {/* 3. Payment Method & Amounts (Payment Method at top, Paid Amount & Discount side-by-side below) */}
+          <div className="bg-stone-50/80 p-3.5 rounded-2xl border border-stone-200 space-y-3 pt-3">
+            <div>
+              <label className="text-xs font-bold text-stone-800 block mb-1.5">
                 {t.paymentMethodLabel}
               </label>
               <div className="grid grid-cols-5 gap-1">
@@ -1075,39 +1023,51 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
                   );
                 })}
               </div>
+            </div>
 
-              {paymentMethod === 'due' && (
-                <div className="bg-rose-50 border border-rose-200 rounded-xl px-3 py-2 flex items-center justify-between text-xs">
-                  <span className="font-bold text-rose-800">
-                    {language === 'bn' ? 'বাকি থাকবে (Due):' : 'Balance Due:'}
-                  </span>
-                  <span className="font-mono font-black text-rose-700 text-sm">
-                    {sym}{dueAmount.toFixed(2)}
-                  </span>
-                </div>
-              )}
+            {paymentMethod === 'due' && (
+              <div className="bg-rose-50 border border-rose-200 rounded-xl px-3 py-2 flex items-center justify-between text-xs animate-in fade-in">
+                <span className="font-bold text-rose-800">
+                  {language === 'bn' ? 'বাকি থাকবে (Due):' : 'Balance Due:'}
+                </span>
+                <span className="font-mono font-black text-rose-700 text-sm">
+                  {sym}{dueAmount.toFixed(2)}
+                </span>
+              </div>
+            )}
 
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-[11px] font-bold text-stone-600">
+            {/* 2-Column Grid: Paid Amount on Left, Discount on Right (Moved down here as requested) */}
+            <div className="grid grid-cols-2 gap-3 pt-1 border-t border-stone-200/80">
+              {/* Left Column: Paid Amount */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between min-h-[22px]">
+                  <label className="text-[11px] font-bold text-stone-700 truncate">
                     {paymentMethod === 'due'
                       ? language === 'bn'
-                        ? 'অগ্রিম / আংশিক জমা (না থাকলে 0 রাখুন)'
-                        : 'Advance / Partial Paid (0 for Full Due)'
+                        ? 'অগ্রিম/জমা'
+                        : 'Advance / Paid'
                       : t.paidAmountLabel}
                   </label>
-                  {paymentMethod === 'due' && paidNum > 0 && (
+                  {paymentMethod === 'due' && paidNum > 0 ? (
                     <button
                       type="button"
                       onClick={() => setPaidAmount('0')}
-                      className="text-[10px] font-bold text-rose-600 bg-rose-100 hover:bg-rose-200 px-2 py-0.5 rounded-md cursor-pointer transition-colors"
+                      className="text-[10px] font-bold text-rose-600 bg-rose-100 hover:bg-rose-200 px-1.5 py-0.5 rounded cursor-pointer transition-colors shrink-0"
                     >
-                      {language === 'bn' ? 'পুরো বাকি (0 জমা)' : 'Full Due (0)'}
+                      {language === 'bn' ? '0 জমা' : '0 Due'}
                     </button>
-                  )}
+                  ) : paymentMethod !== 'due' && grandTotal > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setPaidAmount(grandTotal.toFixed(2))}
+                      className="text-[10px] font-bold text-blue-600 hover:text-blue-800 underline cursor-pointer shrink-0"
+                    >
+                      {language === 'bn' ? 'হিসাব মত' : 'Exact'}
+                    </button>
+                  ) : null}
                 </div>
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 text-xs font-mono font-bold">
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400 text-xs font-mono font-bold">
                     {sym}
                   </span>
                   <input
@@ -1124,11 +1084,95 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
                       }
                     }}
                     placeholder={paymentMethod === 'due' ? '0' : grandTotal.toString()}
-                    className="w-full border border-stone-200 bg-white pl-8 pr-3 py-1.5 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-600"
+                    className="w-full border border-stone-200 bg-white pl-7 pr-2 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-600"
                   />
                 </div>
               </div>
+
+              {/* Right Column: Discount (Moved down here next to Paid Amount as requested) */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between min-h-[22px]">
+                  <label className="text-[11px] font-bold text-stone-700 flex items-center gap-1 truncate">
+                    <Tag className="w-3 h-3 text-blue-600 shrink-0" />
+                    <span>{t.discountLabel}</span>
+                  </label>
+                  <div className="flex items-center bg-white p-0.5 border border-stone-200 rounded-lg text-[10px] shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setDiscountType('fixed')}
+                      className={`px-1.5 py-0.5 rounded font-bold transition-colors cursor-pointer ${
+                        discountType === 'fixed'
+                          ? 'bg-blue-600 text-white'
+                          : 'text-stone-600 hover:bg-stone-100'
+                      }`}
+                    >
+                      {sym}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDiscountType('percent')}
+                      className={`px-1.5 py-0.5 rounded font-bold transition-colors cursor-pointer ${
+                        discountType === 'percent'
+                          ? 'bg-blue-600 text-white'
+                          : 'text-stone-600 hover:bg-stone-100'
+                      }`}
+                    >
+                      %
+                    </button>
+                  </div>
+                </div>
+                <div className="relative">
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400 text-xs font-mono font-bold">
+                    {discountType === 'percent' ? '%' : sym}
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={discountValue}
+                    onChange={(e) => setDiscountValue(e.target.value)}
+                    placeholder="0"
+                    className="w-full border border-stone-200 bg-white pl-7 pr-6 py-2 rounded-xl text-xs sm:text-sm font-mono font-bold focus:outline-none focus:border-blue-600"
+                  />
+                  {discountValue && (
+                    <button
+                      type="button"
+                      onClick={() => setDiscountValue('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400 hover:text-rose-600 text-xs font-bold cursor-pointer"
+                      title={language === 'bn' ? 'ছাড় মুছুন' : 'Clear Discount'}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
+
+            {/* Discount Summary / Toggle (if discount is active) */}
+            {discountAmount > 0 && (
+              <div className="space-y-1.5 pt-1 animate-in fade-in">
+                <div className="text-xs text-rose-600 font-bold flex justify-between bg-rose-50/80 border border-rose-200/80 rounded-xl px-2.5 py-1.5">
+                  <span>{language === 'bn' ? '🏷️ মোট ছাড়ের পরিমাণ (Discount):' : '🏷️ Total Discount:'}</span>
+                  <span className="font-mono font-black">-{sym}{discountAmount.toFixed(2)}</span>
+                </div>
+                <div className="p-2 rounded-xl bg-amber-50/90 border border-amber-200 flex items-center justify-between gap-2 text-xs">
+                  <label className="flex items-center gap-2 cursor-pointer font-bold text-amber-950 select-none">
+                    <input
+                      type="checkbox"
+                      checked={showDiscountOnPrint}
+                      onChange={(e) => setShowDiscountOnPrint(e.target.checked)}
+                      className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                    />
+                    <span>{language === 'bn' ? '🏷️ কাস্টমারকে ছাড় সহ বিল প্রিন্ট দিন' : '🏷️ Print Discount Bill'}</span>
+                  </label>
+                  <span className="text-[11px] font-semibold text-amber-800 shrink-0">
+                    {showDiscountOnPrint
+                      ? (language === 'bn' ? '✓ ছাড় সহ' : '✓ Discount Bill')
+                      : (language === 'bn' ? 'ক্লিন বিল' : 'Clean Bill')}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* 4. Live Calculation Box */}

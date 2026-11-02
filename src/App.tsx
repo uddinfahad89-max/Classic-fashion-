@@ -153,11 +153,12 @@ export default function App() {
 
     // Non-blocking background sync with Firestore & Server Vault (decoupled from initial UI render)
     const bootTimer = setTimeout(() => {
-      // 1. Firebase Firestore sync in background
-      if (prof.isLoggedIn && prof.email && firebaseService.isConfigured()) {
-        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject('timeout'), 2500));
+      // 1. Firebase Firestore sync in background (fetching all store and staff invoices)
+      if (firebaseService.isConfigured()) {
+        const ownerEmail = prof.ownerEmail || (prof.isLoggedIn ? prof.email : '') || 'uddinfahad89@gmail.com';
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject('timeout'), 4000));
         Promise.race([
-          firebaseService.ensureAuthenticated().then(() => firebaseService.restorePOSData(prof.email)),
+          firebaseService.ensureAuthenticated().then(() => firebaseService.restorePOSData(ownerEmail)),
           timeoutPromise
         ]).then((fbRes: any) => {
           if (fbRes && fbRes.success) {
@@ -174,20 +175,18 @@ export default function App() {
             const localBills = storageService.getBills();
             const localProducts = storageService.getProducts();
 
-            if (localBills.length === 0 && activeFbBills.length > 0) {
-              setBills(activeFbBills);
-              storageService.saveBills(activeFbBills);
-            } else if (activeFbBills.length > 0) {
-              const localBillIds = new Set(localBills.map((b) => b.id));
-              const newBills = activeFbBills.filter((b: any) => !localBillIds.has(b.id));
-              if (newBills.length > 0) {
-                const combined = [...localBills, ...newBills].sort(
-                  (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
-                );
-                setBills(combined);
-                storageService.saveBills(combined);
+            const billMap = new Map<string, BillInvoice>();
+            for (const b of activeFbBills) billMap.set(b.id, b);
+            for (const b of localBills) {
+              if (!deletedBillIds.has(b.id) && !b.isDeleted && !billMap.has(b.id)) {
+                billMap.set(b.id, b);
               }
             }
+            const combinedBills = Array.from(billMap.values()).sort(
+              (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
+            );
+            setBills(combinedBills);
+            storageService.saveBills(combinedBills);
 
             if (localProducts.length === 0 && activeFbProducts.length > 0) {
               setProducts(activeFbProducts);
@@ -227,10 +226,68 @@ export default function App() {
       }
     }, 400);
 
-    // Multi-device real-time sync: Throttled to 12s and skipped when tab is in background
+    // 3. Real-time Firestore Live Subscription for instant staff invoice reception
+    let unsubscribeFirestore: (() => void) | null = null;
+    if (firebaseService.isConfigured()) {
+      unsubscribeFirestore = firebaseService.subscribeInvoices(
+        prof.email || 'uddinfahad89@gmail.com',
+        (remoteBills) => {
+          if (remoteBills && remoteBills.length > 0) {
+            setBills((prevBills) => {
+              const deletedIds = storageService.getDeletedBillIds();
+              const cleanRemote = remoteBills.filter((b) => !deletedIds.has(b.id) && !b.isDeleted);
+              const map = new Map<string, BillInvoice>();
+              // Keep remote bills (including all staff bills)
+              for (const b of cleanRemote) {
+                map.set(b.id, b);
+              }
+              // Merge local bills if any pending
+              for (const b of prevBills) {
+                if (!deletedIds.has(b.id) && !b.isDeleted && !map.has(b.id)) {
+                  map.set(b.id, b);
+                }
+              }
+              const merged = Array.from(map.values()).sort(
+                (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
+              );
+              storageService.saveBills(merged);
+              return merged;
+            });
+          }
+        }
+      );
+    }
+
+    // Multi-device real-time sync: Throttled to 10s and skipped when tab is in background
     const syncLiveVault = async () => {
       if (typeof document !== 'undefined' && document.hidden) return;
       const currentProf = storageService.getUserProfile();
+      const ownerEmail = currentProf.ownerEmail || (currentProf.isLoggedIn ? currentProf.email : '') || 'uddinfahad89@gmail.com';
+
+      // Live check with Firebase Firestore for staff bills
+      if (firebaseService.isConfigured()) {
+        firebaseService.fetchInvoices(ownerEmail).then((fbBills) => {
+          if (fbBills && fbBills.length > 0) {
+            setBills((prev) => {
+              const deletedIds = storageService.getDeletedBillIds();
+              const cleanRemote = fbBills.filter((b) => !deletedIds.has(b.id) && !b.isDeleted);
+              const map = new Map<string, BillInvoice>();
+              for (const b of cleanRemote) map.set(b.id, b);
+              for (const b of prev) {
+                if (!deletedIds.has(b.id) && !b.isDeleted && !map.has(b.id)) {
+                  map.set(b.id, b);
+                }
+              }
+              const merged = Array.from(map.values()).sort(
+                (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
+              );
+              storageService.saveBills(merged);
+              return merged;
+            });
+          }
+        }).catch(() => {});
+      }
+
       if (!currentProf.isLoggedIn) return;
       const syncId = currentProf.email || currentProf.phone;
       if (!syncId) return;
@@ -279,7 +336,7 @@ export default function App() {
     };
     window.addEventListener('focus', onFocusSync);
     document.addEventListener('visibilitychange', onFocusSync);
-    const liveSyncInterval = setInterval(syncLiveVault, 12000);
+    const liveSyncInterval = setInterval(syncLiveVault, 10000);
 
     thermalPrinterService.setStatusListener((status) => {
       setBluetoothStatus(status);
@@ -332,7 +389,15 @@ export default function App() {
     // Initialize native Android & browser back button handler
     backHandler.init();
 
-    return () => {};
+    return () => {
+      clearTimeout(bootTimer);
+      clearInterval(liveSyncInterval);
+      window.removeEventListener('focus', onFocusSync);
+      document.removeEventListener('visibilitychange', onFocusSync);
+      if (unsubscribeFirestore) {
+        unsubscribeFirestore();
+      }
+    };
   }, []);
 
   // Priority 60: If exit confirmation dialog is open, pressing Back again immediately exits
@@ -1272,6 +1337,49 @@ export default function App() {
     } catch {}
   };
 
+  const [isSyncingInvoices, setIsSyncingInvoices] = useState(false);
+
+  const handleManualSyncInvoices = async () => {
+    setIsSyncingInvoices(true);
+    try {
+      if (firebaseService.isConfigured()) {
+        const currentProf = storageService.getUserProfile();
+        const ownerEmail = currentProf.ownerEmail || (currentProf.isLoggedIn ? currentProf.email : '') || 'uddinfahad89@gmail.com';
+        const fbBills = await firebaseService.fetchInvoices(ownerEmail);
+        const deletedIds = storageService.getDeletedBillIds();
+        const clean = fbBills.filter((b) => !deletedIds.has(b.id) && !b.isDeleted);
+        if (clean.length > 0) {
+          setBills((prev) => {
+            const map = new Map<string, BillInvoice>();
+            for (const b of clean) map.set(b.id, b);
+            for (const b of prev) {
+              if (!deletedIds.has(b.id) && !b.isDeleted && !map.has(b.id)) {
+                map.set(b.id, b);
+              }
+            }
+            const merged = Array.from(map.values()).sort(
+              (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
+            );
+            storageService.saveBills(merged);
+            return merged;
+          });
+          showToast(
+            language === 'bn'
+              ? `✓ ক্লাউড থেকে মোট ${clean.length}টি ইনভয়েস সিঙ্ক হয়েছে (স্টাফ বিল সহ)`
+              : `✓ Synced ${clean.length} invoices from Cloud (including staff bills)`,
+            'success'
+          );
+          return;
+        }
+      }
+      showToast(language === 'bn' ? '✓ ইনভয়েস তালিকা আপ-টু-ডেট রয়েছে' : '✓ Invoices list is up to date', 'info');
+    } catch (e: any) {
+      showToast(language === 'bn' ? 'সিঙ্ক করতে সমস্যা হয়েছে' : 'Failed to sync invoices', 'error');
+    } finally {
+      setIsSyncingInvoices(false);
+    }
+  };
+
   // 2. CASHBOOK HANDLERS
   const handleAddCashEntry = (type: CashEntryType, amount: number, note: string) => {
     storageService.addCashEntry(type, amount, note);
@@ -2012,6 +2120,8 @@ export default function App() {
             onNavigateToBilling={() => setActiveTab('billing')}
             userProfile={userProfile}
             onOpenRecycleBin={() => setIsRecycleBinOpen(true)}
+            onSyncInvoices={handleManualSyncInvoices}
+            isSyncing={isSyncingInvoices}
           />
         )}
 

@@ -685,6 +685,17 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
                 </button>
                 <button
                   type="button"
+                  onClick={() => {
+                    setFooterNoteInput('');
+                    handleSaveFooterNote('');
+                  }}
+                  className="py-2.5 px-3 rounded-xl border border-rose-200 text-xs font-bold text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                  title={language === 'bn' ? 'বার্তা মুছে দিন' : 'Clear footer note'}
+                >
+                  {language === 'bn' ? 'নোট মুছুন' : 'Clear'}
+                </button>
+                <button
+                  type="button"
                   onClick={() => handleSaveFooterNote(footerNoteInput.trim())}
                   className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md shadow-blue-600/20 transition-colors cursor-pointer"
                 >

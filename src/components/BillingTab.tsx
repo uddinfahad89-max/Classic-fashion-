@@ -3004,51 +3004,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         id="billing-checkout-summary-section"
         className="bg-white rounded-2xl p-3 sm:p-4 shadow-xs border border-stone-200 space-y-3"
       >
-        {/* 1. TOP: Real-time Order Summary Breakdown (Discount input hidden from top as requested) */}
-        <div className="bg-stone-50/90 border border-stone-200 p-3 sm:p-3.5 rounded-2xl space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-stone-600">
-            <span>{t.subtotalText}</span>
-            <span className="font-mono font-bold text-stone-900">
-              {sym}
-              {subtotal.toFixed(2)}
-            </span>
-          </div>
-
-          <div className="flex items-center justify-between text-xs text-stone-600">
-            <span className="flex items-center gap-1.5">
-              <span>{t.discountText}</span>
-              {discountAmount > 0 && discountType === 'percent' && (
-                <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded">
-                  {rawDiscount}% off
-                </span>
-              )}
-            </span>
-            <span
-              className={`font-mono font-bold ${
-                discountAmount > 0 ? 'text-emerald-600' : 'text-stone-400'
-              }`}
-            >
-              {discountAmount > 0 ? `-${sym}${discountAmount.toFixed(2)}` : `${sym}0.00`}
-            </span>
-          </div>
-
-          <div className="pt-2 border-t border-stone-200 flex items-center justify-between">
-            <div>
-              <span className="text-xs font-bold text-stone-800 block">{t.grandTotalText}</span>
-              <span className="text-[11px] text-stone-500">{t.finalPayableSub}</span>
-            </div>
-            <div
-              id="grandTotal"
-              className="text-xl sm:text-2xl font-black text-green-700 font-mono"
-            >
-              {sym}
-              {grandTotal.toFixed(2)}
-            </div>
-          </div>
-        </div>
-
-        {/* 2. MIDDLE: Side-by-Side Paid/Received (Left) & Discount (Right) */}
-        <div className="pt-0.5 space-y-2">
+        {/* 1. TOP: Side-by-Side Paid / Received (Left) & Discount (Right) - Now placed on top */}
+        <div className="space-y-2">
           <div className="grid grid-cols-2 gap-2.5">
             {/* LEFT COLUMN: Paid / Received */}
             <div className="space-y-1.5">
@@ -3107,7 +3064,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
               </div>
             </div>
 
-            {/* RIGHT COLUMN: Discount (Moved from top to right side as requested) */}
+            {/* RIGHT COLUMN: Discount */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between gap-1 min-h-[24px]">
                 <label className="text-[11px] sm:text-xs font-bold text-stone-700 flex items-center gap-1 truncate">
@@ -3186,28 +3143,71 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                   <Calculator className="w-3.5 h-3.5" />
                 </button>
               </div>
-
-              {/* Discount Print Option Toggle */}
-              {rawDiscount > 0 && (
-                <div className="mt-2 p-2 rounded-xl bg-amber-50/90 border border-amber-200 flex items-center justify-between gap-2 text-xs animate-in fade-in">
-                  <label className="flex items-center gap-2 cursor-pointer font-bold text-amber-950 select-none">
-                    <input
-                      type="checkbox"
-                      checked={showDiscountOnPrint}
-                      onChange={(e) => setShowDiscountOnPrint(e.target.checked)}
-                      className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                    />
-                    <span>{isBn ? '🏷️ এই কাস্টমারকে ডিসকাউন্ট বিল প্রিন্ট দিন' : '🏷️ Print Discount Bill for this customer'}</span>
-                  </label>
-                  <span className="text-[11px] font-semibold text-amber-800 shrink-0">
-                    {showDiscountOnPrint
-                      ? (isBn ? '✓ ছাড় সহ বিল' : '✓ Discount Bill')
-                      : (isBn ? 'ক্লিন বিল' : 'Clean Bill')}
-                  </span>
-                </div>
-              )}
             </div>
           </div>
+        </div>
+
+        {/* 2. BELOW: Real-time Order Summary Breakdown ("লাল জায়গা") & Print Discount Bill Option ("সঠিক") */}
+        <div className="bg-stone-50/90 border border-stone-200 p-3 sm:p-3.5 rounded-2xl space-y-2">
+          <div className="flex items-center justify-between text-xs text-stone-600">
+            <span>{t.subtotalText}</span>
+            <span className="font-mono font-bold text-stone-900">
+              {sym}
+              {subtotal.toFixed(2)}
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between text-xs text-stone-600">
+            <span className="flex items-center gap-1.5">
+              <span>{t.discountText}</span>
+              {discountAmount > 0 && discountType === 'percent' && (
+                <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.5 rounded">
+                  {rawDiscount}% off
+                </span>
+              )}
+            </span>
+            <span
+              className={`font-mono font-bold ${
+                discountAmount > 0 ? 'text-emerald-600' : 'text-stone-400'
+              }`}
+            >
+              {discountAmount > 0 ? `-${sym}${discountAmount.toFixed(2)}` : `${sym}0.00`}
+            </span>
+          </div>
+
+          <div className="pt-2 border-t border-stone-200 flex items-center justify-between">
+            <div>
+              <span className="text-xs font-bold text-stone-800 block">{t.grandTotalText}</span>
+            </div>
+            <div
+              id="grandTotal"
+              className="text-xl sm:text-2xl font-black text-green-700 font-mono"
+            >
+              {sym}
+              {grandTotal.toFixed(2)}
+            </div>
+          </div>
+
+          {/* Discount Print Option Toggle ("সঠিক") - Now neatly positioned below Grand Total */}
+          {rawDiscount > 0 && (
+            <div className="mt-1 p-2 rounded-xl bg-amber-50/90 border border-amber-200 flex items-center justify-between gap-2 text-xs animate-in fade-in">
+              <label className="flex items-center gap-2 cursor-pointer font-bold text-amber-950 select-none">
+                <input
+                  type="checkbox"
+                  checked={showDiscountOnPrint}
+                  onChange={(e) => setShowDiscountOnPrint(e.target.checked)}
+                  className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                />
+                <span>{isBn ? '🏷️ এই কাস্টমারকে ডিসকাউন্ট বিল প্রিন্ট দিন' : '🏷️ Print Discount Bill for this customer'}</span>
+              </label>
+              <span className="text-[11px] font-semibold text-amber-800 shrink-0">
+                {showDiscountOnPrint
+                  ? (isBn ? '✓ ছাড় সহ বিল' : '✓ Discount Bill')
+                  : (isBn ? 'ক্লিন বিল' : 'Clean Bill')}
+              </span>
+            </div>
+          )}
+        </div>
 
 
 
@@ -3241,7 +3241,6 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 </span>
               </div>
             )}
-        </div>
 
         {/* 4. BOTTOM: Payment Method Selection Buttons (Estimate | Cash | UPI | Due) */}
         <div className="pt-1.5 border-t border-stone-100">
