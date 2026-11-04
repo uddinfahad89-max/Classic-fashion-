@@ -381,8 +381,25 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     setShowSavedCustomerModal(true);
   };
 
-  // First-letter Autocomplete state (Disabled by default so it never disturbs typing; optional toggle in 3-dot menu)
-  const [enableSavedSuggestions, setEnableSavedSuggestions] = useState(false);
+  // Product Autocomplete / Suggestions state (ON by default as requested; remembers setting in localStorage)
+  const [enableSavedSuggestions, setEnableSavedSuggestionsState] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('thermal_pos_enable_product_suggestions');
+      return saved !== null ? saved === 'true' : true; // Default to ON as requested
+    } catch {
+      return true;
+    }
+  });
+
+  const setEnableSavedSuggestions = (val: boolean | ((prev: boolean) => boolean)) => {
+    setEnableSavedSuggestionsState((prev) => {
+      const next = typeof val === 'function' ? val(prev) : val;
+      try {
+        localStorage.setItem('thermal_pos_enable_product_suggestions', String(next));
+      } catch {}
+      return next;
+    });
+  };
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0);
   const suggestionContainerRef = useRef<HTMLDivElement>(null);
@@ -651,10 +668,13 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     return Array.from(map.values());
   }, [products]);
 
-  // Instant First-Letter or Barcode Matching Products
+  // Instant First-Letter or Barcode Matching Products (from manually saved product catalog)
   const matchingProducts = useMemo(() => {
     const q = itemName.trim().toLowerCase();
-    if (!q) return [];
+    if (!q) {
+      // Show up to 8 manually saved catalog products for quick selection
+      return allSavedProducts.slice(0, 8);
+    }
 
     const exactStartsWith: ProductStockItem[] = [];
     const wordStartsWith: ProductStockItem[] = [];
@@ -2690,7 +2710,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 style={{ textTransform: isAllCaps ? 'uppercase' : 'none' }}
                 value={itemName}
                 onFocus={() => {
-                  if (enableSavedSuggestions && itemName.trim().length > 0) {
+                  if (enableSavedSuggestions) {
                     setShowSuggestions(true);
                   }
                 }}
@@ -2698,7 +2718,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                   const val = isAllCaps ? e.target.value.toUpperCase() : e.target.value;
                   setItemName(val);
                   if (enableSavedSuggestions) {
-                    setShowSuggestions(val.trim().length > 0);
+                    setShowSuggestions(true);
                   } else {
                     setShowSuggestions(false);
                   }
@@ -2712,7 +2732,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                 className="w-full border border-stone-200 bg-stone-50/80 px-3 md:px-4 py-2.5 md:py-3.5 rounded-xl text-xs sm:text-sm md:text-base font-medium focus:outline-none focus:border-blue-500 focus:bg-white transition-all font-mono"
               />
 
-              {/* OPTIONAL SAVED PRODUCTS DROPDOWN (Only shown if explicitly enabled from 3-dot menu) */}
+              {/* SAVED PRODUCTS SUGGESTION DROPDOWN */}
               {enableSavedSuggestions && showSuggestions && matchingProducts.length > 0 && (
                 <div
                   id="product-autocomplete-dropdown"
@@ -2723,8 +2743,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                       <Sparkles className="w-3 h-3 text-blue-600" />
                       <span>
                         {isBn
-                          ? 'সেভ করা প্রোডাক্ট (ট্যাপ করলে নাম ও দাম বসবে)'
-                          : 'Saved Products (Tap to fill name & price)'}
+                          ? 'ম্যানুয়াল সেভ প্রোডাক্ট সাজেশন (ট্যাপ করলে নাম ও দর বসবে)'
+                          : 'Saved Product Suggestions (Tap to select)'}
                       </span>
                     </span>
                     <span>{isBn ? `${matchingProducts.length}টি পাওয়া গেছে` : `${matchingProducts.length} found`}</span>

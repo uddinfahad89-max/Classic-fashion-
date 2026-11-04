@@ -2231,37 +2231,8 @@ class StorageService {
           list = parsed;
         }
       }
-      // If product list is empty and never initialized, seed once from any existing invoices
-      if (list.length === 0 && !localStorage.getItem('pos_products_initialized')) {
-        localStorage.setItem('pos_products_initialized', 'true');
-        const bills = this.getBills();
-        if (bills.length > 0) {
-          const map = new Map<string, ProductStockItem>();
-          for (const bill of bills) {
-            for (const item of bill.items || []) {
-              const cleanName = (item.name || '').trim();
-              if (!cleanName) continue;
-              const key = cleanName.toLowerCase();
-              if (!map.has(key)) {
-                map.set(key, {
-                  id: 'prod-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
-                  name: cleanName,
-                  price: item.price || 0,
-                  stock: 0,
-                  unit: 'Pcs',
-                  updatedAt: bill.timestamp || Date.now(),
-                });
-              }
-            }
-          }
-          if (map.size > 0) {
-            list = Array.from(map.values());
-            localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(list));
-          }
-        }
-      }
       const deletedProds = this.getDeletedProductIds();
-      return list.filter((p) => !deletedProds.has(p.id));
+      return list.filter((p) => !deletedProds.has(p.id) && !p.isDeleted);
     } catch {
       return [];
     }
@@ -2435,23 +2406,11 @@ class StorageService {
       );
       if (idx >= 0) {
         products[idx].stock = Math.max(0, (products[idx].stock || 0) - (item.qty || 1));
-        if (item.price > 0) {
-          products[idx].price = item.price;
-        }
         products[idx].updatedAt = now;
         changed = true;
-      } else {
-        // Also auto-save new billed product so next time typing its first letter brings it up immediately!
-        products.unshift({
-          id: 'prod-' + now + '-' + Math.random().toString(36).substring(2, 6),
-          name: cleanName,
-          price: item.price || 0,
-          stock: 0,
-          unit: 'Pcs',
-          updatedAt: now,
-        });
-        changed = true;
       }
+      // CRITICAL: Ad-hoc items entered during billing are NOT added to the official product list.
+      // Only products manually created by the user remain in the product list.
     }
 
     if (changed) {
