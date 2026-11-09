@@ -482,51 +482,55 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       }
     }
 
-    try {
-      const hasAnyDraftData =
-        billItems.length > 0 ||
-        customerName.trim() !== '' ||
-        customerPhone.trim() !== '' ||
-        discountValue.trim() !== '' ||
-        paidAmount.trim() !== '' ||
-        itemName.trim() !== '' ||
-        itemPrice.trim() !== '' ||
-        isTailoring ||
-        isGstBill ||
-        customerGst.trim() !== '';
+    const timer = setTimeout(() => {
+      try {
+        const hasAnyDraftData =
+          billItems.length > 0 ||
+          customerName.trim() !== '' ||
+          customerPhone.trim() !== '' ||
+          discountValue.trim() !== '' ||
+          paidAmount.trim() !== '' ||
+          itemName.trim() !== '' ||
+          itemPrice.trim() !== '' ||
+          isTailoring ||
+          isGstBill ||
+          customerGst.trim() !== '';
 
-      if (!hasAnyDraftData) {
-        localStorage.removeItem(BILLING_CART_DRAFT_KEY);
-      } else {
-        const draftPayload: BillingCartDraft = {
-          billItems,
-          customerName,
-          customerPhone,
-          discountType,
-          discountValue,
-          paymentMethod,
-          paidAmount,
-          itemName,
-          itemPrice,
-          itemQty,
-          itemUnit,
-          isTailoring,
-          deliveryDate,
-          trialDate,
-          tailoringStatus,
-          measurements,
-          isGstBill,
-          customerGst,
-          gstRate,
-          taxType,
-          isGstInclusive,
-          updatedAt: Date.now(),
-        };
-        localStorage.setItem(BILLING_CART_DRAFT_KEY, JSON.stringify(draftPayload));
+        if (!hasAnyDraftData) {
+          localStorage.removeItem(BILLING_CART_DRAFT_KEY);
+        } else {
+          const draftPayload: BillingCartDraft = {
+            billItems,
+            customerName,
+            customerPhone,
+            discountType,
+            discountValue,
+            paymentMethod,
+            paidAmount,
+            itemName,
+            itemPrice,
+            itemQty,
+            itemUnit,
+            isTailoring,
+            deliveryDate,
+            trialDate,
+            tailoringStatus,
+            measurements,
+            isGstBill,
+            customerGst,
+            gstRate,
+            taxType,
+            isGstInclusive,
+            updatedAt: Date.now(),
+          };
+          localStorage.setItem(BILLING_CART_DRAFT_KEY, JSON.stringify(draftPayload));
+        }
+      } catch (err) {
+        console.warn('Failed to auto-save billing cart draft:', err);
       }
-    } catch (err) {
-      console.warn('Failed to auto-save billing cart draft:', err);
-    }
+    }, 250);
+
+    return () => clearTimeout(timer);
   }, [
     billItems,
     customerName,
@@ -893,6 +897,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   // Auto-repair any existing scanned items in the current bill that had Rs 0 rate (e.g. "Item (ZF1678455)")
   useEffect(() => {
     if (billItems.length === 0) return;
+    if (!billItems.some((it) => it.price <= 0)) return; // Instant bail-out: zero overhead if all items have valid prices
     let didRepair = false;
     const repaired = billItems.map((it) => {
       if (it.price > 0) return it;
@@ -2698,6 +2703,56 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             </div>
           )}
 
+          {/* ITEM NAME HEADER ROW WITH 1-TAP PRODUCT SUGGESTION ON/OFF TOGGLE */}
+          <div className="flex items-center justify-between px-0.5 pt-0.5">
+            <label
+              htmlFor="itemName"
+              className="text-[11px] font-black uppercase tracking-wider text-stone-500 flex items-center gap-1"
+            >
+              <span>{isBn ? 'আইটেমের নাম' : 'ITEM NAME'}</span>
+            </label>
+
+            <button
+              type="button"
+              id="btn-toggle-product-suggestion"
+              onClick={() => {
+                const next = !enableSavedSuggestions;
+                setEnableSavedSuggestions(next);
+                if (!next) {
+                  setShowSuggestions(false);
+                } else if (itemName.trim().length > 0) {
+                  setShowSuggestions(true);
+                }
+              }}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold border transition-all cursor-pointer shadow-2xs select-none active:scale-95 ${
+                enableSavedSuggestions
+                  ? 'bg-blue-50 text-blue-700 border-blue-300 hover:bg-blue-100'
+                  : 'bg-stone-100 text-stone-500 border-stone-300 hover:bg-stone-200'
+              }`}
+              title={
+                enableSavedSuggestions
+                  ? (isBn ? 'প্রোডাক্ট সাজেশন চালু আছে (ট্যাপ করে বন্ধ করুন)' : 'Product Suggestions ON (Click to turn OFF)')
+                  : (isBn ? 'প্রোডাক্ট সাজেশন বন্ধ আছে (ট্যাপ করে চালু করুন)' : 'Product Suggestions OFF (Click to turn ON)')
+              }
+            >
+              <Sparkles
+                className={`w-3.5 h-3.5 ${
+                  enableSavedSuggestions ? 'text-blue-600' : 'text-stone-400'
+                }`}
+              />
+              <span>{isBn ? 'প্রোডাক্ট সাজেশন:' : 'Product Suggestion:'}</span>
+              <span
+                className={`px-1.5 py-0.2 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                  enableSavedSuggestions
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-stone-300 text-stone-700'
+                }`}
+              >
+                {enableSavedSuggestions ? 'ON' : 'OFF'}
+              </span>
+            </button>
+          </div>
+
           {/* ITEM NAME INPUT + CAMERA BARCODE SCANNER BUTTON + 3-DOT STOCK MENU */}
           <div className="flex items-center gap-1.5 sm:gap-2">
             <div ref={suggestionContainerRef} className="relative flex-1">
@@ -2738,16 +2793,31 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                   id="product-autocomplete-dropdown"
                   className="absolute left-0 right-0 top-full mt-1.5 z-30 bg-white rounded-2xl shadow-xl border border-blue-200 overflow-hidden divide-y divide-stone-100 animate-in fade-in slide-in-from-top-1 duration-100"
                 >
-                  <div className="px-3 py-1.5 bg-blue-50/80 flex items-center justify-between text-[10px] font-bold text-blue-700">
-                    <span className="flex items-center gap-1">
-                      <Sparkles className="w-3 h-3 text-blue-600" />
-                      <span>
+                  <div className="px-3 py-1.5 bg-blue-50/90 flex items-center justify-between text-[11px] font-bold text-blue-800 border-b border-blue-100">
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      <Sparkles className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                      <span className="truncate">
                         {isBn
-                          ? 'ম্যানুয়াল সেভ প্রোডাক্ট সাজেশন (ট্যাপ করলে নাম ও দর বসবে)'
-                          : 'Saved Product Suggestions (Tap to select)'}
+                          ? 'ম্যানুয়াল সেভ প্রোডাক্ট সাজেশন'
+                          : 'Saved Product Suggestions'}
+                      </span>
+                      <span className="text-[10px] text-blue-600 font-bold shrink-0">
+                        ({matchingProducts.length})
                       </span>
                     </span>
-                    <span>{isBn ? `${matchingProducts.length}টি পাওয়া গেছে` : `${matchingProducts.length} found`}</span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEnableSavedSuggestions(false);
+                        setShowSuggestions(false);
+                      }}
+                      className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-white hover:bg-rose-50 text-stone-600 hover:text-rose-600 border border-blue-200 cursor-pointer flex items-center gap-1 transition-colors shrink-0"
+                      title={isBn ? 'সাজেশন বন্ধ করুন (OFF)' : 'Turn OFF suggestions'}
+                    >
+                      <span>✕</span>
+                      <span>{isBn ? 'বন্ধ করুন (OFF)' : 'Turn OFF'}</span>
+                    </button>
                   </div>
 
                   <div className="max-h-60 overflow-y-auto divide-y divide-stone-100">

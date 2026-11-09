@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, X, Save, Check, Bluetooth, Power, Trash2, FileText, CheckCircle2, Zap, HelpCircle, Download, Upload, Database, Tag, Copy, Cloud, ShieldCheck, Receipt, Flame, Barcode, RefreshCw, Crown, UserCheck, Tablet } from 'lucide-react';
+import { Settings, X, Save, Check, Bluetooth, Power, Trash2, FileText, CheckCircle2, Zap, HelpCircle, Download, Upload, Database, Tag, Copy, Cloud, ShieldCheck, Receipt, Flame, Barcode, RefreshCw, Crown, UserCheck, Tablet, Sparkles } from 'lucide-react';
 import { ThermalPrinterSettings, BluetoothDeviceInfo, Language } from '../types';
 import { translations } from '../utils/i18n';
 import { storageService, BarcodeScanPreferences } from '../services/storageService';
@@ -43,6 +43,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [saved, setSaved] = useState(false);
   const [backupMsg, setBackupMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  const [productSuggestionsEnabled, setProductSuggestionsEnabled] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('thermal_pos_enable_product_suggestions');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+
+  const handleToggleProductSuggestions = (val: boolean) => {
+    setProductSuggestionsEnabled(val);
+    try {
+      localStorage.setItem('thermal_pos_enable_product_suggestions', String(val));
+    } catch {}
+  };
+
   const [scanPrefs, setScanPrefs] = useState<BarcodeScanPreferences>(() =>
     storageService.getBarcodeScanPreferences()
   );
@@ -58,6 +74,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   useEffect(() => {
     setForm(settings);
     setBackupMsg(null);
+    if (isOpen) {
+      try {
+        const savedSugg = localStorage.getItem('thermal_pos_enable_product_suggestions');
+        setProductSuggestionsEnabled(savedSugg !== null ? savedSugg === 'true' : true);
+      } catch {}
+    }
     if (isOpen) {
       setScanPrefs(storageService.getBarcodeScanPreferences());
     }
@@ -810,6 +832,30 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               onChange={(e) => setForm({ ...form, isDataSaverEnabled: e.target.checked })}
               className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
             />
+          </div>
+
+          {/* Product Suggestion Toggle in Settings */}
+          <div className="p-3 bg-blue-50/70 rounded-2xl border border-blue-200 flex items-center justify-between gap-3">
+            <div>
+              <div className="font-bold text-blue-950 text-xs flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                <span>{isBn ? 'বিলিংয়ে প্রোডাক্ট সাজেশন (Product Suggestions)' : 'Product Suggestions on Billing'}</span>
+              </div>
+              <div className="text-[11px] text-blue-800">
+                {isBn
+                  ? 'বিলিংয়ের সময় পণ্যের নাম লিখলে ড্রপডাউনে সেভ করা পণ্যের নাম ও দামের সাজেশন দেখাবে।'
+                  : 'Shows matching saved product suggestions when typing product name in billing.'}
+              </div>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+              <input
+                type="checkbox"
+                checked={productSuggestionsEnabled}
+                onChange={(e) => handleToggleProductSuggestions(e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-stone-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+            </label>
           </div>
 
           {/* Barcode Scanner & Duplicate Protection Settings */}
