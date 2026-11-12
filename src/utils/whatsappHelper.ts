@@ -6,6 +6,15 @@ export interface SendWhatsAppBillParams {
   subtotal: number;
   discount?: number;
   finalPayable?: number;
+  paidAmount?: number;
+  balance?: number;
+  changeAmount?: number;
+  paymentMethod?: string;
+  paymentStatus?: string;
+  isEstimate?: boolean;
+  isTailoring?: boolean;
+  deliveryDate?: string;
+  trialDate?: string;
   storeName?: string;
   storeAddress?: string;
   invoiceNo?: number | string;
@@ -16,7 +25,7 @@ export interface SendWhatsAppBillParams {
 }
 
 /**
- * Generates and triggers WhatsApp bill sharing using the user's custom layout
+ * Generates and triggers WhatsApp bill sharing with clear subtotal, discount, total, advance paid, and due balance.
  */
 export function sendWhatsAppBill({
   customerPhone = '',
@@ -24,11 +33,20 @@ export function sendWhatsAppBill({
   subtotal = 0,
   discount = 0,
   finalPayable,
+  paidAmount,
+  balance,
+  changeAmount = 0,
+  paymentMethod,
+  paymentStatus,
+  isEstimate = false,
+  isTailoring = false,
+  deliveryDate,
+  trialDate,
   storeName,
   storeAddress,
   invoiceNo,
   date,
-  currencySymbol = '₹',
+  currencySymbol = 'Rs.',
   customNote,
   items,
 }: SendWhatsAppBillParams): string {
@@ -47,28 +65,88 @@ export function sendWhatsAppBill({
 
   const effectiveStore = storeName?.trim() || 'ক্লাসিক ফ্যাশন';
   const effectiveLocation = storeAddress?.trim() ? storeAddress.trim() : 'Kotamoni Bazar';
-  const sym = currencySymbol || '₹';
+  const sym = currencySymbol || 'Rs.';
+
+  const paid = paidAmount !== undefined ? Math.max(0, parseFloat(String(paidAmount)) || 0) : undefined;
+  const bal = balance !== undefined ? Math.max(0, parseFloat(String(balance)) || 0) : (paid !== undefined ? Math.max(0, payable - paid) : undefined);
+  const change = changeAmount !== undefined ? Math.max(0, parseFloat(String(changeAmount)) || 0) : 0;
 
   // Custom manual note
   const note =
     customNote?.trim() ||
     `আপনার সাথে আবার দেখা হবে! ${effectiveStore} থেকে কেনাকাটা করার জন্য ধন্যবাদ। ভালো থাকবেন। 🙏`;
 
-  // WhatsApp message text design (Exact short summary format requested by user)
+  // WhatsApp message text design
   let message = `Dear *${customerName?.trim() || 'Customer'}*,\n\n` +
                 `Thank you for shopping at *${effectiveStore}* (${effectiveLocation})!\n` +
-                `----------------------------------\n` +
-                `🛍️ *Subtotal:* ${sym}${sub.toFixed(0)}\n`;
+                `----------------------------------\n`;
+
+  // Invoice No & Date
+  if (invoiceNo || date) {
+    const invPart = invoiceNo ? `🧾 *Invoice:* #${invoiceNo}` : '';
+    const datePart = date ? `📅 *Date:* ${date}` : '';
+    const metaLine = [invPart, datePart].filter(Boolean).join('  |  ');
+    if (metaLine) {
+      message += `${metaLine}\n----------------------------------\n`;
+    }
+  }
+
+  // Subtotal
+  message += `🛍️ *Subtotal:* ${sym}${sub.toFixed(0)}\n`;
 
   // If discount is present, show with percentage
   if (disc > 0) {
-    message += `🏷️ *Discount:* ${sym}${disc.toFixed(0)} (*${discountPercent}% OFF*)\n`;
+    message += `🏷️ *Discount:* -${sym}${disc.toFixed(0)} (*${discountPercent}% OFF*)\n`;
   }
 
-  message += `----------------------------------\n` +
-             `💵 *Final Payable:* ${sym}${payable.toFixed(0)}\n` +
-             `----------------------------------\n` +
-             `${note}`;
+  // Total Bill
+  message += `💵 *Total Bill:* ${sym}${payable.toFixed(0)}\n` +
+             `----------------------------------\n`;
+
+  // Payment Breakdown (Advance Paid, Due Balance, Fully Paid, Change)
+  if (isEstimate) {
+    message += `📋 *Bill Type:* Estimate Quotation (এস্টিমেট)\n` +
+               `----------------------------------\n`;
+  } else if (paid !== undefined || bal !== undefined) {
+    const effectivePaid = paid !== undefined ? paid : 0;
+    const effectiveBal = bal !== undefined ? bal : Math.max(0, payable - effectivePaid);
+
+    // 1. Advance / Partial Payment (E.g. Total 3500, Advance Paid 2500, Due 1000)
+    if (effectivePaid > 0 && effectiveBal > 0) {
+      message += `💳 *Paid / Advance (জমা/অগ্রিম):* ${sym}${effectivePaid.toFixed(0)}\n` +
+                 `⚠️ *Remaining Due (বাকি):* ${sym}${effectiveBal.toFixed(0)}\n` +
+                 `🟡 *Payment Status:* Advance Paid (অগ্রিম জমা)\n`;
+    }
+    // 2. Paid in Full (Balance <= 0 or Paid >= Total)
+    else if (effectiveBal <= 0 || effectivePaid >= payable) {
+      message += `💳 *Paid Amount (পরিশোধ):* ${sym}${effectivePaid.toFixed(0)}\n`;
+      if (change > 0) {
+        message += `🔄 *Change Returned (ফেরত):* ${sym}${change.toFixed(0)}\n`;
+      }
+      message += `✅ *Payment Status:* Paid in Full (সম্পূর্ণ পরিশোধিত)\n`;
+    }
+    // 3. Complete Due / Credit Sale (Paid = 0, Balance > 0)
+    else {
+      message += `💳 *Paid Amount (জমা):* ${sym}0\n` +
+                 `⚠️ *Due Amount (বাকি):* ${sym}${effectiveBal.toFixed(0)}\n` +
+                 `🔴 *Payment Status:* Due / Credit (বাকি বিল)\n`;
+    }
+
+    // Tailoring specific details
+    if (isTailoring) {
+      if (deliveryDate) {
+        message += `🧵 *Delivery Date (ডেলিভারি):* ${deliveryDate}\n`;
+      }
+      if (trialDate) {
+        message += `🪡 *Trial Date (ট্রায়াল):* ${trialDate}\n`;
+      }
+    }
+
+    message += `----------------------------------\n`;
+  }
+
+  // Footer Note
+  message += `${note}`;
 
   // URL encode
   const encodedMessage = encodeURIComponent(message);
@@ -112,7 +190,7 @@ export function sendWhatsAppBillForInvoice(
 ): string {
   const storeName = settings?.storeName || 'ক্লাসিক ফ্যাশন';
   const storeAddress = settings?.storeAddress || 'Kotamoni Bazar';
-  const currencySymbol = settings?.currencySymbol || '₹';
+  const currencySymbol = settings?.currencySymbol || 'Rs.';
   const customNote = settings?.footerNote;
 
   const subtotal = bill.subtotal !== undefined && bill.subtotal > 0
@@ -122,12 +200,29 @@ export function sendWhatsAppBillForInvoice(
   const discount = bill.discount || 0;
   const finalPayable = bill.grandTotal !== undefined ? bill.grandTotal : Math.max(0, subtotal - discount);
 
+  const paidAmount = bill.paidAmount !== undefined
+    ? bill.paidAmount
+    : (bill.paymentStatus === 'PAID' ? finalPayable : 0);
+
+  const balance = bill.balance !== undefined
+    ? bill.balance
+    : (bill.paymentStatus === 'PAID' ? 0 : Math.max(0, finalPayable - paidAmount));
+
   return sendWhatsAppBill({
     customerPhone: bill.customerPhone || '',
     customerName: bill.customerName || '',
     subtotal,
     discount,
     finalPayable,
+    paidAmount,
+    balance,
+    changeAmount: bill.changeAmount || 0,
+    paymentMethod: bill.paymentMethod,
+    paymentStatus: bill.paymentStatus,
+    isEstimate: bill.isEstimate,
+    isTailoring: bill.isTailoring,
+    deliveryDate: bill.deliveryDate,
+    trialDate: bill.trialDate,
     storeName,
     storeAddress,
     invoiceNo: bill.invoiceNo,

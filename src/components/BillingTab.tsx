@@ -1597,21 +1597,15 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     const actualPaid =
       isThisAnEstimate
         ? 0
-        : paymentMethod === 'due'
-        ? paidAmount.trim() !== '' && paidNum < finalGrandTotal
-          ? paidNum
-          : 0
         : paidAmount.trim() !== ''
         ? paidNum
-        : isTailoring
+        : paymentMethod === 'due' || isTailoring
         ? 0
         : finalGrandTotal;
     const balanceAmount =
       isThisAnEstimate
         ? 0
-        : paymentMethod === 'due' || isTailoring || (paidAmount.trim() !== '' && paidNum < finalGrandTotal)
-        ? Math.max(0, finalGrandTotal - actualPaid)
-        : 0;
+        : Math.max(0, finalGrandTotal - actualPaid);
     const hasMeasurements = Object.values(measurements).some((v) => Boolean(v && String(v).trim()));
 
     const bill: BillInvoice = {
