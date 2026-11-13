@@ -657,19 +657,6 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
                     <span className="text-[11px] font-mono font-bold text-stone-500 bg-stone-100 px-1.5 py-0.5 rounded">
                       #{bill.invoiceNo}
                     </span>
-                    {(bill.cashierName || bill.cashierId) && (
-                      <span
-                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-indigo-50 text-indigo-700 text-[10px] font-bold border border-indigo-200"
-                        title={
-                          isBn
-                            ? `তৈরি করেছেন: ${bill.cashierName || 'স্টাফ'}${bill.cashierId ? ` (${bill.cashierId})` : ''}`
-                            : `Created by: ${bill.cashierName || 'Staff'}${bill.cashierId ? ` (${bill.cashierId})` : ''}`
-                        }
-                      >
-                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
-                        <span>{bill.cashierName || 'Staff'}{bill.cashierId ? ` (${bill.cashierId})` : ''}</span>
-                      </span>
-                    )}
                     {bill.isGstBill && (
                       <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-[10px] font-mono font-black border border-emerald-300">
                         GST {bill.gstRate ? `${bill.gstRate}%` : ''}
@@ -688,62 +675,21 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
                         <span>-{sym}{bill.discount}</span>
                       </span>
                     )}
-                    {isEstBill ? (
-                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-700 text-[10px] font-bold border border-blue-200">
-                        {isBn ? 'এস্টিমেট (Estimate)' : 'ESTIMATE'}
-                      </span>
-                    ) : bill.paymentMethod === 'cash' ? (
+                    {!isEstBill && bill.paymentMethod === 'cash' ? (
                       <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200">
                         {isBn ? 'ক্যাশ (Cash)' : 'CASH'}
                         {isDue && (bill.paymentStatus === 'PARTIAL' ? ' • আংশিক' : ' • বাকি')}
                       </span>
-                    ) : bill.paymentMethod === 'upi' ? (
+                    ) : !isEstBill && bill.paymentMethod === 'upi' ? (
                       <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-purple-50 text-purple-700 text-[10px] font-bold border border-purple-200">
                         {isBn ? 'ইউপিআই (UPI)' : 'UPI'}
                         {isDue && (bill.paymentStatus === 'PARTIAL' ? ' • আংশিক' : ' • বাকি')}
                       </span>
-                    ) : bill.paymentMethod === 'due' ? (
-                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-700 text-[10px] font-bold border border-rose-200">
-                        {isBn ? 'ক্রেডিট / বাকি (Credit)' : 'CREDIT'}
-                      </span>
-                    ) : isDue ? (
-                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-700 text-[10px] font-bold border border-rose-200">
-                        {bill.paymentStatus === 'PARTIAL'
-                          ? isBn
-                            ? 'আংশিক বাকি (Partial Due)'
-                            : 'Partial Due'
-                          : isBn
-                          ? 'ক্রেডিট / বাকি (Due)'
-                          : 'CREDIT'}
-                      </span>
-                    ) : (
+                    ) : !isEstBill && bill.paymentMethod !== 'due' && !isDue ? (
                       <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 text-[10px] font-bold">
                         {isBn ? 'ক্যাশ (Cash / Paid)' : 'CASH / PAID'}
                       </span>
-                    )}
-                    {bill.isTailoring && (
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-purple-100 text-purple-800 text-[10px] font-bold">
-                        <span>✂️ Tailoring</span>
-                        {bill.measurements?.garmentType ? ` • ${bill.measurements.garmentType}` : ''}
-                      </span>
-                    )}
-                    {bill.isTailoring && bill.tailoringStatus && (
-                      <span
-                        className={`inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold ${
-                          bill.tailoringStatus === 'ready'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : bill.tailoringStatus === 'delivered'
-                            ? 'bg-stone-200 text-stone-700'
-                            : 'bg-amber-100 text-amber-800'
-                        }`}
-                      >
-                        {bill.tailoringStatus === 'ready'
-                          ? 'Ready'
-                          : bill.tailoringStatus === 'delivered'
-                          ? 'Delivered'
-                          : 'Stitching'}
-                      </span>
-                    )}
+                    ) : null}
                   </div>
                   <div className="text-[12px] sm:text-[13px] font-normal text-stone-400 mt-0.5 flex items-center gap-2 flex-wrap">
                     <span>{formattedDate}</span>
