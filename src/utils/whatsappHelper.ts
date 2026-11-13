@@ -8,6 +8,7 @@ export interface SendWhatsAppBillParams {
   finalPayable?: number;
   paidAmount?: number;
   balance?: number;
+  previousBalance?: number;
   changeAmount?: number;
   paymentMethod?: string;
   paymentStatus?: string;
@@ -35,6 +36,7 @@ export function sendWhatsAppBill({
   finalPayable,
   paidAmount,
   balance,
+  previousBalance = 0,
   changeAmount = 0,
   paymentMethod,
   paymentStatus,
@@ -145,6 +147,15 @@ export function sendWhatsAppBill({
     message += `----------------------------------\n`;
   }
 
+  const prevBal = Math.max(0, parseFloat(String(previousBalance)) || 0);
+  if (prevBal > 0) {
+    const currDue = isEstimate ? payable : (bal !== undefined ? bal : 0);
+    const netTotalBal = prevBal + currDue;
+    message += `📌 *Previous Balance (পুরানা বাকি):* ${sym}${prevBal.toFixed(0)}\n` +
+               `💰 *${isEstimate ? 'Net Payable (নতুন + পুরানা)' : 'Net Total Balance (সর্বমোট বাকি)'}:* ${sym}${netTotalBal.toFixed(0)}\n` +
+               `----------------------------------\n`;
+  }
+
   // Footer Note
   message += `${note}`;
 
@@ -208,6 +219,11 @@ export function sendWhatsAppBillForInvoice(
     ? bill.balance
     : (bill.paymentStatus === 'PAID' ? 0 : Math.max(0, finalPayable - paidAmount));
 
+  const previousBalance =
+    settings?.showPreviousBalanceOnBill !== false
+      ? Math.max(0, Number(bill.previousBalance) || 0)
+      : 0;
+
   return sendWhatsAppBill({
     customerPhone: bill.customerPhone || '',
     customerName: bill.customerName || '',
@@ -216,6 +232,7 @@ export function sendWhatsAppBillForInvoice(
     finalPayable,
     paidAmount,
     balance,
+    previousBalance,
     changeAmount: bill.changeAmount || 0,
     paymentMethod: bill.paymentMethod,
     paymentStatus: bill.paymentStatus,

@@ -803,6 +803,23 @@ export class ThermalPrinterService {
         slipLines.push(padBetween('DUE (BAKI):', `${sym}${dueAmtFull.toFixed(2)}`));
       }
 
+      const prevBalSlip =
+        settings.showPreviousBalanceOnBill !== false
+          ? Math.max(0, Number(bill.previousBalance) || 0)
+          : 0;
+      if (prevBalSlip > 0) {
+        const netDueSlip =
+          prevBalSlip + (isEstimate ? bill.grandTotal : isDueFull ? dueAmtFull : 0);
+        slipLines.push(divider);
+        slipLines.push(padBetween('PREV. BALANCE:', `${sym}${prevBalSlip.toFixed(2)}`));
+        slipLines.push(
+          padBetween(
+            isEstimate ? 'TOTAL + PREV BAL:' : 'NET TOTAL DUE:',
+            `${sym}${netDueSlip.toFixed(2)}`
+          )
+        );
+      }
+
       slipLines.push(divider);
       slipLines.push(padCenter('Thank you! Visit again.'));
 
@@ -1084,6 +1101,23 @@ export class ThermalPrinterService {
       lines.push(padBetween(`PAID: ${sym}${bill.paidAmount.toFixed(2)}`, `DUE: ${sym}${dueAmtFull.toFixed(2)}`));
     } else if (isDueFull && dueAmtFull > 0 && bill.paymentMethod !== 'due') {
       lines.push(padBetween('DUE (BAKI):', `${sym}${dueAmtFull.toFixed(2)}`));
+    }
+
+    const prevBalMain =
+      settings.showPreviousBalanceOnBill !== false
+        ? Math.max(0, Number(bill.previousBalance) || 0)
+        : 0;
+    if (prevBalMain > 0) {
+      const netDueMain =
+        prevBalMain + (isEstimate ? bill.grandTotal : isDueFull ? dueAmtFull : 0);
+      lines.push(divider);
+      lines.push(padBetween('PREV. BALANCE:', `${sym}${prevBalMain.toFixed(2)}`));
+      lines.push(
+        padBetween(
+          isEstimate ? 'TOTAL + PREV BAL:' : 'NET TOTAL DUE:',
+          `${sym}${netDueMain.toFixed(2)}`
+        )
+      );
     }
 
     lines.push(divider);

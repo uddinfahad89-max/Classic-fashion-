@@ -92,6 +92,7 @@ const DEFAULT_SETTINGS: ThermalPrinterSettings = {
   tabletMode: 'auto',
   uiScale: 'normal',
   autoOpenReceiptAfterBill: false,
+  showPreviousBalanceOnBill: true,
   storeGstin: '',
   defaultGstRate: 5,
   defaultTaxType: 'intra',
@@ -1061,6 +1062,91 @@ class StorageService {
 
     this.saveCustomerDues(dues);
     return target;
+  }
+
+  getCustomerPreviousBalance(
+    customerName?: string,
+    customerPhone?: string
+  ): {
+    amount: number;
+    type: DueType;
+    matchedCustomerName?: string;
+  } {
+    const cleanName = (customerName || '').trim().toLowerCase();
+    const cleanPhoneDigits = (customerPhone || '').replace(/[^0-9]/g, '').slice(-10);
+
+    const genericNames = new Set([
+      '',
+      'cash',
+      'cash sale',
+      'cash customer',
+      'walk-in customer',
+      'customer',
+    ]);
+    const hasUsableName = !genericNames.has(cleanName);
+    const hasUsablePhone = cleanPhoneDigits.length >= 6;
+
+    if (!hasUsableName && !hasUsablePhone) {
+      return { amount: 0, type: 'receivable' };
+    }
+
+    const dues = this.getCustomerDues();
+    let matchedDue: CustomerDue | undefined;
+
+    if (hasUsablePhone) {
+      matchedDue = dues.find((d) => {
+        const dDigits = (d.phone || '').replace(/[^0-9]/g, '').slice(-10);
+        return dDigits.length >= 6 && dDigits === cleanPhoneDigits;
+      });
+    }
+    if (!matchedDue && hasUsableName) {
+      matchedDue = dues.find((d) => (d.name || '').trim().toLowerCase() === cleanName);
+    }
+
+    if (matchedDue) {
+      return {
+        amount: Math.max(0, Number(matchedDue.dueAmount) || 0),
+        type: matchedDue.type || 'receivable',
+        matchedCustomerName: matchedDue.name,
+      };
+    }
+
+    // Fallback: if no Khata ledger record exists yet, check past non-estimate bills with unpaid balance
+    const bills = this.getBills();
+    let unpaidSum = 0;
+    let matchedBillName: string | undefined;
+    for (const b of bills) {
+      if (b.isDeleted || b.isEstimate || b.paymentMethod === 'estimate') continue;
+      const bBal =
+        b.balance !== undefined
+          ? Math.max(0, Number(b.balance) || 0)
+          : b.paymentMethod === 'due'
+          ? Math.max(0, (Number(b.grandTotal) || 0) - (Number(b.paidAmount) || 0))
+          : 0;
+      if (bBal <= 0) continue;
+
+      const bPhone = (b.customerPhone || '').replace(/[^0-9]/g, '').slice(-10);
+      const bName = (b.customerName || '').trim().toLowerCase();
+      const phoneMatch = hasUsablePhone && bPhone.length >= 6 && bPhone === cleanPhoneDigits;
+      const nameMatch = hasUsableName && bName === cleanName;
+
+      if (phoneMatch || nameMatch) {
+        unpaidSum += bBal;
+        if (!matchedBillName && b.customerName) {
+          matchedBillName = b.customerName.trim();
+        }
+      }
+    }
+
+    if (unpaidSum > 0) {
+      return {
+        amount: Math.round(unpaidSum * 100) / 100,
+        type: 'receivable',
+        matchedCustomerName: matchedBillName || customerName?.trim(),
+      };
+    }
+
+    return { amount: 0, type: 'receivable' };
   }
 
   updateCustomerDueDetails(

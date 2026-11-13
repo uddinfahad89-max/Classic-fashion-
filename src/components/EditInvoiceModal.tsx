@@ -365,7 +365,8 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
       paidAmount: isEst ? 0 : finalPaid,
       changeAmount: isEst || finalPaymentMethod === 'due' ? 0 : changeAmount,
       balance: isEst ? 0 : finalBalance,
-      currentBalance: isEst ? 0 : finalBalance,
+      previousBalance: bill.previousBalance || 0,
+      currentBalance: (bill.previousBalance || 0) + (isEst ? 0 : finalBalance),
       isEstimate: isEst,
       isGstBill: Boolean(isGstBill),
       ...(isGstBill

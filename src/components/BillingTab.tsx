@@ -407,6 +407,21 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   // Customer Details & Tailoring State
   const [customerName, setCustomerName] = useState(() => initialDraft?.customerName || '');
   const [customerPhone, setCustomerPhone] = useState(() => initialDraft?.customerPhone || '');
+
+  // Live Customer Previous / Old Balance (পুরানা ব্যালেন্স) Lookup
+  const showPreviousBalanceSetting = settings.showPreviousBalanceOnBill !== false;
+  const previousBalanceInfo = useMemo(() => {
+    if (!showPreviousBalanceSetting) {
+      return { amount: 0, type: 'receivable' as const };
+    }
+    return storageService.getCustomerPreviousBalance(customerName, customerPhone);
+  }, [showPreviousBalanceSetting, customerName, customerPhone, totalInvoicesCount, showSavedCustomerModal]);
+
+  const customerOldBalance =
+    showPreviousBalanceSetting && previousBalanceInfo.type === 'receivable'
+      ? previousBalanceInfo.amount
+      : 0;
+
   const [isTailoring, setIsTailoring] = useState(() => Boolean(initialDraft?.isTailoring));
   const [deliveryDate, setDeliveryDate] = useState(() => initialDraft?.deliveryDate || '');
   const [trialDate, setTrialDate] = useState(() => initialDraft?.trialDate || '');
@@ -1653,8 +1668,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       paidAmount: isThisAnEstimate ? 0 : actualPaid,
       changeAmount: isThisAnEstimate ? 0 : paidNum > finalGrandTotal ? finalChangeAmount : 0,
       balance: isThisAnEstimate ? 0 : balanceAmount,
-      previousBalance: 0,
-      currentBalance: isThisAnEstimate ? 0 : balanceAmount,
+      previousBalance: customerOldBalance,
+      currentBalance: isThisAnEstimate ? customerOldBalance : customerOldBalance + balanceAmount,
       isEstimate: isThisAnEstimate,
       ...(isTailoring
         ? {
@@ -1912,6 +1927,24 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Live Previous / Old Balance Alert Banner (when customer has existing due) */}
+        {customerOldBalance > 0 && (
+          <div className="mt-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-between gap-2 text-xs animate-in fade-in">
+            <span className="font-bold text-amber-950 flex items-center gap-1.5">
+              <span>⚠️</span>
+              <span>
+                {isBn
+                  ? 'কাস্টমারের পুরানা ব্যালেন্স (Previous Balance):'
+                  : 'Customer Previous Balance:'}
+              </span>
+            </span>
+            <span className="font-mono font-black text-rose-600 text-sm shrink-0">
+              {sym}
+              {customerOldBalance.toFixed(2)}
+            </span>
+          </div>
+        )}
 
         {/* OPTIONAL GST BILL CONFIGURATION CARD (Shown only when GST Bill is toggled ON) */}
         {isGstBill && (
@@ -3272,6 +3305,32 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             </div>
           </div>
 
+          {/* Previous Balance & Net Total Breakdown (when customer has old balance) */}
+          {customerOldBalance > 0 && (
+            <div className="pt-2 border-t border-dashed border-amber-300 space-y-1.5 animate-in fade-in">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-amber-900">
+                  {isBn ? 'পুরানা ব্যালেন্স (Previous Balance):' : 'Previous Balance:'}
+                </span>
+                <span className="font-mono font-extrabold text-rose-600">
+                  +{sym}
+                  {customerOldBalance.toFixed(2)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between bg-amber-100/80 border border-amber-300 px-2.5 py-1.5 rounded-xl text-xs">
+                <span className="font-black text-amber-950">
+                  {isBn
+                    ? 'সর্বমোট হিসাব (নতুন + পুরানা):'
+                    : 'Net Payable (New + Prev Bal):'}
+                </span>
+                <span className="font-mono font-black text-rose-700 text-sm sm:text-base">
+                  {sym}
+                  {(grandTotal + customerOldBalance).toFixed(2)}
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* Discount Print Option Toggle ("সঠিক") - Now neatly positioned below Grand Total */}
           {rawDiscount > 0 && (
             <div className="mt-1 p-2 rounded-xl bg-amber-50/90 border border-amber-200 flex items-center justify-between gap-2 text-xs animate-in fade-in">
@@ -3309,20 +3368,33 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             (isTailoring || paymentMethod === 'due' || (paidAmount.trim() !== '' && paidNum < grandTotal)) &&
             grandTotal > 0 &&
             Math.max(0, grandTotal - (paidAmount.trim() !== '' ? paidNum : 0)) > 0 && (
-              <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-bold flex items-center justify-between">
-                <span>
-                  {isTailoring
-                    ? isBn
-                      ? 'ডেলিভারির সময় বাকি (Balance Due on Delivery):'
-                      : 'Balance Due on Delivery:'
-                    : isBn
-                    ? 'বাকি টাকা (Balance Due):'
-                    : 'Balance Due:'}
-                </span>
-                <span className="font-mono text-sm font-black text-rose-600">
-                  {sym}
-                  {Math.max(0, grandTotal - (paidAmount.trim() !== '' ? paidNum : 0)).toFixed(2)}
-                </span>
+              <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-bold space-y-1">
+                <div className="flex items-center justify-between">
+                  <span>
+                    {isTailoring
+                      ? isBn
+                        ? 'ডেলিভারির সময় বাকি (Balance Due on Delivery):'
+                        : 'Balance Due on Delivery:'
+                      : isBn
+                      ? 'এই বিলের বাকি (Current Bill Due):'
+                      : 'Balance Due:'}
+                  </span>
+                  <span className="font-mono text-sm font-black text-rose-600">
+                    {sym}
+                    {Math.max(0, grandTotal - (paidAmount.trim() !== '' ? paidNum : 0)).toFixed(2)}
+                  </span>
+                </div>
+                {customerOldBalance > 0 && (
+                  <div className="flex items-center justify-between pt-1 border-t border-amber-200/80 text-rose-700">
+                    <span className="font-extrabold">
+                      {isBn ? 'মোট বাকি (বর্তমান + পুরানা):' : 'Total Net Due (Curr + Old):'}
+                    </span>
+                    <span className="font-mono text-sm font-black">
+                      {sym}
+                      {(Math.max(0, grandTotal - (paidAmount.trim() !== '' ? paidNum : 0)) + customerOldBalance).toFixed(2)}
+                    </span>
+                  </div>
+                )}
               </div>
             )}
 

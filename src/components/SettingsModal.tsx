@@ -776,6 +776,45 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </label>
           </div>
 
+          {/* Show Customer Previous/Old Balance on Bill & Print */}
+          <div className="p-3 bg-gradient-to-r from-amber-50/90 to-rose-50/70 rounded-2xl border border-amber-200 flex items-center justify-between gap-3 shadow-2xs">
+            <div className="space-y-0.5">
+              <div className="font-bold text-amber-950 text-xs flex items-center gap-1.5 flex-wrap">
+                <Receipt className="w-3.5 h-3.5 text-amber-600" />
+                <span>
+                  {isBn
+                    ? 'কাস্টমারের পুরানা ব্যালেন্স বিলে ও প্রিন্টে দেখান (Previous Balance)'
+                    : 'Show Customer Old Balance on Bill & Print'}
+                </span>
+                {form.showPreviousBalanceOnBill !== false ? (
+                  <span className="text-[10px] bg-emerald-200 text-emerald-900 font-bold px-1.5 py-0.2 rounded-full">
+                    {isBn ? 'চালু (ON)' : 'Active (ON)'}
+                  </span>
+                ) : (
+                  <span className="text-[10px] bg-stone-200 text-stone-700 font-bold px-1.5 py-0.2 rounded-full">
+                    {isBn ? 'বন্ধ (OFF)' : 'Off'}
+                  </span>
+                )}
+              </div>
+              <div className="text-[11px] text-amber-900/85 leading-tight">
+                {isBn
+                  ? 'কোনো কাস্টমারের আগে থেকে বাকি/পুরানা ব্যালেন্স থাকলে তা নতুন বিলে, রসিদে এবং থার্মাল প্রিন্টে অটোমেটিক যুক্ত হয়ে দেখাবে।'
+                  : 'Automatically shows any customer’s existing previous due balance on the billing screen, receipt slip, and thermal print.'}
+              </div>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+              <input
+                type="checkbox"
+                checked={form.showPreviousBalanceOnBill !== false}
+                onChange={(e) =>
+                  setForm({ ...form, showPreviousBalanceOnBill: e.target.checked })
+                }
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-stone-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+            </label>
+          </div>
+
           {/* Auto-Open Receipt Slip Modal After Bill Checkout */}
           <div className="p-3 bg-gradient-to-r from-purple-50/90 to-indigo-50/80 rounded-2xl border border-purple-200 flex items-center justify-between gap-3 shadow-2xs">
             <div className="space-y-0.5">

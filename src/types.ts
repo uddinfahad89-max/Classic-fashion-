@@ -340,6 +340,7 @@ export interface ThermalPrinterSettings {
   tabletMode?: 'auto' | 'always' | 'disabled';
   uiScale?: 'normal' | 'large' | 'extra_large';
   autoOpenReceiptAfterBill?: boolean;
+  showPreviousBalanceOnBill?: boolean;
   // GST Settings (Optional)
   storeGstin?: string;
   defaultGstRate?: number;

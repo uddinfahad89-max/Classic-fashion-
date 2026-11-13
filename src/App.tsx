@@ -1092,17 +1092,46 @@ export default function App() {
       }
     }
 
-    // 2. If paid via Cash or UPI, automatically record as Income in Cashbook
+    // 2. Automatically record Cashbook income & Customer Due balance (supports partial payments on Cash/UPI/Due)
     if (bill.paymentMethod === 'cash' || bill.paymentMethod === 'upi' || bill.paymentMethod === 'card') {
-      storageService.addCashEntry(
-        'Income',
-        bill.grandTotal,
-        `POS ${bill.paymentMethod.toUpperCase()} Sale #${bill.invoiceNo}`
-      );
-      const freshCash = storageService.getCashEntries();
-      setCashEntries(freshCash);
-      if (freshCash[0]) {
-        firebaseService.syncCashEntry(freshCash[0]);
+      const dueAmt =
+        bill.balance !== undefined
+          ? Math.max(0, bill.balance)
+          : Math.max(0, bill.grandTotal - (bill.paidAmount ?? bill.grandTotal));
+      const cashReceived =
+        dueAmt > 0
+          ? Math.max(0, Math.min(bill.grandTotal, bill.paidAmount || 0))
+          : bill.grandTotal;
+
+      if (cashReceived > 0) {
+        storageService.addCashEntry(
+          'Income',
+          cashReceived,
+          dueAmt > 0
+            ? `Advance/Part ${bill.paymentMethod.toUpperCase()} Sale #${bill.invoiceNo}`
+            : `POS ${bill.paymentMethod.toUpperCase()} Sale #${bill.invoiceNo}`
+        );
+        const freshCash = storageService.getCashEntries();
+        setCashEntries(freshCash);
+        if (freshCash[0]) {
+          firebaseService.syncCashEntry(freshCash[0]);
+        }
+      }
+
+      if (dueAmt > 0) {
+        const partyName = (bill.customerName || '').trim() || `Invoice #${bill.invoiceNo}`;
+        storageService.addOrUpdateCustomerDue(
+          partyName,
+          dueAmt,
+          bill.customerPhone || '',
+          `Part-paid bill #${bill.invoiceNo} (${bill.paymentMethod.toUpperCase()})`
+        );
+        const freshDues = storageService.getCustomerDues();
+        setCustomerDues(freshDues);
+        const savedDue = freshDues.find((d) => d.name.toLowerCase() === partyName.toLowerCase());
+        if (savedDue) {
+          firebaseService.syncCustomerDue(savedDue);
+        }
       }
     } else if (bill.paymentMethod === 'due') {
       const dueAmt =
@@ -1119,7 +1148,7 @@ export default function App() {
         );
         const freshDues = storageService.getCustomerDues();
         setCustomerDues(freshDues);
-        const savedDue = freshDues.find((d) => d.name === partyName);
+        const savedDue = freshDues.find((d) => d.name.toLowerCase() === partyName.toLowerCase());
         if (savedDue) {
           firebaseService.syncCustomerDue(savedDue);
         }

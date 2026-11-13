@@ -79,6 +79,15 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
     ? bill.balance
     : Math.max(0, displayedGrandTotal - paidAmount);
 
+  const prevBalance =
+    settings.showPreviousBalanceOnBill !== false
+      ? Math.max(0, Number(bill.previousBalance) || 0)
+      : 0;
+  const netTotalBalance =
+    prevBalance > 0
+      ? prevBalance + (isBillEstimate ? displayedGrandTotal : balance)
+      : balance;
+
   // Amount in words
   const amountInWords = numberToWords(displayedGrandTotal, currencyName);
 
@@ -260,6 +269,27 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
                   <span className="text-lg sm:text-xl font-black text-rose-700">
                     {currencyPrefix}{balance.toFixed(1)}
                   </span>
+                </div>
+              )}
+
+              {prevBalance > 0 && (
+                <div className="space-y-1.5 pt-1 border-t border-dashed border-amber-300">
+                  <div className="flex justify-between items-center text-amber-900 font-semibold text-sm sm:text-base px-1">
+                    <span>{isBn ? 'পুরানা ব্যালেন্স (Prev. Balance)' : 'Previous Balance'}</span>
+                    <span className="font-bold text-rose-600">
+                      +{currencyPrefix}{prevBalance.toFixed(1)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center bg-amber-50 border border-amber-300 px-3.5 py-2 rounded-xl text-amber-950 font-extrabold text-sm sm:text-base">
+                    <span>
+                      {isBillEstimate
+                        ? (isBn ? 'মোট প্রদেয় (নতুন + পুরানা)' : 'Total + Prev. Balance')
+                        : (isBn ? 'সর্বমোট বাকি (Net Balance)' : 'Net Total Balance')}
+                    </span>
+                    <span className="text-lg sm:text-xl font-black text-rose-700">
+                      {currencyPrefix}{netTotalBalance.toFixed(1)}
+                    </span>
+                  </div>
                 </div>
               )}
             </>
@@ -753,6 +783,29 @@ export const TaxInvoiceSheet: React.FC<TaxInvoiceSheetProps> = ({
                 <span className="font-black text-rose-700 text-lg sm:text-xl">
                   {currencyPrefix}{balance.toFixed(1)}
                 </span>
+              </div>
+            )}
+
+            {prevBalance > 0 && (
+              <div className="mt-1.5 pt-1.5 border-t border-dashed border-amber-300 space-y-1">
+                <div className="flex justify-between items-center py-0.5 text-amber-950">
+                  <span className="font-semibold">
+                    {isBn ? 'পুরানা ব্যালেন্স (Previous Balance)' : 'Previous Balance'}
+                  </span>
+                  <span className="font-bold text-rose-600">
+                    +{currencyPrefix}{prevBalance.toFixed(1)}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center py-1.5 px-2.5 rounded-lg bg-amber-50 border border-amber-300 text-amber-950 font-black">
+                  <span className="text-sm sm:text-base">
+                    {isBillEstimate
+                      ? (isBn ? 'সর্বমোট হিসাব (নতুন + পুরানা)' : 'Total Receivable (Curr + Prev)')
+                      : (isBn ? 'সর্বমোট বাকি (Net Total Due)' : 'Net Total Balance')}
+                  </span>
+                  <span className="text-base sm:text-xl text-rose-700">
+                    {currencyPrefix}{netTotalBalance.toFixed(1)}
+                  </span>
+                </div>
               </div>
             )}
 
