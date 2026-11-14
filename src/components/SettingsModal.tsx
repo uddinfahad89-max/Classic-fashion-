@@ -897,6 +897,45 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </label>
           </div>
 
+          {/* Recycle Bin 90-Day Auto-Delete Toggle in Settings */}
+          <div className="p-3 bg-rose-50/70 rounded-2xl border border-rose-200 flex items-center justify-between gap-3 shadow-2xs">
+            <div className="space-y-0.5">
+              <div className="font-bold text-rose-950 text-xs flex items-center gap-1.5 flex-wrap">
+                <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                <span>
+                  {isBn
+                    ? 'রিসাইকেল বিন ৯০ দিন পর অটো ডিলিট (Auto-Delete)'
+                    : 'Recycle Bin Auto-Delete (After 90 Days)'}
+                </span>
+                {form.autoDeleteRecycleBin90Days !== false ? (
+                  <span className="text-[10px] bg-rose-200 text-rose-900 font-bold px-1.5 py-0.2 rounded-full">
+                    {isBn ? 'চালু (৯০ দিন)' : 'Active (90d)'}
+                  </span>
+                ) : (
+                  <span className="text-[10px] bg-stone-200 text-stone-700 font-bold px-1.5 py-0.2 rounded-full">
+                    {isBn ? 'বন্ধ (OFF)' : 'Off'}
+                  </span>
+                )}
+              </div>
+              <div className="text-[11px] text-rose-900/85 leading-tight">
+                {isBn
+                  ? 'চালু থাকলে রিসাইকেল বিনে জমা হওয়া ডিলিট করা বিল, পণ্য, বাকি ও ক্যাশ ডাটা ৯০ দিন পর অটোমেটিক চিরতরে মুছে যাবে।'
+                  : 'Automatically and permanently deletes Recycle Bin items (bills, products, dues) after 90 days.'}
+              </div>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+              <input
+                type="checkbox"
+                checked={form.autoDeleteRecycleBin90Days !== false}
+                onChange={(e) =>
+                  setForm({ ...form, autoDeleteRecycleBin90Days: e.target.checked })
+                }
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-stone-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-rose-600"></div>
+            </label>
+          </div>
+
           {/* Barcode Scanner & Duplicate Protection Settings */}
           <div className="p-3.5 bg-gradient-to-r from-blue-50/80 to-indigo-50/70 rounded-2xl border border-blue-200 space-y-3 shadow-2xs">
             <div className="flex items-center justify-between">

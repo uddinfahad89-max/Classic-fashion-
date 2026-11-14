@@ -1903,6 +1903,38 @@ class FirebaseService {
     }
   }
 
+  // Permanently remove a soft-deleted record from Firestore (for 90-day auto-purge or manual permanent delete)
+  async permanentlyDeleteSoftDeletedRecord(entityType: string, id: string): Promise<boolean> {
+    try {
+      if (!this.isConfigured() || !id) return false;
+      await this.ensureAuthenticated();
+      const collectionMap: Record<string, string> = {
+        invoice: 'invoices',
+        product: 'products',
+        customer_due: 'customer_dues',
+        cash_entry: 'cash_entries',
+        purchase_trip: 'purchase_trips',
+      };
+      const colName = collectionMap[entityType];
+      if (!colName) return false;
+      await deleteDoc(doc(db, colName, id));
+      return true;
+    } catch (e) {
+      console.warn('Firebase permanentlyDeleteSoftDeletedRecord notice:', e);
+      return false;
+    }
+  }
+
+  async permanentlyDeleteSoftDeletedBatch(
+    items: Array<{ entityType: string; id: string }>
+  ): Promise<number> {
+    if (!this.isConfigured() || !Array.isArray(items) || items.length === 0) return 0;
+    const results = await Promise.allSettled(
+      items.map((it) => this.permanentlyDeleteSoftDeletedRecord(it.entityType, it.id))
+    );
+    return results.filter((r) => r.status === 'fulfilled' && r.value === true).length;
+  }
+
   // Fetch all registered stores & vendors across Firestore with live analytics
   async fetchAllStores(): Promise<StoreVendorAccount[]> {
     try {
@@ -2117,6 +2149,27 @@ class FirebaseService {
             deletedAt: typeof cash.deletedAt === 'string' ? new Date(cash.deletedAt).getTime() : (Number(cash.deletedAt) || Date.now()),
             deletedBy: cash.deletedBy || 'ব্যবহারকারী',
             data: cash
+          });
+        });
+      } catch {}
+
+      // 5. Soft-deleted Purchase Trips
+      try {
+        const tripSnap = await getDocs(collection(db, 'purchase_trips'));
+        tripSnap.forEach((d) => {
+          const trip = d.data() as any;
+          if (!trip.isDeleted) return;
+          const storeId = (trip.userId || trip.userEmail || trip.shopId || 'unknown').toLowerCase();
+          if (storeIdFilter && storeIdFilter !== '__ALL__' && storeId !== storeIdFilter.toLowerCase()) return;
+          results.push({
+            id: trip.id,
+            entityType: 'purchase_trip',
+            title: trip.title || trip.marketLocation || 'Supplier Purchase',
+            storeId,
+            userEmail: trip.userId || trip.userEmail,
+            deletedAt: typeof trip.deletedAt === 'string' ? new Date(trip.deletedAt).getTime() : (Number(trip.deletedAt) || Date.now()),
+            deletedBy: trip.deletedBy || 'ব্যবহারকারী',
+            data: trip
           });
         });
       } catch {}

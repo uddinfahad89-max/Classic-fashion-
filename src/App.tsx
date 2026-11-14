@@ -153,6 +153,31 @@ export default function App() {
 
     // Non-blocking background sync with Firestore & Server Vault (decoupled from initial UI render)
     const bootTimer = setTimeout(() => {
+      // 0. Silent 90-day Recycle Bin auto-cleanup (local + Firestore) if enabled
+      if (currentSettings.autoDeleteRecycleBin90Days !== false) {
+        try {
+          const expiredLocal = storageService.purgeExpiredRecycleBinItems(90);
+          if (expiredLocal.length > 0 && firebaseService.isConfigured()) {
+            firebaseService.permanentlyDeleteSoftDeletedBatch(expiredLocal).catch(() => {});
+          }
+          if (firebaseService.isConfigured()) {
+            const cleanupEmail = prof.email || '';
+            firebaseService
+              .fetchAllSoftDeletedRecords(cleanupEmail || undefined)
+              .then((remoteDeleted) => {
+                const cutoffMs = Date.now() - 90 * 24 * 60 * 60 * 1000;
+                const expiredRemote = remoteDeleted.filter(
+                  (it) => it.deletedAt > 0 && it.deletedAt <= cutoffMs
+                );
+                if (expiredRemote.length > 0) {
+                  firebaseService.permanentlyDeleteSoftDeletedBatch(expiredRemote).catch(() => {});
+                }
+              })
+              .catch(() => {});
+          }
+        } catch {}
+      }
+
       // 1. Firebase Firestore sync in background (fetching all store and staff invoices)
       if (firebaseService.isConfigured()) {
         const ownerEmail = prof.ownerEmail || (prof.isLoggedIn ? prof.email : '') || 'uddinfahad89@gmail.com';
@@ -2625,6 +2650,8 @@ export default function App() {
         onClose={() => setIsRecycleBinOpen(false)}
         language={language}
         currentUserProfile={userProfile}
+        settings={settings}
+        onUpdateSettings={handleSaveSettings}
         onItemRestored={() => {
           setBills(storageService.getBills());
           setProducts(storageService.getProducts());

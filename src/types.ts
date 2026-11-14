@@ -341,6 +341,7 @@ export interface ThermalPrinterSettings {
   uiScale?: 'normal' | 'large' | 'extra_large';
   autoOpenReceiptAfterBill?: boolean;
   showPreviousBalanceOnBill?: boolean;
+  autoDeleteRecycleBin90Days?: boolean;
   // GST Settings (Optional)
   storeGstin?: string;
   defaultGstRate?: number;

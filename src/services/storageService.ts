@@ -93,6 +93,7 @@ const DEFAULT_SETTINGS: ThermalPrinterSettings = {
   uiScale: 'normal',
   autoOpenReceiptAfterBill: false,
   showPreviousBalanceOnBill: true,
+  autoDeleteRecycleBin90Days: true,
   storeGstin: '',
   defaultGstRate: 5,
   defaultTaxType: 'intra',
@@ -719,10 +720,57 @@ class StorageService {
 
   clearRecycleBin(): void {
     try {
-      localStorage.removeItem('thermal_pos_recycle_bin_v1');
-      localStorage.removeItem('thermal_pos_deleted_bill_ids_v1');
-      localStorage.removeItem('thermal_pos_deleted_prod_ids_v1');
+      localStorage.setItem('thermal_pos_recycle_bin_v1', JSON.stringify([]));
     } catch {}
+  }
+
+  isRecycleBinAutoDeleteEnabled(): boolean {
+    try {
+      return this.getSettings().autoDeleteRecycleBin90Days !== false;
+    } catch {
+      return true;
+    }
+  }
+
+  getRecycleBinDaysRemaining(deletedAt: number | string | undefined, retentionDays: number = 90): number {
+    const deletedAtMs =
+      typeof deletedAt === 'string'
+        ? new Date(deletedAt).getTime()
+        : Number(deletedAt || 0);
+    if (!deletedAtMs || isNaN(deletedAtMs)) return retentionDays;
+    const elapsedDays = Math.floor(Math.max(0, Date.now() - deletedAtMs) / (24 * 60 * 60 * 1000));
+    return Math.max(0, retentionDays - elapsedDays);
+  }
+
+  purgeExpiredRecycleBinItems(retentionDays: number = 90): SoftDeletedItem[] {
+    try {
+      if (!this.isRecycleBinAutoDeleteEnabled()) return [];
+      const items = this.getRecycleBinItems();
+      if (!items.length) return [];
+
+      const cutoffMs = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+      const expired: SoftDeletedItem[] = [];
+      const active: SoftDeletedItem[] = [];
+
+      for (const item of items) {
+        const deletedAtMs =
+          typeof item.deletedAt === 'string'
+            ? new Date(item.deletedAt).getTime()
+            : Number(item.deletedAt || 0);
+        if (deletedAtMs > 0 && deletedAtMs <= cutoffMs) {
+          expired.push(item);
+        } else {
+          active.push(item);
+        }
+      }
+
+      if (expired.length > 0) {
+        this.saveRecycleBinItems(active);
+      }
+      return expired;
+    } catch {
+      return [];
+    }
   }
 
   deleteBill(id: string, invoiceNo?: string): void {
