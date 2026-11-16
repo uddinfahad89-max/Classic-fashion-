@@ -164,6 +164,15 @@
     box-sizing: border-box !important;
   }
 
+  /* Reset CSS force-rotation container during browser print */
+  div[data-force-rotated="true"] {
+    position: static !important;
+    width: auto !important;
+    height: auto !important;
+    transform: none !important;
+    overflow: visible !important;
+  }
+
   .receipt-mono {
     font-family: 'Courier New', Courier, 'JetBrains Mono', monospace !important;
     white-space: pre !important;
@@ -171,6 +180,14 @@
     color: #000000 !important;
     background: #ffffff !important;
   }
+}
+
+/* Keep fixed modal cards sized within visual height when CSS Force Landscape is active */
+div[data-force-rotated="true"] .fixed > div[class*="max-h-"],
+div[data-force-rotated="true"] .fixed > form[class*="max-h-"],
+div[data-force-rotated="true"] .fixed > div[style*="maxHeight"],
+div[data-force-rotated="true"] .fixed > div[style*="max-height"] {
+  max-height: 94% !important;
 }
 
 /* Paper roll tear jagged edge styling */

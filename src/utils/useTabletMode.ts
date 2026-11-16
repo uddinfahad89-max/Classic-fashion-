@@ -5,6 +5,7 @@ export interface TabletModeInfo {
   isTabletActive: boolean;
   isTabletDevice: boolean;
   isLandscape: boolean;
+  isForceRotated: boolean;
   windowWidth: number;
   windowHeight: number;
   containerClass: string;
@@ -15,7 +16,7 @@ export interface TabletModeInfo {
 
 /**
  * Custom Hook: Auto-detects 10" Tablets, iPads, and Large Screens
- * and provides responsive layout sizing and font scaling.
+ * and accounts for CSS 90° Force-Landscape rotation when OS/WebAPK stays portrait.
  */
 export function useTabletMode(settings?: Partial<ThermalPrinterSettings>): TabletModeInfo {
   const [dimensions, setDimensions] = useState<{ width: number; height: number }>({
@@ -57,9 +58,10 @@ export function useTabletMode(settings?: Partial<ThermalPrinterSettings>): Table
   const isTabletDevice = useMemo(() => {
     if (typeof navigator === 'undefined') return false;
     const ua = navigator.userAgent || '';
-    // Android tablets lack "Mobile" token; iPads and explicit Tablet keywords
     const isAndroidTablet = /Android/i.test(ua) && !/Mobile/i.test(ua);
-    const isIpad = /iPad|Macintosh/i.test(ua) && Boolean(navigator.maxTouchPoints && navigator.maxTouchPoints > 1);
+    const isIpad =
+      /iPad|Macintosh/i.test(ua) &&
+      Boolean(navigator.maxTouchPoints && navigator.maxTouchPoints > 1);
     const isTabletKeyword = /Tablet|PlayBook|Silk/i.test(ua);
     return isAndroidTablet || isIpad || isTabletKeyword;
   }, []);
@@ -67,16 +69,21 @@ export function useTabletMode(settings?: Partial<ThermalPrinterSettings>): Table
   const mode = settings?.tabletMode || 'auto';
   const uiScale = settings?.uiScale || 'normal';
 
-  const isTabletWidth = dimensions.width >= 768;
-  const isLandscape = dimensions.width > dimensions.height;
+  const isForceRotated =
+    settings?.screenOrientation === 'landscape' &&
+    dimensions.height > dimensions.width;
+
+  const effectiveWidth = isForceRotated ? dimensions.height : dimensions.width;
+  const effectiveHeight = isForceRotated ? dimensions.width : dimensions.height;
+
+  const isTabletWidth = effectiveWidth >= 768;
+  const isLandscape = effectiveWidth > effectiveHeight;
 
   const isTabletActive = useMemo(() => {
     if (mode === 'always') return true;
     if (mode === 'disabled') return false;
-    // 'auto' mode: detects if screen is >= 768px (e.g. 10" tablet in portrait or landscape)
-    // or user agent is a tablet
-    return isTabletWidth || isTabletDevice;
-  }, [mode, isTabletWidth, isTabletDevice]);
+    return isTabletWidth || isTabletDevice || isForceRotated;
+  }, [mode, isTabletWidth, isTabletDevice, isForceRotated]);
 
   const scaleMultiplier = useMemo(() => {
     if (uiScale === 'extra_large') return 1.3;
@@ -86,10 +93,8 @@ export function useTabletMode(settings?: Partial<ThermalPrinterSettings>): Table
 
   const containerClass = useMemo(() => {
     if (isTabletActive) {
-      // Fills the 10" tablet screen width cleanly without narrow centering
       return 'w-full max-w-5xl lg:max-w-6xl xl:max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 space-y-3 md:space-y-4';
     }
-    // Default compact mobile container
     return 'max-w-2xl mx-auto px-3 py-2 sm:py-3 space-y-2';
   }, [isTabletActive]);
 
@@ -97,8 +102,9 @@ export function useTabletMode(settings?: Partial<ThermalPrinterSettings>): Table
     isTabletActive,
     isTabletDevice,
     isLandscape,
-    windowWidth: dimensions.width,
-    windowHeight: dimensions.height,
+    isForceRotated,
+    windowWidth: effectiveWidth,
+    windowHeight: effectiveHeight,
     containerClass,
     uiScale,
     scaleMultiplier,

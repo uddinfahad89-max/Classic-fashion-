@@ -101,6 +101,10 @@ export default function App() {
   const [isPrintingBill, setIsPrintingBill] = useState(false);
   const [isExitConfirmOpen, setIsExitConfirmOpen] = useState(false);
   const [isExitPillVisible, setIsExitPillVisible] = useState(false);
+  const [viewportDims, setViewportDims] = useState(() => ({
+    width: typeof window !== 'undefined' ? window.innerWidth : 1024,
+    height: typeof window !== 'undefined' ? window.innerHeight : 768,
+  }));
 
   const networkStatus = useNetworkStatus();
   const [toast, setToast] = useState<{
@@ -1752,6 +1756,33 @@ export default function App() {
     applyScreenOrientation(settings.screenOrientation || 'auto');
   }, [settings.screenOrientation]);
 
+  // Live viewport dimensions listener for CSS force-landscape stage fallback
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    let delayedTimer: number | undefined;
+    const updateDims = () => {
+      setViewportDims({
+        width: window.innerWidth,
+        height: window.innerHeight,
+      });
+    };
+    const handleOrientationUpdate = () => {
+      updateDims();
+      window.clearTimeout(delayedTimer);
+      delayedTimer = window.setTimeout(updateDims, 140);
+    };
+    window.addEventListener('resize', updateDims);
+    window.addEventListener('orientationchange', handleOrientationUpdate);
+    const screenOrientation = (window.screen as any)?.orientation;
+    screenOrientation?.addEventListener?.('change', handleOrientationUpdate);
+    return () => {
+      window.clearTimeout(delayedTimer);
+      window.removeEventListener('resize', updateDims);
+      window.removeEventListener('orientationchange', handleOrientationUpdate);
+      screenOrientation?.removeEventListener?.('change', handleOrientationUpdate);
+    };
+  }, []);
+
   // Settings Handlers
   const handleSaveSettings = (newSettings: ThermalPrinterSettings) => {
     storageService.saveSettings(newSettings);
@@ -2052,10 +2083,39 @@ export default function App() {
     }
   };
 
+  const isForceLandscapeRotated =
+    settings.screenOrientation === 'landscape' &&
+    viewportDims.height > viewportDims.width;
+  const landscapeAngle = settings.landscapeRotationAngle ?? 90;
+
   return (
-    <div className="min-h-screen bg-stone-100/70 text-stone-900 flex flex-col font-sans">
-      {/* Google Sheets / Workspace Top Header & Sub-header */}
-      <Header
+    <div
+      data-force-rotated={isForceLandscapeRotated ? 'true' : undefined}
+      className={
+        isForceLandscapeRotated
+          ? 'fixed top-1/2 left-1/2 bg-stone-100/70 text-stone-900 flex flex-col font-sans overflow-hidden'
+          : 'min-h-screen bg-stone-100/70 text-stone-900 flex flex-col font-sans'
+      }
+      style={
+        isForceLandscapeRotated
+          ? {
+              width: `${viewportDims.height}px`,
+              height: `${viewportDims.width}px`,
+              transform: `translate(-50%, -50%) rotate(${landscapeAngle}deg)`,
+              transformOrigin: 'center center',
+            }
+          : undefined
+      }
+    >
+      <div
+        className={
+          isForceLandscapeRotated
+            ? 'flex-1 min-h-0 flex flex-col overflow-y-auto overflow-x-hidden'
+            : 'flex-1 flex flex-col'
+        }
+      >
+        {/* Google Sheets / Workspace Top Header & Sub-header */}
+        <Header
         settings={settings}
         bluetoothStatus={bluetoothStatus}
         onConnectBluetooth={handleConnectBluetooth}
@@ -2355,6 +2415,7 @@ export default function App() {
             />
           ))}
       </main>
+      </div>
 
       {/* Fixed Bottom Navigation Bar (Vyapar style - Tabs only) */}
       <BottomNav

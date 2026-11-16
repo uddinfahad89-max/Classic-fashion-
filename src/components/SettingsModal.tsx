@@ -645,16 +645,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
             {/* Screen Rotation / Auto-Rotate Setting */}
             <div className="pt-2 border-t border-indigo-100 space-y-1.5">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <span className="text-[11px] font-bold text-indigo-950 flex items-center gap-1.5">
                   <RotateCw className="w-3.5 h-3.5 text-indigo-600" />
-                  <span>{isBn ? 'স্ক্রিন রোটেশন (Tablet Rotate):' : 'Screen Rotation (Auto-Rotate):'}</span>
+                  <span>{isBn ? 'স্ক্রিন রোটেশন (Tablet Rotate):' : 'Screen Rotation (Tablet):'}</span>
                 </span>
                 <span className="text-[10px] font-mono font-bold bg-white text-indigo-700 border border-indigo-200 px-1.5 py-0.5 rounded">
                   {(form.screenOrientation || 'auto') === 'auto'
                     ? isBn ? 'অটো রোটেট' : 'Auto Rotate'
                     : form.screenOrientation === 'landscape'
-                    ? isBn ? 'আড়াআড়ি' : 'Landscape'
+                    ? isBn ? 'আড়াআড়ি (৯০°)' : 'Landscape'
                     : isBn ? 'লম্বালম্বি' : 'Portrait'}
                 </span>
               </div>
@@ -669,8 +669,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     type="button"
                     onClick={() => {
                       const nextOri = ori.id as ScreenOrientationPreference;
-                      setForm({ ...form, screenOrientation: nextOri });
-                      applyScreenOrientation(nextOri);
+                      const nextForm = { ...form, screenOrientation: nextOri };
+                      setForm(nextForm);
+                      onSaveSettings(nextForm);
+                      applyScreenOrientation(nextOri, true);
                     }}
                     className={`py-2 px-1 rounded-xl text-[11px] font-bold border transition-all cursor-pointer text-center ${
                       (form.screenOrientation || 'auto') === ori.id
@@ -682,10 +684,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </button>
                 ))}
               </div>
+              {form.screenOrientation === 'landscape' && (
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  <span className="text-[10px] text-indigo-800 font-semibold">
+                    {isBn ? 'স্ক্রিন উল্টো দেখালে দিক বদলান:' : 'Screen upside down? Flip side:'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextAngle: 90 | -90 = (form.landscapeRotationAngle ?? 90) === 90 ? -90 : 90;
+                      const nextForm = { ...form, landscapeRotationAngle: nextAngle };
+                      setForm(nextForm);
+                      onSaveSettings(nextForm);
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-white hover:bg-indigo-100 text-indigo-700 border border-indigo-300 text-[10px] font-bold cursor-pointer flex items-center gap-1 shrink-0 shadow-2xs"
+                  >
+                    <RotateCw className="w-3 h-3" />
+                    <span>
+                      {isBn
+                        ? `↻ দিক বদলান (${form.landscapeRotationAngle ?? 90}°)`
+                        : `↻ Flip (${form.landscapeRotationAngle ?? 90}°)`}
+                    </span>
+                  </button>
+                </div>
+              )}
               <p className="text-[10px] text-stone-500 leading-snug">
                 {isBn
-                  ? 'ট্যাবলেট ঘোরানোর সাথে সাথে অ্যাপ ঘুরাতে "🔄 অটো রোটেট" চালু রাখুন।'
-                  : 'Keep "🔄 Auto Rotate" selected so the app rotates automatically when you turn your tablet.'}
+                  ? 'ট্যাবলেট নিজ থেকে না ঘুরলে "📺 আড়াআড়ি" সিলেক্ট করুন—সাথে সাথেই অ্যাপ ৯০° ঘুরে যাবে। (অটো রোটেটের জন্য ফোনের/ট্যাবলেটের Auto-Rotate চালু রাখুন বা হোম-স্ক্রিন শর্টকাট আপডেট করুন)'
+                  : 'Tap "📺 Landscape" to force-rotate the app 90° immediately even if device rotation is locked.'}
               </p>
             </div>
           </div>

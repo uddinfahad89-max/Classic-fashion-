@@ -49,7 +49,7 @@ export const TabletModeSwitcherModal: React.FC<TabletModeSwitcherModalProps> = (
 
   const handleSelectOrientation = (orientation: ScreenOrientationPreference) => {
     onUpdateSettings({ ...settings, screenOrientation: orientation });
-    applyScreenOrientation(orientation);
+    applyScreenOrientation(orientation, true);
   };
 
   return (
@@ -302,6 +302,29 @@ export const TabletModeSwitcherModal: React.FC<TabletModeSwitcherModalProps> = (
                 </button>
               ))}
             </div>
+
+            {currentOrientation === 'landscape' && (
+              <div className="flex items-center justify-between gap-2 pt-1">
+                <span className="text-[10px] text-teal-800 font-semibold">
+                  {isBn ? 'স্ক্রিন উল্টো দেখালে দিক উল্টান:' : 'Upside down? Flip side:'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextAngle: 90 | -90 = (settings.landscapeRotationAngle ?? 90) === 90 ? -90 : 90;
+                    onUpdateSettings({ ...settings, landscapeRotationAngle: nextAngle });
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-300 text-[10px] font-bold cursor-pointer flex items-center gap-1"
+                >
+                  <RotateCw className="w-3 h-3" />
+                  <span>
+                    {isBn
+                      ? `↻ দিক বদলান (${settings.landscapeRotationAngle ?? 90}°)`
+                      : `↻ Flip (${settings.landscapeRotationAngle ?? 90}°)`}
+                  </span>
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="p-3 bg-blue-50/80 rounded-2xl border border-blue-100 flex items-start gap-2 text-[11px] text-blue-900 leading-relaxed">

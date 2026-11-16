@@ -340,6 +340,7 @@ export interface ThermalPrinterSettings {
   tabletMode?: 'auto' | 'always' | 'disabled';
   uiScale?: 'normal' | 'large' | 'extra_large';
   screenOrientation?: 'auto' | 'portrait' | 'landscape';
+  landscapeRotationAngle?: 90 | -90;
   autoOpenReceiptAfterBill?: boolean;
   showPreviousBalanceOnBill?: boolean;
   autoDeleteRecycleBin90Days?: boolean;

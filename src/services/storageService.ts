@@ -92,6 +92,7 @@ const DEFAULT_SETTINGS: ThermalPrinterSettings = {
   tabletMode: 'auto',
   uiScale: 'normal',
   screenOrientation: 'auto',
+  landscapeRotationAngle: 90,
   autoOpenReceiptAfterBill: false,
   showPreviousBalanceOnBill: true,
   autoDeleteRecycleBin90Days: true,
