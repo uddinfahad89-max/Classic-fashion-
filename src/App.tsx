@@ -46,6 +46,7 @@ import { RecycleBinModal } from './components/RecycleBinModal';
 import { PurchaseBillUploadModal } from './components/PurchaseBillUploadModal';
 import { useNetworkStatus } from './utils/useNetworkStatus';
 import { backHandler, useBackHandler } from './utils/backHandler';
+import { applyScreenOrientation } from './utils/orientationHelper';
 import { firebaseService } from './services/firebaseService';
 import { ShieldAlert, ShieldCheck, Lock } from 'lucide-react';
 
@@ -1746,10 +1747,16 @@ export default function App() {
     );
   };
 
+  // Sync screen orientation lock/unlock whenever setting changes
+  useEffect(() => {
+    applyScreenOrientation(settings.screenOrientation || 'auto');
+  }, [settings.screenOrientation]);
+
   // Settings Handlers
   const handleSaveSettings = (newSettings: ThermalPrinterSettings) => {
     storageService.saveSettings(newSettings);
     setSettings(newSettings);
+    applyScreenOrientation(newSettings.screenOrientation || 'auto');
 
     // Strictly sync store settings/profile to Firebase Firestore
     const prof = storageService.getUserProfile();

@@ -9,9 +9,11 @@ import {
   Monitor,
   Sparkles,
   Info,
+  RotateCw,
 } from 'lucide-react';
 import { ThermalPrinterSettings, Language } from '../types';
 import { useTabletMode } from '../utils/useTabletMode';
+import { applyScreenOrientation, ScreenOrientationPreference } from '../utils/orientationHelper';
 
 interface TabletModeSwitcherModalProps {
   isOpen: boolean;
@@ -35,6 +37,7 @@ export const TabletModeSwitcherModal: React.FC<TabletModeSwitcherModalProps> = (
 
   const currentMode = settings.tabletMode || 'auto';
   const currentScale = settings.uiScale || 'normal';
+  const currentOrientation = settings.screenOrientation || 'auto';
 
   const handleSelectMode = (mode: 'auto' | 'always' | 'disabled') => {
     onUpdateSettings({ ...settings, tabletMode: mode });
@@ -42,6 +45,11 @@ export const TabletModeSwitcherModal: React.FC<TabletModeSwitcherModalProps> = (
 
   const handleSelectScale = (scale: 'normal' | 'large' | 'extra_large') => {
     onUpdateSettings({ ...settings, uiScale: scale });
+  };
+
+  const handleSelectOrientation = (orientation: ScreenOrientationPreference) => {
+    onUpdateSettings({ ...settings, screenOrientation: orientation });
+    applyScreenOrientation(orientation);
   };
 
   return (
@@ -256,6 +264,43 @@ export const TabletModeSwitcherModal: React.FC<TabletModeSwitcherModalProps> = (
                 <div className="text-lg font-black">A++</div>
                 <div className="text-[10px]">{isBn ? 'অতি বড়' : 'Extra Large'}</div>
               </button>
+            </div>
+          </div>
+
+          {/* Option 3: Screen Rotation / Orientation */}
+          <div className="space-y-2 pt-1 border-t border-stone-100">
+            <label className="font-black text-stone-900 text-xs flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <RotateCw className="w-4 h-4 text-teal-600" />
+                <span>{isBn ? 'স্ক্রিন রোটেশন (Screen Rotation)' : 'Screen Rotation'}</span>
+              </span>
+              <span className="text-[10px] font-mono font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">
+                {tabletInfo.isLandscape ? 'LANDSCAPE' : 'PORTRAIT'}
+              </span>
+            </label>
+
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { id: 'auto', titleBn: '🔄 অটো রোটেট', titleEn: 'Auto Rotate', subBn: 'ট্যাবলেট ঘুরালে ঘুরবে', subEn: 'Rotates freely' },
+                { id: 'portrait', titleBn: '📱 লম্বালম্বি', titleEn: 'Portrait', subBn: 'খাঁড়া স্ক্রিন', subEn: 'Vertical' },
+                { id: 'landscape', titleBn: '📺 আড়াআড়ি', titleEn: 'Landscape', subBn: 'চওড়া স্ক্রিন', subEn: 'Horizontal' },
+              ].map((ori) => (
+                <button
+                  key={ori.id}
+                  type="button"
+                  onClick={() => handleSelectOrientation(ori.id as ScreenOrientationPreference)}
+                  className={`py-2 px-2 rounded-xl border text-center transition-all cursor-pointer font-bold ${
+                    currentOrientation === ori.id
+                      ? 'bg-teal-600 text-white border-teal-600 shadow-xs'
+                      : 'bg-stone-50 hover:bg-stone-100 text-stone-700 border-stone-200'
+                  }`}
+                >
+                  <div className="text-xs font-extrabold">{isBn ? ori.titleBn : ori.titleEn}</div>
+                  <div className={`text-[9px] mt-0.5 ${currentOrientation === ori.id ? 'text-teal-100' : 'text-stone-500'}`}>
+                    {isBn ? ori.subBn : ori.subEn}
+                  </div>
+                </button>
+              ))}
             </div>
           </div>
 

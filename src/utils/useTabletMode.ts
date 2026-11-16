@@ -26,6 +26,8 @@ export function useTabletMode(settings?: Partial<ThermalPrinterSettings>): Table
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
     const handleResize = () => {
       setDimensions({
         width: window.innerWidth,
@@ -33,12 +35,22 @@ export function useTabletMode(settings?: Partial<ThermalPrinterSettings>): Table
       });
     };
 
+    const handleOrientationChange = () => {
+      handleResize();
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(handleResize, 120);
+    };
+
     window.addEventListener('resize', handleResize);
-    window.addEventListener('orientationchange', handleResize);
+    window.addEventListener('orientationchange', handleOrientationChange);
+    const screenOrientation = (window.screen as any)?.orientation;
+    screenOrientation?.addEventListener?.('change', handleOrientationChange);
 
     return () => {
+      if (timer) clearTimeout(timer);
       window.removeEventListener('resize', handleResize);
-      window.removeEventListener('orientationchange', handleResize);
+      window.removeEventListener('orientationchange', handleOrientationChange);
+      screenOrientation?.removeEventListener?.('change', handleOrientationChange);
     };
   }, []);
 
@@ -56,7 +68,7 @@ export function useTabletMode(settings?: Partial<ThermalPrinterSettings>): Table
   const uiScale = settings?.uiScale || 'normal';
 
   const isTabletWidth = dimensions.width >= 768;
-  const isLandscape = dimensions.width > dimensions.height && dimensions.width >= 960;
+  const isLandscape = dimensions.width > dimensions.height;
 
   const isTabletActive = useMemo(() => {
     if (mode === 'always') return true;

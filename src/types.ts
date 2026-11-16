@@ -339,6 +339,7 @@ export interface ThermalPrinterSettings {
   defaultPaymentMethod?: PaymentMethod;
   tabletMode?: 'auto' | 'always' | 'disabled';
   uiScale?: 'normal' | 'large' | 'extra_large';
+  screenOrientation?: 'auto' | 'portrait' | 'landscape';
   autoOpenReceiptAfterBill?: boolean;
   showPreviousBalanceOnBill?: boolean;
   autoDeleteRecycleBin90Days?: boolean;
