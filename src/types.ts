@@ -321,6 +321,7 @@ export interface ThermalPrinterSettings {
   storePhone: string;
   storeAddress: string;
   signatoryName?: string;
+  defaultCashierName?: string;
   upiId?: string;
   paperWidth: PaperWidth;
   currencySymbol: string;

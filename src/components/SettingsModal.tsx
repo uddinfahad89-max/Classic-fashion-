@@ -21,6 +21,7 @@ interface SettingsModalProps {
   onDataRestored?: () => void;
   onOpenSuperAdmin?: () => void;
   onOpenStaffManagement?: () => void;
+  onUpdateCashierName?: (name: string) => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -37,10 +38,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onDataRestored,
   onOpenSuperAdmin,
   onOpenStaffManagement,
+  onUpdateCashierName,
 }) => {
   const t = translations[language];
   const isBn = language === 'bn';
   const [form, setForm] = useState<ThermalPrinterSettings>(settings);
+  const [cashierNameInput, setCashierNameInput] = useState<string>('');
   const [saved, setSaved] = useState(false);
   const [backupMsg, setBackupMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -74,6 +77,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   useEffect(() => {
     setForm(settings);
+    const currentProf = storageService.getUserProfile();
+    if (currentProf.role === 'Staff') {
+      setCashierNameInput(currentProf.name || '');
+    } else {
+      setCashierNameInput(settings.defaultCashierName || '');
+    }
     setBackupMsg(null);
     if (isOpen) {
       try {
@@ -135,7 +144,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSaveSettings(form);
+    const currentProf = storageService.getUserProfile();
+    const cleanCashier = cashierNameInput.trim();
+    const nextForm: ThermalPrinterSettings =
+      currentProf.role === 'Staff'
+        ? form
+        : { ...form, defaultCashierName: cleanCashier };
+    onSaveSettings(nextForm);
+    if (currentProf.role === 'Staff' && onUpdateCashierName && cleanCashier !== (currentProf.name || '').trim()) {
+      onUpdateCashierName(cleanCashier);
+    }
     setSaved(true);
     setTimeout(() => {
       setSaved(false);
@@ -446,6 +464,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
 
             <div>
+              <label className="block text-stone-700 font-semibold mb-1">
+                {isBn ? '👤 ক্যাশিয়ারের নাম (Cashier Name)' : '👤 Cashier Name'}
+              </label>
+              <input
+                id="settings-cashier-name-input"
+                type="text"
+                value={cashierNameInput}
+                onChange={(e) => setCashierNameInput(e.target.value)}
+                placeholder={
+                  storageService.getUserProfile().name ||
+                  (isBn ? 'যেমন: রহিম / Counter-1' : 'e.g. Rahim / Counter-1')
+                }
+                className="w-full border border-stone-200 bg-stone-50/80 p-2 rounded-xl text-xs font-semibold focus:outline-none focus:border-blue-500"
+              />
+              <p className="text-[10px] text-stone-500 pt-0.5 leading-tight">
+                {isBn
+                  ? `বিল ও প্রিন্টে ক্যাশিয়ারের নাম আসবে (খালি রাখলে: ${storageService.getUserProfile().name || 'Counter Staff'})`
+                  : `Printed on bills & slips (Default: ${storageService.getUserProfile().name || 'Counter Staff'})`}
+              </p>
+            </div>
+          </div>
+
+          <div>
               <label className="block text-stone-700 font-semibold mb-1 flex items-center justify-between">
                 <span>{isBn ? 'UPI আইডি (QR কোড পেমেন্ট)' : 'UPI ID (QR Code & Due Pay)'}</span>
                 {form.upiId && form.upiId.trim() && (
@@ -466,7 +507,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   ? '💡 Vyapar অ্যাপের মতো: এটি দিলে যারা বাকি (Due) নিবে তাদের বিলে ও থার্মাল প্রিন্টে অটো QR কোড আসবে, যাতে কাস্টমার স্ক্যান করে পেমেন্ট করতে পারে।'
                   : '💡 Like Vyapar app: If set, bills with Due (বাকি) will automatically print a dynamic UPI QR Code for instant scan & pay.'}
               </p>
-            </div>
           </div>
 
           {/* Invoice Number Formatting & Sequence */}

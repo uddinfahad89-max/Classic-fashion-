@@ -39,6 +39,7 @@ import {
   Crown,
   KeyRound,
   Tablet,
+  Pencil,
 } from 'lucide-react';
 import {
   ThermalPrinterSettings,
@@ -89,6 +90,7 @@ interface HeaderProps {
   onOpenSuperAdmin?: () => void;
   onOpenRecycleBin?: () => void;
   onUpdateSettings?: (settings: ThermalPrinterSettings) => void;
+  onUpdateCashierName?: (name: string) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -124,6 +126,7 @@ export const Header: React.FC<HeaderProps> = ({
   onManualSync,
   onOpenSuperAdmin,
   onOpenRecycleBin,
+  onUpdateCashierName,
 }) => {
   const isBn = language === 'bn';
   const isHi = language === 'hi';
@@ -138,9 +141,12 @@ export const Header: React.FC<HeaderProps> = ({
   const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false);
   const [isTopMoreMenuOpen, setIsTopMoreMenuOpen] = useState(false);
   const [isTabletModalOpen, setIsTabletModalOpen] = useState(false);
+  const [isEditingCashier, setIsEditingCashier] = useState(false);
+  const [cashierDraft, setCashierDraft] = useState('');
 
   const tabletInfo = useTabletMode(settings);
   const isLandscapeMode = settings.screenOrientation === 'landscape';
+  const activeCashierName = storageService.getActiveCashierName(userProfile, settings);
 
   const profileRef = useRef<HTMLDivElement>(null);
   const sortRef = useRef<HTMLDivElement>(null);
@@ -456,6 +462,81 @@ export const Header: React.FC<HeaderProps> = ({
                         </span>
                       )}
                     </div>
+                  </div>
+                )}
+
+                {/* Active Cashier Name & Quick Change */}
+                {onUpdateCashierName && (
+                  <div className="px-4 py-2.5 bg-blue-50/60 border-b border-stone-100">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-bold text-stone-500 uppercase tracking-wide">
+                          {isBn ? '👤 বিলিং ক্যাশিয়ারের নাম' : '👤 Active Cashier Name'}
+                        </p>
+                        {!isEditingCashier && (
+                          <p className="text-xs font-extrabold text-stone-900 truncate mt-0.5">
+                            {activeCashierName}
+                          </p>
+                        )}
+                      </div>
+                      {!isEditingCashier && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCashierDraft(
+                              userProfile.role === 'Staff'
+                                ? userProfile.name || ''
+                                : settings.defaultCashierName || userProfile.name || ''
+                            );
+                            setIsEditingCashier(true);
+                          }}
+                          className="px-2.5 py-1 rounded-xl text-[11px] font-bold text-blue-700 bg-white border border-blue-200 hover:bg-blue-100 flex items-center gap-1 transition-colors cursor-pointer shrink-0 shadow-2xs"
+                        >
+                          <Pencil className="w-3 h-3" />
+                          <span>{isBn ? 'বদলান' : 'Change'}</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {isEditingCashier && (
+                      <div className="mt-2 flex items-center gap-1.5">
+                        <input
+                          type="text"
+                          autoFocus
+                          value={cashierDraft}
+                          onChange={(e) => setCashierDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              onUpdateCashierName(cashierDraft);
+                              setIsEditingCashier(false);
+                            }
+                            if (e.key === 'Escape') {
+                              setIsEditingCashier(false);
+                            }
+                          }}
+                          placeholder={isBn ? 'ক্যাশিয়ারের নাম লিখুন...' : 'Enter cashier name...'}
+                          className="flex-1 min-w-0 px-2.5 py-1.5 text-xs font-bold bg-white border border-blue-400 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/30 text-stone-900"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onUpdateCashierName(cashierDraft);
+                            setIsEditingCashier(false);
+                          }}
+                          className="px-2.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold cursor-pointer shrink-0"
+                        >
+                          {isBn ? 'সেভ' : 'Save'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsEditingCashier(false)}
+                          className="px-2 py-1.5 rounded-xl bg-stone-200 hover:bg-stone-300 text-stone-700 text-[11px] font-bold cursor-pointer shrink-0"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
 

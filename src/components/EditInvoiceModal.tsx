@@ -86,6 +86,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
   const [invoiceNo, setInvoiceNo] = useState('');
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  const [cashierName, setCashierName] = useState('');
   const [items, setItems] = useState<BillItem[]>([]);
   const [discountType, setDiscountType] = useState<'fixed' | 'percent'>('fixed');
   const [discountValue, setDiscountValue] = useState('');
@@ -245,6 +246,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
       setInvoiceNo(bill.invoiceNo);
       setCustomerName(bill.customerName || '');
       setCustomerPhone(bill.customerPhone || '');
+      setCashierName(bill.cashierName || '');
       setItems(bill.items ? JSON.parse(JSON.stringify(bill.items)) : []);
       setDiscountType(bill.discountType || 'fixed');
       setDiscountValue(
@@ -890,6 +892,7 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
       invoiceNo: invoiceNo.trim() || bill.invoiceNo,
       customerName: customerName.trim() || undefined,
       customerPhone: customerPhone.trim() || undefined,
+      cashierName: cashierName.trim() || undefined,
       items: finalItems,
       subtotal: finalSubtotal,
       discount: finalDiscountAmount,
@@ -1167,6 +1170,26 @@ export const EditInvoiceModal: React.FC<EditInvoiceModalProps> = ({
                   onChange={(e) => setCustomerPhone(e.target.value)}
                   placeholder={t.customerPhoneOptionalPlaceholder}
                   className="w-full border border-stone-200 bg-stone-50/80 pl-9 pr-3 py-2.5 rounded-xl text-xs sm:text-sm font-mono font-medium focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
+                />
+              </div>
+            </div>
+
+            {/* Cashier Name Input Row */}
+            <div className="mt-2 flex items-center gap-2">
+              <div className="relative flex-1">
+                <div className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 pointer-events-none">
+                  <Pencil className="w-3.5 h-3.5" />
+                </div>
+                <input
+                  type="text"
+                  value={cashierName}
+                  onChange={(e) => setCashierName(e.target.value)}
+                  placeholder={
+                    isBn
+                      ? 'ক্যাশিয়ারের নাম (ঐচ্ছিক / Cashier Name)'
+                      : 'Cashier Name (Optional)'
+                  }
+                  className="w-full border border-stone-200 bg-stone-50/80 pl-9 pr-3 py-2 rounded-xl text-xs font-semibold text-stone-800 focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
                 />
               </div>
             </div>

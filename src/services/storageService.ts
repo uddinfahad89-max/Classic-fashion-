@@ -74,6 +74,7 @@ const DEFAULT_SETTINGS: ThermalPrinterSettings = {
   storePhone: '',
   storeAddress: '',
   signatoryName: '',
+  defaultCashierName: '',
   upiId: '',
   paperWidth: '80mm',
   currencySymbol: 'Rs',
@@ -419,19 +420,19 @@ class StorageService {
     // Guaranteed direct backup of this bill to server disk & vault
     try {
       const profile = this.getUserProfile();
+      const currentSettings = this.getSettings();
       const isStaff =
         profile.role === 'Staff' ||
         profile.role === 'Cashier' ||
         Boolean(profile.staffId) ||
         Boolean(profile.operatorCode);
 
-      if (isStaff) {
-        if (!bill.cashierName && profile.name) {
-          bill.cashierName = profile.name;
-        }
-        if (!bill.cashierId && profile.operatorCode) {
-          bill.cashierId = profile.operatorCode;
-        }
+      const resolvedCashierName = this.getActiveCashierName(profile, currentSettings);
+      if (!bill.cashierName && resolvedCashierName && resolvedCashierName !== 'Counter Staff') {
+        bill.cashierName = resolvedCashierName;
+      }
+      if (!bill.cashierId && isStaff && profile.operatorCode) {
+        bill.cashierId = profile.operatorCode;
       }
 
       const storedOwner =
@@ -3041,6 +3042,15 @@ class StorageService {
     };
     this.saveUserProfile(updatedProfile);
     return { success: true, staff: matched };
+  }
+
+  getActiveCashierName(profile?: UserProfile, settings?: ThermalPrinterSettings): string {
+    const prof = profile || this.getUserProfile();
+    const sett = settings || this.getSettings();
+    if (prof.role === 'Staff') {
+      return prof.name?.trim() || sett.defaultCashierName?.trim() || 'Counter Staff';
+    }
+    return sett.defaultCashierName?.trim() || prof.name?.trim() || 'Counter Staff';
   }
 
   getAttendanceRecords(filter?: { date?: string; month?: string; staffId?: string }): AttendanceRecord[] {

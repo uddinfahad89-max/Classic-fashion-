@@ -1794,6 +1794,30 @@ export default function App() {
     firebaseService.syncProfile(newSettings, undefined, undefined, prof.phone, prof.email);
   };
 
+  const handleUpdateCashierName = (newCashierName: string) => {
+    const cleanName = newCashierName.trim();
+    if (userProfile.role === 'Staff') {
+      const updatedProfile: UserProfile = {
+        ...userProfile,
+        name: cleanName || 'Counter Staff',
+      };
+      storageService.saveUserProfile(updatedProfile);
+      setUserProfile(updatedProfile);
+    } else {
+      const updatedSettings: ThermalPrinterSettings = {
+        ...settings,
+        defaultCashierName: cleanName,
+      };
+      handleSaveSettings(updatedSettings);
+    }
+    showToast(
+      language === 'bn'
+        ? `ক্যাশিয়ারের নাম সেভ হয়েছে: ${cleanName || (userProfile.name || 'ডিফল্ট')}`
+        : `Cashier name updated: ${cleanName || (userProfile.name || 'Default')}`,
+      'success'
+    );
+  };
+
   const handleUpdatePaperWidth = (paperWidth: PaperWidth) => {
     const updated = { ...settings, paperWidth };
     storageService.saveSettings(updated);
@@ -2123,6 +2147,7 @@ export default function App() {
         onTestPrint={handleTestPrint}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onUpdateSettings={handleSaveSettings}
+        onUpdateCashierName={handleUpdateCashierName}
         userProfile={userProfile}
         onOpenLogin={handleOpenOwnerLogin}
         onOpenStaffLogin={handleOpenStaffLogin}
@@ -2202,6 +2227,7 @@ export default function App() {
             totalInvoicesCount={bills.length}
             onOpenRecycleBin={() => setIsRecycleBinOpen(true)}
             userProfile={userProfile}
+            onUpdateCashierName={handleUpdateCashierName}
             onOpenStaffLogin={() => {
               setLoginModalInitialTab('staff_login');
               setIsLoginModalOpen(true);
@@ -2531,6 +2557,7 @@ export default function App() {
         onClose={() => setIsSettingsOpen(false)}
         settings={settings}
         onSaveSettings={handleSaveSettings}
+        onUpdateCashierName={handleUpdateCashierName}
         bluetoothStatus={bluetoothStatus}
         onConnectBluetooth={handleConnectBluetooth}
         onDisconnectBluetooth={handleDisconnectBluetooth}

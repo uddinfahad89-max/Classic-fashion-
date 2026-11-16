@@ -813,7 +813,8 @@ class FirebaseService {
         MASTER_ADMIN_EMAIL;
       const effectiveOwner = (ownerEmail && ownerEmail.includes('@') ? ownerEmail : MASTER_ADMIN_EMAIL).trim().toLowerCase();
 
-      const cashierName = invoice.cashierName || activeProf.name || '';
+      const activeCashier = storageService.getActiveCashierName(activeProf);
+      const cashierName = invoice.cashierName || (activeCashier !== 'Counter Staff' ? activeCashier : activeProf.name || '');
       const cashierId = invoice.cashierId || activeProf.operatorCode || activeProf.staffId || '';
 
       const invoiceRef = doc(db, 'invoices', invoice.id);
@@ -1311,6 +1312,7 @@ class FirebaseService {
         currencySymbol: settings.currencySymbol || '৳',
         footerNote: settings.footerNote || '',
         signatoryName: settings.signatoryName || '',
+        defaultCashierName: settings.defaultCashierName || '',
         invoicePrefix: settings.invoicePrefix || 'INV-',
         nextInvoiceNumber: settings.nextInvoiceNumber || 1,
         autoPrintOnCheckout: Boolean(settings.autoPrintOnCheckout),
