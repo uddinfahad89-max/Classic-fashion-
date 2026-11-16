@@ -2,8 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   Menu,
   Search,
-  Folder,
-  FolderOpen,
+  RectangleHorizontal,
   ArrowDown,
   List,
   LayoutGrid,
@@ -52,6 +51,7 @@ import {
 import { storageService } from '../services/storageService';
 import { useTabletMode } from '../utils/useTabletMode';
 import { TabletModeSwitcherModal } from './TabletModeSwitcherModal';
+import { applyScreenOrientation } from '../utils/orientationHelper';
 
 export type SortOption = 'date-desc' | 'date-asc' | 'amount-desc' | 'name-asc';
 
@@ -136,15 +136,14 @@ export const Header: React.FC<HeaderProps> = ({
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false);
-  const [isFolderMenuOpen, setIsFolderMenuOpen] = useState(false);
   const [isTopMoreMenuOpen, setIsTopMoreMenuOpen] = useState(false);
   const [isTabletModalOpen, setIsTabletModalOpen] = useState(false);
 
   const tabletInfo = useTabletMode(settings);
+  const isLandscapeMode = settings.screenOrientation === 'landscape';
 
   const profileRef = useRef<HTMLDivElement>(null);
   const sortRef = useRef<HTMLDivElement>(null);
-  const folderRef = useRef<HTMLDivElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -159,9 +158,6 @@ export const Header: React.FC<HeaderProps> = ({
       if (sortRef.current && !sortRef.current.contains(e.target as Node)) {
         setIsSortDropdownOpen(false);
       }
-      if (folderRef.current && !folderRef.current.contains(e.target as Node)) {
-        setIsFolderMenuOpen(false);
-      }
       if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
         setIsTopMoreMenuOpen(false);
       }
@@ -171,7 +167,6 @@ export const Header: React.FC<HeaderProps> = ({
       if (e.key === 'Escape') {
         setIsProfileModalOpen(false);
         setIsSortDropdownOpen(false);
-        setIsFolderMenuOpen(false);
         setIsTopMoreMenuOpen(false);
         setIsDrawerOpen(false);
       }
@@ -277,148 +272,45 @@ export const Header: React.FC<HeaderProps> = ({
                 </button>
               )}
 
-              {/* Folder Icon inside Search Pill (as seen in Google Sheets) */}
-              <div className="relative shrink-0" ref={folderRef}>
-                <button
-                  type="button"
-                  onClick={() => setIsFolderMenuOpen((prev) => !prev)}
-                  className={`p-1.5 rounded-full text-stone-600 hover:text-blue-600 hover:bg-stone-200/80 transition-colors cursor-pointer flex items-center justify-center ${
-                    isFolderMenuOpen ? 'bg-stone-200 text-blue-600' : ''
-                  }`}
-                  title={isBn ? 'ফোল্ডার ও ক্যাটাগরি' : 'Folders & Categories'}
-                >
-                  <Folder className="w-4 h-4 sm:w-4.5 sm:h-4.5 fill-stone-400/20" />
-                </button>
-
-                {/* Folder Category Popover */}
-                {isFolderMenuOpen && (
-                  <div className="absolute right-0 top-10 w-56 bg-white rounded-2xl shadow-xl border border-stone-200 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150 divide-y divide-stone-100">
-                    <div className="px-3 py-1.5 text-[11px] font-bold text-stone-400 uppercase tracking-wider">
-                      {isBn ? 'দোকানের খাতা ফোল্ডার' : 'Sheets & Folders'}
-                    </div>
-                    <div className="py-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onSelectTab('invoices');
-                          setIsFolderMenuOpen(false);
-                        }}
-                        className={`w-full text-left px-3 py-2 text-xs font-semibold flex items-center justify-between transition-colors ${
-                          activeTab === 'invoices'
-                            ? 'bg-blue-50 text-blue-700'
-                            : 'text-stone-700 hover:bg-stone-50'
-                        }`}
-                      >
-                        <span className="flex items-center gap-2">
-                          <Receipt className="w-4 h-4 text-emerald-600" />
-                          <span>{isBn ? 'ইনভয়েস শিট (Invoices)' : 'Invoices & Bills'}</span>
-                        </span>
-                        {totalInvoicesCount > 0 && (
-                          <span className="text-[10px] font-mono font-bold bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded-full">
-                            {totalInvoicesCount}
-                          </span>
-                        )}
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onSelectTab('billing');
-                          setIsFolderMenuOpen(false);
-                        }}
-                        className={`w-full text-left px-3 py-2 text-xs font-semibold flex items-center gap-2 transition-colors ${
-                          activeTab === 'billing'
-                            ? 'bg-blue-50 text-blue-700'
-                            : 'text-stone-700 hover:bg-stone-50'
-                        }`}
-                      >
-                        <ShoppingBag className="w-4 h-4 text-blue-600" />
-                        <span>{isBn ? 'নতুন বিলিং (New POS)' : 'New Billing / POS'}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onSelectTab('due');
-                          setIsFolderMenuOpen(false);
-                        }}
-                        className={`w-full text-left px-3 py-2 text-xs font-semibold flex items-center gap-2 transition-colors ${
-                          activeTab === 'due'
-                            ? 'bg-blue-50 text-blue-700'
-                            : 'text-stone-700 hover:bg-stone-50'
-                        }`}
-                      >
-                        <Users className="w-4 h-4 text-amber-600" />
-                        <span>{isBn ? 'বাকি খাতা (Customer Dues)' : 'Customer Dues'}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onSelectTab('cashbook');
-                          setIsFolderMenuOpen(false);
-                        }}
-                        className={`w-full text-left px-3 py-2 text-xs font-semibold flex items-center gap-2 transition-colors ${
-                          activeTab === 'cashbook'
-                            ? 'bg-blue-50 text-blue-700'
-                            : 'text-stone-700 hover:bg-stone-50'
-                        }`}
-                      >
-                        <BookOpen className="w-4 h-4 text-purple-600" />
-                        <span>{isBn ? 'ডেবুক (Cashbook)' : 'Daily Cashbook'}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onSelectTab('purchases');
-                          setIsFolderMenuOpen(false);
-                        }}
-                        className={`w-full text-left px-3 py-2 text-xs font-semibold flex items-center gap-2 transition-colors ${
-                          activeTab === 'purchases'
-                            ? 'bg-blue-50 text-blue-700'
-                            : 'text-stone-700 hover:bg-stone-50'
-                        }`}
-                      >
-                        <Truck className="w-4 h-4 text-teal-600" />
-                        <span>{isBn ? 'মাল কেনাকাটা (Purchases)' : 'Purchase Trips'}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onSelectTab('barcode');
-                          setIsFolderMenuOpen(false);
-                        }}
-                        className={`w-full text-left px-3 py-2 text-xs font-semibold flex items-center gap-2 transition-colors ${
-                          activeTab === 'barcode'
-                            ? 'bg-blue-50 text-blue-700'
-                            : 'text-stone-700 hover:bg-stone-50'
-                        }`}
-                      >
-                        <Barcode className="w-4 h-4 text-indigo-600" />
-                        <span>{isBn ? 'বারকোড ও প্রাইস ট্যাগ (4Barcode)' : 'Barcode & Tags'}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onSelectTab('staff');
-                          setIsFolderMenuOpen(false);
-                        }}
-                        className={`w-full text-left px-3 py-2 text-xs font-semibold flex items-center gap-2 transition-colors ${
-                          activeTab === 'staff'
-                            ? 'bg-blue-50 text-blue-700'
-                            : 'text-stone-700 hover:bg-stone-50'
-                        }`}
-                      >
-                        <UserCheck className="w-4 h-4 text-blue-600" />
-                        <span>{isBn ? 'স্টাফ ম্যানেজমেন্ট ও হাজিরা' : 'Staff Management'}</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
+              {/* Quick 1-Tap Landscape Orientation Toggle inside Search Pill */}
+              <button
+                id="header-quick-landscape-btn"
+                type="button"
+                onClick={() => {
+                  const nextOrientation = isLandscapeMode ? 'auto' : 'landscape';
+                  applyScreenOrientation(nextOrientation, true);
+                  if (onUpdateSettings) {
+                    onUpdateSettings({
+                      ...settings,
+                      screenOrientation: nextOrientation,
+                    });
+                  }
+                }}
+                className={`px-2 py-1 rounded-full transition-all cursor-pointer shrink-0 flex items-center gap-1 ${
+                  isLandscapeMode
+                    ? 'bg-blue-600 text-white shadow-xs ring-2 ring-blue-300/60'
+                    : 'text-stone-600 hover:text-blue-700 hover:bg-stone-200/80'
+                }`}
+                title={
+                  isLandscapeMode
+                    ? isBn
+                      ? 'সাধারণ মোডে ফিরুন (Exit Landscape)'
+                      : 'Exit Landscape Mode'
+                    : isBn
+                    ? 'আড়াআড়ি স্ক্রিন (Landscape Mode)'
+                    : 'Switch to Landscape Mode'
+                }
+                aria-label={isLandscapeMode ? 'Exit Landscape Mode' : 'Switch to Landscape Mode'}
+              >
+                <RectangleHorizontal className="w-4 h-4 sm:w-4.5 sm:h-4.5 stroke-[2.2]" />
+                <span className="hidden sm:inline text-[11px] font-bold">
+                  {isLandscapeMode
+                    ? isBn
+                      ? 'Landscape চালু'
+                      : 'Landscape'
+                    : 'Landscape'}
+                </span>
+              </button>
             </div>
           </div>
 
