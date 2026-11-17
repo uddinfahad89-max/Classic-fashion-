@@ -103,6 +103,32 @@
         "storeId": { "type": "string" }
       },
       "required": ["id", "storeId"]
+    },
+    "RemoteScanRoom": {
+      "title": "RemoteScanRoom",
+      "description": "Cross-device Mobile-to-Tablet scanner pairing presence room",
+      "type": "object",
+      "properties": {
+        "roomCode": { "type": "string" },
+        "tabletActive": { "type": "boolean" },
+        "tabletLastSeen": { "type": "number" },
+        "mobileLastSeen": { "type": "number" }
+      },
+      "required": ["roomCode"]
+    },
+    "RemoteScanEvent": {
+      "title": "RemoteScanEvent",
+      "description": "Real-time barcode scan event relayed from Mobile to Tablet",
+      "type": "object",
+      "properties": {
+        "scanId": { "type": "string" },
+        "barcode": { "type": "string" },
+        "qty": { "type": "number" },
+        "scannedAt": { "type": "number" },
+        "acked": { "type": "boolean" },
+        "status": { "type": "string" }
+      },
+      "required": ["scanId", "barcode", "scannedAt"]
     }
   },
   "firestore": {
@@ -113,6 +139,14 @@
     "/profiles/{profileId}": {
       "schema": "StoreProfile",
       "description": "Store profiles and configuration"
+    },
+    "/stores/{storeId}": {
+      "schema": "RemoteScanRoom",
+      "description": "Store documents and real-time remote scanner pairing presence"
+    },
+    "/stores/{storeId}/scans/{scanId}": {
+      "schema": "RemoteScanEvent",
+      "description": "Real-time barcode scan events and ACKs between Mobile and Tablet"
     },
     "/stores/{storeId}/staff/{staffId}": {
       "schema": "StaffMember",

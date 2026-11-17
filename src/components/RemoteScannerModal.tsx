@@ -774,7 +774,7 @@ export const RemoteScannerModal: React.FC<RemoteScannerModalProps> = ({
                         className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold ${
                           mobilePresence.tabletCount > 0
                             ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                            : mobileConnState === 'connected'
+                            : mobileConnState === 'connected' || mobileConnState === 'connecting'
                             ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
                             : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
                         }`}
@@ -783,7 +783,9 @@ export const RemoteScannerModal: React.FC<RemoteScannerModalProps> = ({
                           className={`w-2 h-2 rounded-full ${
                             mobilePresence.tabletCount > 0
                               ? 'bg-emerald-400 animate-pulse'
-                              : 'bg-amber-400'
+                              : mobileConnState === 'connected' || mobileConnState === 'connecting'
+                              ? 'bg-amber-400 animate-pulse'
+                              : 'bg-rose-400'
                           }`}
                         />
                         <span>
@@ -791,6 +793,10 @@ export const RemoteScannerModal: React.FC<RemoteScannerModalProps> = ({
                             ? isBn
                               ? `টেবলেট কানেক্টেড (#${connectedMobileRoom})`
                               : `Tablet Ready (#${connectedMobileRoom})`
+                            : mobileConnState === 'connecting'
+                            ? isBn
+                              ? `কোড #${connectedMobileRoom} • সংযোগ হচ্ছে...`
+                              : `Room #${connectedMobileRoom} • Connecting...`
                             : isBn
                             ? `কোড #${connectedMobileRoom} • টেবলেটের অপেক্ষায়`
                             : `Room #${connectedMobileRoom} • Waiting for Tablet`}
