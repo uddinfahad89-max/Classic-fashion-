@@ -44,6 +44,11 @@ import { BackExitPill } from './components/BackExitPill';
 import { SuperAdminModal } from './components/SuperAdminModal';
 import { RecycleBinModal } from './components/RecycleBinModal';
 import { PurchaseBillUploadModal } from './components/PurchaseBillUploadModal';
+import { RemoteScannerModal } from './components/RemoteScannerModal';
+import {
+  getOrCreateTabletRoomCode,
+  normalizeScannerRoomCode,
+} from './services/remoteScannerService';
 import { useNetworkStatus } from './utils/useNetworkStatus';
 import { backHandler, useBackHandler } from './utils/backHandler';
 import { applyScreenOrientation } from './utils/orientationHelper';
@@ -98,6 +103,15 @@ export default function App() {
   const [isSuperAdminOpen, setIsSuperAdminOpen] = useState(false);
   const [isRecycleBinOpen, setIsRecycleBinOpen] = useState(false);
   const [isPurchaseBillUploadOpen, setIsPurchaseBillUploadOpen] = useState(false);
+  const [deepLinkScanRoom, setDeepLinkScanRoom] = useState<string>(() => {
+    try {
+      const param = new URLSearchParams(window.location.search).get('scanRoom');
+      const norm = param ? normalizeScannerRoomCode(param) : '';
+      return norm.length >= 4 ? norm : '';
+    } catch {
+      return '';
+    }
+  });
   const [isPrintingBill, setIsPrintingBill] = useState(false);
   const [isExitConfirmOpen, setIsExitConfirmOpen] = useState(false);
   const [isExitPillVisible, setIsExitPillVisible] = useState(false);
@@ -165,8 +179,10 @@ export default function App() {
     setSettings(currentSettings);
     setUserProfile(prof);
 
-    // If logged in or user has already skipped/completed onboarding on this browser
-    if (prof.isLoggedIn || hasCompletedOnboarding || isGuestMode) {
+    // If launched via QR deep link (?scanRoom=XXXXXX), open Mobile Scanner immediately without blocking onboarding
+    if (deepLinkScanRoom) {
+      setIsOnboardingOpen(false);
+    } else if (prof.isLoggedIn || hasCompletedOnboarding || isGuestMode) {
       setIsOnboardingOpen(false);
     } else {
       // Fresh new device/browser -> Prompt onboarding modal with clean empty fields and Skip option
@@ -3026,6 +3042,33 @@ export default function App() {
         onConfirmExit={() => backHandler.forceExit()}
         language={language}
       />
+
+      {/* Deep-Link Mobile Scanner Mode when opened via Tablet QR Code (?scanRoom=XXXXXX) */}
+      {deepLinkScanRoom && (
+        <RemoteScannerModal
+          isOpen={Boolean(deepLinkScanRoom)}
+          onClose={() => {
+            setDeepLinkScanRoom('');
+            try {
+              const url = new URL(window.location.href);
+              url.searchParams.delete('scanRoom');
+              window.history.replaceState(null, document.title, url.pathname + url.search);
+            } catch {}
+          }}
+          language={language}
+          initialMode="mobile"
+          initialMobileRoomCode={deepLinkScanRoom}
+          tabletRoomCode={getOrCreateTabletRoomCode()}
+          isTabletReceiverActive={false}
+          tabletConnectionState="disconnected"
+          tabletPresence={{ roomCode: deepLinkScanRoom, tabletCount: 0, mobileCount: 0 }}
+          autoIncrementDuplicate={true}
+          onToggleTabletReceiver={() => {}}
+          onRegenerateRoomCode={() => {}}
+          onToggleAutoIncrementDuplicate={() => {}}
+          currencySymbol={settings.currencySymbol || 'Rs.'}
+        />
+      )}
 
       {/* Instant Notification Toast (Positioned above bottom nav bar) */}
       {toast && (

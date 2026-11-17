@@ -34,6 +34,7 @@ import {
   ShieldCheck,
   MessageCircle,
   Building2,
+  Smartphone,
 } from 'lucide-react';
 import { sendWhatsAppBillForInvoice } from '../utils/whatsappHelper';
 import {
@@ -65,6 +66,19 @@ import {
   playBarcodeWarningBeep,
   ScanResult,
 } from './BarcodeScannerModal';
+import { RemoteScannerModal } from './RemoteScannerModal';
+import {
+  RemoteScannerConnection,
+  RemoteConnectionState,
+  RemoteRoomPresence,
+  RemoteScanBarcodeEvent,
+  getOrCreateTabletRoomCode,
+  regenerateTabletRoomCode,
+  getSavedTabletReceiverActive,
+  saveTabletReceiverActive,
+  getRemoteAutoIncrementPref,
+  saveRemoteAutoIncrementPref,
+} from '../services/remoteScannerService';
 
 interface BillingTabProps {
   billItems: BillItem[];
@@ -620,6 +634,30 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   const lastGlobalScanTimeRef = useRef<number>(0);
   const inFlightScannedCodesRef = useRef<Map<string, BillItem>>(new Map());
 
+  // Mobile-to-Tablet Real-Time Remote Scanner Receiver State
+  const [isRemoteScannerOpen, setIsRemoteScannerOpen] = useState(false);
+  const [remoteRoomCode, setRemoteRoomCode] = useState<string>(() =>
+    getOrCreateTabletRoomCode()
+  );
+  const [isRemoteReceiverActive, setIsRemoteReceiverActive] = useState<boolean>(() =>
+    getSavedTabletReceiverActive()
+  );
+  const [remoteConnState, setRemoteConnState] =
+    useState<RemoteConnectionState>('disconnected');
+  const [remotePresence, setRemotePresence] = useState<RemoteRoomPresence>(() => ({
+    roomCode: getOrCreateTabletRoomCode(),
+    tabletCount: 0,
+    mobileCount: 0,
+  }));
+  const [remoteAutoIncrement, setRemoteAutoIncrement] = useState<boolean>(() =>
+    getRemoteAutoIncrementPref()
+  );
+  const [remoteScanCount, setRemoteScanCount] = useState<number>(0);
+  const processedRemoteScanIdsRef = useRef<Set<string>>(new Set());
+  const tabletRemoteConnRef = useRef<RemoteScannerConnection | null>(null);
+  const billItemsRef = useRef<BillItem[]>(billItems);
+  billItemsRef.current = billItems;
+
   useBackHandler(
     'billingDuplicateConfirmModal',
     Boolean(duplicateConfirmItem),
@@ -1121,6 +1159,210 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     const updated = { ...scanPrefs, duplicateMode: mode };
     setScanPrefs(updated);
     storageService.saveBarcodeScanPreferences(updated);
+  };
+
+  // Remote Mobile -> Tablet Incoming Barcode Handler (Idempotent & Instant ACK)
+  const handleIncomingRemoteScan = (ev: RemoteScanBarcodeEvent) => {
+    const scanId = (ev.scanId || '').trim();
+    if (scanId && processedRemoteScanIdsRef.current.has(scanId)) {
+      return;
+    }
+    if (scanId) {
+      processedRemoteScanIdsRef.current.add(scanId);
+      if (processedRemoteScanIdsRef.current.size > 400) {
+        const first = processedRemoteScanIdsRef.current.values().next().value;
+        if (first) processedRemoteScanIdsRef.current.delete(first);
+      }
+    }
+
+    const { cleanCode, matchedProd } = resolveProductByBarcodeCode(ev.barcode);
+    if (!cleanCode) return;
+
+    const lowerCode = cleanCode.toLowerCase();
+    const resolvedName = matchedProd ? matchedProd.name : `Item (${cleanCode})`;
+    const resolvedPrice = matchedProd && matchedProd.price > 0 ? matchedProd.price : 0;
+    const resolvedUnit = matchedProd?.unit || itemUnit.trim() || 'Pcs';
+    const addQty = ev.qty > 0 ? ev.qty : 1;
+
+    const currentItems = billItemsRef.current;
+    const inFlightItem = inFlightScannedCodesRef.current.get(lowerCode);
+    const existingIndex = currentItems.findIndex(
+      (it) =>
+        (it.barcode && it.barcode.trim().toLowerCase() === lowerCode) ||
+        (matchedProd && it.productId && it.productId === matchedProd.id) ||
+        (it.name.trim().toLowerCase() === resolvedName.toLowerCase() &&
+          (it.price === resolvedPrice || it.price === 0))
+    );
+    const existingItem =
+      existingIndex >= 0 ? currentItems[existingIndex] : inFlightItem || null;
+
+    if (existingItem) {
+      if (remoteAutoIncrement) {
+        const nextQty = existingItem.qty + addQty;
+        const unitPrice = existingItem.price;
+        const updatedItem: BillItem = {
+          ...existingItem,
+          qty: nextQty,
+          total: Math.round(unitPrice * nextQty * 100) / 100,
+        };
+        inFlightScannedCodesRef.current.set(lowerCode, updatedItem);
+        billItemsRef.current = currentItems.map((it) =>
+          it.id === existingItem.id ||
+          (it.barcode && it.barcode.trim().toLowerCase() === lowerCode)
+            ? updatedItem
+            : it
+        );
+        setBillItems((prev) =>
+          prev.map((it) =>
+            it.id === existingItem.id ||
+            (it.barcode && it.barcode.trim().toLowerCase() === lowerCode)
+              ? {
+                  ...it,
+                  qty: it.qty + addQty,
+                  total: Math.round(it.price * (it.qty + addQty) * 100) / 100,
+                }
+              : it
+          )
+        );
+        playBarcodeBeep(true);
+        setRemoteScanCount((c) => c + 1);
+        setScanStatusBanner({
+          message: isBn
+            ? `📱 মোবাইল স্ক্যান: "${existingItem.name}" → ${nextQty} ${existingItem.unit || 'Pcs'}`
+            : `📱 Mobile Scan: "${existingItem.name}" → Qty ${nextQty}`,
+          type: 'success',
+        });
+        setTimeout(() => setScanStatusBanner(null), 3200);
+
+        tabletRemoteConnRef.current?.sendScanAck({
+          scanId,
+          matched: true,
+          itemName: existingItem.name,
+          price: existingItem.price,
+          qtyInBill: nextQty,
+          isDuplicate: true,
+          status: 'incremented',
+        });
+      } else {
+        playBarcodeWarningBeep(true);
+        setDuplicateConfirmItem({
+          item: existingItem,
+          barcode: cleanCode,
+          nextQty: existingItem.qty + addQty,
+          matchedProd,
+        });
+        tabletRemoteConnRef.current?.sendScanAck({
+          scanId,
+          matched: true,
+          itemName: existingItem.name,
+          price: existingItem.price,
+          qtyInBill: existingItem.qty,
+          isDuplicate: true,
+          status: 'duplicate_confirm',
+        });
+      }
+      return;
+    }
+
+    const newItemId =
+      'item-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6);
+    const newCartItem: BillItem = {
+      id: newItemId,
+      name: resolvedName,
+      price: resolvedPrice,
+      qty: addQty,
+      unit: resolvedUnit,
+      total: Math.round(resolvedPrice * addQty * 100) / 100,
+      barcode: cleanCode,
+      productId: matchedProd?.id,
+    };
+
+    inFlightScannedCodesRef.current.set(lowerCode, newCartItem);
+    billItemsRef.current = [...currentItems, newCartItem];
+    setBillItems((prev) => [...prev, newCartItem]);
+    setRemoteScanCount((c) => c + 1);
+
+    if (resolvedPrice <= 0) {
+      playBarcodeWarningBeep(true);
+      setEditingItemId(newItemId);
+      setEditItemName(resolvedName);
+      setEditItemPrice('');
+      setEditItemQty(String(addQty));
+      setEditItemUnit(resolvedUnit);
+      setEditFocusField('price');
+    } else {
+      playBarcodeBeep(true);
+    }
+
+    setScanStatusBanner({
+      message:
+        resolvedPrice > 0
+          ? isBn
+            ? `📱 মোবাইল স্ক্যান: "${resolvedName}" যোগ হয়েছে (${sym}${resolvedPrice})`
+            : `📱 Mobile Scan: "${resolvedName}" added (${sym}${resolvedPrice})`
+          : isBn
+          ? `📱 মোবাইল স্ক্যান: "${cleanCode}" — নিচে দর (Rate) বসান`
+          : `📱 Mobile Scan: "${cleanCode}" — enter Rate below`,
+      type: resolvedPrice > 0 ? 'success' : 'warning',
+    });
+    setTimeout(() => setScanStatusBanner(null), 3500);
+
+    tabletRemoteConnRef.current?.sendScanAck({
+      scanId,
+      matched: Boolean(matchedProd && resolvedPrice > 0),
+      itemName: resolvedName,
+      price: resolvedPrice,
+      qtyInBill: addQty,
+      isDuplicate: false,
+      status: resolvedPrice > 0 ? 'added' : 'needs_price',
+    });
+  };
+
+  const handleIncomingRemoteScanRef = useRef(handleIncomingRemoteScan);
+  handleIncomingRemoteScanRef.current = handleIncomingRemoteScan;
+
+  useEffect(() => {
+    if (!isRemoteReceiverActive || !remoteRoomCode) {
+      if (tabletRemoteConnRef.current) {
+        tabletRemoteConnRef.current.destroy();
+        tabletRemoteConnRef.current = null;
+      }
+      setRemoteConnState('disconnected');
+      setRemotePresence({ roomCode: remoteRoomCode, tabletCount: 0, mobileCount: 0 });
+      return;
+    }
+
+    const conn = new RemoteScannerConnection({
+      roomCode: remoteRoomCode,
+      role: 'tablet',
+      onStateChange: (st) => setRemoteConnState(st),
+      onPresence: (pres) => setRemotePresence(pres),
+      onBarcode: (ev) => handleIncomingRemoteScanRef.current(ev),
+    });
+
+    tabletRemoteConnRef.current = conn;
+    conn.connect();
+
+    return () => {
+      conn.destroy();
+      tabletRemoteConnRef.current = null;
+    };
+  }, [isRemoteReceiverActive, remoteRoomCode]);
+
+  const handleToggleRemoteReceiver = (active: boolean) => {
+    setIsRemoteReceiverActive(active);
+    saveTabletReceiverActive(active);
+  };
+
+  const handleRegenerateRemoteRoom = () => {
+    const fresh = regenerateTabletRoomCode();
+    setRemoteRoomCode(fresh);
+    setRemoteScanCount(0);
+  };
+
+  const handleToggleRemoteAutoIncrement = (enabled: boolean) => {
+    setRemoteAutoIncrement(enabled);
+    saveRemoteAutoIncrementPref(enabled);
   };
 
   // Reset active suggestion index when query changes
@@ -2997,6 +3239,39 @@ export const BillingTab: React.FC<BillingTabProps> = ({
               </span>
             </button>
 
+            {/* Mobile-to-Tablet Remote Scanner Pairing Button */}
+            <button
+              type="button"
+              id="btn-billing-remote-mobile-scanner"
+              onClick={() => setIsRemoteScannerOpen(true)}
+              className={`relative px-2.5 sm:px-3 py-2.5 rounded-xl font-bold text-xs shadow-2xs transition-all flex items-center justify-center gap-1.5 cursor-pointer shrink-0 border ${
+                isRemoteReceiverActive && remotePresence.mobileCount > 0
+                  ? 'bg-blue-600 hover:bg-blue-500 text-white border-blue-600'
+                  : isRemoteReceiverActive
+                  ? 'bg-blue-50 hover:bg-blue-100 text-blue-800 border-blue-300'
+                  : 'bg-stone-100 hover:bg-stone-200 text-stone-800 border-stone-200'
+              }`}
+              title={
+                isBn
+                  ? 'মোবাইল দিয়ে প্রোডাক্ট স্ক্যান করে টেবলেটে বিল করুন'
+                  : 'Scan with Mobile Phone -> Bill on Tablet'
+              }
+            >
+              <Smartphone className="w-4 h-4" />
+              <span className="hidden sm:inline">
+                {isBn ? 'মোবাইল স্ক্যান' : 'Mobile Scan'}
+              </span>
+              {isRemoteReceiverActive && (
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    remotePresence.mobileCount > 0
+                      ? 'bg-emerald-300 animate-ping'
+                      : 'bg-blue-500 animate-pulse'
+                  }`}
+                />
+              )}
+            </button>
+
             {/* 3-dot (⋮) menu aligned inline with Item Name input */}
             <div className="relative shrink-0">
               <button
@@ -3653,6 +3928,23 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         isDuplicatePromptOpen={Boolean(duplicateConfirmItem)}
         duplicateMode={scanPrefs.duplicateMode}
         onChangeDuplicateMode={handleUpdateScanDuplicateMode}
+      />
+
+      {/* REMOTE MOBILE-TO-TABLET LIVE BARCODE SCANNER PAIRING MODAL */}
+      <RemoteScannerModal
+        isOpen={isRemoteScannerOpen}
+        onClose={() => setIsRemoteScannerOpen(false)}
+        language={language}
+        initialMode="tablet"
+        tabletRoomCode={remoteRoomCode}
+        isTabletReceiverActive={isRemoteReceiverActive}
+        tabletConnectionState={remoteConnState}
+        tabletPresence={remotePresence}
+        autoIncrementDuplicate={remoteAutoIncrement}
+        onToggleTabletReceiver={handleToggleRemoteReceiver}
+        onRegenerateRoomCode={handleRegenerateRemoteRoom}
+        onToggleAutoIncrementDuplicate={handleToggleRemoteAutoIncrement}
+        currencySymbol={sym || 'Rs.'}
       />
 
       {/* DUPLICATE PRODUCT SCAN CONFIRMATION MODAL */}

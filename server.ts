@@ -1,6 +1,8 @@
 import express from 'express';
+import http from 'http';
 import path from 'path';
 import fs from 'fs';
+import { WebSocketServer, WebSocket } from 'ws';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 
@@ -1002,6 +1004,227 @@ Parsing rules:
   }
 });
 
+// ----------------- REMOTE MOBILE-TO-TABLET SCANNER RELAY (WEBSOCKET + HTTP FALLBACK) -----------------
+
+interface RemoteScanAckPayload {
+  scanId: string;
+  matched: boolean;
+  itemName?: string;
+  price?: number;
+  qtyInBill?: number;
+  isDuplicate?: boolean;
+  status?: 'added' | 'incremented' | 'needs_price' | 'duplicate_confirm' | 'error';
+  error?: string;
+  ackedAt: number;
+}
+
+interface RemoteScanEvent {
+  scanId: string;
+  barcode: string;
+  qty: number;
+  scannedAt: number;
+  deviceId?: string;
+  ack?: RemoteScanAckPayload;
+}
+
+interface ScannerClientMeta {
+  role: 'tablet' | 'mobile';
+  deviceId: string;
+  joinedAt: number;
+}
+
+interface ScannerRoom {
+  roomCode: string;
+  clients: Map<WebSocket, ScannerClientMeta>;
+  recentScans: RemoteScanEvent[];
+  lastActive: number;
+}
+
+const scannerRooms = new Map<string, ScannerRoom>();
+
+function normalizeRoomCode(raw: string): string {
+  return String(raw || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+    .slice(0, 10);
+}
+
+function getOrCreateScannerRoom(roomCode: string): ScannerRoom {
+  const code = normalizeRoomCode(roomCode);
+  let room = scannerRooms.get(code);
+  if (!room) {
+    room = {
+      roomCode: code,
+      clients: new Map(),
+      recentScans: [],
+      lastActive: Date.now(),
+    };
+    scannerRooms.set(code, room);
+  }
+  room.lastActive = Date.now();
+  return room;
+}
+
+function getRoomCounts(room: ScannerRoom): { tabletCount: number; mobileCount: number } {
+  let tabletCount = 0;
+  let mobileCount = 0;
+  for (const meta of room.clients.values()) {
+    if (meta.role === 'tablet') tabletCount++;
+    else if (meta.role === 'mobile') mobileCount++;
+  }
+  return { tabletCount, mobileCount };
+}
+
+function broadcastToRoom(
+  room: ScannerRoom,
+  payload: any,
+  targetRole?: 'tablet' | 'mobile'
+) {
+  const raw = JSON.stringify(payload);
+  for (const [client, meta] of room.clients.entries()) {
+    if (targetRole && meta.role !== targetRole) continue;
+    if (client.readyState === WebSocket.OPEN) {
+      try {
+        client.send(raw);
+      } catch {}
+    }
+  }
+}
+
+function broadcastRoomPresence(room: ScannerRoom) {
+  const counts = getRoomCounts(room);
+  broadcastToRoom(room, {
+    type: 'room:presence',
+    roomCode: room.roomCode,
+    ...counts,
+    ts: Date.now(),
+  });
+}
+
+// Cleanup stale scanner rooms every 15 minutes (4 hours idle TTL)
+setInterval(() => {
+  const cutoff = Date.now() - 4 * 60 * 60 * 1000;
+  for (const [code, room] of scannerRooms.entries()) {
+    if (room.clients.size === 0 && room.lastActive < cutoff) {
+      scannerRooms.delete(code);
+    }
+  }
+}, 15 * 60 * 1000);
+
+// HTTP fallback endpoint: Mobile pushes a scan if WebSocket was briefly blocked/reconnecting
+app.post('/api/remote-scan/push', (req, res) => {
+  try {
+    const roomCode = normalizeRoomCode(req.body?.roomCode);
+    const barcode = String(req.body?.barcode || '').trim();
+    const scanId = String(req.body?.scanId || `scan-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`);
+    const qty = Number(req.body?.qty) > 0 ? Number(req.body.qty) : 1;
+    const scannedAt = Number(req.body?.scannedAt) || Date.now();
+
+    if (!roomCode || roomCode.length < 4 || !barcode) {
+      return res.status(400).json({ success: false, error: 'Valid roomCode and barcode required' });
+    }
+
+    const room = getOrCreateScannerRoom(roomCode);
+    let existing = room.recentScans.find((s) => s.scanId === scanId);
+    if (!existing) {
+      existing = { scanId, barcode, qty, scannedAt, deviceId: String(req.body?.deviceId || '') };
+      room.recentScans.push(existing);
+      if (room.recentScans.length > 60) {
+        room.recentScans.splice(0, room.recentScans.length - 60);
+      }
+      broadcastToRoom(
+        room,
+        {
+          type: 'scan:barcode',
+          roomCode,
+          scanId,
+          barcode,
+          qty,
+          scannedAt,
+        },
+        'tablet'
+      );
+    }
+
+    const counts = getRoomCounts(room);
+    return res.json({
+      success: true,
+      scanId,
+      tabletCount: counts.tabletCount,
+      mobileCount: counts.mobileCount,
+      ack: existing.ack || null,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Push failed' });
+  }
+});
+
+// HTTP fallback endpoint: Tablet sends ACK back or Mobile polls for ACK / Tablet polls for pending scans
+app.post('/api/remote-scan/ack', (req, res) => {
+  try {
+    const roomCode = normalizeRoomCode(req.body?.roomCode);
+    const scanId = String(req.body?.scanId || '');
+    if (!roomCode || !scanId) {
+      return res.status(400).json({ success: false, error: 'roomCode and scanId required' });
+    }
+    const room = getOrCreateScannerRoom(roomCode);
+    const ackPayload: RemoteScanAckPayload = {
+      scanId,
+      matched: Boolean(req.body?.matched),
+      itemName: req.body?.itemName ? String(req.body.itemName) : undefined,
+      price: typeof req.body?.price === 'number' ? req.body.price : undefined,
+      qtyInBill: typeof req.body?.qtyInBill === 'number' ? req.body.qtyInBill : undefined,
+      isDuplicate: Boolean(req.body?.isDuplicate),
+      status: req.body?.status || 'added',
+      error: req.body?.error ? String(req.body.error) : undefined,
+      ackedAt: Date.now(),
+    };
+    const scan = room.recentScans.find((s) => s.scanId === scanId);
+    if (scan) {
+      scan.ack = ackPayload;
+    }
+    broadcastToRoom(
+      room,
+      {
+        type: 'scan:ack',
+        roomCode,
+        ...ackPayload,
+      },
+      'mobile'
+    );
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Ack failed' });
+  }
+});
+
+app.get('/api/remote-scan/poll', (req, res) => {
+  try {
+    const roomCode = normalizeRoomCode(String(req.query.roomCode || ''));
+    const role = req.query.role === 'mobile' ? 'mobile' : 'tablet';
+    const since = Number(req.query.since) || 0;
+    if (!roomCode) {
+      return res.status(400).json({ success: false, error: 'roomCode required' });
+    }
+    const room = scannerRooms.get(roomCode);
+    if (!room) {
+      return res.json({ success: true, tabletCount: 0, mobileCount: 0, scans: [] });
+    }
+    const counts = getRoomCounts(room);
+    if (role === 'tablet') {
+      const pending = room.recentScans.filter((s) => !s.ack && s.scannedAt >= since);
+      return res.json({ success: true, ...counts, scans: pending });
+    }
+    const acks = room.recentScans
+      .filter((s) => s.ack && s.ack.ackedAt >= since)
+      .map((s) => s.ack);
+    return res.json({ success: true, ...counts, acks });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Poll failed' });
+  }
+});
+
 // ----------------- VITE MIDDLEWARE & STATIC SERVING -----------------
 
 async function startServer() {
@@ -1019,8 +1242,188 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Thermal POS Server running on http://0.0.0.0:${PORT}`);
+  const server = http.createServer(app);
+
+  // Real-Time WebSocket Server for Mobile -> Tablet Barcode Scanning
+  const wss = new WebSocketServer({ server, path: '/ws/scanner' });
+
+  wss.on('connection', (ws) => {
+    let joinedRoomCode = '';
+
+    ws.on('message', (rawBuf) => {
+      try {
+        const msg = JSON.parse(rawBuf.toString());
+        if (!msg || typeof msg !== 'object') return;
+
+        if (msg.type === 'ping') {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'pong', ts: Date.now() }));
+          }
+          return;
+        }
+
+        if (msg.type === 'join') {
+          const roomCode = normalizeRoomCode(msg.roomCode);
+          if (!roomCode || roomCode.length < 4) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Invalid room code' }));
+            return;
+          }
+          // Leave any previous room this socket was in
+          if (joinedRoomCode && joinedRoomCode !== roomCode) {
+            const oldRoom = scannerRooms.get(joinedRoomCode);
+            if (oldRoom) {
+              oldRoom.clients.delete(ws);
+              broadcastRoomPresence(oldRoom);
+            }
+          }
+
+          joinedRoomCode = roomCode;
+          const role: 'tablet' | 'mobile' = msg.role === 'mobile' ? 'mobile' : 'tablet';
+          const deviceId = String(msg.deviceId || `dev-${Date.now()}`);
+          const room = getOrCreateScannerRoom(roomCode);
+          room.clients.set(ws, { role, deviceId, joinedAt: Date.now() });
+
+          const counts = getRoomCounts(room);
+          ws.send(
+            JSON.stringify({
+              type: 'room:joined',
+              roomCode,
+              role,
+              ...counts,
+            })
+          );
+
+          // Replay recent unacked scans from last 5 minutes if a tablet just joined/reconnected
+          if (role === 'tablet') {
+            const recentCutoff = Date.now() - 5 * 60 * 1000;
+            const unacked = room.recentScans.filter(
+              (s) => !s.ack && s.scannedAt >= recentCutoff
+            );
+            for (const s of unacked) {
+              ws.send(
+                JSON.stringify({
+                  type: 'scan:barcode',
+                  roomCode,
+                  scanId: s.scanId,
+                  barcode: s.barcode,
+                  qty: s.qty,
+                  scannedAt: s.scannedAt,
+                  replayed: true,
+                })
+              );
+            }
+          }
+
+          broadcastRoomPresence(room);
+          return;
+        }
+
+        if (msg.type === 'scan:barcode') {
+          const roomCode = normalizeRoomCode(msg.roomCode || joinedRoomCode);
+          const barcode = String(msg.barcode || '').trim();
+          const scanId = String(msg.scanId || `scan-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`);
+          const qty = Number(msg.qty) > 0 ? Number(msg.qty) : 1;
+          const scannedAt = Number(msg.scannedAt) || Date.now();
+          if (!roomCode || !barcode) return;
+
+          const room = getOrCreateScannerRoom(roomCode);
+          let existing = room.recentScans.find((s) => s.scanId === scanId);
+          if (!existing) {
+            existing = { scanId, barcode, qty, scannedAt };
+            room.recentScans.push(existing);
+            if (room.recentScans.length > 60) {
+              room.recentScans.splice(0, room.recentScans.length - 60);
+            }
+            broadcastToRoom(
+              room,
+              {
+                type: 'scan:barcode',
+                roomCode,
+                scanId,
+                barcode,
+                qty,
+                scannedAt,
+              },
+              'tablet'
+            );
+          }
+
+          const counts = getRoomCounts(room);
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(
+              JSON.stringify({
+                type: 'scan:relayed',
+                roomCode,
+                scanId,
+                tabletCount: counts.tabletCount,
+                ack: existing.ack || null,
+              })
+            );
+          }
+          return;
+        }
+
+        if (msg.type === 'scan:ack') {
+          const roomCode = normalizeRoomCode(msg.roomCode || joinedRoomCode);
+          const scanId = String(msg.scanId || '');
+          if (!roomCode || !scanId) return;
+
+          const room = getOrCreateScannerRoom(roomCode);
+          const ackPayload: RemoteScanAckPayload = {
+            scanId,
+            matched: Boolean(msg.matched),
+            itemName: msg.itemName ? String(msg.itemName) : undefined,
+            price: typeof msg.price === 'number' ? msg.price : undefined,
+            qtyInBill: typeof msg.qtyInBill === 'number' ? msg.qtyInBill : undefined,
+            isDuplicate: Boolean(msg.isDuplicate),
+            status: msg.status || 'added',
+            error: msg.error ? String(msg.error) : undefined,
+            ackedAt: Date.now(),
+          };
+
+          const scan = room.recentScans.find((s) => s.scanId === scanId);
+          if (scan) {
+            scan.ack = ackPayload;
+          }
+
+          broadcastToRoom(
+            room,
+            {
+              type: 'scan:ack',
+              roomCode,
+              ...ackPayload,
+            },
+            'mobile'
+          );
+        }
+      } catch (e) {
+        console.warn('WebSocket scanner parse error:', e);
+      }
+    });
+
+    ws.on('close', () => {
+      if (joinedRoomCode) {
+        const room = scannerRooms.get(joinedRoomCode);
+        if (room) {
+          room.clients.delete(ws);
+          broadcastRoomPresence(room);
+        }
+      }
+    });
+
+    ws.on('error', () => {
+      if (joinedRoomCode) {
+        const room = scannerRooms.get(joinedRoomCode);
+        if (room) {
+          room.clients.delete(ws);
+          broadcastRoomPresence(room);
+        }
+      }
+    });
+  });
+
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`Thermal POS Server running on http://0.0.0.0:${PORT} (WebSocket /ws/scanner active)`);
   });
 }
 
