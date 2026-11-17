@@ -1,5 +1,5 @@
 // Real-Time Hybrid Client (Firebase Firestore onSnapshot + WebSocket + HTTP Fallback)
-// Works seamlessly across ais-dev preview, ais-pre shared URL, localhost, and mobile 4G/WiFi networks.
+// Zero clock-skew dependency: uses single-field Firestore queries + serverTimestamp heartbeats.
 
 import {
   collection,
@@ -7,10 +7,12 @@ import {
   deleteField,
   onSnapshot,
   query,
+  serverTimestamp,
   setDoc,
   where,
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
+import { firebaseService } from './firebaseService';
 
 export type RemoteScannerRole = 'tablet' | 'mobile';
 
@@ -48,7 +50,6 @@ const TABLET_RECEIVER_ACTIVE_KEY = 'pos_remote_scanner_active_v1';
 const REMOTE_AUTO_INCREMENT_KEY = 'pos_remote_scanner_auto_inc_v1';
 const DEVICE_ID_KEY = 'pos_remote_scanner_device_id_v1';
 
-// Structured Firestore error logger (matches firebase-integration-rpc reference)
 function logFirestoreScannerError(error: unknown, operationType: string, path: string) {
   const errInfo = {
     error: error instanceof Error ? error.message : String(error),
@@ -150,7 +151,6 @@ export class RemoteScannerConnection {
   private role: RemoteScannerRole;
   private roomCode: string;
   private deviceId: string;
-  private sessionStartMs: number;
   private destroyed = false;
   private reconnectAttempts = 0;
   private reconnectTimer: number | null = null;
@@ -163,7 +163,6 @@ export class RemoteScannerConnection {
   private deliveredScanIds = new Set<string>();
   private ackedScanIds = new Set<string>();
 
-  // Separate presence trackers merged together so either WebSocket OR Firestore lights up "Connected"!
   private wsPresence: { tabletCount: number; mobileCount: number } = {
     tabletCount: 0,
     mobileCount: 0,
@@ -171,8 +170,11 @@ export class RemoteScannerConnection {
   private fbPresenceData: {
     tabletActive?: boolean;
     tabletLastSeen?: number;
+    tabletServerSeenMs?: number;
     mobileDevices?: Record<string, number>;
   } = {};
+  private lastTabletTickValue = 0;
+  private lastTabletTickLocalTime = 0;
 
   private wsConnected = false;
   private fbConnected = false;
@@ -198,7 +200,6 @@ export class RemoteScannerConnection {
     this.roomCode = normalizeScannerRoomCode(opts.roomCode);
     this.role = opts.role;
     this.deviceId = getOrCreateDeviceId();
-    this.sessionStartMs = Date.now();
     this.presence = {
       roomCode: this.roomCode,
       tabletCount: opts.role === 'tablet' ? 1 : 0,
@@ -221,16 +222,22 @@ export class RemoteScannerConnection {
 
   private recomputePresence() {
     const now = Date.now();
-    // Allow generous 5-minute window to tolerate device clock skew between Mobile & Tablet
+    // Tablet is alive if tabletActive===true AND either serverTimestamp/wall-clock is within 45 min OR heartbeat bumped in last 60s
+    const tabletTs =
+      this.fbPresenceData.tabletServerSeenMs || this.fbPresenceData.tabletLastSeen || 0;
+    const recentlyBumped =
+      this.lastTabletTickLocalTime > 0 && now - this.lastTabletTickLocalTime < 60000;
     const fbTabletAlive =
       Boolean(this.fbPresenceData.tabletActive) &&
-      typeof this.fbPresenceData.tabletLastSeen === 'number' &&
-      Math.abs(now - this.fbPresenceData.tabletLastSeen) < 5 * 60 * 1000;
+      (recentlyBumped || (tabletTs > 0 && Math.abs(now - tabletTs) < 45 * 60 * 1000));
 
     let fbMobileCount = 0;
-    if (this.fbPresenceData.mobileDevices && typeof this.fbPresenceData.mobileDevices === 'object') {
+    if (
+      this.fbPresenceData.mobileDevices &&
+      typeof this.fbPresenceData.mobileDevices === 'object'
+    ) {
       for (const ts of Object.values(this.fbPresenceData.mobileDevices)) {
-        if (typeof ts === 'number' && Math.abs(now - ts) < 5 * 60 * 1000) {
+        if (typeof ts === 'number' && Math.abs(now - ts) < 45 * 60 * 1000) {
           fbMobileCount++;
         }
       }
@@ -260,10 +267,12 @@ export class RemoteScannerConnection {
     this.connectionState = 'connecting';
     this.onStateChange?.('connecting');
 
+    // Passively ensure Firebase Auth is ready in background without blocking listeners
+    firebaseService.ensureAuthenticated().catch(() => {});
+
     this.connectFirestoreChannel();
     this.connectWebSocketChannel();
 
-    // Refresh presence expiration checks every 5s
     if (!this.presenceCheckTimer) {
       this.presenceCheckTimer = window.setInterval(() => {
         if (!this.destroyed) this.recomputePresence();
@@ -271,7 +280,7 @@ export class RemoteScannerConnection {
     }
   }
 
-  // ----------------- CHANNEL 1: FIREBASE FIRESTORE REAL-TIME (CROSS-DOMAIN & NAT-PROOF) -----------------
+  // ----------------- CHANNEL 1: FIREBASE FIRESTORE REAL-TIME -----------------
 
   private getRoomDocId(): string {
     return `remote_room_${this.roomCode}`;
@@ -289,6 +298,7 @@ export class RemoteScannerConnection {
             roomCode: this.roomCode,
             tabletActive: true,
             tabletLastSeen: now,
+            tabletServerSeen: serverTimestamp(),
             tabletDeviceId: this.deviceId,
           }
         : {
@@ -317,15 +327,14 @@ export class RemoteScannerConnection {
     const roomPath = `stores/${roomDocId}`;
     const scansPath = `stores/${roomDocId}/scans`;
 
-    // 1. Write initial presence immediately & keep refreshing every 10s
     this.writePresenceHeartbeat();
     if (!this.heartbeatTimer) {
       this.heartbeatTimer = window.setInterval(() => {
         this.writePresenceHeartbeat();
-      }, 10000);
+      }, 9000);
     }
 
-    // 2. Listen to Room Presence doc in real time
+    // 1. Live Presence Room Listener
     if (!this.unsubRoomDoc) {
       try {
         this.unsubRoomDoc = onSnapshot(
@@ -336,9 +345,21 @@ export class RemoteScannerConnection {
             this.recomputeConnectionState();
             if (snap.exists()) {
               const data = snap.data() as any;
+              const serverSeenMs =
+                typeof data?.tabletServerSeen?.toMillis === 'function'
+                  ? data.tabletServerSeen.toMillis()
+                  : 0;
+              const rawLastSeen = Number(data?.tabletLastSeen) || 0;
+              const tickVal = serverSeenMs || rawLastSeen;
+              if (tickVal && tickVal !== this.lastTabletTickValue && data?.tabletActive) {
+                this.lastTabletTickValue = tickVal;
+                this.lastTabletTickLocalTime = Date.now();
+              }
+
               this.fbPresenceData = {
                 tabletActive: data?.tabletActive,
-                tabletLastSeen: Number(data?.tabletLastSeen) || 0,
+                tabletLastSeen: rawLastSeen,
+                tabletServerSeenMs: serverSeenMs,
                 mobileDevices: data?.mobileDevices || {},
               };
             } else {
@@ -355,15 +376,16 @@ export class RemoteScannerConnection {
       }
     }
 
-    // 3. Listen to live Scans subcollection for barcodes (Tablet) or ACKs (Mobile)
+    // 2. Live Scans Subcollection Listener (Single-field query = ZERO clock-skew or index issues!)
     if (!this.unsubScansCol) {
       try {
-        // Subscribe to scans created around or after this session started (3m buffer for device clock skew)
-        const minTimestamp = this.sessionStartMs - 180000;
-        const scansQuery = query(
-          collection(db, 'stores', roomDocId, 'scans'),
-          where('scannedAt', '>=', minTimestamp)
-        );
+        const scansQuery =
+          this.role === 'tablet'
+            ? query(collection(db, 'stores', roomDocId, 'scans'), where('acked', '==', false))
+            : query(
+                collection(db, 'stores', roomDocId, 'scans'),
+                where('deviceId', '==', this.deviceId)
+              );
 
         this.unsubScansCol = onSnapshot(
           scansQuery,
@@ -378,12 +400,7 @@ export class RemoteScannerConnection {
               if (!scanId) continue;
 
               if (this.role === 'tablet') {
-                // Tablet picks up un-acked scans added by Mobile
-                if (
-                  !data.acked &&
-                  data.barcode &&
-                  !this.deliveredScanIds.has(scanId)
-                ) {
+                if (!data.acked && data.barcode && !this.deliveredScanIds.has(scanId)) {
                   this.deliveredScanIds.add(scanId);
                   this.onBarcode?.({
                     roomCode: this.roomCode,
@@ -394,7 +411,6 @@ export class RemoteScannerConnection {
                   });
                 }
               } else if (this.role === 'mobile') {
-                // Mobile picks up ACKs written by Tablet
                 if (data.acked && !this.ackedScanIds.has(scanId)) {
                   this.ackedScanIds.add(scanId);
                   this.onAck?.({
@@ -403,7 +419,8 @@ export class RemoteScannerConnection {
                     matched: Boolean(data.matched),
                     itemName: data.itemName,
                     price: typeof data.price === 'number' ? data.price : undefined,
-                    qtyInBill: typeof data.qtyInBill === 'number' ? data.qtyInBill : undefined,
+                    qtyInBill:
+                      typeof data.qtyInBill === 'number' ? data.qtyInBill : undefined,
                     isDuplicate: Boolean(data.isDuplicate),
                     status: data.status || 'added',
                     error: data.error,
@@ -625,24 +642,34 @@ export class RemoteScannerConnection {
       scannedAt,
     };
 
-    // 1. Write immediately to Firebase Firestore (guaranteed delivery across ais-dev <-> ais-pre!)
+    // 1. Write to Firebase Firestore with serverTimestamp & deviceId (0 clock-skew bug)
     if (db) {
       const roomDocId = this.getRoomDocId();
       const scanPath = `stores/${roomDocId}/scans/${scanId}`;
-      setDoc(doc(db, 'stores', roomDocId, 'scans', scanId), {
-        scanId,
-        roomCode: this.roomCode,
-        barcode: clean,
-        qty,
-        scannedAt,
-        deviceId: this.deviceId,
-        acked: false,
-      }).catch((err) => {
+      const writeScan = () =>
+        setDoc(doc(db, 'stores', roomDocId, 'scans', scanId), {
+          scanId,
+          roomCode: this.roomCode,
+          barcode: clean,
+          qty,
+          scannedAt,
+          serverCreatedAt: serverTimestamp(),
+          deviceId: this.deviceId,
+          acked: false,
+        });
+
+      writeScan().catch((err) => {
         logFirestoreScannerError(err, 'write', scanPath);
+        // Retry once after 900ms on transient network hiccup
+        window.setTimeout(() => {
+          if (!this.destroyed) {
+            writeScan().catch(() => {});
+          }
+        }, 900);
       });
     }
 
-    // 2. Also send via WebSocket or HTTP push for sub-50ms local relay
+    // 2. Also send via WebSocket or HTTP push for ultra-low latency local relay
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       try {
         this.ws.send(JSON.stringify(payload));
@@ -667,7 +694,6 @@ export class RemoteScannerConnection {
   }
 
   public sendScanAck(ack: Omit<RemoteScanAckEvent, 'roomCode'>) {
-    // 1. Write ACK to Firestore scan document so Mobile sees it across any domain
     if (db && ack.scanId) {
       const roomDocId = this.getRoomDocId();
       const scanPath = `stores/${roomDocId}/scans/${ack.scanId}`;
@@ -691,7 +717,6 @@ export class RemoteScannerConnection {
       });
     }
 
-    // 2. Also send via WebSocket / HTTP fallback
     const payload = {
       type: 'scan:ack',
       roomCode: this.roomCode,
@@ -713,23 +738,23 @@ export class RemoteScannerConnection {
   public destroy() {
     this.destroyed = true;
 
-    // Best-effort mark Tablet or Mobile offline in Firestore when disconnecting
-    if (db && this.roomCode) {
+    if (db && this.role === 'tablet' && this.roomCode) {
       try {
         const roomDocId = this.getRoomDocId();
-        if (this.role === 'tablet') {
-          setDoc(
-            doc(db, 'stores', roomDocId),
-            { tabletActive: false, tabletLastSeen: Date.now() },
-            { merge: true }
-          ).catch(() => {});
-        } else {
-          setDoc(
-            doc(db, 'stores', roomDocId),
-            { mobileDevices: { [this.deviceId]: deleteField() } },
-            { merge: true }
-          ).catch(() => {});
-        }
+        setDoc(
+          doc(db, 'stores', roomDocId),
+          { tabletActive: false, tabletLastSeen: Date.now() },
+          { merge: true }
+        ).catch(() => {});
+      } catch {}
+    } else if (db && this.role === 'mobile' && this.roomCode) {
+      try {
+        const roomDocId = this.getRoomDocId();
+        setDoc(
+          doc(db, 'stores', roomDocId),
+          { mobileDevices: { [this.deviceId]: deleteField() } },
+          { merge: true }
+        ).catch(() => {});
       } catch {}
     }
 

@@ -35,6 +35,7 @@ import {
   MessageCircle,
   Building2,
   Smartphone,
+  Bluetooth,
 } from 'lucide-react';
 import { sendWhatsAppBillForInvoice } from '../utils/whatsappHelper';
 import {
@@ -79,6 +80,10 @@ import {
   getRemoteAutoIncrementPref,
   saveRemoteAutoIncrementPref,
 } from '../services/remoteScannerService';
+import {
+  bluetoothScannerService,
+  BluetoothScannerStatus,
+} from '../services/bluetoothScannerService';
 
 interface BillingTabProps {
   billItems: BillItem[];
@@ -634,6 +639,12 @@ export const BillingTab: React.FC<BillingTabProps> = ({
 
   // Mobile-to-Tablet Real-Time Remote Scanner Receiver State
   const [isRemoteScannerOpen, setIsRemoteScannerOpen] = useState(false);
+  const [remoteModalInitialMode, setRemoteModalInitialMode] = useState<
+    'tablet' | 'mobile' | 'bluetooth'
+  >('tablet');
+  const [btScannerStatus, setBtScannerStatus] = useState<BluetoothScannerStatus>(() =>
+    bluetoothScannerService.getStatus()
+  );
   const [remoteRoomCode, setRemoteRoomCode] = useState<string>(() =>
     getOrCreateTabletRoomCode()
   );
@@ -1159,8 +1170,11 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     storageService.saveBarcodeScanPreferences(updated);
   };
 
-  // Remote Mobile -> Tablet Incoming Barcode Handler (Idempotent & Instant ACK)
-  const handleIncomingRemoteScan = (ev: RemoteScanBarcodeEvent) => {
+  // Remote Mobile / Bluetooth -> Tablet Incoming Barcode Handler (Idempotent & Instant ACK)
+  const handleIncomingRemoteScan = (
+    ev: RemoteScanBarcodeEvent,
+    source: 'mobile' | 'bluetooth' = 'mobile'
+  ) => {
     const scanId = (ev.scanId || '').trim();
     if (scanId && processedRemoteScanIdsRef.current.has(scanId)) {
       return;
@@ -1175,6 +1189,9 @@ export const BillingTab: React.FC<BillingTabProps> = ({
 
     const { cleanCode, matchedProd } = resolveProductByBarcodeCode(ev.barcode);
     if (!cleanCode) return;
+
+    const sourceTagBn = source === 'bluetooth' ? '🔵 ব্লুটুথ স্ক্যান' : '📱 মোবাইল স্ক্যান';
+    const sourceTagEn = source === 'bluetooth' ? '🔵 Bluetooth Scan' : '📱 Mobile Scan';
 
     const lowerCode = cleanCode.toLowerCase();
     const resolvedName = matchedProd ? matchedProd.name : `Item (${cleanCode})`;
@@ -1226,21 +1243,23 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         setRemoteScanCount((c) => c + 1);
         setScanStatusBanner({
           message: isBn
-            ? `📱 মোবাইল স্ক্যান: "${existingItem.name}" → ${nextQty} ${existingItem.unit || 'Pcs'}`
-            : `📱 Mobile Scan: "${existingItem.name}" → Qty ${nextQty}`,
+            ? `${sourceTagBn}: "${existingItem.name}" → ${nextQty} ${existingItem.unit || 'Pcs'}`
+            : `${sourceTagEn}: "${existingItem.name}" → Qty ${nextQty}`,
           type: 'success',
         });
         setTimeout(() => setScanStatusBanner(null), 3200);
 
-        tabletRemoteConnRef.current?.sendScanAck({
-          scanId,
-          matched: true,
-          itemName: existingItem.name,
-          price: existingItem.price,
-          qtyInBill: nextQty,
-          isDuplicate: true,
-          status: 'incremented',
-        });
+        if (source === 'mobile') {
+          tabletRemoteConnRef.current?.sendScanAck({
+            scanId,
+            matched: true,
+            itemName: existingItem.name,
+            price: existingItem.price,
+            qtyInBill: nextQty,
+            isDuplicate: true,
+            status: 'incremented',
+          });
+        }
       } else {
         playBarcodeWarningBeep(true);
         setDuplicateConfirmItem({
@@ -1249,15 +1268,17 @@ export const BillingTab: React.FC<BillingTabProps> = ({
           nextQty: existingItem.qty + addQty,
           matchedProd,
         });
-        tabletRemoteConnRef.current?.sendScanAck({
-          scanId,
-          matched: true,
-          itemName: existingItem.name,
-          price: existingItem.price,
-          qtyInBill: existingItem.qty,
-          isDuplicate: true,
-          status: 'duplicate_confirm',
-        });
+        if (source === 'mobile') {
+          tabletRemoteConnRef.current?.sendScanAck({
+            scanId,
+            matched: true,
+            itemName: existingItem.name,
+            price: existingItem.price,
+            qtyInBill: existingItem.qty,
+            isDuplicate: true,
+            status: 'duplicate_confirm',
+          });
+        }
       }
       return;
     }
@@ -1296,24 +1317,26 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       message:
         resolvedPrice > 0
           ? isBn
-            ? `📱 মোবাইল স্ক্যান: "${resolvedName}" যোগ হয়েছে (${sym}${resolvedPrice})`
-            : `📱 Mobile Scan: "${resolvedName}" added (${sym}${resolvedPrice})`
+            ? `${sourceTagBn}: "${resolvedName}" যোগ হয়েছে (${sym}${resolvedPrice})`
+            : `${sourceTagEn}: "${resolvedName}" added (${sym}${resolvedPrice})`
           : isBn
-          ? `📱 মোবাইল স্ক্যান: "${cleanCode}" — নিচে দর (Rate) বসান`
-          : `📱 Mobile Scan: "${cleanCode}" — enter Rate below`,
+          ? `${sourceTagBn}: "${cleanCode}" — নিচে দর (Rate) বসান`
+          : `${sourceTagEn}: "${cleanCode}" — enter Rate below`,
       type: resolvedPrice > 0 ? 'success' : 'warning',
     });
     setTimeout(() => setScanStatusBanner(null), 3500);
 
-    tabletRemoteConnRef.current?.sendScanAck({
-      scanId,
-      matched: Boolean(matchedProd && resolvedPrice > 0),
-      itemName: resolvedName,
-      price: resolvedPrice,
-      qtyInBill: addQty,
-      isDuplicate: false,
-      status: resolvedPrice > 0 ? 'added' : 'needs_price',
-    });
+    if (source === 'mobile') {
+      tabletRemoteConnRef.current?.sendScanAck({
+        scanId,
+        matched: Boolean(matchedProd && resolvedPrice > 0),
+        itemName: resolvedName,
+        price: resolvedPrice,
+        qtyInBill: addQty,
+        isDuplicate: false,
+        status: resolvedPrice > 0 ? 'added' : 'needs_price',
+      });
+    }
   };
 
   const handleIncomingRemoteScanRef = useRef(handleIncomingRemoteScan);
@@ -1346,6 +1369,29 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       tabletRemoteConnRef.current = null;
     };
   }, [isRemoteReceiverActive, remoteRoomCode]);
+
+  // Subscribe to Web Bluetooth BLE Barcode Scanner Service
+  useEffect(() => {
+    const unsubStatus = bluetoothScannerService.subscribeStatus((st) => {
+      setBtScannerStatus(st);
+    });
+    const unsubBarcodes = bluetoothScannerService.subscribeBarcodes((barcode) => {
+      handleIncomingRemoteScanRef.current(
+        {
+          roomCode: 'bluetooth',
+          scanId: 'bt-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+          barcode,
+          qty: 1,
+          scannedAt: Date.now(),
+        },
+        'bluetooth'
+      );
+    });
+    return () => {
+      unsubStatus();
+      unsubBarcodes();
+    };
+  }, []);
 
   const handleToggleRemoteReceiver = (active: boolean) => {
     setIsRemoteReceiverActive(active);
@@ -3164,39 +3210,6 @@ export const BillingTab: React.FC<BillingTabProps> = ({
               </span>
             </button>
 
-            {/* Mobile-to-Tablet Remote Scanner Pairing Button */}
-            <button
-              type="button"
-              id="btn-billing-remote-mobile-scanner"
-              onClick={() => setIsRemoteScannerOpen(true)}
-              className={`relative px-2.5 sm:px-3 py-2.5 rounded-xl font-bold text-xs shadow-2xs transition-all flex items-center justify-center gap-1.5 cursor-pointer shrink-0 border ${
-                isRemoteReceiverActive && remotePresence.mobileCount > 0
-                  ? 'bg-blue-600 hover:bg-blue-500 text-white border-blue-600'
-                  : isRemoteReceiverActive
-                  ? 'bg-blue-50 hover:bg-blue-100 text-blue-800 border-blue-300'
-                  : 'bg-stone-100 hover:bg-stone-200 text-stone-800 border-stone-200'
-              }`}
-              title={
-                isBn
-                  ? 'মোবাইল দিয়ে প্রোডাক্ট স্ক্যান করে টেবলেটে বিল করুন'
-                  : 'Scan with Mobile Phone -> Bill on Tablet'
-              }
-            >
-              <Smartphone className="w-4 h-4" />
-              <span className="hidden sm:inline">
-                {isBn ? 'মোবাইল স্ক্যান' : 'Mobile Scan'}
-              </span>
-              {isRemoteReceiverActive && (
-                <span
-                  className={`w-2 h-2 rounded-full ${
-                    remotePresence.mobileCount > 0
-                      ? 'bg-emerald-300 animate-ping'
-                      : 'bg-blue-500 animate-pulse'
-                  }`}
-                />
-              )}
-            </button>
-
             {/* 3-dot (⋮) menu aligned inline with Item Name input */}
             <div className="relative shrink-0">
               <button
@@ -3812,6 +3825,106 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         </div>
       </div>
 
+      {/* 5. BOTTOM SCAN OPTIONS BAR: Tablet Billing + Mobile Product Scanner + Bluetooth Scanner */}
+      <div
+        id="billing-bottom-scan-options"
+        className="bg-white rounded-2xl p-2.5 sm:p-3 shadow-xs border border-stone-200 flex items-stretch gap-1.5"
+      >
+        <button
+          type="button"
+          id="btn-billing-remote-mobile-scanner"
+          onClick={() => {
+            setRemoteModalInitialMode('tablet');
+            setIsRemoteScannerOpen(true);
+          }}
+          className={`flex-1 min-w-0 px-3 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center justify-between gap-2 cursor-pointer border ${
+            isRemoteReceiverActive && remotePresence.mobileCount > 0
+              ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border-emerald-300'
+              : isRemoteReceiverActive
+              ? 'bg-blue-50 hover:bg-blue-100 text-blue-900 border-blue-200'
+              : 'bg-stone-50 hover:bg-stone-100 text-stone-700 border-stone-200'
+          }`}
+        >
+          <span className="flex items-center gap-2 min-w-0">
+            <Smartphone
+              className={`w-4 h-4 shrink-0 ${
+                isRemoteReceiverActive && remotePresence.mobileCount > 0
+                  ? 'text-emerald-600'
+                  : isRemoteReceiverActive
+                  ? 'text-blue-600'
+                  : 'text-stone-500'
+              }`}
+            />
+            <span className="truncate">
+              {isBn
+                ? 'মোবাইল দিয়ে প্রোডাক্ট স্ক্যান → টেবলেটে বিল'
+                : 'Scan with Mobile → Bill on Tablet'}
+            </span>
+          </span>
+
+          <span
+            className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[10px] sm:text-[11px] font-black shrink-0 ${
+              isRemoteReceiverActive && remotePresence.mobileCount > 0
+                ? 'bg-emerald-600 text-white'
+                : isRemoteReceiverActive
+                ? 'bg-blue-600 text-white'
+                : 'bg-stone-200 text-stone-700'
+            }`}
+          >
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${
+                isRemoteReceiverActive && remotePresence.mobileCount > 0
+                  ? 'bg-emerald-200 animate-ping'
+                  : isRemoteReceiverActive
+                  ? 'bg-blue-200 animate-pulse'
+                  : 'bg-stone-500'
+              }`}
+            />
+            <span>
+              {isRemoteReceiverActive && remotePresence.mobileCount > 0
+                ? isBn
+                  ? `কানেক্টেড (${remotePresence.mobileCount})`
+                  : `Connected (${remotePresence.mobileCount})`
+                : isRemoteReceiverActive
+                ? `#${remoteRoomCode}`
+                : isBn
+                ? 'চালু করুন'
+                : 'Connect'}
+            </span>
+          </span>
+        </button>
+
+        <button
+          type="button"
+          id="btn-billing-bluetooth-scanner"
+          onClick={() => {
+            setRemoteModalInitialMode('bluetooth');
+            setIsRemoteScannerOpen(true);
+          }}
+          className={`px-2.5 sm:px-3 py-2.5 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer border shrink-0 ${
+            btScannerStatus.connected
+              ? 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500 shadow-xs'
+              : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border-indigo-200'
+          }`}
+          title={
+            isBn
+              ? 'ব্লুটুথ বারকোড স্ক্যানার কানেক্ট করুন'
+              : 'Connect Bluetooth Barcode Scanner'
+          }
+        >
+          <Bluetooth className="w-4 h-4 shrink-0" />
+          <span className="whitespace-nowrap">
+            {btScannerStatus.connected
+              ? isBn
+                ? 'BT যুক্ত'
+                : 'BT On'
+              : isBn
+              ? 'ব্লুটুথ'
+              : 'Bluetooth'}
+          </span>
+        </button>
+      </div>
+
       {/* KHATABOOK / VYAPAR ENTRY MODAL FOR BILLING WITH FULL 5-ROW CALCULATOR */}
       <KhatabookEntryModal
         isOpen={isCalculatorModalOpen}
@@ -3855,12 +3968,12 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         onChangeDuplicateMode={handleUpdateScanDuplicateMode}
       />
 
-      {/* REMOTE MOBILE-TO-TABLET LIVE BARCODE SCANNER PAIRING MODAL */}
+      {/* REMOTE MOBILE / BLUETOOTH -> TABLET LIVE BARCODE SCANNER MODAL */}
       <RemoteScannerModal
         isOpen={isRemoteScannerOpen}
         onClose={() => setIsRemoteScannerOpen(false)}
         language={language}
-        initialMode="tablet"
+        initialMode={remoteModalInitialMode}
         tabletRoomCode={remoteRoomCode}
         isTabletReceiverActive={isRemoteReceiverActive}
         tabletConnectionState={remoteConnState}
@@ -3870,6 +3983,18 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         onRegenerateRoomCode={handleRegenerateRemoteRoom}
         onToggleAutoIncrementDuplicate={handleToggleRemoteAutoIncrement}
         currencySymbol={sym || 'Rs.'}
+        onDirectBarcodeScan={(barcode) =>
+          handleIncomingRemoteScanRef.current(
+            {
+              roomCode: 'bluetooth',
+              scanId: 'bt-hid-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+              barcode,
+              qty: 1,
+              scannedAt: Date.now(),
+            },
+            'bluetooth'
+          )
+        }
       />
 
       {/* DUPLICATE PRODUCT SCAN CONFIRMATION MODAL */}

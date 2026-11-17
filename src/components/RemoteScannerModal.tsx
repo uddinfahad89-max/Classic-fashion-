@@ -23,6 +23,10 @@ import {
   AlertTriangle,
   Loader2,
   Share2,
+  Bluetooth,
+  Keyboard,
+  Unplug,
+  Info,
 } from 'lucide-react';
 import { Language } from '../types';
 import { useBackHandler } from '../utils/useBackHandler';
@@ -35,6 +39,10 @@ import {
   buildMobileScannerShareUrl,
   normalizeScannerRoomCode,
 } from '../services/remoteScannerService';
+import {
+  bluetoothScannerService,
+  BluetoothScannerStatus,
+} from '../services/bluetoothScannerService';
 
 interface ScannedLogEntry {
   scanId: string;
@@ -50,7 +58,7 @@ export interface RemoteScannerModalProps {
   isOpen: boolean;
   onClose: () => void;
   language?: Language;
-  initialMode?: 'tablet' | 'mobile';
+  initialMode?: 'tablet' | 'mobile' | 'bluetooth';
   // Tablet receiver props
   tabletRoomCode: string;
   isTabletReceiverActive: boolean;
@@ -63,6 +71,8 @@ export interface RemoteScannerModalProps {
   // Mobile scanner launch prop (e.g. from ?scanRoom=XXXXXX)
   initialMobileRoomCode?: string;
   currencySymbol?: string;
+  // Direct local Bluetooth/HID barcode test callback
+  onDirectBarcodeScan?: (barcode: string) => void;
 }
 
 export const RemoteScannerModal: React.FC<RemoteScannerModalProps> = ({
@@ -80,9 +90,14 @@ export const RemoteScannerModal: React.FC<RemoteScannerModalProps> = ({
   onToggleAutoIncrementDuplicate,
   initialMobileRoomCode = '',
   currencySymbol = 'Rs.',
+  onDirectBarcodeScan,
 }) => {
   const isBn = language === 'bn';
-  const [mode, setMode] = useState<'tablet' | 'mobile'>(initialMode);
+  const [mode, setMode] = useState<'tablet' | 'mobile' | 'bluetooth'>(initialMode);
+  const [btStatus, setBtStatus] = useState<BluetoothScannerStatus>(() =>
+    bluetoothScannerService.getStatus()
+  );
+  const [btHidTestInput, setBtHidTestInput] = useState('');
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
@@ -116,6 +131,14 @@ export const RemoteScannerModal: React.FC<RemoteScannerModalProps> = ({
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const soundEnabledRef = useRef(true);
+  soundEnabledRef.current = soundEnabled;
+  const cameraOpLockRef = useRef<Promise<void>>(Promise.resolve());
+  const isDetectingFrameRef = useRef(false);
+  const [viewfinderBanner, setViewfinderBanner] = useState<{
+    text: string;
+    tone: 'sending' | 'ok' | 'warn';
+  } | null>(null);
   const [torchOn, setTorchOn] = useState(false);
   const [zoomLevel, setZoomLevel] = useState<number>(1);
 
@@ -128,6 +151,14 @@ export const RemoteScannerModal: React.FC<RemoteScannerModalProps> = ({
     },
     60
   );
+
+  // Sync Bluetooth BLE scanner status
+  useEffect(() => {
+    const unsub = bluetoothScannerService.subscribeStatus((status) => {
+      setBtStatus(status);
+    });
+    return unsub;
+  }, []);
 
   // Sync mode when modal opens
   useEffect(() => {
@@ -160,24 +191,28 @@ export const RemoteScannerModal: React.FC<RemoteScannerModalProps> = ({
       .catch(() => setQrDataUrl(''));
   }, [isOpen, shareUrl]);
 
-  // Stop mobile camera helper
-  const stopMobileCamera = useCallback(async () => {
-    if (nativeDetectorTimerRef.current) {
-      window.clearInterval(nativeDetectorTimerRef.current);
-      nativeDetectorTimerRef.current = null;
-    }
-    const inst = html5QrCodeRef.current;
-    if (!inst) return;
-    try {
-      if (inst.isScanning) {
-        await inst.stop();
+  // Stop mobile camera helper (serialized to avoid Html5Qrcode state-transition errors)
+  const stopMobileCamera = useCallback(() => {
+    cameraOpLockRef.current = cameraOpLockRef.current.then(async () => {
+      if (nativeDetectorTimerRef.current) {
+        window.clearInterval(nativeDetectorTimerRef.current);
+        nativeDetectorTimerRef.current = null;
       }
-      inst.clear();
-    } catch {}
-    html5QrCodeRef.current = null;
+      isDetectingFrameRef.current = false;
+      const inst = html5QrCodeRef.current;
+      if (!inst) return;
+      try {
+        if (inst.isScanning) {
+          await inst.stop();
+        }
+        inst.clear();
+      } catch {}
+      html5QrCodeRef.current = null;
+    });
+    return cameraOpLockRef.current;
   }, []);
 
-  // Connect Mobile WebSocket client when connectedMobileRoom is active
+  // Connect Mobile real-time relay (soundEnabled intentionally read via ref so toggling sound NEVER drops connection!)
   useEffect(() => {
     if (!isOpen || mode !== 'mobile' || !connectedMobileRoom || connectedMobileRoom.length < 4) {
       if (mobileConnRef.current) {
@@ -195,15 +230,23 @@ export const RemoteScannerModal: React.FC<RemoteScannerModalProps> = ({
       onPresence: (pres) => setMobilePresence(pres),
       onAck: (ack: RemoteScanAckEvent) => {
         if (ack.status === 'added' || ack.status === 'incremented') {
-          playBarcodeBeep(soundEnabled);
+          playBarcodeBeep(soundEnabledRef.current);
           try {
             if (navigator.vibrate) navigator.vibrate(50);
           } catch {}
+          setViewfinderBanner({
+            text: `✅ ${ack.itemName || 'Added'}${typeof ack.qtyInBill === 'number' ? ` (x${ack.qtyInBill})` : ''}`,
+            tone: 'ok',
+          });
         } else if (ack.status === 'needs_price' || ack.status === 'duplicate_confirm') {
-          playBarcodeWarningBeep(soundEnabled);
+          playBarcodeWarningBeep(soundEnabledRef.current);
           try {
             if (navigator.vibrate) navigator.vibrate([70, 40, 70]);
           } catch {}
+          setViewfinderBanner({
+            text: `⚠️ ${ack.itemName || 'Check Tablet'}`,
+            tone: 'warn',
+          });
         }
 
         setScanLogs((prev) =>
@@ -229,9 +272,35 @@ export const RemoteScannerModal: React.FC<RemoteScannerModalProps> = ({
       conn.destroy();
       mobileConnRef.current = null;
     };
-  }, [isOpen, mode, connectedMobileRoom, soundEnabled]);
+  }, [isOpen, mode, connectedMobileRoom]);
 
-  // Send scanned barcode to Tablet
+  // Keep screen awake while scanning on Mobile so screen never locks mid-bill
+  useEffect(() => {
+    if (!isOpen || mode !== 'mobile' || connectedMobileRoom.length < 4) return;
+    let wakeLock: any = null;
+    const reqWakeLock = async () => {
+      try {
+        if ('wakeLock' in navigator && (navigator as any).wakeLock?.request) {
+          wakeLock = await (navigator as any).wakeLock.request('screen');
+        }
+      } catch {}
+    };
+    reqWakeLock();
+    return () => {
+      try {
+        if (wakeLock && wakeLock.release) wakeLock.release();
+      } catch {}
+    };
+  }, [isOpen, mode, connectedMobileRoom]);
+
+  // Auto-hide viewfinder flash banner cleanly
+  useEffect(() => {
+    if (!viewfinderBanner) return;
+    const t = window.setTimeout(() => setViewfinderBanner(null), 2400);
+    return () => window.clearTimeout(t);
+  }, [viewfinderBanner]);
+
+  // Send scanned barcode to Tablet (stable identity: never causes camera restart)
   const sendScannedBarcodeToTablet = useCallback(
     (rawCode: string, bypassCooldown = false) => {
       const cleanCode = (rawCode || '').trim();
@@ -239,7 +308,7 @@ export const RemoteScannerModal: React.FC<RemoteScannerModalProps> = ({
 
       const now = Date.now();
       if (!bypassCooldown) {
-        if (now - lastGlobalScanTimeRef.current < 850) return;
+        if (now - lastGlobalScanTimeRef.current < 900) return;
         if (
           lastScannedRef.current.code === cleanCode &&
           now - lastScannedRef.current.time < 2200
@@ -250,12 +319,12 @@ export const RemoteScannerModal: React.FC<RemoteScannerModalProps> = ({
       lastGlobalScanTimeRef.current = now;
       lastScannedRef.current = { code: cleanCode, time: now };
 
-      // Immediate feedback tone & vibration on phone
-      playBarcodeBeep(soundEnabled);
+      playBarcodeBeep(soundEnabledRef.current);
       try {
         if (navigator.vibrate) navigator.vibrate(45);
       } catch {}
 
+      setViewfinderBanner({ text: `📡 ${cleanCode}`, tone: 'sending' });
       const scanId = mobileConnRef.current.sendBarcodeScan(cleanCode, 1);
       setScanLogs((prev) => [
         {
@@ -267,10 +336,10 @@ export const RemoteScannerModal: React.FC<RemoteScannerModalProps> = ({
         ...prev.slice(0, 24),
       ]);
     },
-    [soundEnabled]
+    []
   );
 
-  // Turbo native BarcodeDetector inside mobile remote viewfinder
+  // Guarded native BarcodeDetector loop (skips overlapping frames and background tabs)
   const attachNativeDetector = useCallback(() => {
     if (nativeDetectorTimerRef.current) {
       window.clearInterval(nativeDetectorTimerRef.current);
@@ -294,108 +363,131 @@ export const RemoteScannerModal: React.FC<RemoteScannerModalProps> = ({
         ],
       });
       nativeDetectorTimerRef.current = window.setInterval(async () => {
+        if (document.hidden || isDetectingFrameRef.current) return;
+        const regionEl = document.getElementById(scannerRegionId);
+        const videoEl = regionEl?.querySelector('video') as HTMLVideoElement | null;
+        if (!videoEl || videoEl.readyState < 2 || videoEl.videoWidth <= 0) return;
+
+        isDetectingFrameRef.current = true;
         try {
-          const regionEl = document.getElementById(scannerRegionId);
-          const videoEl = regionEl?.querySelector('video') as HTMLVideoElement | null;
-          if (!videoEl || videoEl.readyState < 2) return;
           const barcodes = await detector.detect(videoEl);
           if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
             sendScannedBarcodeToTablet(String(barcodes[0].rawValue));
           }
-        } catch {}
-      }, 90);
+        } catch {
+        } finally {
+          isDetectingFrameRef.current = false;
+        }
+      }, 140);
     } catch {}
   }, [sendScannedBarcodeToTablet]);
 
   const startMobileCamera = useCallback(
-    async (camMode: 'environment' | 'user') => {
-      setIsCameraStarting(true);
-      setCameraError(null);
-      await stopMobileCamera();
+    (camMode: 'environment' | 'user') => {
+      cameraOpLockRef.current = cameraOpLockRef.current.then(async () => {
+        setIsCameraStarting(true);
+        setCameraError(null);
 
-      try {
-        const el = document.getElementById(scannerRegionId);
-        if (!el) {
-          setIsCameraStarting(false);
-          return;
+        if (nativeDetectorTimerRef.current) {
+          window.clearInterval(nativeDetectorTimerRef.current);
+          nativeDetectorTimerRef.current = null;
+        }
+        isDetectingFrameRef.current = false;
+        if (html5QrCodeRef.current) {
+          try {
+            if (html5QrCodeRef.current.isScanning) {
+              await html5QrCodeRef.current.stop();
+            }
+            html5QrCodeRef.current.clear();
+          } catch {}
+          html5QrCodeRef.current = null;
         }
 
-        const formatsToSupport = [
-          Html5QrcodeSupportedFormats.CODE_128,
-          Html5QrcodeSupportedFormats.EAN_13,
-          Html5QrcodeSupportedFormats.EAN_8,
-          Html5QrcodeSupportedFormats.UPC_A,
-          Html5QrcodeSupportedFormats.UPC_E,
-          Html5QrcodeSupportedFormats.CODE_39,
-          Html5QrcodeSupportedFormats.CODE_93,
-          Html5QrcodeSupportedFormats.ITF,
-          Html5QrcodeSupportedFormats.QR_CODE,
-        ];
-
-        const qr = new Html5Qrcode(scannerRegionId, {
-          formatsToSupport,
-          verbose: false,
-          useBarCodeDetectorIfSupported: true,
-        });
-        html5QrCodeRef.current = qr;
-
-        const config = {
-          fps: 25,
-          qrbox: (viewfinderWidth: number, viewfinderHeight: number) => ({
-            width: Math.max(210, Math.floor(viewfinderWidth * 0.9)),
-            height: Math.max(100, Math.floor(viewfinderHeight * 0.56)),
-          }),
-          aspectRatio: 1.6,
-          disableFlip: false,
-        };
-
         try {
-          await qr.start(
-            { facingMode: camMode },
-            config,
-            (decodedText) => sendScannedBarcodeToTablet(decodedText),
-            () => {}
-          );
-        } catch {
-          const cameras = await Html5Qrcode.getCameras();
-          if (cameras && cameras.length > 0) {
-            const backCam =
-              cameras.find((c) => /back|rear|environment/i.test(c.label)) ||
-              cameras[cameras.length - 1];
+          const el = document.getElementById(scannerRegionId);
+          if (!el) {
+            setIsCameraStarting(false);
+            return;
+          }
+
+          const formatsToSupport = [
+            Html5QrcodeSupportedFormats.CODE_128,
+            Html5QrcodeSupportedFormats.EAN_13,
+            Html5QrcodeSupportedFormats.EAN_8,
+            Html5QrcodeSupportedFormats.UPC_A,
+            Html5QrcodeSupportedFormats.UPC_E,
+            Html5QrcodeSupportedFormats.CODE_39,
+            Html5QrcodeSupportedFormats.CODE_93,
+            Html5QrcodeSupportedFormats.ITF,
+            Html5QrcodeSupportedFormats.QR_CODE,
+          ];
+
+          const qr = new Html5Qrcode(scannerRegionId, {
+            formatsToSupport,
+            verbose: false,
+            useBarCodeDetectorIfSupported: true,
+          });
+          html5QrCodeRef.current = qr;
+
+          const config = {
+            fps: 20,
+            qrbox: (viewfinderWidth: number, viewfinderHeight: number) => ({
+              width: Math.max(210, Math.floor(viewfinderWidth * 0.9)),
+              height: Math.max(100, Math.floor(viewfinderHeight * 0.56)),
+            }),
+            aspectRatio: 1.6,
+            disableFlip: false,
+          };
+
+          try {
             await qr.start(
-              backCam.id,
+              { facingMode: camMode },
               config,
               (decodedText) => sendScannedBarcodeToTablet(decodedText),
               () => {}
             );
-          } else {
-            throw new Error(
-              isBn
-                ? 'মোবাইল ক্যামেরা পাওয়া যায়নি বা পারমিশন দেওয়া হয়নি।'
-                : 'Camera not found or permission denied.'
-            );
+          } catch {
+            const cameras = await Html5Qrcode.getCameras();
+            if (cameras && cameras.length > 0) {
+              const backCam =
+                cameras.find((c) => /back|rear|environment/i.test(c.label)) ||
+                cameras[cameras.length - 1];
+              await qr.start(
+                backCam.id,
+                config,
+                (decodedText) => sendScannedBarcodeToTablet(decodedText),
+                () => {}
+              );
+            } else {
+              throw new Error(
+                isBn
+                  ? 'মোবাইল ক্যামেরা পাওয়া যায়নি বা পারমিশন দেওয়া হয়নি।'
+                  : 'Camera not found or permission denied.'
+              );
+            }
           }
+
+          try {
+            await qr.applyVideoConstraints({
+              advanced: [{ focusMode: 'continuous' } as any],
+            });
+          } catch {}
+
+          attachNativeDetector();
+        } catch (err: any) {
+          setCameraError(
+            err?.message ||
+              (isBn
+                ? 'ক্যামেরা চালু করা যায়নি। ব্রাউজারে Camera Permission Allow করুন।'
+                : 'Could not start camera. Please allow camera permission.')
+          );
+        } finally {
+          setIsCameraStarting(false);
         }
-
-        try {
-          await qr.applyVideoConstraints({
-            advanced: [{ focusMode: 'continuous' } as any],
-          });
-        } catch {}
-
-        attachNativeDetector();
-      } catch (err: any) {
-        setCameraError(
-          err?.message ||
-            (isBn
-              ? 'ক্যামেরা চালু করা যায়নি। ব্রাউজারে Camera Permission Allow করুন।'
-              : 'Could not start camera. Please allow camera permission.')
-        );
-      } finally {
-        setIsCameraStarting(false);
-      }
+      });
+      return cameraOpLockRef.current;
     },
-    [attachNativeDetector, isBn, sendScannedBarcodeToTablet, stopMobileCamera]
+    [attachNativeDetector, isBn, sendScannedBarcodeToTablet]
   );
 
   // Start/stop camera automatically in mobile mode when connected to a room
@@ -403,7 +495,7 @@ export const RemoteScannerModal: React.FC<RemoteScannerModalProps> = ({
     if (isOpen && mode === 'mobile' && connectedMobileRoom.length >= 4) {
       const timer = window.setTimeout(() => {
         startMobileCamera(facingMode);
-      }, 80);
+      }, 100);
       return () => {
         window.clearTimeout(timer);
         stopMobileCamera();
@@ -521,37 +613,236 @@ export const RemoteScannerModal: React.FC<RemoteScannerModalProps> = ({
         </div>
 
         {/* Mode Switch Tabs */}
-        <div className="p-2 bg-stone-100 border-b border-stone-200 grid grid-cols-2 gap-1.5 shrink-0">
+        <div className="p-2 bg-stone-100 border-b border-stone-200 grid grid-cols-3 gap-1.5 shrink-0">
           <button
             type="button"
             onClick={() => setMode('tablet')}
-            className={`py-2 px-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+            className={`py-2 px-2 rounded-xl text-[11px] sm:text-xs font-extrabold flex items-center justify-center gap-1 transition-all cursor-pointer ${
               mode === 'tablet'
                 ? 'bg-white text-emerald-700 shadow-xs border border-emerald-200'
                 : 'text-stone-600 hover:bg-white/60'
             }`}
           >
-            <Tablet className="w-4 h-4" />
-            <span>{isBn ? 'টেবলেট (বিল রিসিভ)' : 'Tablet (Receive)'}</span>
+            <Tablet className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+            <span className="truncate">{isBn ? 'টেবলেট' : 'Tablet'}</span>
           </button>
 
           <button
             type="button"
             onClick={() => setMode('mobile')}
-            className={`py-2 px-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+            className={`py-2 px-2 rounded-xl text-[11px] sm:text-xs font-extrabold flex items-center justify-center gap-1 transition-all cursor-pointer ${
               mode === 'mobile'
                 ? 'bg-white text-blue-700 shadow-xs border border-blue-200'
                 : 'text-stone-600 hover:bg-white/60'
             }`}
           >
-            <Smartphone className="w-4 h-4" />
-            <span>{isBn ? 'মোবাইল (স্ক্যানার)' : 'Mobile (Scanner)'}</span>
+            <Smartphone className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+            <span className="truncate">{isBn ? 'মোবাইল' : 'Mobile'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setMode('bluetooth')}
+            className={`py-2 px-2 rounded-xl text-[11px] sm:text-xs font-extrabold flex items-center justify-center gap-1 transition-all cursor-pointer relative ${
+              mode === 'bluetooth'
+                ? 'bg-white text-indigo-700 shadow-xs border border-indigo-200'
+                : 'text-stone-600 hover:bg-white/60'
+            }`}
+          >
+            <Bluetooth className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+            <span className="truncate">{isBn ? 'ব্লুটুথ' : 'Bluetooth'}</span>
+            {btStatus.connected && (
+              <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+            )}
           </button>
         </div>
 
         {/* BODY */}
         <div className="overflow-y-auto flex-1">
-          {mode === 'tablet' ? (
+          {mode === 'bluetooth' ? (
+            <div className="p-4 space-y-3.5">
+              {/* 1. Web Bluetooth BLE Barcode Gun Connection */}
+              <div
+                className={`p-3.5 rounded-2xl border space-y-2.5 ${
+                  btStatus.connected
+                    ? 'bg-emerald-50 border-emerald-200'
+                    : 'bg-indigo-50/70 border-indigo-200'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                        btStatus.connected
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-indigo-600 text-white'
+                      }`}
+                    >
+                      <Bluetooth className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <h4 className="text-xs sm:text-sm font-black text-stone-900">
+                        {isBn
+                          ? 'ব্লুটুথ স্ক্যানার কানেক্ট করুন (BLE)'
+                          : 'Connect Bluetooth Barcode Scanner (BLE)'}
+                      </h4>
+                      <p className="text-[11px] text-stone-600">
+                        {btStatus.connected
+                          ? isBn
+                            ? `🟢 কানেক্টেড: ${btStatus.deviceName}`
+                            : `🟢 Connected: ${btStatus.deviceName}`
+                          : isBn
+                          ? 'ব্লুটুথ (BLE) বারকোড গান সরাসরি ব্রাউজার থেকে পেয়ার করুন'
+                          : 'Pair a BLE Bluetooth barcode scanner gun directly'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {btStatus.lastBarcode && (
+                  <div className="px-2.5 py-1.5 rounded-xl bg-white/90 border border-emerald-200 text-[11px] font-mono font-bold text-emerald-900 flex items-center justify-between">
+                    <span>{isBn ? 'সর্বশেষ ব্লুটুথ স্ক্যান:' : 'Last Bluetooth Scan:'}</span>
+                    <span>{btStatus.lastBarcode}</span>
+                  </div>
+                )}
+
+                {btStatus.error && (
+                  <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-900 font-semibold leading-relaxed">
+                    {btStatus.error}
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2">
+                  {btStatus.connected ? (
+                    <button
+                      type="button"
+                      onClick={() => bluetoothScannerService.disconnect()}
+                      className="flex-1 py-2.5 px-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Unplug className="w-4 h-4" />
+                      <span>{isBn ? 'ডিসকানেক্ট করুন' : 'Disconnect Scanner'}</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={btStatus.isConnecting}
+                      onClick={() => bluetoothScannerService.connect()}
+                      className="flex-1 py-2.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                    >
+                      {btStatus.isConnecting ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Bluetooth className="w-4 h-4" />
+                      )}
+                      <span>
+                        {btStatus.isConnecting
+                          ? isBn
+                            ? 'খোঁজা হচ্ছে...'
+                            : 'Searching...'
+                          : isBn
+                          ? '🔵 ব্লুটুথ স্ক্যানার খুঁজুন ও কানেক্ট করুন'
+                          : '🔵 Search & Connect BLE Scanner'}
+                      </span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* 2. Bluetooth HID Keyboard Mode (Auto-Ready) */}
+              <div className="p-3.5 rounded-2xl bg-stone-50 border border-stone-200 space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Keyboard className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span className="text-xs font-black text-stone-900">
+                      {isBn
+                        ? 'ব্লুটুথ HID স্ক্যানার (অটো-রেডি)'
+                        : 'Bluetooth HID Keyboard Scanner'}
+                    </span>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-black">
+                    {isBn ? '🟢 চালু আছে' : '🟢 AUTO READY'}
+                  </span>
+                </div>
+
+                <p className="text-[11px] text-stone-600 leading-relaxed">
+                  {isBn
+                    ? 'যেকোনো Bluetooth বারকোড গান (বা মোবাইলের "Bluetooth Keyboard & Barcode Scanner" অ্যাপ) টেবলেটের Bluetooth Settings থেকে পেয়ার করে নিলেই সরাসরি স্ক্যান হয়ে বিলে প্রোডাক্ট যোগ হবে!'
+                    : 'Any Bluetooth barcode gun (or Phone Bluetooth HID Keyboard Scanner app) paired in Tablet Bluetooth Settings works automatically on the billing screen.'}
+                </p>
+
+                {onDirectBarcodeScan && (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const clean = btHidTestInput.trim();
+                      if (!clean) return;
+                      onDirectBarcodeScan(clean);
+                      setBtHidTestInput('');
+                    }}
+                    className="flex items-center gap-1.5 pt-1"
+                  >
+                    <input
+                      type="text"
+                      value={btHidTestInput}
+                      onChange={(e) => setBtHidTestInput(e.target.value)}
+                      placeholder={
+                        isBn
+                          ? 'এখানে কার্সার রেখে ব্লুটুথ স্ক্যান টেস্ট করুন...'
+                          : 'Focus here & scan to test Bluetooth HID...'
+                      }
+                      className="flex-1 bg-white border border-stone-300 rounded-xl px-3 py-2 text-xs font-mono focus:outline-none focus:border-indigo-500"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!btHidTestInput.trim()}
+                      className="px-3 py-2 rounded-xl bg-stone-900 hover:bg-stone-800 disabled:opacity-40 text-white text-xs font-bold cursor-pointer"
+                    >
+                      {isBn ? 'যোগ' : 'Add'}
+                    </button>
+                  </form>
+                )}
+              </div>
+
+              {/* 3. Honest Explanation for Phone Camera -> Tablet over Bluetooth */}
+              <div className="p-3.5 rounded-2xl bg-amber-50/80 border border-amber-200 space-y-2">
+                <div className="flex items-center gap-2 text-amber-900 font-black text-xs">
+                  <Info className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>
+                    {isBn
+                      ? 'মোবাইল দিয়ে ব্লুটুথে স্ক্যান করার ২টি সহজ উপায়'
+                      : '2 Ways to Scan from Phone over Bluetooth'}
+                  </span>
+                </div>
+                <div className="text-[11px] text-stone-700 space-y-1.5 leading-relaxed">
+                  <p>
+                    {isBn
+                      ? '⚠️ ব্রাউজারের নিরাপত্তার কারণে একটি ফোনের ব্রাউজার থেকে সরাসরি আরেকটি টেবলেটের ব্রাউজারে ব্লুটুথ দিয়ে ক্যামেরা পাঠানো যায় না। তবে নিচের ২টি উপায়ে ব্লুটুথ দিয়েই কাজ হবে:'
+                      : '⚠️ Browsers cannot directly stream a camera browser-to-browser via raw Bluetooth, but these 2 Bluetooth methods work:'}
+                  </p>
+                  <p className="font-semibold text-stone-900">
+                    {isBn
+                      ? '১) WiFi ছাড়া Bluetooth Tethering: মোবাইলের Settings → Hotspot → Bluetooth Tethering অন করে টেবলেট ব্লুটুথে কানেক্ট করুন, তারপর উপরের "মোবাইল" ট্যাব দিয়ে স্ক্যান করুন।'
+                      : '1) Bluetooth Tethering (No WiFi needed): Turn on Mobile Bluetooth Tethering, pair Tablet via Bluetooth, then use the "Mobile" tab above.'}
+                  </p>
+                  <p className="font-semibold text-stone-900">
+                    {isBn
+                      ? '২) Bluetooth Keyboard Scanner অ্যাপ: মোবাইলে "Bluetooth Keyboard & Scanner" অ্যাপ দিয়ে টেবলেটে ব্লুটুথ পেয়ার করলে সরাসরি এই অ্যাপের বিলে স্ক্যান হয়ে যাবে।'
+                      : '2) Phone Bluetooth HID App: Pair your phone as a Bluetooth Keyboard Scanner in Tablet settings to scan straight into the bill.'}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setMode('tablet')}
+                  className="w-full py-2 rounded-xl bg-white hover:bg-amber-100 border border-amber-300 text-amber-900 text-xs font-extrabold cursor-pointer"
+                >
+                  {isBn
+                    ? '📱 টেবলেট QR কোড দেখুন (Bluetooth Tethering / WiFi)'
+                    : '📱 Open Tablet QR (Bluetooth Tethering / WiFi)'}
+                </button>
+              </div>
+            </div>
+          ) : mode === 'tablet' ? (
             <div className="p-4 space-y-4">
               {/* Live Connection Status */}
               <div
@@ -879,6 +1170,20 @@ export const RemoteScannerModal: React.FC<RemoteScannerModalProps> = ({
                       </div>
                     )}
 
+                    {viewfinderBanner && !isCameraStarting && !cameraError && (
+                      <div
+                        className={`absolute bottom-2.5 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-xl text-xs font-extrabold shadow-lg border backdrop-blur-xs whitespace-nowrap max-w-[90%] truncate animate-in fade-in duration-150 ${
+                          viewfinderBanner.tone === 'ok'
+                            ? 'bg-emerald-600/90 border-emerald-400 text-white'
+                            : viewfinderBanner.tone === 'warn'
+                            ? 'bg-amber-500/95 border-amber-300 text-stone-950'
+                            : 'bg-blue-600/90 border-blue-400 text-white'
+                        }`}
+                      >
+                        {viewfinderBanner.text}
+                      </div>
+                    )}
+
                     {cameraError && (
                       <div className="absolute inset-0 bg-stone-950/95 p-5 flex flex-col items-center justify-center text-center gap-2">
                         <AlertTriangle className="w-8 h-8 text-amber-400" />
@@ -977,6 +1282,14 @@ export const RemoteScannerModal: React.FC<RemoteScannerModalProps> = ({
                                 {log.price}
                               </span>
                             )}
+                            <button
+                              type="button"
+                              onClick={() => sendScannedBarcodeToTablet(log.barcode, true)}
+                              className="px-1.5 py-0.5 rounded bg-blue-600 hover:bg-blue-500 text-white font-bold text-[10px] cursor-pointer"
+                              title={isBn ? 'আরেকটি (+1) পাঠান' : 'Send +1 again'}
+                            >
+                              +1
+                            </button>
                           </div>
                         </div>
                       ))
