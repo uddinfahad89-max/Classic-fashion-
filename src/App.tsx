@@ -1323,17 +1323,11 @@ export default function App() {
     }
   };
 
-  const handleDeleteBill = async (id: string) => {
+  const handleDeleteBill = (id: string) => {
     const bill = bills.find((b) => b.id === id) || storageService.getBillById(id);
     const invoiceNo = bill?.invoiceNo;
 
-    // Soft delete directly in Firebase Firestore immediately (for Admin single-click recovery)
-    await firebaseService.softDeleteInvoice(
-      id,
-      invoiceNo,
-      userProfile.name || userProfile.email || 'Owner'
-    );
-
+    // 1. Instant optimistic local delete & Recycle Bin backup (0ms UI response)
     storageService.deleteBill(id, invoiceNo);
     const updatedBills = storageService.getBills();
     setBills(updatedBills);
@@ -1351,6 +1345,15 @@ export default function App() {
         : 'Invoice deleted successfully',
       'info'
     );
+
+    // 2. Non-blocking background soft delete in Firebase Firestore (for Admin single-click recovery)
+    firebaseService
+      .softDeleteInvoice(
+        id,
+        invoiceNo,
+        userProfile.name || userProfile.email || 'Owner'
+      )
+      .catch((e) => console.warn('Background Firestore softDeleteInvoice notice:', e));
   };
 
   const handleUpdateBill = (updatedBill: BillInvoice) => {
@@ -1484,10 +1487,12 @@ export default function App() {
     }
   };
 
-  const handleDeleteCashEntry = async (id: string) => {
-    await firebaseService.deleteCashEntry(id);
+  const handleDeleteCashEntry = (id: string) => {
     storageService.deleteCashEntry(id);
     setCashEntries(storageService.getCashEntries());
+    firebaseService
+      .deleteCashEntry(id)
+      .catch((e) => console.warn('Background Firestore deleteCashEntry notice:', e));
   };
 
   // 3. CUSTOMER DUE & PAYABLE HANDLERS
@@ -1601,10 +1606,12 @@ export default function App() {
     }
   };
 
-  const handleDeleteCustomerDue = async (id: string) => {
-    await firebaseService.deleteCustomerDue(id);
+  const handleDeleteCustomerDue = (id: string) => {
     storageService.deleteCustomerDue(id);
     setCustomerDues(storageService.getCustomerDues());
+    firebaseService
+      .deleteCustomerDue(id)
+      .catch((e) => console.warn('Background Firestore deleteCustomerDue notice:', e));
   };
 
   const handleUpdateCustomerDue = (
