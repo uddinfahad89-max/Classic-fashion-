@@ -201,3 +201,33 @@ div[data-force-rotated="true"] .fixed > div[style*="max-height"] {
   background-size: 20px 20px;
 }
 
+@keyframes tabSlideInFromRight {
+  from {
+    opacity: 0.6;
+    transform: translateX(34px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes tabSlideInFromLeft {
+  from {
+    opacity: 0.6;
+    transform: translateX(-34px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.tab-slide-in-right {
+  animation: tabSlideInFromRight 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.tab-slide-in-left {
+  animation: tabSlideInFromLeft 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+

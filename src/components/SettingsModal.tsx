@@ -754,6 +754,36 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   : 'Tap "📺 Landscape" to force-rotate the app 90° immediately even if device rotation is locked.'}
               </p>
             </div>
+
+            {/* Swipe / Slide Between Tabs Toggle */}
+            <div className="pt-2 border-t border-indigo-100 flex items-center justify-between gap-3">
+              <div>
+                <span className="text-[11px] font-bold text-indigo-950 block">
+                  {isBn ? '👆 হাত দিয়ে স্লাইড করে ট্যাব বদলান (Swipe)' : '👆 Swipe Between Tabs (Slide)'}
+                </span>
+                <span className="text-[10px] text-stone-500 block leading-tight">
+                  {isBn
+                    ? 'স্ক্রিনে ডান/বাম দিকে স্লাইড করে বিলিং, বাকি খাতা, ইনভয়েস পরিবর্তন করুন'
+                    : 'Slide left or right on screen to switch tabs'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const nextVal = !(form.enableSwipeNavigation !== false);
+                  const nextForm = { ...form, enableSwipeNavigation: nextVal };
+                  setForm(nextForm);
+                  onSaveSettings(nextForm);
+                }}
+                className={`px-3 py-1 rounded-xl text-[11px] font-black border transition-all cursor-pointer shrink-0 ${
+                  form.enableSwipeNavigation !== false
+                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
+                    : 'bg-white text-stone-600 border-stone-300'
+                }`}
+              >
+                {form.enableSwipeNavigation !== false ? 'ON' : 'OFF'}
+              </button>
+            </div>
           </div>
 
           {/* Label Mode Toggle in Settings */}

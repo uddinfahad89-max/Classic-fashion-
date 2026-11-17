@@ -342,6 +342,7 @@ export interface ThermalPrinterSettings {
   uiScale?: 'normal' | 'large' | 'extra_large';
   screenOrientation?: 'auto' | 'portrait' | 'landscape';
   landscapeRotationAngle?: 90 | -90;
+  enableSwipeNavigation?: boolean;
   autoOpenReceiptAfterBill?: boolean;
   showPreviousBalanceOnBill?: boolean;
   autoDeleteRecycleBin90Days?: boolean;

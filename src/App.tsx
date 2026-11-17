@@ -105,6 +105,23 @@ export default function App() {
     width: typeof window !== 'undefined' ? window.innerWidth : 1024,
     height: typeof window !== 'undefined' ? window.innerHeight : 768,
   }));
+  const [swipeDrag, setSwipeDrag] = useState<{
+    offsetX: number;
+    targetLabel: string;
+    direction: 'next' | 'prev';
+    ready: boolean;
+  } | null>(null);
+  const [tabSlideAnim, setTabSlideAnim] = useState<'left' | 'right' | null>(null);
+  const scrollStageRef = useRef<HTMLDivElement | null>(null);
+  const swipeTouchRef = useRef<{
+    active: boolean;
+    startX: number;
+    startY: number;
+    lastX: number;
+    lastY: number;
+    startTime: number;
+    lockedAxis: 'x' | 'y' | null;
+  } | null>(null);
 
   const networkStatus = useNetworkStatus();
   const [toast, setToast] = useState<{
@@ -2112,6 +2129,191 @@ export default function App() {
     viewportDims.height > viewportDims.width;
   const landscapeAngle = settings.landscapeRotationAngle ?? 90;
 
+  const isStaffUser = userProfile.role === 'Staff';
+  const swipeableTabs: { id: ActiveTab; labelBn: string; labelEn: string }[] = [
+    { id: 'billing', labelBn: 'বিলিং', labelEn: 'Billing' },
+    { id: 'due', labelBn: 'বাকি খাতা', labelEn: 'Dues' },
+    ...((isStaffUser && !userProfile.permissions?.canViewProfit)
+      ? []
+      : [{ id: 'cashbook' as ActiveTab, labelBn: 'ডেবুক', labelEn: 'Daybook' }]),
+    { id: 'invoices', labelBn: 'ইনভয়েস', labelEn: 'Invoices' },
+    ...(isStaffUser
+      ? []
+      : [{ id: 'purchases' as ActiveTab, labelBn: 'কেনাকাটা', labelEn: 'Purchases' }]),
+    { id: 'barcode', labelBn: 'পণ্য ও বারকোড', labelEn: 'Products' },
+    ...(isStaffUser
+      ? []
+      : [{ id: 'staff' as ActiveTab, labelBn: 'স্টাফ', labelEn: 'Staff' }]),
+  ];
+
+  const isAnyModalOpen =
+    isProductStockOpen ||
+    isLoginModalOpen ||
+    isResetPasswordOpen ||
+    isAppLocked ||
+    isOnboardingOpen ||
+    isCalculatorOpen ||
+    isDataSaverOpen ||
+    isBluetoothHelpOpen ||
+    Boolean(receiptBill) ||
+    Boolean(editingBill) ||
+    isSettingsOpen ||
+    isSuperAdminOpen ||
+    isRecycleBinOpen ||
+    isPurchaseBillUploadOpen ||
+    isExitConfirmOpen;
+
+  const mapTouchDelta = (dx: number, dy: number) => {
+    if (!isForceLandscapeRotated) return { visualDx: dx, visualDy: dy };
+    if (landscapeAngle === -90) return { visualDx: -dy, visualDy: dx };
+    return { visualDx: dy, visualDy: -dx };
+  };
+
+  const handleMainTouchStart = (e: React.TouchEvent<HTMLElement>) => {
+    if (settings.enableSwipeNavigation === false || isAnyModalOpen || e.touches.length !== 1) {
+      swipeTouchRef.current = null;
+      return;
+    }
+
+    let node = e.target as HTMLElement | null;
+    while (node && node !== e.currentTarget) {
+      const tag = node.tagName;
+      if (
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        tag === 'SELECT' ||
+        node.isContentEditable ||
+        node.dataset.noTabSwipe === 'true'
+      ) {
+        swipeTouchRef.current = null;
+        return;
+      }
+      if (typeof window !== 'undefined') {
+        const overflowX = window.getComputedStyle(node).overflowX;
+        if ((overflowX === 'auto' || overflowX === 'scroll') && node.scrollWidth > node.clientWidth + 4) {
+          swipeTouchRef.current = null;
+          return;
+        }
+      }
+      node = node.parentElement;
+    }
+
+    const touch = e.touches[0];
+    swipeTouchRef.current = {
+      active: true,
+      startX: touch.clientX,
+      startY: touch.clientY,
+      lastX: touch.clientX,
+      lastY: touch.clientY,
+      startTime: Date.now(),
+      lockedAxis: null,
+    };
+  };
+
+  const handleMainTouchMove = (e: React.TouchEvent<HTMLElement>) => {
+    const tracker = swipeTouchRef.current;
+    if (!tracker || !tracker.active || e.touches.length !== 1) return;
+
+    const touch = e.touches[0];
+    tracker.lastX = touch.clientX;
+    tracker.lastY = touch.clientY;
+
+    const { visualDx, visualDy } = mapTouchDelta(
+      touch.clientX - tracker.startX,
+      touch.clientY - tracker.startY
+    );
+
+    if (tracker.lockedAxis === 'y') return;
+
+    if (tracker.lockedAxis === null) {
+      if (Math.abs(visualDy) > 16 && Math.abs(visualDy) > Math.abs(visualDx) * 1.15) {
+        tracker.lockedAxis = 'y';
+        setSwipeDrag(null);
+        return;
+      }
+      if (Math.abs(visualDx) > 18 && Math.abs(visualDx) > Math.abs(visualDy) * 1.35) {
+        tracker.lockedAxis = 'x';
+      } else {
+        return;
+      }
+    }
+
+    const currentIdx = swipeableTabs.findIndex((t) => t.id === activeTab);
+    if (currentIdx === -1) return;
+
+    const direction: 'next' | 'prev' = visualDx < 0 ? 'next' : 'prev';
+    const targetIdx = direction === 'next' ? currentIdx + 1 : currentIdx - 1;
+    const targetTab = swipeableTabs[targetIdx];
+
+    if (!targetTab) {
+      // Gentle rubber-band feedback at edges
+      setSwipeDrag({
+        offsetX: Math.max(-22, Math.min(22, visualDx * 0.15)),
+        targetLabel: '',
+        direction,
+        ready: false,
+      });
+      return;
+    }
+
+    const clampedOffset = Math.max(-72, Math.min(72, visualDx * 0.42));
+    const ready = Math.abs(visualDx) >= 62;
+    setSwipeDrag({
+      offsetX: clampedOffset,
+      targetLabel: language === 'bn' ? targetTab.labelBn : targetTab.labelEn,
+      direction,
+      ready,
+    });
+  };
+
+  const handleMainTouchEnd = () => {
+    const tracker = swipeTouchRef.current;
+    swipeTouchRef.current = null;
+
+    if (!tracker || !tracker.active || tracker.lockedAxis !== 'x') {
+      setSwipeDrag(null);
+      return;
+    }
+
+    const { visualDx, visualDy } = mapTouchDelta(
+      tracker.lastX - tracker.startX,
+      tracker.lastY - tracker.startY
+    );
+    const elapsed = Math.max(1, Date.now() - tracker.startTime);
+    const velocity = Math.abs(visualDx) / elapsed;
+
+    const shouldSwitch =
+      (Math.abs(visualDx) >= 62 || (velocity >= 0.42 && Math.abs(visualDx) >= 36)) &&
+      Math.abs(visualDx) > Math.abs(visualDy) * 1.25;
+
+    setSwipeDrag(null);
+
+    if (!shouldSwitch) return;
+
+    const currentIdx = swipeableTabs.findIndex((t) => t.id === activeTab);
+    if (currentIdx === -1) return;
+
+    const nextIdx = visualDx < 0 ? currentIdx + 1 : currentIdx - 1;
+    const targetTab = swipeableTabs[nextIdx];
+    if (!targetTab) return;
+
+    if (targetTab.id === 'billing') {
+      setProducts(storageService.getProducts());
+    }
+    setTabSlideAnim(visualDx < 0 ? 'right' : 'left');
+    setActiveTab(targetTab.id);
+
+    if (scrollStageRef.current && isForceLandscapeRotated) {
+      scrollStageRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+    } else if (typeof window !== 'undefined' && window.scrollY > 40) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    window.setTimeout(() => {
+      setTabSlideAnim(null);
+    }, 230);
+  };
+
   return (
     <div
       data-force-rotated={isForceLandscapeRotated ? 'true' : undefined}
@@ -2132,6 +2334,7 @@ export default function App() {
       }
     >
       <div
+        ref={scrollStageRef}
         className={
           isForceLandscapeRotated
             ? 'flex-1 min-h-0 flex flex-col overflow-y-auto overflow-x-hidden'
@@ -2209,8 +2412,49 @@ export default function App() {
         </div>
       )}
 
-      {/* Main Workspace */}
-      <main className="flex-1 pb-28 sm:pb-32">
+      {/* Main Workspace (Supports horizontal finger swipe between tabs) */}
+      <main
+        onTouchStart={handleMainTouchStart}
+        onTouchMove={handleMainTouchMove}
+        onTouchEnd={handleMainTouchEnd}
+        onTouchCancel={handleMainTouchEnd}
+        className={`flex-1 pb-28 sm:pb-32 relative ${swipeDrag ? 'overflow-x-hidden' : ''}`}
+      >
+        {/* Live Swipe Target Indicator Pill */}
+        {swipeDrag && swipeDrag.targetLabel && (
+          <div
+            className={`fixed top-1/2 -translate-y-1/2 z-40 pointer-events-none px-3.5 py-2 rounded-full text-xs font-black shadow-xl border flex items-center gap-1.5 transition-transform duration-100 ${
+              swipeDrag.direction === 'next' ? 'right-3' : 'left-3'
+            } ${
+              swipeDrag.ready
+                ? 'bg-blue-600 text-white border-blue-500 scale-105'
+                : 'bg-white/95 text-stone-800 border-stone-200 scale-95'
+            }`}
+          >
+            {swipeDrag.direction === 'prev' && <span>←</span>}
+            <span>{swipeDrag.targetLabel}</span>
+            {swipeDrag.direction === 'next' && <span>→</span>}
+          </div>
+        )}
+
+        <div
+          key={activeTab}
+          className={
+            tabSlideAnim === 'right'
+              ? 'tab-slide-in-right'
+              : tabSlideAnim === 'left'
+              ? 'tab-slide-in-left'
+              : undefined
+          }
+          style={
+            swipeDrag
+              ? {
+                  transform: `translateX(${swipeDrag.offsetX}px)`,
+                  opacity: swipeDrag.ready ? 0.9 : 0.96,
+                }
+              : undefined
+          }
+        >
         {activeTab === 'billing' && (
           <BillingTab
             billItems={billItems}
@@ -2440,6 +2684,7 @@ export default function App() {
               bluetoothDevice={bluetoothStatus}
             />
           ))}
+        </div>
       </main>
       </div>
 
