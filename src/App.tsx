@@ -160,6 +160,71 @@ export default function App() {
     }, 4000);
   };
 
+  // Merge remote Firestore products & barcodes with local catalog without losing newer local edits or valid prices
+  const mergeStoreCatalog = (
+    localList: ProductStockItem[],
+    remoteList: ProductStockItem[],
+    deletedProdIds: Set<string> = storageService.getDeletedProductIds()
+  ): ProductStockItem[] => {
+    const map = new Map<string, ProductStockItem>();
+
+    const pickBetter = (a: ProductStockItem, b: ProductStockItem): ProductStockItem => {
+      const aTime = Number(a.updatedAt || 0);
+      const bTime = Number(b.updatedAt || 0);
+      const newer = bTime >= aTime ? b : a;
+      const older = bTime >= aTime ? a : b;
+      return {
+        ...older,
+        ...newer,
+        price: newer.price > 0 ? newer.price : older.price,
+        purchasePrice:
+          newer.purchasePrice && newer.purchasePrice > 0
+            ? newer.purchasePrice
+            : older.purchasePrice,
+        barcode: (newer.barcode || '').trim() || (older.barcode || '').trim(),
+        name: (newer.name || '').trim() || (older.name || '').trim(),
+        unit: newer.unit || older.unit || 'Pcs',
+      };
+    };
+
+    for (const p of localList || []) {
+      if (!p || !p.id || p.isDeleted || deletedProdIds.has(p.id)) continue;
+      map.set(p.id, p);
+    }
+    for (const p of remoteList || []) {
+      if (!p || !p.id || p.isDeleted || deletedProdIds.has(p.id)) continue;
+      const existing = map.get(p.id);
+      map.set(p.id, existing ? pickBetter(existing, p) : p);
+    }
+
+    // Reconcile missing prices/barcodes from cloud-synced barcodes cache
+    const syncedBarcodes = storageService.getSyncedBarcodes();
+    const bcByProdId = new Map<string, typeof syncedBarcodes[number]>();
+    const bcByCode = new Map<string, typeof syncedBarcodes[number]>();
+    for (const bc of syncedBarcodes) {
+      if (bc.isDeleted || !bc.barcode) continue;
+      if (bc.productId) bcByProdId.set(bc.productId, bc);
+      bcByCode.set(bc.barcode.trim().toLowerCase(), bc);
+    }
+
+    const reconciled = Array.from(map.values()).map((prod) => {
+      const codeKey = (prod.barcode || '').trim().toLowerCase();
+      const matchedBc = bcByProdId.get(prod.id) || (codeKey ? bcByCode.get(codeKey) : undefined);
+      if (!matchedBc) return prod;
+      return {
+        ...prod,
+        barcode: (prod.barcode || '').trim() || matchedBc.barcode,
+        price: prod.price > 0 ? prod.price : Number(matchedBc.price) || 0,
+        purchasePrice:
+          prod.purchasePrice && prod.purchasePrice > 0
+            ? prod.purchasePrice
+            : matchedBc.purchasePrice,
+      };
+    });
+
+    return reconciled.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  };
+
   // Initial load
   useEffect(() => {
     const prof = storageService.getUserProfile();
@@ -216,10 +281,16 @@ export default function App() {
         } catch {}
       }
 
-      // 1. Firebase Firestore sync in background (fetching all store and staff invoices)
+      // 1. Firebase Firestore sync in background (fetching all store/staff bills, products & barcodes)
       if (firebaseService.isConfigured()) {
-        const ownerEmail = prof.ownerEmail || (prof.isLoggedIn ? prof.email : '') || 'uddinfahad89@gmail.com';
-        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject('timeout'), 4000));
+        const ownerEmail =
+          prof.ownerEmail ||
+          prof.storeId ||
+          prof.shopId ||
+          (prof.isLoggedIn ? prof.email : '') ||
+          (typeof window !== 'undefined' ? localStorage.getItem('thermal_pos_store_owner_email') : '') ||
+          'uddinfahad89@gmail.com';
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject('timeout'), 5000));
         Promise.race([
           firebaseService.ensureAuthenticated().then(() => firebaseService.restorePOSData(ownerEmail)),
           timeoutPromise
@@ -228,11 +299,27 @@ export default function App() {
             const deletedBillIds = storageService.getDeletedBillIds();
             const deletedProdIds = storageService.getDeletedProductIds();
 
+            if (Array.isArray(fbRes.barcodes) && fbRes.barcodes.length > 0) {
+              const existingBarcodes = storageService.getSyncedBarcodes();
+              const bcMap = new Map<string, any>();
+              for (const b of existingBarcodes) bcMap.set(b.barcode.trim().toLowerCase(), b);
+              for (const b of fbRes.barcodes) {
+                if (b && !b.isDeleted && b.barcode) {
+                  const key = b.barcode.trim().toLowerCase();
+                  const prev = bcMap.get(key);
+                  if (!prev || Number(b.price) > 0 || Number(b.updatedAt || 0) >= Number(prev.updatedAt || 0)) {
+                    bcMap.set(key, b);
+                  }
+                }
+              }
+              storageService.saveSyncedBarcodes(Array.from(bcMap.values()));
+            }
+
             const activeFbBills = (fbRes.bills || []).filter(
               (b: any) => !deletedBillIds.has(b.id) && !b.isDeleted
             );
             const activeFbProducts = (fbRes.products || []).filter(
-              (p: any) => !deletedProdIds.has(p.id)
+              (p: any) => !deletedProdIds.has(p.id) && !p.isDeleted
             );
 
             const localBills = storageService.getBills();
@@ -251,10 +338,9 @@ export default function App() {
             setBills(combinedBills);
             storageService.saveBills(combinedBills);
 
-            if (localProducts.length === 0 && activeFbProducts.length > 0) {
-              setProducts(activeFbProducts);
-              storageService.saveProducts(activeFbProducts);
-            }
+            const mergedProds = mergeStoreCatalog(localProducts, activeFbProducts, deletedProdIds);
+            setProducts(mergedProds);
+            storageService.saveProducts(mergedProds);
           }
         }).catch(() => {});
       }
@@ -289,45 +375,19 @@ export default function App() {
       }
     }, 400);
 
-    // 3. Real-time Firestore Live Subscription for instant staff invoice reception
-    let unsubscribeFirestore: (() => void) | null = null;
-    if (firebaseService.isConfigured()) {
-      unsubscribeFirestore = firebaseService.subscribeInvoices(
-        prof.email || 'uddinfahad89@gmail.com',
-        (remoteBills) => {
-          if (remoteBills && remoteBills.length > 0) {
-            setBills((prevBills) => {
-              const deletedIds = storageService.getDeletedBillIds();
-              const cleanRemote = remoteBills.filter((b) => !deletedIds.has(b.id) && !b.isDeleted);
-              const map = new Map<string, BillInvoice>();
-              // Keep remote bills (including all staff bills)
-              for (const b of cleanRemote) {
-                map.set(b.id, b);
-              }
-              // Merge local bills if any pending
-              for (const b of prevBills) {
-                if (!deletedIds.has(b.id) && !b.isDeleted && !map.has(b.id)) {
-                  map.set(b.id, b);
-                }
-              }
-              const merged = Array.from(map.values()).sort(
-                (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
-              );
-              storageService.saveBills(merged);
-              return merged;
-            });
-          }
-        }
-      );
-    }
-
     // Multi-device real-time sync: Throttled to 10s and skipped when tab is in background
     const syncLiveVault = async () => {
       if (typeof document !== 'undefined' && document.hidden) return;
       const currentProf = storageService.getUserProfile();
-      const ownerEmail = currentProf.ownerEmail || (currentProf.isLoggedIn ? currentProf.email : '') || 'uddinfahad89@gmail.com';
+      const ownerEmail =
+        currentProf.ownerEmail ||
+        currentProf.storeId ||
+        currentProf.shopId ||
+        (currentProf.isLoggedIn ? currentProf.email : '') ||
+        (typeof window !== 'undefined' ? localStorage.getItem('thermal_pos_store_owner_email') : '') ||
+        'uddinfahad89@gmail.com';
 
-      // Live check with Firebase Firestore for staff bills
+      // Live check with Firebase Firestore for staff/owner bills, products & barcodes
       if (firebaseService.isConfigured()) {
         firebaseService.fetchInvoices(ownerEmail).then((fbBills) => {
           if (fbBills && fbBills.length > 0) {
@@ -345,6 +405,35 @@ export default function App() {
                 (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
               );
               storageService.saveBills(merged);
+              return merged;
+            });
+          }
+        }).catch(() => {});
+
+        Promise.all([
+          firebaseService.fetchProducts(ownerEmail),
+          firebaseService.fetchBarcodes(ownerEmail),
+        ]).then(([fbProds, fbBarcodes]) => {
+          if (fbBarcodes && fbBarcodes.length > 0) {
+            const existingBc = storageService.getSyncedBarcodes();
+            const bcMap = new Map<string, any>();
+            for (const b of existingBc) bcMap.set(b.barcode.trim().toLowerCase(), b);
+            for (const b of fbBarcodes) {
+              if (b && !b.isDeleted && b.barcode) {
+                const key = b.barcode.trim().toLowerCase();
+                const prev = bcMap.get(key);
+                if (!prev || Number(b.price) > 0 || Number(b.updatedAt || 0) >= Number(prev.updatedAt || 0)) {
+                  bcMap.set(key, b);
+                }
+              }
+            }
+            storageService.saveSyncedBarcodes(Array.from(bcMap.values()));
+          }
+          if ((fbProds && fbProds.length > 0) || (fbBarcodes && fbBarcodes.length > 0)) {
+            const deletedProdIds = storageService.getDeletedProductIds();
+            setProducts((prev) => {
+              const merged = mergeStoreCatalog(prev, fbProds || [], deletedProdIds);
+              storageService.saveProducts(merged);
               return merged;
             });
           }
@@ -457,11 +546,103 @@ export default function App() {
       clearInterval(liveSyncInterval);
       window.removeEventListener('focus', onFocusSync);
       document.removeEventListener('visibilitychange', onFocusSync);
-      if (unsubscribeFirestore) {
-        unsubscribeFirestore();
-      }
     };
   }, []);
+
+  // Real-time Firestore Live Subscriptions (Invoices + Products + Barcodes) anchored to active store owner
+  // Automatically re-subscribes whenever Owner or any linked Staff logs in/switches accounts
+  const activeStoreOwnerKey = (
+    userProfile.ownerEmail ||
+    userProfile.storeId ||
+    userProfile.shopId ||
+    (userProfile.isLoggedIn ? userProfile.email : '') ||
+    (typeof window !== 'undefined' ? localStorage.getItem('thermal_pos_store_owner_email') : '') ||
+    'uddinfahad89@gmail.com'
+  )
+    .trim()
+    .toLowerCase();
+
+  useEffect(() => {
+    if (!firebaseService.isConfigured()) return;
+
+    let cancelled = false;
+    // Warm linked staff email list so snapshot filters recognize products/barcodes created by ANY linked staff email
+    void firebaseService.getStoreLinkedStaffEmails(activeStoreOwnerKey);
+
+    const unsubInvoices = firebaseService.subscribeInvoices(
+      activeStoreOwnerKey,
+      (remoteBills) => {
+        if (cancelled || !remoteBills || remoteBills.length === 0) return;
+        setBills((prevBills) => {
+          const deletedIds = storageService.getDeletedBillIds();
+          const cleanRemote = remoteBills.filter((b) => !deletedIds.has(b.id) && !b.isDeleted);
+          const map = new Map<string, BillInvoice>();
+          for (const b of cleanRemote) map.set(b.id, b);
+          for (const b of prevBills) {
+            if (!deletedIds.has(b.id) && !b.isDeleted && !map.has(b.id)) {
+              map.set(b.id, b);
+            }
+          }
+          const merged = Array.from(map.values()).sort(
+            (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
+          );
+          storageService.saveBills(merged);
+          return merged;
+        });
+      }
+    );
+
+    const unsubProducts = firebaseService.subscribeProducts(
+      activeStoreOwnerKey,
+      (remoteProducts) => {
+        if (cancelled) return;
+        const deletedProdIds = storageService.getDeletedProductIds();
+        setProducts((prevProds) => {
+          const merged = mergeStoreCatalog(prevProds, remoteProducts || [], deletedProdIds);
+          storageService.saveProducts(merged);
+          return merged;
+        });
+      }
+    );
+
+    const unsubBarcodes = firebaseService.subscribeBarcodes(
+      activeStoreOwnerKey,
+      (remoteBarcodes) => {
+        if (cancelled || !remoteBarcodes) return;
+        const existingBc = storageService.getSyncedBarcodes();
+        const bcMap = new Map<string, any>();
+        for (const b of existingBc) {
+          if (b && !b.isDeleted && b.barcode) {
+            bcMap.set(b.barcode.trim().toLowerCase(), b);
+          }
+        }
+        for (const b of remoteBarcodes) {
+          if (b && !b.isDeleted && b.barcode) {
+            const key = b.barcode.trim().toLowerCase();
+            const prev = bcMap.get(key);
+            if (!prev || Number(b.price) > 0 || Number(b.updatedAt || 0) >= Number(prev.updatedAt || 0)) {
+              bcMap.set(key, b);
+            }
+          }
+        }
+        storageService.saveSyncedBarcodes(Array.from(bcMap.values()));
+
+        // Also trigger product state reconciliation so any open BillingTab gets new prices/barcodes right away
+        setProducts((prevProds) => {
+          const merged = mergeStoreCatalog(prevProds, []);
+          storageService.saveProducts(merged);
+          return merged;
+        });
+      }
+    );
+
+    return () => {
+      cancelled = true;
+      unsubInvoices();
+      unsubProducts();
+      unsubBarcodes();
+    };
+  }, [userProfile.isLoggedIn, activeStoreOwnerKey]);
 
   // Priority 60: If exit confirmation dialog is open, pressing Back again immediately exits
   useBackHandler(
@@ -729,11 +910,17 @@ export default function App() {
         const deletedBillIds = storageService.getDeletedBillIds();
         const deletedProdIds = storageService.getDeletedProductIds();
 
+        if (Array.isArray(r.barcodes) && r.barcodes.length > 0) {
+          storageService.saveSyncedBarcodes(r.barcodes as any);
+        }
+
         const activeBills = (r.bills || []).filter(
           (b) => !deletedBillIds.has(b.id) && !b.isDeleted
         );
-        const activeProducts = (r.products || []).filter(
-          (p) => !deletedProdIds.has(p.id)
+        const activeProducts = mergeStoreCatalog(
+          [],
+          (r.products || []).filter((p) => !deletedProdIds.has(p.id)),
+          deletedProdIds
         );
 
         setBills(activeBills);
@@ -2070,15 +2257,13 @@ export default function App() {
           (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
         );
 
-        // Merge products without losing any product
-        const prodMap = new Map<string, ProductStockItem>();
-        localProds.forEach((p) => prodMap.set(p.id, p));
-        (fbData.products || []).forEach((p) => {
-          if (!deletedProds.has(p.id)) {
-            prodMap.set(p.id, p);
-          }
-        });
-        const mergedProds = Array.from(prodMap.values());
+        // Merge synced barcodes from Firestore
+        if (fbData.barcodes && fbData.barcodes.length > 0) {
+          storageService.saveSyncedBarcodes(fbData.barcodes as any);
+        }
+
+        // Merge products without losing any product or price updates
+        const mergedProds = mergeStoreCatalog(localProds, fbData.products || [], deletedProds);
 
         storageService.saveBills(mergedBills);
         storageService.saveProducts(mergedProds);
@@ -2500,8 +2685,23 @@ export default function App() {
               setIsLoginModalOpen(true);
             }}
             onQuickSaveProduct={(data) => {
-              storageService.addOrUpdateProduct(data);
+              const saved = storageService.addOrUpdateProduct(data);
               setProducts(storageService.getProducts());
+              if (saved) {
+                firebaseService.syncProduct(saved);
+                if (saved.barcode) {
+                  firebaseService.syncBarcode({
+                    id: `bc_${saved.id}`,
+                    barcode: saved.barcode,
+                    productName: saved.name,
+                    productId: saved.id,
+                    price: saved.price,
+                    purchasePrice: saved.purchasePrice,
+                    category: saved.category,
+                    unit: saved.unit,
+                  });
+                }
+              }
             }}
           />
         )}

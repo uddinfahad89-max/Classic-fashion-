@@ -131,6 +131,8 @@ export interface ProductStockItem {
   // Multi-Vendor & Soft Delete
   storeId?: string;
   userId?: string;
+  ownerEmail?: string;
+  createdByEmail?: string;
   isDeleted?: boolean;
   deletedAt?: number | string;
   deletedBy?: string;
@@ -460,6 +462,7 @@ export interface StaffMember {
   pin?: string; // 4-digit Cashier Shift PIN (e.g. '1234')
   permissions?: StaffPermissions;
   storeId?: string;
+  ownerEmail?: string;
   isBlocked?: boolean;
   blockedReason?: string;
 }

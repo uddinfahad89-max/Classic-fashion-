@@ -793,7 +793,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     const lowerCode = cleanCode.toLowerCase();
     const normCode = lowerCode.replace(/[^a-z0-9]/g, '');
 
-    // Always read the freshest products from storageService + props
+    // Always read the freshest products + synced cloud barcodes from storageService + props
     const storedProds = storageService.getProducts();
     const prodMap = new Map<string, ProductStockItem>();
     for (const p of [...storedProds, ...allSavedProducts]) {
@@ -880,6 +880,42 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       });
       if (costOrLetterMatch) {
         matchedProd = costOrLetterMatch;
+      }
+    }
+
+    // 1E. Cloud-Synced Barcodes Registry lookup (Covers barcodes & prices created by Owner OR any linked Staff account in Barcode Studio / Stock)
+    if (!matchedProd || matchedProd.price <= 0) {
+      const syncedBarcodes = storageService.getSyncedBarcodes();
+      const matchedBc =
+        syncedBarcodes.find(
+          (b) => Number(b.price) > 0 && b.barcode.trim().toLowerCase() === lowerCode
+        ) ||
+        syncedBarcodes.find((b) => {
+          if (Number(b.price) <= 0) return false;
+          const bNorm = b.barcode.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+          return normCode.length >= 2 && bNorm === normCode;
+        }) ||
+        syncedBarcodes.find((b) => {
+          if (Number(b.price) <= 0 || normCode.length < 3) return false;
+          const bNorm = b.barcode.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+          return bNorm.length >= 3 && (normCode.startsWith(bNorm) || bNorm.startsWith(normCode));
+        });
+
+      if (matchedBc && Number(matchedBc.price) > 0) {
+        matchedProd = {
+          id: matchedBc.productId || matchedProd?.id || `bc-${cleanCode}`,
+          name:
+            matchedProd?.name && !matchedProd.name.startsWith('Item (')
+              ? matchedProd.name
+              : (matchedBc.productName || '').trim() || `Item (${cleanCode})`,
+          price: Number(matchedBc.price),
+          purchasePrice: matchedBc.purchasePrice || matchedProd?.purchasePrice,
+          stock: matchedProd?.stock ?? 1,
+          unit: matchedProd?.unit || matchedBc.unit || 'Pcs',
+          category: matchedBc.category || matchedProd?.category || '',
+          barcode: cleanCode,
+          updatedAt: Date.now(),
+        };
       }
     }
 
@@ -1078,12 +1114,15 @@ export const BillingTab: React.FC<BillingTabProps> = ({
 
     // If an unlisted barcode still has 0 price, open inline rate editor automatically so user can type rate immediately
     if (resolvedPrice <= 0) {
+      playBarcodeWarningBeep(true);
       setEditingItemId(newItemId);
       setEditItemName(resolvedName);
       setEditItemPrice('');
       setEditItemQty('1');
       setEditItemUnit(resolvedUnit);
       setEditFocusField('price');
+    } else {
+      playBarcodeBeep(true);
     }
 
     // Refresh the input fields

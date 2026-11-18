@@ -66,6 +66,7 @@ import {
 } from '../types';
 import { thermalPrinterService } from '../services/thermalPrinterService';
 import { storageService } from '../services/storageService';
+import { firebaseService } from '../services/firebaseService';
 import { generateAutoSkuFromName } from './ProductStockModal';
 import {
   bengaliToEnglishDigits,
@@ -548,17 +549,19 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     );
   };
 
-  // Helper to auto-save and link the barcode directly to the target product in stock/catalog
+  // Helper to auto-save and link the barcode directly to the target product in stock/catalog & cloud barcodes
   const autoSaveToProduct = (
     barcodeVal: string,
     currentConfig?: BarcodeLabelConfig,
     showToastMessage: boolean = false
   ) => {
     const cfg = currentConfig || labelConfig;
+    const cleanBarcode = bengaliToEnglishDigits(barcodeVal || cfg.barcodeValue || '').trim();
     const name = (cfg.itemName || '').trim();
-    if (!name && !activeProductId) return;
-
-    const price = cfg.salePrice !== undefined && cfg.salePrice !== null ? Number(cfg.salePrice) || 0 : (cfg.mrp || 0);
+    const price =
+      cfg.salePrice !== undefined && cfg.salePrice !== null && Number(cfg.salePrice) > 0
+        ? Number(cfg.salePrice)
+        : Number(cfg.mrp) || 0;
     const cost =
       cfg.purchasePrice !== undefined && cfg.purchasePrice !== null && !isNaN(Number(cfg.purchasePrice))
         ? Number(cfg.purchasePrice)
@@ -567,7 +570,22 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
       cfg.productQuantity !== undefined && cfg.productQuantity !== null && !isNaN(Number(cfg.productQuantity))
         ? Number(cfg.productQuantity)
         : 0;
-    const fullName = cfg.sizeOrVariant ? `${name} (${cfg.sizeOrVariant})` : name;
+    const fullName = cfg.sizeOrVariant && name ? `${name} (${cfg.sizeOrVariant})` : name;
+
+    // Even if itemName was omitted (e.g. price-only tag), always sync barcode + price to cloud barcodes for Staff scanning
+    if (cleanBarcode) {
+      firebaseService.syncBarcode({
+        id: activeProductId ? `bc_${activeProductId}` : `bc_${cleanBarcode.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
+        barcode: cleanBarcode,
+        productName: fullName || name || '',
+        productId: activeProductId || '',
+        price: price,
+        purchasePrice: cost,
+        unit: 'Pcs',
+      });
+    }
+
+    if (!name && !activeProductId) return;
 
     const savedProd = storageService.addOrUpdateProduct({
       id: activeProductId || undefined,
@@ -575,13 +593,25 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
       price: price,
       purchasePrice: cost,
       stock: stock,
-      barcode: barcodeVal.trim(),
+      barcode: cleanBarcode,
       unit: 'Pcs',
     });
 
     if (savedProd?.id) {
       lastSelectedProductIdRef.current = savedProd.id;
       setActiveProductId(savedProd.id);
+      if (cleanBarcode) {
+        firebaseService.syncBarcode({
+          id: `bc_${savedProd.id}`,
+          barcode: savedProd.barcode || cleanBarcode,
+          productName: savedProd.name,
+          productId: savedProd.id,
+          price: savedProd.price,
+          purchasePrice: savedProd.purchasePrice,
+          category: savedProd.category,
+          unit: savedProd.unit || 'Pcs',
+        });
+      }
     }
 
     if (onSaveProduct) {
@@ -591,8 +621,8 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     if (showToastMessage) {
       onShowToast(
         isBn
-          ? `"${fullName || name}" প্রোডাক্টে বারকোড (${barcodeVal.trim()}) সেভ হয়েছে!`
-          : `Saved barcode (${barcodeVal.trim()}) to product "${fullName || name}"!`,
+          ? `"${fullName || name}" প্রোডাক্টে বারকোড (${cleanBarcode}) সেভ হয়েছে!`
+          : `Saved barcode (${cleanBarcode}) to product "${fullName || name}"!`,
         'success'
       );
     }
@@ -669,6 +699,20 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     if (labelConfig.itemName?.trim() || activeProductId) {
       autoSaveToProduct(newCode, { ...labelConfig, barcodeType: targetType, barcodeValue: newCode }, true);
     } else {
+      const effectivePrice =
+        labelConfig.salePrice !== undefined && labelConfig.salePrice !== null && Number(labelConfig.salePrice) > 0
+          ? Number(labelConfig.salePrice)
+          : Number(labelConfig.mrp) || 0;
+      if (newCode) {
+        firebaseService.syncBarcode({
+          id: `bc_${newCode.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
+          barcode: newCode,
+          productName: '',
+          price: effectivePrice,
+          purchasePrice: Number(labelConfig.purchasePrice) || 0,
+          unit: 'Pcs',
+        });
+      }
       onShowToast(
         isBn
           ? `নতুন ${targetType === 'EAN13' ? 'রিটেল EAN-13' : targetType === 'QR' ? 'QR কোড' : 'Code 128'} বারকোড তৈরি হয়েছে (বিলিং অ্যাপ উপযোগী)!`
@@ -1151,6 +1195,9 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
   // Export as High-Res PNG (Compatible with 4Barcode Android App / RawBT / Gallery)
   const handleDownloadImage = async () => {
     if (!labelPreviewRef.current) return;
+    if (labelConfig.barcodeValue?.trim()) {
+      autoSaveToProduct(labelConfig.barcodeValue, labelConfig, false);
+    }
     setIsGeneratingImg(true);
     try {
       const canvas = await captureLabelCanvas(4);
@@ -1174,6 +1221,9 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
   // Download Multi-Sticker A4 PDF Sheet (24-up / 30-up stickers)
   const handleDownloadPdfSheet = async () => {
     if (!labelPreviewRef.current) return;
+    if (labelConfig.barcodeValue?.trim()) {
+      autoSaveToProduct(labelConfig.barcodeValue, labelConfig, false);
+    }
     setIsGeneratingImg(true);
     try {
       const canvas = await captureLabelCanvas(3);
@@ -1230,6 +1280,9 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
   // Direct Label Print (Browser Print Window formatted for continuous 1" or 2" label roll)
   const handlePrintLabels = async () => {
     if (!labelPreviewRef.current) return;
+    if (labelConfig.barcodeValue?.trim()) {
+      autoSaveToProduct(labelConfig.barcodeValue, labelConfig, false);
+    }
     setIsPrinting(true);
 
     try {

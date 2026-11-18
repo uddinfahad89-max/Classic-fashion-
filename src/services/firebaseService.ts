@@ -5,6 +5,7 @@ import {
   getDocs,
   getDoc,
   getDocFromCache,
+  getDocFromServer,
   getDocsFromCache,
   deleteDoc,
   query,
@@ -88,7 +89,70 @@ export interface FirebaseRestoredData {
   userProfile?: UserProfile;
 }
 
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  };
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo:
+        auth.currentUser?.providerData?.map((provider) => ({
+          providerId: provider.providerId,
+          email: provider.email,
+        })) || [],
+    },
+    operationType,
+    path,
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
+async function testBootConnection() {
+  try {
+    await getDocFromServer(doc(db, '_connection_test', 'ping'));
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.error('Please check your Firebase configuration.');
+    }
+  }
+}
+if (typeof window !== 'undefined' && db) {
+  void testBootConnection();
+}
+
 class FirebaseService {
+  private linkedStaffCache = new Map<string, { emails: string[]; fetchedAt: number }>();
+
   isConfigured(): boolean {
     return Boolean(db);
   }
@@ -183,52 +247,147 @@ class FirebaseService {
     }
   }
 
-  // Universal user identifier for multi-device cross-app sync:
-  // Normalizes to lowercase user email so same email on any device/mobile accesses the exact same Firestore data
-  getEffectiveUserId(userId?: string): string {
-    if (userId && typeof userId === 'string' && userId.includes('@')) {
-      return userId.trim().toLowerCase();
-    }
+  getActorEmail(): string {
     try {
-      const stored = localStorage.getItem('thermal_pos_user_profile_v1');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (parsed && parsed.isLoggedIn) {
-          const isStaff =
-            parsed.role === 'Staff' ||
-            parsed.role === 'Cashier' ||
-            Boolean(parsed.staffId) ||
-            Boolean(parsed.operatorCode);
-          if (isStaff) {
-            const owner =
-              parsed.ownerEmail ||
-              parsed.storeId ||
-              parsed.shopId ||
-              (typeof window !== 'undefined' ? localStorage.getItem('thermal_pos_store_owner_email') : '') ||
-              MASTER_ADMIN_EMAIL;
-            if (owner && typeof owner === 'string' && owner.includes('@')) {
-              return owner.trim().toLowerCase();
+      const profile = storageService.getUserProfile();
+      if (profile?.email && profile.email.includes('@')) {
+        return profile.email.trim().toLowerCase();
+      }
+    } catch {}
+    const authEmail = auth.currentUser?.email;
+    if (authEmail) return authEmail.trim().toLowerCase();
+    return this.getEffectiveUserId();
+  }
+
+  // Universal store identifier for multi-device & multi-staff cross-app sync:
+  // Always resolves to the normalized lowercase Store Owner email so Owner and ALL linked Staff access the exact same catalog & barcodes
+  getEffectiveUserId(userId?: string): string {
+    try {
+      const parsed = storageService.getUserProfile();
+      if (parsed && parsed.isLoggedIn) {
+        const isStaff =
+          parsed.role === 'Staff' ||
+          parsed.role === 'Cashier' ||
+          Boolean(parsed.staffId) ||
+          Boolean(parsed.operatorCode);
+
+        if (isStaff) {
+          const owner =
+            parsed.ownerEmail ||
+            parsed.storeId ||
+            parsed.shopId ||
+            (typeof window !== 'undefined' ? localStorage.getItem('thermal_pos_store_owner_email') : '') ||
+            MASTER_ADMIN_EMAIL;
+          if (owner && typeof owner === 'string' && owner.includes('@')) {
+            const cleanOwner = owner.trim().toLowerCase();
+            // If caller passed no userId, or passed the staff's own email, still route to Store Owner!
+            if (!userId || userId.trim().toLowerCase() === (parsed.email || '').trim().toLowerCase()) {
+              return cleanOwner;
             }
-          }
-          if (parsed.email && typeof parsed.email === 'string' && parsed.email.includes('@')) {
-            return parsed.email.trim().toLowerCase();
           }
         }
       }
     } catch {}
-    if (userId && typeof userId === 'string' && userId.trim()) {
+
+    if (userId && typeof userId === 'string' && userId.includes('@')) {
       return userId.trim().toLowerCase();
     }
-    const authEmail = auth.currentUser?.email;
-    if (authEmail) return authEmail.trim().toLowerCase();
+
+    try {
+      const parsed = storageService.getUserProfile();
+      if (parsed && parsed.isLoggedIn) {
+        if (parsed.ownerEmail && parsed.ownerEmail.includes('@')) {
+          return parsed.ownerEmail.trim().toLowerCase();
+        }
+        if (parsed.storeId && parsed.storeId.includes('@')) {
+          return parsed.storeId.trim().toLowerCase();
+        }
+        if (parsed.email && typeof parsed.email === 'string' && parsed.email.includes('@')) {
+          return parsed.email.trim().toLowerCase();
+        }
+      }
+    } catch {}
+
     const fallbackOwner =
       typeof window !== 'undefined' ? localStorage.getItem('thermal_pos_store_owner_email') : null;
     if (fallbackOwner && fallbackOwner.includes('@')) {
       return fallbackOwner.trim().toLowerCase();
     }
+
+    if (userId && typeof userId === 'string' && userId.trim()) {
+      return userId.trim().toLowerCase();
+    }
+    const authEmail = auth.currentUser?.email;
+    if (authEmail) return authEmail.trim().toLowerCase();
     const authUid = this.getActiveUserId();
     if (authUid) return authUid;
     return MASTER_ADMIN_EMAIL.toLowerCase();
+  }
+
+  getLocalLinkedEmailsSet(storeOwnerEmail?: string): Set<string> {
+    const owner = (storeOwnerEmail || this.getEffectiveUserId() || '').trim().toLowerCase();
+    const set = new Set<string>();
+    if (owner) set.add(owner);
+    try {
+      const cached = this.linkedStaffCache.get(owner);
+      if (cached) {
+        cached.emails.forEach((em) => {
+          if (em) set.add(em.trim().toLowerCase());
+        });
+      }
+      const localStaff = storageService.getStaffMembers();
+      localStaff.forEach((s) => {
+        if (s.email && s.email.includes('@') && !s.isBlocked && s.isActive !== false) {
+          set.add(s.email.trim().toLowerCase());
+        }
+      });
+    } catch {}
+    return set;
+  }
+
+  async getStoreLinkedStaffEmails(storeOwnerEmail: string): Promise<string[]> {
+    const cleanOwner = (storeOwnerEmail || '').trim().toLowerCase();
+    if (!cleanOwner) return [];
+    const cached = this.linkedStaffCache.get(cleanOwner);
+    if (cached && Date.now() - cached.fetchedAt < 60000) {
+      return cached.emails;
+    }
+    const emails = new Set<string>();
+    try {
+      const localStaff = storageService.getStaffMembers();
+      localStaff.forEach((s) => {
+        if (s.email && s.email.includes('@')) {
+          emails.add(s.email.trim().toLowerCase());
+        }
+      });
+    } catch {}
+    try {
+      const subStaff = await this.fetchStaffMembers(cleanOwner);
+      subStaff.forEach((s) => {
+        if (s.email && s.email.includes('@')) {
+          emails.add(s.email.trim().toLowerCase());
+        }
+      });
+    } catch {}
+    try {
+      const qOwner = query(collection(db, 'staff_members'), where('ownerEmail', '==', cleanOwner));
+      const snapOwner = await getDocs(qOwner);
+      snapOwner.forEach((d) => {
+        const s = d.data() as StaffMember;
+        if (s?.email && s.email.includes('@')) emails.add(s.email.trim().toLowerCase());
+      });
+    } catch {}
+    try {
+      const qStore = query(collection(db, 'staff_members'), where('storeId', '==', cleanOwner));
+      const snapStore = await getDocs(qStore);
+      snapStore.forEach((d) => {
+        const s = d.data() as StaffMember;
+        if (s?.email && s.email.includes('@')) emails.add(s.email.trim().toLowerCase());
+      });
+    } catch {}
+    const arr = Array.from(emails);
+    this.linkedStaffCache.set(cleanOwner, { emails: arr, fetchedAt: Date.now() });
+    return arr;
   }
 
   // Check if given user or active user is Super Admin (Master Account)
@@ -236,12 +395,9 @@ class FirebaseService {
     const target = (userId || this.getEffectiveUserId()).trim().toLowerCase();
     if (target === MASTER_ADMIN_EMAIL.toLowerCase()) return true;
     try {
-      const stored = typeof window !== 'undefined' ? localStorage.getItem('thermal_pos_user_profile_v1') : null;
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (parsed?.isSuperAdmin || parsed?.role === 'Super Admin' || parsed?.role === 'super_admin') {
-          return true;
-        }
+      const stored = storageService.getUserProfile();
+      if (stored?.isSuperAdmin || stored?.role === 'Super Admin' || stored?.role === 'super_admin') {
+        return true;
       }
     } catch {}
     return false;
@@ -436,21 +592,52 @@ class FirebaseService {
             } catch {}
           }
 
-          if (hasExistingData || cleanEmail === MASTER_ADMIN_EMAIL.toLowerCase()) {
+          if (hasExistingData && cleanEmail !== MASTER_ADMIN_EMAIL.toLowerCase()) {
+            // Double check staff_members FIRST before treating as standalone Owner
+            let linkedStaffSnap = await getDoc(doc(db, 'staff_members', cleanEmail));
+            if (!linkedStaffSnap.exists()) {
+              try {
+                const qStaff = query(collection(db, 'staff_members'), where('email', '==', cleanEmail));
+                const qSnap = await getDocs(qStaff);
+                if (!qSnap.empty) linkedStaffSnap = qSnap.docs[0];
+              } catch {}
+            }
+            if (!linkedStaffSnap.exists()) {
+              matchedAccount = {
+                email: cleanEmail,
+                password: cleanPass,
+                name: cleanEmail.split('@')[0],
+                role: 'Owner',
+                isSuperAdmin: false,
+                pin: '1234',
+                updatedAt: new Date().toISOString()
+              };
+              await setDoc(userDocRef, matchedAccount, { merge: true });
+            }
+          } else if (cleanEmail === MASTER_ADMIN_EMAIL.toLowerCase()) {
             matchedAccount = {
               email: cleanEmail,
               password: cleanPass,
-              name: cleanEmail === MASTER_ADMIN_EMAIL.toLowerCase() ? 'Master Admin' : cleanEmail.split('@')[0],
-              role: cleanEmail === MASTER_ADMIN_EMAIL.toLowerCase() ? 'Super Admin' : 'Owner',
-              isSuperAdmin: cleanEmail === MASTER_ADMIN_EMAIL.toLowerCase(),
+              name: 'Master Admin',
+              role: 'Super Admin',
+              isSuperAdmin: true,
               pin: '1234',
               updatedAt: new Date().toISOString()
             };
             await setDoc(userDocRef, matchedAccount, { merge: true });
-          } else {
+          }
+
+          if (!matchedAccount) {
             // Check if user is an authorized staff member in top-level staff_members
             const staffDocRef = doc(db, 'staff_members', cleanEmail);
             let staffDocSnap = await getDoc(staffDocRef);
+            if (!staffDocSnap.exists()) {
+              try {
+                const qStaff = query(collection(db, 'staff_members'), where('email', '==', cleanEmail));
+                const qSnap = await getDocs(qStaff);
+                if (!qSnap.empty) staffDocSnap = qSnap.docs[0];
+              } catch {}
+            }
 
             if (staffDocSnap.exists()) {
               const staffData = staffDocSnap.data() as StaffMember;
@@ -479,8 +666,17 @@ class FirebaseService {
                 } catch {}
               }
 
-              // Owner store ID
-              const ownerStoreId = staffData.storeId || (staffData as any).ownerEmail || (staffData as any).shopId || '';
+              // Owner store ID (always normalized lowercase)
+              const rawOwnerStoreId =
+                (staffData as any).ownerEmail ||
+                staffData.storeId ||
+                (staffData as any).shopId ||
+                '';
+              const ownerStoreId = rawOwnerStoreId.trim().toLowerCase();
+              if (ownerStoreId && typeof window !== 'undefined') {
+                localStorage.setItem('thermal_pos_store_owner_email', ownerStoreId);
+              }
+
               const restored = ownerStoreId ? await this.restorePOSData(ownerStoreId) : null;
 
               const userProfile: UserProfile = {
@@ -539,8 +735,13 @@ class FirebaseService {
         };
       }
 
-      // 2. Fetch and restore all POS data from Firestore for this email
-      const restored = await this.restorePOSData(cleanEmail);
+      const ownerStoreId = (matchedAccount?.storeId || cleanEmail).trim().toLowerCase();
+      if (ownerStoreId && typeof window !== 'undefined') {
+        localStorage.setItem('thermal_pos_store_owner_email', ownerStoreId);
+      }
+
+      // 2. Fetch and restore all POS data from Firestore for this store
+      const restored = await this.restorePOSData(ownerStoreId);
       if (!restored || !restored.success) {
         return {
           success: false,
@@ -558,8 +759,9 @@ class FirebaseService {
         blockedReason: matchedAccount?.blockedReason || '',
         isLoggedIn: true,
         pin: matchedAccount?.pin || '1234',
-        shopId: matchedAccount?.storeId || cleanEmail,
-        storeId: matchedAccount?.storeId || cleanEmail,
+        shopId: ownerStoreId,
+        storeId: ownerStoreId,
+        ownerEmail: ownerStoreId,
         storeName: matchedAccount?.storeName || 'My Store'
       };
 
@@ -710,12 +912,16 @@ class FirebaseService {
     try {
       await this.ensureAuthenticated();
       const uid = this.getEffectiveUserId(userId);
-      const docId = item.id || `barcode_${item.barcode}_${Date.now()}`;
+      const actorEmail = this.getActorEmail();
+      const storeAnchor = (shopId || uid).trim().toLowerCase();
+      const cleanBarcode = String(item.barcode || '').trim();
+      if (!cleanBarcode) return false;
+      const docId = item.id || `barcode_${cleanBarcode.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
       const barcodeRef = doc(db, 'barcodes', docId);
 
-      const payload = {
+      const payload: BarcodeItem & { ownerEmail: string; storeId: string; createdByEmail: string } = {
         id: docId,
-        barcode: String(item.barcode || '').trim(),
+        barcode: cleanBarcode,
         productName: item.productName || '',
         productId: item.productId || '',
         price: Number(item.price) || 0,
@@ -728,14 +934,37 @@ class FirebaseService {
         userId: uid,
         userEmail: uid,
         email: uid,
-        shopId: shopId || uid,
-        updatedAt: new Date().toISOString(),
+        ownerEmail: uid,
+        shopId: storeAnchor,
+        storeId: storeAnchor,
+        createdByEmail: actorEmail,
+        isDeleted: Boolean(item.isDeleted),
+        updatedAt: Date.now(),
         createdAt: item.createdAt || new Date().toISOString()
       };
 
+      // Update local synced barcode cache immediately
+      storageService.upsertSyncedBarcode({
+        id: docId,
+        barcode: cleanBarcode,
+        productName: payload.productName,
+        productId: payload.productId,
+        price: payload.price,
+        purchasePrice: payload.purchasePrice,
+        unit: payload.unit,
+        category: payload.category,
+        ownerEmail: uid,
+        storeId: storeAnchor,
+        createdByEmail: actorEmail,
+        updatedAt: payload.updatedAt,
+      });
+
       await setDoc(barcodeRef, payload, { merge: true });
       return true;
-    } catch (e) {
+    } catch (e: any) {
+      if (String(e?.message || '').includes('Missing or insufficient permissions')) {
+        handleFirestoreError(e, OperationType.WRITE, 'barcodes');
+      }
       console.error('Firebase syncBarcode error:', e);
       return false;
     }
@@ -747,42 +976,39 @@ class FirebaseService {
       const uid = this.getEffectiveUserId(userId);
       if (!uid) return [];
       const barcodesRef = collection(db, 'barcodes');
-      
       const map = new Map<string, BarcodeItem>();
 
-      // Query by userId
-      try {
-        const q1 = query(barcodesRef, where('userId', '==', uid));
-        let snap1 = null;
-        try {
-          snap1 = await getDocs(q1);
-        } catch {
-          try {
-            snap1 = await getDocsFromCache(q1);
-          } catch {}
-        }
-        if (snap1) {
-          snap1.forEach((d) => map.set(d.id, d.data() as BarcodeItem));
-        }
-      } catch {}
+      const linkedEmails = await this.getStoreLinkedStaffEmails(uid);
+      const queryValues = Array.from(new Set([uid, ...linkedEmails].filter(Boolean)));
+      const queryFields = ['userId', 'userEmail', 'ownerEmail', 'storeId', 'shopId'] as const;
 
-      // Query by userEmail
-      try {
-        const q2 = query(barcodesRef, where('userEmail', '==', uid));
-        let snap2 = null;
-        try {
-          snap2 = await getDocs(q2);
-        } catch {
-          try {
-            snap2 = await getDocsFromCache(q2);
-          } catch {}
+      const queries: Promise<void>[] = [];
+      for (const field of queryFields) {
+        for (const val of queryValues) {
+          queries.push((async () => {
+            try {
+              const q = query(barcodesRef, where(field, '==', val));
+              let snap = null;
+              try {
+                snap = await getDocs(q);
+              } catch {
+                try {
+                  snap = await getDocsFromCache(q);
+                } catch {}
+              }
+              if (snap) {
+                snap.forEach((d) => {
+                  const data = d.data() as BarcodeItem;
+                  if (!data.isDeleted) map.set(d.id, data);
+                });
+              }
+            } catch {}
+          })());
         }
-        if (snap2) {
-          snap2.forEach((d) => map.set(d.id, d.data() as BarcodeItem));
-        }
-      } catch {}
+      }
+      await Promise.all(queries);
 
-      return Array.from(map.values());
+      return Array.from(map.values()).filter((b) => !b.isDeleted && b.barcode);
     } catch (e: any) {
       console.warn('Firebase fetchBarcodes notice:', e?.message || e);
       return [];
@@ -1046,16 +1272,20 @@ class FirebaseService {
     }
   }
 
-  // Real-time Firestore Live Subscription: Automatically receive new staff invoices instantly
+  // Real-time Firestore Live Subscription: Automatically receive new staff/owner invoices instantly
   subscribeInvoices(
     userId: string | undefined,
     onUpdate: (bills: BillInvoice[]) => void
   ): () => void {
     try {
+      const targetOwner = this.getEffectiveUserId(userId);
       const invoicesRef = collection(db, 'invoices');
       return onSnapshot(
         invoicesRef,
         (snap) => {
+          const linkedEmails = this.getLocalLinkedEmailsSet(targetOwner);
+          const isMasterStore = targetOwner === MASTER_ADMIN_EMAIL.toLowerCase();
+
           let deletedSet: Set<string>;
           try {
             const raw = typeof window !== 'undefined' ? localStorage.getItem('thermal_pos_deleted_bill_ids_v1') : null;
@@ -1066,9 +1296,18 @@ class FirebaseService {
 
           const map = new Map<string, BillInvoice>();
           snap.forEach((d) => {
-            const b = d.data() as BillInvoice;
-            if (!b.isDeleted && !deletedSet.has(b.id) && !deletedSet.has(b.invoiceNo || '')) {
-              map.set(d.id, b);
+            const b = d.data() as any;
+            if (b.isDeleted || deletedSet.has(b.id) || deletedSet.has(b.invoiceNo || '')) return;
+
+            const owners = [b.ownerEmail, b.storeOwnerEmail, b.storeId, b.shopId, b.userId, b.userEmail, b.staffEmail]
+              .filter(Boolean)
+              .map((x: string) => String(x).trim().toLowerCase());
+            const belongsToStore =
+              owners.some((o) => linkedEmails.has(o)) ||
+              (isMasterStore && owners.length === 0);
+
+            if (belongsToStore) {
+              map.set(d.id, b as BillInvoice);
             }
           });
 
@@ -1078,11 +1317,114 @@ class FirebaseService {
           onUpdate(bills);
         },
         (err) => {
+          if (String(err?.message || '').includes('Missing or insufficient permissions')) {
+            handleFirestoreError(err, OperationType.GET, 'invoices');
+          }
           console.warn('Firebase subscribeInvoices listener notice:', err);
         }
       );
     } catch (e) {
       console.warn('Failed to start Firestore invoices listener:', e);
+      return () => {};
+    }
+  }
+
+  // Real-time Firestore Live Subscription for Products (Owner <-> All Linked Staff Accounts)
+  subscribeProducts(
+    userId: string | undefined,
+    onUpdate: (products: ProductStockItem[]) => void
+  ): () => void {
+    try {
+      const targetOwner = this.getEffectiveUserId(userId);
+      const prodRef = collection(db, 'products');
+      return onSnapshot(
+        prodRef,
+        (snap) => {
+          const linkedEmails = this.getLocalLinkedEmailsSet(targetOwner);
+          const isMasterStore = targetOwner === MASTER_ADMIN_EMAIL.toLowerCase();
+
+          let deletedProdSet: Set<string>;
+          try {
+            const raw = typeof window !== 'undefined' ? localStorage.getItem('thermal_pos_deleted_prod_ids_v1') : null;
+            deletedProdSet = raw ? new Set(JSON.parse(raw)) : new Set();
+          } catch {
+            deletedProdSet = new Set();
+          }
+
+          const map = new Map<string, ProductStockItem>();
+          snap.forEach((d) => {
+            const p = d.data() as any;
+            if (p.isDeleted === true || deletedProdSet.has(p.id)) return;
+
+            const owners = [p.ownerEmail, p.storeId, p.shopId, p.userId, p.userEmail, p.email, p.createdByEmail]
+              .filter(Boolean)
+              .map((x: string) => String(x).trim().toLowerCase());
+            const belongsToStore =
+              owners.some((o) => linkedEmails.has(o)) ||
+              (isMasterStore && (owners.length === 0 || owners.includes('anonymous')));
+
+            if (belongsToStore) {
+              map.set(d.id, p as ProductStockItem);
+            }
+          });
+
+          onUpdate(Array.from(map.values()));
+        },
+        (err) => {
+          if (String(err?.message || '').includes('Missing or insufficient permissions')) {
+            handleFirestoreError(err, OperationType.GET, 'products');
+          }
+          console.warn('Firebase subscribeProducts listener notice:', err);
+        }
+      );
+    } catch (e) {
+      console.warn('Failed to start Firestore products listener:', e);
+      return () => {};
+    }
+  }
+
+  // Real-time Firestore Live Subscription for Barcodes (Owner <-> All Linked Staff Accounts)
+  subscribeBarcodes(
+    userId: string | undefined,
+    onUpdate: (barcodes: BarcodeItem[]) => void
+  ): () => void {
+    try {
+      const targetOwner = this.getEffectiveUserId(userId);
+      const barcodesRef = collection(db, 'barcodes');
+      return onSnapshot(
+        barcodesRef,
+        (snap) => {
+          const linkedEmails = this.getLocalLinkedEmailsSet(targetOwner);
+          const isMasterStore = targetOwner === MASTER_ADMIN_EMAIL.toLowerCase();
+
+          const map = new Map<string, BarcodeItem>();
+          snap.forEach((d) => {
+            const bc = d.data() as any;
+            if (bc.isDeleted === true || !bc.barcode) return;
+
+            const owners = [bc.ownerEmail, bc.storeId, bc.shopId, bc.userId, bc.userEmail, bc.email, bc.createdByEmail]
+              .filter(Boolean)
+              .map((x: string) => String(x).trim().toLowerCase());
+            const belongsToStore =
+              owners.some((o) => linkedEmails.has(o)) ||
+              (isMasterStore && (owners.length === 0 || owners.includes('anonymous')));
+
+            if (belongsToStore) {
+              map.set(d.id, bc as BarcodeItem);
+            }
+          });
+
+          onUpdate(Array.from(map.values()));
+        },
+        (err) => {
+          if (String(err?.message || '').includes('Missing or insufficient permissions')) {
+            handleFirestoreError(err, OperationType.GET, 'barcodes');
+          }
+          console.warn('Firebase subscribeBarcodes listener notice:', err);
+        }
+      );
+    } catch (e) {
+      console.warn('Failed to start Firestore barcodes listener:', e);
       return () => {};
     }
   }
@@ -1094,6 +1436,8 @@ class FirebaseService {
     try {
       await this.ensureAuthenticated();
       const uid = this.getEffectiveUserId(userId);
+      const actorEmail = this.getActorEmail();
+      const storeAnchor = (shopId || uid).trim().toLowerCase();
       const prodRef = doc(db, 'products', product.id);
 
       const payload = {
@@ -1109,8 +1453,10 @@ class FirebaseService {
         userId: uid,
         userEmail: uid,
         email: uid,
-        shopId: shopId || uid,
-        storeId: shopId || uid,
+        ownerEmail: uid,
+        shopId: storeAnchor,
+        storeId: storeAnchor,
+        createdByEmail: product.createdByEmail || actorEmail,
         isDeleted: Boolean(product.isDeleted),
         deletedAt: product.deletedAt || null,
         deletedBy: product.deletedBy || null,
@@ -1119,7 +1465,10 @@ class FirebaseService {
 
       await setDoc(prodRef, payload, { merge: true });
       return true;
-    } catch (e) {
+    } catch (e: any) {
+      if (String(e?.message || '').includes('Missing or insufficient permissions')) {
+        handleFirestoreError(e, OperationType.WRITE, 'products');
+      }
       console.error('Firebase syncProduct error:', e);
       return false;
     }
@@ -1207,37 +1556,32 @@ class FirebaseService {
       const prodRef = collection(db, 'products');
       const map = new Map<string, ProductStockItem>();
 
-      // Query by userId
-      try {
-        const q1 = query(prodRef, where('userId', '==', uid));
-        let snap1 = null;
-        try {
-          snap1 = await getDocs(q1);
-        } catch {
-          try {
-            snap1 = await getDocsFromCache(q1);
-          } catch {}
-        }
-        if (snap1) {
-          snap1.forEach((d) => map.set(d.id, d.data() as ProductStockItem));
-        }
-      } catch {}
+      const linkedEmails = await this.getStoreLinkedStaffEmails(uid);
+      const queryValues = Array.from(new Set([uid, ...linkedEmails].filter(Boolean)));
+      const queryFields = ['userId', 'userEmail', 'ownerEmail', 'storeId', 'shopId'] as const;
 
-      // Query by userEmail
-      try {
-        const q2 = query(prodRef, where('userEmail', '==', uid));
-        let snap2 = null;
-        try {
-          snap2 = await getDocs(q2);
-        } catch {
-          try {
-            snap2 = await getDocsFromCache(q2);
-          } catch {}
+      const queries: Promise<void>[] = [];
+      for (const field of queryFields) {
+        for (const val of queryValues) {
+          queries.push((async () => {
+            try {
+              const q = query(prodRef, where(field, '==', val));
+              let snap = null;
+              try {
+                snap = await getDocs(q);
+              } catch {
+                try {
+                  snap = await getDocsFromCache(q);
+                } catch {}
+              }
+              if (snap) {
+                snap.forEach((d) => map.set(d.id, d.data() as ProductStockItem));
+              }
+            } catch {}
+          })());
         }
-        if (snap2) {
-          snap2.forEach((d) => map.set(d.id, d.data() as ProductStockItem));
-        }
-      } catch {}
+      }
+      await Promise.all(queries);
 
       // Fallback: If 0 products and this is MASTER_ADMIN_EMAIL, check legacy anonymous products
       if (map.size === 0 && uid === MASTER_ADMIN_EMAIL) {

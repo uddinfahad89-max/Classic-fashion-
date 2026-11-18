@@ -592,7 +592,14 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
     }
 
     const currentProfile = storageService.getUserProfile();
-    const currentStoreId = currentProfile.storeId || currentProfile.email || '';
+    const rawOwner =
+      currentProfile.ownerEmail ||
+      currentProfile.storeId ||
+      currentProfile.shopId ||
+      currentProfile.email ||
+      (typeof window !== 'undefined' ? localStorage.getItem('thermal_pos_store_owner_email') : '') ||
+      '';
+    const currentStoreId = rawOwner.trim().toLowerCase();
 
     const staffObj: StaffMember = {
       id: editingStaff ? editingStaff.id : `staff-${Date.now()}`,
@@ -626,6 +633,7 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
       password: modalHasPosAccess ? (cleanPassword || editingStaff?.password) : undefined,
       permissions: modalHasPosAccess ? modalPermissions : undefined,
       storeId: currentStoreId,
+      ownerEmail: currentStoreId,
     };
 
     storageService.saveStaffMember(staffObj);
@@ -710,7 +718,14 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
     }
 
     const currentProfile = storageService.getUserProfile();
-    const currentStoreId = currentProfile.storeId || currentProfile.email || '';
+    const rawOwner =
+      currentProfile.ownerEmail ||
+      currentProfile.storeId ||
+      currentProfile.shopId ||
+      currentProfile.email ||
+      (typeof window !== 'undefined' ? localStorage.getItem('thermal_pos_store_owner_email') : '') ||
+      '';
+    const currentStoreId = rawOwner.trim().toLowerCase();
 
     const updatedStaff: StaffMember = {
       ...editingStaff,
@@ -719,6 +734,7 @@ export const StaffManagementTab: React.FC<StaffManagementTabProps> = ({
       email: modalStaffEmail.trim().toLowerCase() || editingStaff.email,
       permissions: modalPermissions,
       storeId: currentStoreId,
+      ownerEmail: currentStoreId,
     };
 
     storageService.saveStaffMember(updatedStaff);

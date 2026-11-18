@@ -32,7 +32,24 @@ const STORAGE_KEYS = {
   LANG: 'simple_pos_language',
   STAFF: 'simple_pos_staff_members',
   ATTENDANCE: 'simple_pos_attendance_records',
+  SYNCED_BARCODES: 'thermal_pos_synced_barcodes_v1',
 };
+
+export interface SyncedBarcodeEntry {
+  id: string;
+  barcode: string;
+  productName?: string;
+  productId?: string;
+  price: number;
+  purchasePrice?: number;
+  unit?: string;
+  category?: string;
+  ownerEmail?: string;
+  storeId?: string;
+  createdByEmail?: string;
+  isDeleted?: boolean;
+  updatedAt?: string | number;
+}
 
 const VAULT_KEYS = {
   ACCOUNTS_INDEX: 'simple_pos_accounts_index',
@@ -1794,6 +1811,21 @@ class StorageService {
 
   saveUserProfile(profile: UserProfile): void {
     localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(profile));
+    try {
+      if (typeof window !== 'undefined' && profile?.isLoggedIn) {
+        const isStaff =
+          profile.role === 'Staff' ||
+          profile.role === 'Cashier' ||
+          Boolean(profile.staffId) ||
+          Boolean(profile.operatorCode);
+        const owner = isStaff
+          ? profile.ownerEmail || profile.storeId || profile.shopId
+          : profile.ownerEmail || profile.email || profile.storeId;
+        if (owner && typeof owner === 'string' && owner.includes('@')) {
+          localStorage.setItem('thermal_pos_store_owner_email', owner.trim().toLowerCase());
+        }
+      }
+    } catch {}
   }
 
   loginUser(
@@ -1986,6 +2018,8 @@ class StorageService {
     localStorage.removeItem(STORAGE_KEYS.DUES);
     localStorage.removeItem(STORAGE_KEYS.PURCHASES);
     localStorage.removeItem(STORAGE_KEYS.SETTINGS);
+    localStorage.removeItem(STORAGE_KEYS.SYNCED_BARCODES);
+    localStorage.removeItem('thermal_pos_store_owner_email');
     this.saveUserProfile(loggedOut);
     return loggedOut;
   }
@@ -2374,6 +2408,59 @@ class StorageService {
     } catch {
       return [];
     }
+  }
+
+  getSyncedBarcodes(): SyncedBarcodeEntry[] {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.SYNCED_BARCODES);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter((b: SyncedBarcodeEntry) => !b.isDeleted && b.barcode);
+    } catch {
+      return [];
+    }
+  }
+
+  saveSyncedBarcodes(barcodes: SyncedBarcodeEntry[]): void {
+    try {
+      const clean = (barcodes || []).filter((b) => !b.isDeleted && b.barcode);
+      localStorage.setItem(STORAGE_KEYS.SYNCED_BARCODES, JSON.stringify(clean));
+    } catch (e) {
+      console.warn('Failed to save synced barcodes:', e);
+    }
+  }
+
+  upsertSyncedBarcode(entry: SyncedBarcodeEntry): SyncedBarcodeEntry[] {
+    const cleanCode = bengaliToEnglishDigits(entry.barcode || '').trim();
+    if (!cleanCode) return this.getSyncedBarcodes();
+    const list = this.getSyncedBarcodes();
+    const lowerCode = cleanCode.toLowerCase();
+    const idx = list.findIndex(
+      (b) =>
+        (entry.id && b.id === entry.id) ||
+        (b.barcode && b.barcode.trim().toLowerCase() === lowerCode)
+    );
+    const normalized: SyncedBarcodeEntry = {
+      ...entry,
+      id: entry.id || `bc_${cleanCode}`,
+      barcode: cleanCode,
+      price: Number(entry.price) || 0,
+      updatedAt: entry.updatedAt || Date.now(),
+    };
+    if (idx >= 0) {
+      const existing = list[idx];
+      list[idx] = {
+        ...existing,
+        ...normalized,
+        productName: normalized.productName || existing.productName || '',
+        price: normalized.price > 0 ? normalized.price : existing.price,
+      };
+    } else {
+      list.unshift(normalized);
+    }
+    this.saveSyncedBarcodes(list);
+    return list;
   }
 
   saveProducts(products: ProductStockItem[]): void {
@@ -3022,20 +3109,21 @@ class StorageService {
       (typeof window !== 'undefined' ? localStorage.getItem('thermal_pos_store_owner_email') : '') ||
       'uddinfahad89@gmail.com';
 
-    if (storedOwnerEmail && typeof window !== 'undefined') {
-      localStorage.setItem('thermal_pos_store_owner_email', storedOwnerEmail);
+    const cleanOwnerEmail = storedOwnerEmail.trim().toLowerCase();
+    if (cleanOwnerEmail && typeof window !== 'undefined') {
+      localStorage.setItem('thermal_pos_store_owner_email', cleanOwnerEmail);
     }
 
     const updatedProfile: UserProfile = {
       ...currentProfile,
       name: matched.name,
-      email: storedOwnerEmail,
+      email: matched.email || cleanOwnerEmail,
       phone: matched.phone || currentProfile.phone,
       role: 'Staff',
       staffId: matched.id,
       operatorCode: matched.operatorCode || 'OP-01',
-      ownerEmail: storedOwnerEmail,
-      storeId: currentProfile.storeId || currentProfile.shopId || storedOwnerEmail,
+      ownerEmail: cleanOwnerEmail,
+      storeId: (currentProfile.storeId || currentProfile.shopId || cleanOwnerEmail).trim().toLowerCase(),
       storeName: currentProfile.storeName || this.getSettings().storeName || 'Classic Fashion',
       isLoggedIn: true,
       permissions: matched.permissions,
