@@ -86,6 +86,7 @@ interface BarcodeTagStudioTabProps {
   products?: ProductStockItem[];
   selectedProduct?: ProductStockItem | null;
   onSaveProduct?: (productData: any) => void;
+  onOpenProductStock?: () => void;
   onShowToast: (message: string, type?: 'success' | 'info' | 'error') => void;
 }
 
@@ -168,6 +169,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
   products,
   selectedProduct,
   onSaveProduct,
+  onOpenProductStock,
   onShowToast,
 }) => {
   const isBn = language === 'bn';
@@ -224,6 +226,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
       barcodeNumberSize: 'normal',
       cornerRadius: 'medium',
       titleFontSize: 'medium',
+      storeHeaderFontSize: 15,
       textAlign: 'center',
       showStorePhone: false,
       showDiscountBadge: false,
@@ -249,6 +252,17 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
       const cleanCustomOffer = (saved.customOfferText || '').replace(/save.*29.*%?/gi, '').trim();
       const cleanedFooter = (saved.footerNote || '').replace(/100%\s*(pure\s*)?cotton/gi, '').trim();
       const cleanedItem = (saved.itemName || '').replace(/^cotton saree$/i, '').trim();
+      const restoredShopFont = saved.tsplShopFont || '3';
+      const restoredHeaderPx =
+        typeof saved.storeHeaderFontSize === 'number' && !isNaN(saved.storeHeaderFontSize)
+          ? Math.max(8, Math.min(26, saved.storeHeaderFontSize))
+          : restoredShopFont === '1'
+          ? 10
+          : restoredShopFont === '2'
+          ? 12
+          : restoredShopFont === '4'
+          ? 21
+          : 15;
       return {
         ...defaults,
         ...saved,
@@ -258,6 +272,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
         showDiscountBadge: false,
         customOfferText: cleanCustomOffer,
         cleanWhiteMode: saved.cleanWhiteMode !== false,
+        storeHeaderFontSize: restoredHeaderPx,
         tsplDirection: saved.tsplDirection || '0,0',
         tsplAlign: saved.tsplAlign || 'center',
         tsplCustomX: Boolean(saved.tsplCustomX),
@@ -265,7 +280,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
         tsplBarcodeX: saved.tsplBarcodeX,
         tsplPriceX: saved.tsplPriceX,
         tsplShopY: saved.tsplShopY ?? 20,
-        tsplShopFont: saved.tsplShopFont || '3',
+        tsplShopFont: restoredShopFont,
         tsplBarcodeY: saved.tsplBarcodeY ?? 52,
         tsplBarcodeHeight: saved.tsplBarcodeHeight ?? 40,
         tsplBarcodeRatio: saved.tsplBarcodeRatio || '2:3',
@@ -296,6 +311,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
       barcodeNumberSize: labelConfig.barcodeNumberSize,
       cornerRadius: labelConfig.cornerRadius,
       titleFontSize: labelConfig.titleFontSize,
+      storeHeaderFontSize: labelConfig.storeHeaderFontSize,
       textAlign: labelConfig.textAlign,
       showStorePhone: labelConfig.showStorePhone,
       showDiscountBadge: labelConfig.showDiscountBadge,
@@ -416,6 +432,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     startHeightDots: number;
     startDotX: number;
     startFontIndex: number;
+    startFontPx: number;
     canvasWidth: number;
     canvasHeight: number;
   } | null>(null);
@@ -466,6 +483,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
   // Track the product this barcode belongs to for automatic saving
   const [activeProductId, setActiveProductId] = useState<string | null>(() => selectedProduct?.id || null);
   const lastSelectedProductIdRef = useRef<string | null>(selectedProduct?.id || null);
+  const lastSelectedSignatureRef = useRef<string | null>(null);
 
   // Cost-encoded SKU generator helper matching ProductStockModal:
   // [1-2 Alphabets] + [1st digit of Cost] + [6 Middle Digits] + [Remaining digits of Cost]
@@ -480,9 +498,12 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     return generateAutoSkuFromName(targetName, targetSeed, costVal, currentCode || labelConfig.barcodeValue);
   };
 
-  // Auto-sync whenever selectedProduct is provided or updated (only when a new product is selected)
+  // Auto-sync whenever selectedProduct is provided or updated (including edits to an already-loaded product)
   useEffect(() => {
-    if (selectedProduct && selectedProduct.id !== lastSelectedProductIdRef.current) {
+    if (!selectedProduct) return;
+    const signature = `${selectedProduct.id}|${selectedProduct.name}|${selectedProduct.price}|${selectedProduct.purchasePrice ?? ''}|${selectedProduct.stock ?? ''}|${selectedProduct.barcode ?? ''}|${selectedProduct.updatedAt ?? ''}`;
+    if (signature !== lastSelectedSignatureRef.current) {
+      lastSelectedSignatureRef.current = signature;
       lastSelectedProductIdRef.current = selectedProduct.id;
       setActiveProductId(selectedProduct.id);
       let extractedName = selectedProduct.name;
@@ -500,8 +521,8 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
         ...prev,
         itemName: extractedName,
         showItemName: true,
-        salePrice: selectedProduct.price || prev.salePrice,
-        mrp: selectedProduct.price || prev.mrp,
+        salePrice: selectedProduct.price ?? prev.salePrice,
+        mrp: selectedProduct.price ?? prev.mrp,
         purchasePrice: selectedProduct.purchasePrice,
         showPurchasePrice: Boolean(selectedProduct.purchasePrice && selectedProduct.purchasePrice > 0),
         sizeOrVariant: extractedSize || prev.sizeOrVariant,
@@ -549,7 +570,8 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     );
   };
 
-  // Helper to auto-save and link the barcode directly to the target product in stock/catalog & cloud barcodes
+  // Helper to auto-save and link the barcode directly to the target product in stock/catalog & cloud barcodes.
+  // If the SKU differs by even 1 character from the currently selected product's barcode, it creates a SEPARATE product & barcode.
   const autoSaveToProduct = (
     barcodeVal: string,
     currentConfig?: BarcodeLabelConfig,
@@ -572,24 +594,41 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
         : 0;
     const fullName = cfg.sizeOrVariant && name ? `${name} (${cfg.sizeOrVariant})` : name;
 
+    const lowerCleanCode = cleanBarcode.toLowerCase();
+    const matchedByBarcode = lowerCleanCode
+      ? products?.find(
+          (p) => bengaliToEnglishDigits((p.barcode || '').trim()).toLowerCase() === lowerCleanCode
+        )
+      : undefined;
+    const activeProd = activeProductId ? products?.find((p) => p.id === activeProductId) : undefined;
+    const activeProdCode = bengaliToEnglishDigits((activeProd?.barcode || '').trim()).toLowerCase();
+    const isDifferentSkuFromActive = Boolean(
+      lowerCleanCode && activeProdCode && lowerCleanCode !== activeProdCode
+    );
+
+    // Crucial rule: even 1 character difference in SKU creates a separate product & separate barcode
+    const targetProductId = isDifferentSkuFromActive
+      ? matchedByBarcode?.id || undefined
+      : activeProductId || matchedByBarcode?.id || undefined;
+
     // Even if itemName was omitted (e.g. price-only tag), always sync barcode + price to cloud barcodes for Staff scanning
-    if (cleanBarcode) {
+    if (cleanBarcode && !name && !targetProductId) {
       firebaseService.syncBarcode({
-        id: activeProductId ? `bc_${activeProductId}` : `bc_${cleanBarcode.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
+        id: `bc_${cleanBarcode.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
         barcode: cleanBarcode,
-        productName: fullName || name || '',
-        productId: activeProductId || '',
+        productName: '',
+        productId: '',
         price: price,
         purchasePrice: cost,
         unit: 'Pcs',
       });
     }
 
-    if (!name && !activeProductId) return;
+    if (!name && !targetProductId) return;
 
     const savedProd = storageService.addOrUpdateProduct({
-      id: activeProductId || undefined,
-      name: fullName || name,
+      id: targetProductId,
+      name: fullName || name || activeProd?.name || `Item #${cleanBarcode}`,
       price: price,
       purchasePrice: cost,
       stock: stock,
@@ -621,11 +660,39 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     if (showToastMessage) {
       onShowToast(
         isBn
-          ? `"${fullName || name}" প্রোডাক্টে বারকোড (${cleanBarcode}) সেভ হয়েছে!`
-          : `Saved barcode (${cleanBarcode}) to product "${fullName || name}"!`,
+          ? `"${savedProd.name || fullName || name}" প্রোডাক্টে বারকোড (${cleanBarcode}) সেভ হয়েছে!`
+          : `Saved barcode (${cleanBarcode}) to product "${savedProd.name || fullName || name}"!`,
         'success'
       );
     }
+  };
+
+  const handleBarcodeValueChange = (rawValue: string) => {
+    const normalized = bengaliToEnglishDigits(rawValue);
+    const cleanLower = normalized.trim().toLowerCase();
+
+    const exactMatch = cleanLower
+      ? products?.find(
+          (p) => bengaliToEnglishDigits((p.barcode || '').trim()).toLowerCase() === cleanLower
+        )
+      : undefined;
+
+    if (exactMatch) {
+      setActiveProductId(exactMatch.id);
+      lastSelectedProductIdRef.current = exactMatch.id;
+    } else if (activeProductId) {
+      const currentActiveProd = products?.find((p) => p.id === activeProductId);
+      const currentActiveCode = bengaliToEnglishDigits(
+        (currentActiveProd?.barcode || '').trim()
+      ).toLowerCase();
+      // Detach immediately when SKU differs by even 1 character so a separate barcode & product are created
+      if (currentActiveCode && cleanLower !== currentActiveCode) {
+        setActiveProductId(null);
+        lastSelectedProductIdRef.current = null;
+      }
+    }
+
+    setLabelConfig((prev) => ({ ...prev, barcodeValue: normalized }));
   };
 
   const handlePurchasePriceChange = (valStr: string) => {
@@ -640,11 +707,17 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
   };
 
   const handleItemNameChange = (nameStr: string) => {
+    const currentCode = bengaliToEnglishDigits((labelConfig.barcodeValue || '').trim()).toLowerCase();
     const matched = products?.find(
       (p) => p.name.trim().toLowerCase() === nameStr.trim().toLowerCase()
     );
     if (matched) {
-      setActiveProductId(matched.id);
+      const matchedCode = bengaliToEnglishDigits((matched.barcode || '').trim()).toLowerCase();
+      if (!currentCode || matchedCode === currentCode) {
+        setActiveProductId(matched.id);
+      } else {
+        setActiveProductId(null);
+      }
     }
     setLabelConfig((prev) => {
       const updated: BarcodeLabelConfig = { ...prev, itemName: nameStr };
@@ -759,7 +832,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
             : 1.5;
         const baseBarHeight =
           labelConfig.tsplBarcodeHeight
-            ? Math.max(26, Math.min(70, labelConfig.tsplBarcodeHeight * 0.8))
+            ? Math.max(20, Math.min(78, labelConfig.tsplBarcodeHeight * 0.8))
             : labelConfig.sizePreset === '1x1'
             ? 24
             : labelConfig.barcodeHeight === 'compact'
@@ -1015,6 +1088,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
       barcodeNumberSize: labelConfig.barcodeNumberSize,
       cornerRadius: labelConfig.cornerRadius,
       titleFontSize: labelConfig.titleFontSize,
+      storeHeaderFontSize: labelConfig.storeHeaderFontSize,
       textAlign: labelConfig.textAlign,
       showStorePhone: labelConfig.showStorePhone,
       showDiscountBadge: labelConfig.showDiscountBadge,
@@ -1054,6 +1128,8 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
       barcodeNumberSize: 'normal',
       cornerRadius: 'medium',
       titleFontSize: 'medium',
+      storeHeaderFontSize: 12,
+      tsplShopFont: '2',
       textAlign: 'center',
       showStorePhone: false,
       showDiscountBadge: false,
@@ -1362,6 +1438,66 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     }
   };
 
+  const mapPxToTsplFont = (px: number): '1' | '2' | '3' | '4' => {
+    if (px <= 11) return '1';
+    if (px <= 14) return '2';
+    if (px <= 18) return '3';
+    return '4';
+  };
+
+  const mapTsplFontToPx = (font?: '1' | '2' | '3' | '4'): number => {
+    if (font === '1') return 10;
+    if (font === '2') return 12;
+    if (font === '4') return 21;
+    return 15;
+  };
+
+  const currentStoreHeaderPx = useMemo(() => {
+    if (typeof labelConfig.storeHeaderFontSize === 'number' && !isNaN(labelConfig.storeHeaderFontSize)) {
+      return Math.max(7, Math.min(24, Math.round(labelConfig.storeHeaderFontSize)));
+    }
+    return mapTsplFontToPx(labelConfig.tsplShopFont);
+  }, [labelConfig.storeHeaderFontSize, labelConfig.tsplShopFont]);
+
+  const updateStoreHeaderFontSize = (nextPx: number, recenter = false) => {
+    const clamped = Math.max(7, Math.min(24, Math.round(nextPx)));
+    const mappedFont = mapPxToTsplFont(clamped);
+    setLabelConfig((prev) => ({
+      ...prev,
+      storeHeaderFontSize: clamped,
+      tsplShopFont: mappedFont,
+      ...(recenter ? { tsplShopX: undefined } : {}),
+    }));
+  };
+
+  const currentBarcodeSizeDots = useMemo(() => {
+    if (typeof labelConfig.tsplBarcodeHeight === 'number' && !isNaN(labelConfig.tsplBarcodeHeight)) {
+      return Math.max(20, Math.min(90, Math.round(labelConfig.tsplBarcodeHeight)));
+    }
+    if (labelConfig.barcodeHeight === 'compact') return 28;
+    if (labelConfig.barcodeHeight === 'tall') return 58;
+    return 42;
+  }, [labelConfig.tsplBarcodeHeight, labelConfig.barcodeHeight]);
+
+  const updateBarcodeSize = (nextDots: number, recenter = true) => {
+    const clampedH = Math.max(20, Math.min(90, Math.round(nextDots)));
+    const nextRatio: '1:2' | '2:2' | '2:3' =
+      clampedH <= 32 ? '1:2' : clampedH <= 48 ? '2:2' : '2:3';
+    const nextHeightTag: TagBarcodeHeight =
+      clampedH <= 32 ? 'compact' : clampedH >= 52 ? 'tall' : 'standard';
+    const nextThickTag: TagBarcodeThickness =
+      clampedH <= 32 ? 'thin' : clampedH >= 52 ? 'thick' : 'medium';
+    setLabelConfig((prev) => ({
+      ...prev,
+      tsplBarcodeHeight: clampedH,
+      tsplBarcodeRatio: nextRatio,
+      tsplBarcodeWidthDots: undefined,
+      barcodeHeight: nextHeightTag,
+      barcodeThickness: nextThickTag,
+      ...(recenter ? { tsplBarcodeX: undefined } : {}),
+    }));
+  };
+
   // Computed TSPL 50x25mm (400x200 dots) layout coordinates & live TSPL command string
   const tsplLayout = useMemo(() => {
     const labelW = 400; // 50mm * 8 dots/mm = 400 dots
@@ -1371,16 +1507,25 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     const direction: '0,0' | '1,0' = labelConfig.tsplDirection || '0,0';
 
     const shopText = (labelConfig.storeName || labelConfig.itemName || 'MY SHOP').trim();
-    const shopFont: '1' | '2' | '3' | '4' = labelConfig.tsplShopFont || '3';
-    const shopCharW = getCharW(shopFont);
-    const shopTextW = shopText.length * shopCharW;
+    const shopFont: '1' | '2' | '3' | '4' =
+      typeof labelConfig.storeHeaderFontSize === 'number'
+        ? mapPxToTsplFont(labelConfig.storeHeaderFontSize)
+        : labelConfig.tsplShopFont || '3';
+    const shopCharW =
+      typeof labelConfig.storeHeaderFontSize === 'number'
+        ? Math.max(5, Math.round(labelConfig.storeHeaderFontSize * 0.83))
+        : getCharW(shopFont);
+    const shopTextW = Math.min(labelW - 12, shopText.length * shopCharW);
     const autoShopX =
       align === 'left'
         ? 16
         : align === 'right'
         ? Math.max(10, labelW - 16 - shopTextW)
-        : Math.max(10, Math.round((labelW - shopTextW) / 2));
-    const shopX = labelConfig.tsplCustomX && labelConfig.tsplShopX !== undefined ? labelConfig.tsplShopX : autoShopX;
+        : Math.max(8, Math.round((labelW - shopTextW) / 2));
+    const rawShopX =
+      labelConfig.tsplCustomX && labelConfig.tsplShopX !== undefined ? labelConfig.tsplShopX : autoShopX;
+    const maxSafeShopX = Math.max(8, labelW - shopTextW - 10);
+    const shopX = Math.max(4, Math.min(maxSafeShopX, rawShopX));
     const shopY = labelConfig.tsplShopY ?? 20;
 
     const barcodeCode = (labelConfig.barcodeValue || '1001').trim();
@@ -1411,8 +1556,10 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
         : align === 'right'
         ? Math.max(10, labelW - 16 - estBarcodeW)
         : Math.max(10, Math.round((labelW - estBarcodeW) / 2));
-    const barcodeX =
+    const rawBarcodeX =
       labelConfig.tsplCustomX && labelConfig.tsplBarcodeX !== undefined ? labelConfig.tsplBarcodeX : autoBarcodeX;
+    const maxSafeBarcodeX = Math.max(4, labelW - Math.min(labelW - 12, estBarcodeW) - 8);
+    const barcodeX = Math.max(4, Math.min(maxSafeBarcodeX, rawBarcodeX));
     const barcodeY = labelConfig.tsplBarcodeY ?? 52;
 
     const rawPrefix = (labelConfig.mrpPrefix || 'MRP: Rs. ').trim();
@@ -1622,6 +1769,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
       startHeightDots: tsplLayout.barcodeHeight,
       startDotX: tsplLayout.barcodeX,
       startFontIndex,
+      startFontPx: currentStoreHeaderPx,
       canvasWidth,
       canvasHeight,
     };
@@ -1679,10 +1827,19 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
       const fontOrder: ('1' | '2' | '3' | '4')[] = ['1', '2', '3', '4'];
       const nextIdx = Math.max(0, Math.min(3, session.startFontIndex + stepOffset));
       const nextFont = fontOrder[nextIdx];
-      setLabelConfig((prev) => ({
-        ...prev,
-        ...(session.item === 'shop' ? { tsplShopFont: nextFont } : { tsplPriceFont: nextFont }),
-      }));
+      if (session.item === 'shop') {
+        const nextPx = Math.max(7, Math.min(24, Math.round(session.startFontPx + combinedDelta / 8)));
+        setLabelConfig((prev) => ({
+          ...prev,
+          storeHeaderFontSize: nextPx,
+          tsplShopFont: mapPxToTsplFont(nextPx),
+        }));
+      } else {
+        setLabelConfig((prev) => ({
+          ...prev,
+          tsplPriceFont: nextFont,
+        }));
+      }
     }
   };
 
@@ -1864,20 +2021,13 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     }
   };
 
-  // Sync current barcode label item into Product Stock inventory so scanning it in Billing works immediately
+  // Sync current barcode label item into Product Stock inventory & cloud barcodes so scanning it in Billing works immediately
   const syncLabelToInventory = () => {
-    const cleanCode = (labelConfig.barcodeValue || '').trim();
+    const cleanCode = bengaliToEnglishDigits(labelConfig.barcodeValue || '').trim();
     const activePrice = Number(labelConfig.salePrice || labelConfig.mrp || 0);
-    const activeName =
-      (labelConfig.itemName || '').trim() ||
-      (labelConfig.storeName || '').trim() ||
-      `Item #${cleanCode}`;
-    if (cleanCode && activePrice > 0) {
-      storageService.addOrUpdateProduct({
-        name: activeName,
-        price: activePrice,
-        barcode: cleanCode,
-      });
+    const hasName = Boolean((labelConfig.itemName || '').trim());
+    if (cleanCode && (activePrice > 0 || hasName)) {
+      autoSaveToProduct(cleanCode, labelConfig, false);
     }
   };
 
@@ -2180,6 +2330,51 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                     placeholder="CLASSIC FASHION KOTAMO"
                     className="w-full bg-stone-50 hover:bg-stone-100/60 focus:bg-white text-stone-900 font-bold border border-stone-200 rounded-xl px-3 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
                   />
+                  {/* Store Header Size +/- Steppers & 1-Tap Presets */}
+                  <div className="mt-1.5 flex items-center justify-between gap-1.5 flex-wrap bg-stone-50/90 border border-stone-200/80 rounded-xl px-2.5 py-1.5">
+                    <span className="text-[10px] font-bold text-stone-600 shrink-0">
+                      {isBn ? 'হেডার সাইজ:' : 'Header Size:'}
+                    </span>
+                    <div className="flex items-center gap-1 flex-wrap">
+                      {[
+                        { label: isBn ? 'ছোট' : 'S', px: 10 },
+                        { label: isBn ? 'মাঝারি' : 'M', px: 13 },
+                        { label: isBn ? 'বড়' : 'L', px: 16 },
+                      ].map((p) => (
+                        <button
+                          key={p.px}
+                          type="button"
+                          onClick={() => updateStoreHeaderFontSize(p.px, true)}
+                          className={`px-2 py-0.5 rounded-md text-[10px] font-bold border cursor-pointer ${
+                            Math.abs(currentStoreHeaderPx - p.px) <= 1
+                              ? 'bg-blue-600 text-white border-blue-600'
+                              : 'bg-white text-stone-700 border-stone-300 hover:bg-stone-100'
+                          }`}
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => updateStoreHeaderFontSize(currentStoreHeaderPx - 2)}
+                        className="px-2 py-0.5 rounded-md bg-white hover:bg-stone-100 active:scale-95 border border-stone-300 text-stone-800 font-black text-[10px] flex items-center justify-center cursor-pointer shrink-0"
+                        title={isBn ? 'ছোট করুন' : 'Make smaller'}
+                      >
+                        A-
+                      </button>
+                      <span className="text-[10px] font-mono font-black text-blue-700 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5 shrink-0 min-w-[34px] text-center">
+                        {currentStoreHeaderPx}px
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => updateStoreHeaderFontSize(currentStoreHeaderPx + 2)}
+                        className="px-2 py-0.5 rounded-md bg-white hover:bg-stone-100 active:scale-95 border border-stone-300 text-stone-800 font-black text-[10px] flex items-center justify-center cursor-pointer shrink-0"
+                        title={isBn ? 'বড় করুন' : 'Make bigger'}
+                      >
+                        A+
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Product Name */}
@@ -2190,6 +2385,16 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                       <span className="text-[10px] text-stone-400 font-normal">({isBn ? 'ঐচ্ছিক' : 'Optional'})</span>
                     </label>
                     <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                      {onOpenProductStock && (
+                        <button
+                          type="button"
+                          onClick={onOpenProductStock}
+                          className="text-[9px] font-bold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded px-1.5 py-0.5 cursor-pointer flex items-center gap-0.5"
+                          title={isBn ? 'সব প্রোডাক্ট দেখুন ও এডিট করুন' : 'View & edit all added products'}
+                        >
+                          <span>✏️ {isBn ? 'এডিট / লিস্ট' : 'Edit List'}</span>
+                        </button>
+                      )}
                       {/* Pick from Saved Product Stock */}
                       {products && products.length > 0 && (
                         <select
@@ -2409,10 +2614,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                   <input
                     type="text"
                     value={labelConfig.barcodeValue}
-                    onChange={(e) => {
-                      const normalized = bengaliToEnglishDigits(e.target.value);
-                      setLabelConfig((prev) => ({ ...prev, barcodeValue: normalized }));
-                    }}
+                    onChange={(e) => handleBarcodeValueChange(e.target.value)}
                     onBlur={() => {
                       if (labelConfig.barcodeValue.trim() && (labelConfig.itemName?.trim() || activeProductId)) {
                         autoSaveToProduct(labelConfig.barcodeValue.trim(), labelConfig, true);
@@ -2421,6 +2623,52 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                     placeholder="2001001001001"
                     className="w-full bg-stone-50 hover:bg-stone-100/60 focus:bg-white text-stone-900 font-black font-mono border border-stone-200 rounded-xl px-3 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
                   />
+
+                  {/* Quick 1-Tap Barcode Size Bar under SKU */}
+                  <div className="flex items-center justify-between gap-1.5 flex-wrap bg-stone-50/90 border border-stone-200/80 rounded-xl px-2.5 py-1.5">
+                    <span className="text-[10px] font-bold text-stone-600 shrink-0">
+                      {isBn ? 'বারকোড সাইজ:' : 'Barcode Size:'}
+                    </span>
+                    <div className="flex items-center gap-1 flex-wrap">
+                      {[
+                        { label: isBn ? 'ছোট' : 'S', dots: 28 },
+                        { label: isBn ? 'মাঝারি' : 'M', dots: 42 },
+                        { label: isBn ? 'বড়' : 'L', dots: 58 },
+                      ].map((p) => (
+                        <button
+                          key={p.dots}
+                          type="button"
+                          onClick={() => updateBarcodeSize(p.dots, true)}
+                          className={`px-2 py-0.5 rounded-md text-[10px] font-bold border cursor-pointer ${
+                            Math.abs(currentBarcodeSizeDots - p.dots) <= 4
+                              ? 'bg-blue-600 text-white border-blue-600'
+                              : 'bg-white text-stone-700 border-stone-300 hover:bg-stone-100'
+                          }`}
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => updateBarcodeSize(currentBarcodeSizeDots - 5, true)}
+                        className="px-2 py-0.5 rounded-md bg-white hover:bg-stone-100 active:scale-95 border border-stone-300 text-stone-900 font-black text-[10px] cursor-pointer"
+                        title={isBn ? 'ছোট করুন' : 'Make smaller'}
+                      >
+                        -
+                      </button>
+                      <span className="text-[10px] font-mono font-black text-blue-700 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5 min-w-[30px] text-center">
+                        {currentBarcodeSizeDots}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => updateBarcodeSize(currentBarcodeSizeDots + 5, true)}
+                        className="px-2 py-0.5 rounded-md bg-white hover:bg-stone-100 active:scale-95 border border-stone-300 text-stone-900 font-black text-[10px] cursor-pointer"
+                        title={isBn ? 'বড় করুন' : 'Make bigger'}
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
 
                   {/* Universal Billing App Compatibility Badge */}
                   <div className="bg-emerald-50/90 border border-emerald-200/80 rounded-xl p-2.5 flex items-center justify-between text-[10px]">
@@ -2614,6 +2862,50 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                   placeholder="যেমন: CLASSIC FASHION"
                   className="w-full border border-stone-200 bg-stone-50/70 px-3 py-2 rounded-xl text-xs sm:text-sm font-bold focus:outline-none focus:border-blue-500 focus:bg-white transition-all"
                 />
+                <div className="mt-1.5 flex items-center justify-between gap-1.5 flex-wrap bg-stone-50 border border-stone-200/80 rounded-xl px-2.5 py-1.5">
+                  <span className="text-[10px] font-bold text-stone-600 shrink-0">
+                    {isBn ? 'হেডার সাইজ:' : 'Header Size:'}
+                  </span>
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {[
+                      { label: isBn ? 'ছোট' : 'S', px: 10 },
+                      { label: isBn ? 'মাঝারি' : 'M', px: 13 },
+                      { label: isBn ? 'বড়' : 'L', px: 16 },
+                    ].map((p) => (
+                      <button
+                        key={p.px}
+                        type="button"
+                        onClick={() => updateStoreHeaderFontSize(p.px, true)}
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold border cursor-pointer ${
+                          Math.abs(currentStoreHeaderPx - p.px) <= 1
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'bg-white text-stone-700 border-stone-300 hover:bg-stone-100'
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => updateStoreHeaderFontSize(currentStoreHeaderPx - 2)}
+                      className="px-2 py-0.5 rounded-md bg-white hover:bg-stone-100 active:scale-95 border border-stone-300 text-stone-800 font-black text-[10px] flex items-center justify-center cursor-pointer shrink-0"
+                      title={isBn ? 'ছোট করুন' : 'Make smaller'}
+                    >
+                      A-
+                    </button>
+                    <span className="text-[10px] font-mono font-black text-blue-700 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5 shrink-0 min-w-[34px] text-center">
+                      {currentStoreHeaderPx}px
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => updateStoreHeaderFontSize(currentStoreHeaderPx + 2)}
+                      className="px-2 py-0.5 rounded-md bg-white hover:bg-stone-100 active:scale-95 border border-stone-300 text-stone-800 font-black text-[10px] flex items-center justify-center cursor-pointer shrink-0"
+                      title={isBn ? 'বড় করুন' : 'Make bigger'}
+                    >
+                      A+
+                    </button>
+                  </div>
+                </div>
               </div>
 
               {/* Item Name */}
@@ -2624,6 +2916,16 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                     <span className="text-[10px] text-stone-400 font-normal">({isBn ? 'ঐচ্ছিক' : 'Optional'})</span>
                   </label>
                   <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                    {onOpenProductStock && (
+                      <button
+                        type="button"
+                        onClick={onOpenProductStock}
+                        className="text-[9px] font-bold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded px-1.5 py-0.5 cursor-pointer flex items-center gap-0.5"
+                        title={isBn ? 'সব প্রোডাক্ট দেখুন ও এডিট করুন' : 'View & edit all added products'}
+                      >
+                        <span>✏️ {isBn ? 'এডিট / লিস্ট' : 'Edit List'}</span>
+                      </button>
+                    )}
                     {/* Pick from Saved Product Stock */}
                     {products && products.length > 0 && (
                       <select
@@ -2987,10 +3289,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                 <input
                   type="text"
                   value={labelConfig.barcodeValue}
-                  onChange={(e) => {
-                    const normalized = bengaliToEnglishDigits(e.target.value);
-                    setLabelConfig((prev) => ({ ...prev, barcodeValue: normalized }));
-                  }}
+                  onChange={(e) => handleBarcodeValueChange(e.target.value)}
                   onBlur={() => {
                     if (labelConfig.barcodeValue.trim() && (labelConfig.itemName?.trim() || activeProductId)) {
                       autoSaveToProduct(labelConfig.barcodeValue.trim(), labelConfig, true);
@@ -3282,6 +3581,63 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                       </button>
                     );
                   })}
+                </div>
+
+                {/* Store Header Font Size (ছোট / বড়) */}
+                <div className="pt-1.5 space-y-1.5 border-t border-stone-200/70">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-stone-600">
+                      {isBn ? 'স্টোর হেডার সাইজ (ছোট / বড়):' : 'Store Header Size:'}
+                    </span>
+                    <span className="text-[10px] font-mono font-black text-blue-700 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5">
+                      {currentStoreHeaderPx}px
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-1">
+                    {[
+                      { labelBn: 'ছোট', labelEn: 'Small', px: 10 },
+                      { labelBn: 'মাঝারি', labelEn: 'Medium', px: 12 },
+                      { labelBn: 'বড়', labelEn: 'Large', px: 16 },
+                      { labelBn: 'খুব বড়', labelEn: 'XL', px: 21 },
+                    ].map((preset) => {
+                      const isActive = Math.abs(currentStoreHeaderPx - preset.px) <= 1;
+                      return (
+                        <button
+                          key={preset.px}
+                          type="button"
+                          onClick={() => updateStoreHeaderFontSize(preset.px)}
+                          className={`py-1 px-1.5 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${
+                            isActive
+                              ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                              : 'bg-white text-stone-700 border-stone-200 hover:bg-stone-100'
+                          }`}
+                        >
+                          {isBn ? preset.labelBn : preset.labelEn}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex items-center justify-between gap-1.5 pt-0.5">
+                    <span className="text-[10px] font-medium text-stone-500">
+                      {isBn ? '১px করে পরিবর্তন:' : 'Fine Tune:'}
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => updateStoreHeaderFontSize(currentStoreHeaderPx - 1)}
+                        className="px-2.5 py-1 rounded-lg bg-white hover:bg-stone-100 border border-stone-300 text-stone-800 font-black text-[10px] flex items-center justify-center cursor-pointer shrink-0"
+                      >
+                        A-
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateStoreHeaderFontSize(currentStoreHeaderPx + 1)}
+                        className="px-2.5 py-1 rounded-lg bg-white hover:bg-stone-100 border border-stone-300 text-stone-800 font-black text-[10px] flex items-center justify-center cursor-pointer shrink-0"
+                      >
+                        A+
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Show Phone Number */}
@@ -3974,14 +4330,21 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                     : 'rounded-xl'
                 }`}
                 style={{
-                  width: `${Math.min(320, widthMm * 5.4)}px`,
-                  minHeight: `${Math.max(120, heightMm * 5.4)}px`,
+                  width:
+                    labelConfig.layoutStyle === 'ultra_simple'
+                      ? '302px'
+                      : `${Math.min(320, widthMm * 5.4)}px`,
+                  maxWidth: '100%',
+                  minHeight:
+                    labelConfig.layoutStyle === 'ultra_simple'
+                      ? '152px'
+                      : `${Math.max(120, heightMm * 5.4)}px`,
                   backgroundColor: '#ffffff',
                   color: '#000000',
                   boxShadow: 'none',
                   padding:
                     labelConfig.layoutStyle === 'ultra_simple'
-                      ? '4px 6px'
+                      ? '0px'
                       : labelConfig.layoutStyle === 'compact_split'
                       ? '6px'
                       : !labelConfig.cleanWhiteMode && labelConfig.headerStyle === 'solid_banner' && labelConfig.showStoreName
@@ -4000,7 +4363,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                 {labelConfig.layoutStyle === 'ultra_simple' ? (
                   <div
                     ref={interactiveCanvasRef}
-                    className="relative w-full bg-white select-none overflow-hidden touch-none"
+                    className="relative w-full bg-white select-none overflow-hidden touch-none mx-auto"
                     style={{
                       width: '300px',
                       height: '150px',
@@ -4020,20 +4383,14 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                             : 'z-10'
                         }`}
                         style={{
-                          left: `${Math.round((tsplLayout.shopX - tsplLayout.rollLeftOffset) * 0.75)}px`,
+                          left: `${Math.max(2, Math.min(265, Math.round((tsplLayout.shopX - tsplLayout.rollLeftOffset) * 0.75)))}px`,
                           top: `${Math.round(tsplLayout.shopY * 0.75)}px`,
-                          fontSize:
-                            tsplLayout.shopFont === '1'
-                              ? '10px'
-                              : tsplLayout.shopFont === '2'
-                              ? '12.5px'
-                              : tsplLayout.shopFont === '4'
-                              ? '21px'
-                              : '15px',
+                          maxWidth: '296px',
+                          fontSize: `${currentStoreHeaderPx}px`,
                           color: '#000000',
                         }}
                       >
-                        {tsplLayout.shopText}
+                        <span className="block truncate">{tsplLayout.shopText}</span>
                         {selectedCanvasItem === 'shop' && (
                           <div
                             data-drag-ui="true"
@@ -4042,7 +4399,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                             onPointerUp={handleCanvasResizePointerUp}
                             onPointerCancel={handleCanvasResizePointerUp}
                             title={isBn ? 'টেনে লেখা ছোট-বড় করুন' : 'Drag to resize text'}
-                            className="absolute -right-2.5 -bottom-2.5 w-4 h-4 rounded-full bg-indigo-600 text-white border-2 border-white shadow-sm flex items-center justify-center text-[8px] cursor-nwse-resize touch-none"
+                            className="absolute right-0 -bottom-2.5 w-4 h-4 rounded-full bg-indigo-600 text-white border-2 border-white shadow-sm flex items-center justify-center text-[8px] cursor-nwse-resize touch-none"
                           >
                             ↘
                           </div>
@@ -4067,8 +4424,9 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                             : 'z-10'
                         }`}
                         style={{
-                          left: `${Math.round((tsplLayout.barcodeX - tsplLayout.rollLeftOffset) * 0.75)}px`,
+                          left: `${Math.max(2, Math.min(240, Math.round((tsplLayout.barcodeX - tsplLayout.rollLeftOffset) * 0.75)))}px`,
                           top: `${Math.round(tsplLayout.barcodeY * 0.75)}px`,
+                          maxWidth: '296px',
                         }}
                       >
                         {labelConfig.barcodeType === 'QR' ? (
@@ -4091,7 +4449,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                             draggable={false}
                             style={{
                               height: `${Math.round((tsplLayout.barcodeHeight + 18) * 0.82)}px`,
-                              maxWidth: '100%',
+                              maxWidth: '290px',
                               imageRendering: 'pixelated',
                             }}
                             className="object-contain select-none pointer-events-none mx-auto bg-white"
@@ -4206,7 +4564,10 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                     <div className="flex-1 min-w-0 flex flex-col justify-between h-full space-y-1">
                       {/* Store Header */}
                       {labelConfig.showStoreName && labelConfig.storeName && (
-                        <div className="text-[9px] font-black uppercase tracking-wider text-stone-700 truncate leading-tight border-b border-stone-200 pb-0.5">
+                        <div
+                          className="font-black uppercase tracking-wider text-stone-700 truncate leading-tight border-b border-stone-200 pb-0.5"
+                          style={{ fontSize: `${Math.max(8, Math.min(20, labelConfig.storeHeaderFontSize || 9))}px` }}
+                        >
                           {labelConfig.storeName}
                         </div>
                       )}
@@ -4319,13 +4680,8 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                           <img
                             src={barcodeDataUrl}
                             alt="Barcode"
-                            className={`w-full object-contain select-none mx-auto ${
-                              labelConfig.barcodeHeight === 'compact'
-                                ? 'max-h-9'
-                                : labelConfig.barcodeHeight === 'tall'
-                                ? 'max-h-16'
-                                : 'max-h-[50px]'
-                            }`}
+                            style={{ maxHeight: `${Math.round(currentBarcodeSizeDots * 1.15)}px` }}
+                            className="w-full object-contain select-none mx-auto"
                           />
                         ) : null}
                       </div>
@@ -4336,7 +4692,10 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                       labelConfig.headerStyle === 'solid_banner' ? (
                         labelConfig.cleanWhiteMode !== false ? (
                           <div className="border-b-2 border-stone-900 pb-0.5 px-2 text-center w-full bg-white text-stone-950">
-                            <div className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider leading-tight">
+                            <div
+                              className="font-black uppercase tracking-wider leading-tight"
+                              style={{ fontSize: `${currentStoreHeaderPx}px` }}
+                            >
                               {labelConfig.storeName}
                             </div>
                             {labelConfig.showStorePhone && labelConfig.storePhone && (
@@ -4347,7 +4706,10 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                           </div>
                         ) : (
                           <div className="bg-stone-950 text-white py-1 px-2 text-center w-full">
-                            <div className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider leading-tight">
+                            <div
+                              className="font-black uppercase tracking-wider leading-tight"
+                              style={{ fontSize: `${currentStoreHeaderPx}px` }}
+                            >
                               {labelConfig.storeName}
                             </div>
                             {labelConfig.showStorePhone && labelConfig.storePhone && (
@@ -4359,7 +4721,10 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                         )
                       ) : labelConfig.headerStyle === 'pill' ? (
                         <div className={`text-center pt-1 px-2 ${showPunchHole ? 'pt-2.5' : ''}`}>
-                          <span className="inline-block bg-stone-100 text-stone-950 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full border border-stone-300 leading-tight">
+                          <span
+                            className="inline-block bg-stone-100 text-stone-950 font-black uppercase tracking-wider px-2 py-0.5 rounded-full border border-stone-300 leading-tight"
+                            style={{ fontSize: `${Math.max(8, currentStoreHeaderPx - 1)}px` }}
+                          >
                             {labelConfig.storeName}{' '}
                             {labelConfig.showStorePhone && labelConfig.storePhone
                               ? `• ${labelConfig.storePhone}`
@@ -4368,9 +4733,10 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                         </div>
                       ) : labelConfig.headerStyle === 'minimal' ? (
                         <div
-                          className={`text-[10px] font-black uppercase tracking-wider text-stone-900 pt-1 px-2 leading-tight ${
+                          className={`font-black uppercase tracking-wider text-stone-900 pt-1 px-2 leading-tight ${
                             labelConfig.textAlign === 'left' ? 'text-left' : 'text-center'
                           } ${showPunchHole ? 'pt-2.5' : ''}`}
+                          style={{ fontSize: `${currentStoreHeaderPx}px` }}
                         >
                           {labelConfig.storeName}
                           {labelConfig.showStorePhone && labelConfig.storePhone && (
@@ -4386,7 +4752,10 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                             showPunchHole ? 'pt-2.5' : ''
                           }`}
                         >
-                          <div className="text-[10px] sm:text-[11px] font-black uppercase tracking-wider text-stone-950 leading-tight">
+                          <div
+                            className="font-black uppercase tracking-wider text-stone-950 leading-tight"
+                            style={{ fontSize: `${currentStoreHeaderPx}px` }}
+                          >
                             {labelConfig.storeName}
                           </div>
                           {labelConfig.showStorePhone && labelConfig.storePhone && (
@@ -4521,6 +4890,102 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                   </div>
                 )}
               </div>
+
+              {/* Quick 1-Tap Store Header Size Bar directly under Preview Card */}
+              {labelConfig.showStoreName && (
+                <div className="w-full pt-1.5 border-t border-stone-200/80 flex items-center justify-between gap-1.5 flex-wrap">
+                  <span className="text-[10px] font-bold text-stone-600 shrink-0">
+                    {isBn ? 'দোকানের নাম সাইজ:' : 'Store Header Size:'}
+                  </span>
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {[
+                      { label: isBn ? 'ছোট' : 'S', px: 10 },
+                      { label: isBn ? 'মাঝারি' : 'M', px: 13 },
+                      { label: isBn ? 'বড়' : 'L', px: 16 },
+                    ].map((p) => (
+                      <button
+                        key={p.px}
+                        type="button"
+                        onClick={() => updateStoreHeaderFontSize(p.px, true)}
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold border cursor-pointer transition-all ${
+                          Math.abs(currentStoreHeaderPx - p.px) <= 1
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                            : 'bg-white text-stone-700 border-stone-300 hover:bg-stone-50'
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => updateStoreHeaderFontSize(currentStoreHeaderPx - 2, true)}
+                      className="px-2 py-0.5 rounded-md bg-white hover:bg-stone-100 active:scale-95 border border-stone-300 text-stone-900 font-black text-[10px] cursor-pointer"
+                      title={isBn ? 'ছোট করুন' : 'Make smaller'}
+                    >
+                      A-
+                    </button>
+                    <span className="text-[10px] font-mono font-black text-blue-700 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5 min-w-[34px] text-center">
+                      {currentStoreHeaderPx}px
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => updateStoreHeaderFontSize(currentStoreHeaderPx + 2, true)}
+                      className="px-2 py-0.5 rounded-md bg-white hover:bg-stone-100 active:scale-95 border border-stone-300 text-stone-900 font-black text-[10px] cursor-pointer"
+                      title={isBn ? 'বড় করুন' : 'Make bigger'}
+                    >
+                      A+
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Quick 1-Tap Barcode Size Bar directly under Preview Card */}
+              {labelConfig.showBarcode !== false && (
+                <div className="w-full pt-1.5 border-t border-stone-200/80 flex items-center justify-between gap-1.5 flex-wrap">
+                  <span className="text-[10px] font-bold text-stone-600 shrink-0">
+                    {isBn ? 'বারকোড সাইজ:' : 'Barcode Size:'}
+                  </span>
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {[
+                      { label: isBn ? 'ছোট' : 'S', dots: 28 },
+                      { label: isBn ? 'মাঝারি' : 'M', dots: 42 },
+                      { label: isBn ? 'বড়' : 'L', dots: 58 },
+                    ].map((p) => (
+                      <button
+                        key={p.dots}
+                        type="button"
+                        onClick={() => updateBarcodeSize(p.dots, true)}
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold border cursor-pointer transition-all ${
+                          Math.abs(currentBarcodeSizeDots - p.dots) <= 4
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                            : 'bg-white text-stone-700 border-stone-300 hover:bg-stone-50'
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => updateBarcodeSize(currentBarcodeSizeDots - 5, true)}
+                      className="px-2 py-0.5 rounded-md bg-white hover:bg-stone-100 active:scale-95 border border-stone-300 text-stone-900 font-black text-[10px] cursor-pointer"
+                      title={isBn ? 'বারকোড ছোট করুন' : 'Make barcode smaller'}
+                    >
+                      -
+                    </button>
+                    <span className="text-[10px] font-mono font-black text-blue-700 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5 min-w-[30px] text-center">
+                      {currentBarcodeSizeDots}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => updateBarcodeSize(currentBarcodeSizeDots + 5, true)}
+                      className="px-2 py-0.5 rounded-md bg-white hover:bg-stone-100 active:scale-95 border border-stone-300 text-stone-900 font-black text-[10px] cursor-pointer"
+                      title={isBn ? 'বারকোড বড় করুন' : 'Make barcode bigger'}
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Action Area: Print Barcode with Quantity & Bluetooth beside it (as requested: উপরের লাইনগুলো রিমুভ করে print barcode পাশে) */}
@@ -4712,6 +5177,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                       tsplShopX: undefined,
                       tsplShopY: 22,
                       tsplShopFont: '3',
+                      storeHeaderFontSize: 15,
                       tsplBarcodeX: undefined,
                       tsplBarcodeY: 52,
                       tsplBarcodeHeight: 45,
@@ -4792,12 +5258,14 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                   </span>
                   <select
                     value={labelConfig.tsplShopFont || '3'}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const nextFont = e.target.value as '1' | '2' | '3' | '4';
                       setLabelConfig((prev) => ({
                         ...prev,
-                        tsplShopFont: e.target.value as '1' | '2' | '3' | '4',
-                      }))
-                    }
+                        tsplShopFont: nextFont,
+                        storeHeaderFontSize: mapTsplFontToPx(nextFont),
+                      }));
+                    }}
                     className="text-[10px] font-black bg-indigo-50 text-indigo-900 border border-indigo-200 rounded-md px-2 py-0.5 cursor-pointer"
                   >
                     <option value="1">Font "1" (Small 8×12)</option>

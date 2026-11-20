@@ -190,6 +190,8 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
   const [purchasePrice, setPurchasePrice] = useState('');
   const [stock, setStock] = useState('');
   const [barcode, setBarcode] = useState('');
+  const [barcodeManuallyEdited, setBarcodeManuallyEdited] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [autoSkuSeed, setAutoSkuSeed] = useState(() =>
     String(Math.floor(100000 + Math.random() * 900000))
   );
@@ -197,6 +199,8 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [quickAddStockId, setQuickAddStockId] = useState<string | null>(null);
   const [quickAddStockQty, setQuickAddStockQty] = useState('');
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
   // Stable effective barcode so the previewed barcode and saved barcode are 100% identical
   const effectiveFormBarcode = useMemo(() => {
@@ -208,22 +212,18 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
     return '';
   }, [barcode, name, purchasePrice, autoSkuSeed]);
 
-  // Find if typed barcode/SKU matches or extends an existing saved product (e.g. ZF1678455 -> ZF1678 "Zufar royal king" Rs 300)
+  // Match ONLY by exact barcode/SKU (even 1-character difference must be treated as a separate product & barcode)
   const matchedProductBySku = useMemo(() => {
-    const cleanCode = barcode.trim().toLowerCase();
-    if (!cleanCode || cleanCode.length < 2) return null;
+    if (editingId) return null;
+    const cleanCode = bengaliToEnglishDigits(barcode.trim()).toLowerCase();
+    if (!cleanCode) return null;
     return (
       products.find((p) => {
-        const pCode = (p.barcode || '').trim().toLowerCase();
-        if (!pCode) return false;
-        return (
-          pCode === cleanCode ||
-          (pCode.length >= 3 && cleanCode.startsWith(pCode)) ||
-          (cleanCode.length >= 3 && pCode.startsWith(cleanCode))
-        );
+        const pCode = bengaliToEnglishDigits((p.barcode || '').trim()).toLowerCase();
+        return Boolean(pCode && pCode === cleanCode);
       }) || null
     );
-  }, [barcode, products]);
+  }, [barcode, products, editingId]);
 
   // Whenever user types a barcode in ProductStockModal, sync it with its rate (or matched product's rate) to BarcodeCustomDesign
   useEffect(() => {
@@ -300,33 +300,51 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
     setPurchasePrice('');
     setStock('');
     setBarcode('');
+    setBarcodeManuallyEdited(false);
+    setFormError(null);
     setAutoSkuSeed(String(Math.floor(100000 + Math.random() * 900000)));
     setUnit('Pcs');
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError(null);
+
     const cleanName =
       name.trim() ||
       (matchedProductBySku ? matchedProductBySku.name : '') ||
       (barcode.trim() ? `Item ${barcode.trim()}` : '');
-    const parsedPrice =
-      parseFloat(price) > 0
-        ? parseFloat(price)
-        : matchedProductBySku && matchedProductBySku.price > 0
-        ? matchedProductBySku.price
-        : parseFloat(price);
-    const parsedCost = purchasePrice ? parseFloat(purchasePrice) : undefined;
-    const parsedStock = stock !== '' ? parseInt(stock, 10) : 0;
 
-    if (!cleanName || isNaN(parsedPrice) || parsedPrice < 0) {
+    if (!cleanName) {
+      setFormError(isBn ? 'অনুগ্রহ করে প্রোডাক্টের নাম লিখুন' : 'Please enter product name');
+      nameInputRef.current?.focus();
       return;
     }
 
+    const rawPriceTrimmed = String(price ?? '').trim();
+    const numericPrice = rawPriceTrimmed === '' ? (editingId ? 0 : NaN) : parseFloat(bengaliToEnglishDigits(rawPriceTrimmed));
+    const parsedPrice =
+      !isNaN(numericPrice) && numericPrice >= 0
+        ? numericPrice
+        : matchedProductBySku && matchedProductBySku.price >= 0
+        ? matchedProductBySku.price
+        : NaN;
+
+    if (isNaN(parsedPrice) || parsedPrice < 0) {
+      setFormError(isBn ? 'অনুগ্রহ করে সঠিক বিক্রয় মূল্য লিখুন' : 'Please enter a valid sale price');
+      return;
+    }
+
+    const cleanCostStr = bengaliToEnglishDigits(String(purchasePrice ?? '').trim());
+    const parsedCost = cleanCostStr !== '' ? parseFloat(cleanCostStr) : undefined;
+    const cleanStockStr = bengaliToEnglishDigits(String(stock ?? '').trim());
+    const parsedStock = cleanStockStr !== '' ? parseInt(cleanStockStr, 10) : 0;
+
     // Use the exact same barcode shown in the live preview
-    const finalBarcode =
+    const finalBarcode = bengaliToEnglishDigits(
       effectiveFormBarcode ||
-      generateAutoSkuFromName(cleanName, autoSkuSeed, parsedCost, barcode);
+        generateAutoSkuFromName(cleanName, autoSkuSeed, parsedCost, barcode)
+    ).trim();
 
     // Sync this product & barcode to the Barcode Label Studio so it's ready to print
     const existingDesign = storageService.getBarcodeCustomDesign() || {};
@@ -337,7 +355,7 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
       barcodeValue: finalBarcode,
       mrp: parsedPrice,
       salePrice: parsedPrice,
-      purchasePrice: parsedCost && !isNaN(parsedCost) ? parsedCost : undefined,
+      purchasePrice: parsedCost !== undefined && !isNaN(parsedCost) ? parsedCost : undefined,
       showPurchasePrice: Boolean(parsedCost && parsedCost > 0),
       productQuantity: isNaN(parsedStock) ? 1 : Math.max(0, parsedStock),
     });
@@ -346,7 +364,7 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
       id: editingId || (matchedProductBySku && !name.trim() ? matchedProductBySku.id : undefined),
       name: cleanName,
       price: parsedPrice,
-      purchasePrice: parsedCost && !isNaN(parsedCost) ? parsedCost : undefined,
+      purchasePrice: parsedCost !== undefined && !isNaN(parsedCost) ? parsedCost : undefined,
       stock: isNaN(parsedStock) ? 0 : Math.max(0, parsedStock),
       unit: unit || 'Pcs',
       barcode: finalBarcode,
@@ -356,33 +374,30 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
   };
 
   const handleStartEdit = (prod: ProductStockItem) => {
+    setFormError(null);
     setEditingId(prod.id);
-    setName(prod.name);
-    setPrice(String(prod.price || 0));
-    const costStr = prod.purchasePrice !== undefined ? String(prod.purchasePrice) : '';
+    setName(prod.name || '');
+    setPrice(prod.price !== undefined && prod.price !== null ? String(prod.price) : '0');
+    const costStr =
+      prod.purchasePrice !== undefined && prod.purchasePrice !== null
+        ? String(prod.purchasePrice)
+        : '';
     setPurchasePrice(costStr);
-    setStock(String(prod.stock || 0));
-    // Extract existing 6-digit middle seed if present, otherwise generate a fresh 6-digit seed
-    const newSeed = String(Math.floor(100000 + Math.random() * 900000));
-    setAutoSkuSeed(newSeed);
-    if (prod.purchasePrice && prod.purchasePrice > 0) {
-      // Auto-format SKU with the cost price encoding when opening edit if existing SKU was old format
-      const cStr = String(Math.round(prod.purchasePrice));
-      const fDigit = cStr.slice(0, 1);
-      const lDigits = cStr.slice(1);
-      const existingCode = (prod.barcode || '').trim();
-      const expectedRegex = new RegExp(`^[A-Za-z]{1,2}${fDigit}\\d{6,7}${lDigits}$`);
-      if (existingCode && expectedRegex.test(existingCode)) {
-        setBarcode(existingCode);
-      } else {
-        setBarcode(
-          generateAutoSkuFromName(prod.name, newSeed, prod.purchasePrice, existingCode)
-        );
-      }
-    } else {
-      setBarcode(prod.barcode || '');
-    }
+    setStock(prod.stock !== undefined && prod.stock !== null ? String(prod.stock) : '0');
+    setAutoSkuSeed(String(Math.floor(100000 + Math.random() * 900000)));
+    // Always preserve the existing product barcode/SKU when opening edit
+    const existingCode = (prod.barcode || '').trim();
+    setBarcode(existingCode);
+    setBarcodeManuallyEdited(Boolean(existingCode));
     setUnit(prod.unit || 'Pcs');
+
+    // Scroll to the top edit form and focus name input so user immediately sees the loaded fields
+    requestAnimationFrame(() => {
+      scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+      setTimeout(() => {
+        nameInputRef.current?.focus();
+      }, 150);
+    });
   };
 
   const handleConfirmQuickStock = (productId: string) => {
@@ -489,19 +504,23 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
         </div>
 
         {/* Scrollable Content */}
-        <div className="p-4 sm:p-5 overflow-y-auto space-y-4 flex-1">
+        <div ref={scrollContainerRef} className="p-4 sm:p-5 overflow-y-auto space-y-4 flex-1">
           {/* Add / Edit Product Stock Form */}
           <form
             onSubmit={handleSubmit}
             className={`p-3.5 sm:p-4 rounded-2xl border transition-all space-y-3 ${
               editingId
-                ? 'bg-amber-50/70 border-amber-300'
+                ? 'bg-amber-50/90 border-amber-400 ring-2 ring-amber-200/70'
                 : 'bg-blue-50/40 border-blue-200/80'
             }`}
           >
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <span className="text-xs font-extrabold text-stone-800 flex items-center gap-1.5">
-                <Plus className="w-4 h-4 text-blue-600 stroke-[2.5]" />
+                {editingId ? (
+                  <Edit2 className="w-4 h-4 text-amber-600 stroke-[2.5]" />
+                ) : (
+                  <Plus className="w-4 h-4 text-blue-600 stroke-[2.5]" />
+                )}
                 <span>
                   {editingId
                     ? isBn
@@ -538,6 +557,12 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
               </div>
             </div>
 
+            {formError && (
+              <div className="px-3 py-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold">
+                {formError}
+              </div>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
               {/* Product Name */}
               <div className="sm:col-span-5">
@@ -545,6 +570,7 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
                   {isBn ? 'প্রোডাক্টের নাম *' : 'Product Name *'}
                 </label>
                 <input
+                  ref={nameInputRef}
                   type="text"
                   required={!matchedProductBySku && !barcode.trim()}
                   value={name}
@@ -553,7 +579,9 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
                   onChange={(e) => {
                     const nextName = settings?.autoCapitalizeItemNames !== false ? e.target.value.toUpperCase() : e.target.value;
                     setName(nextName);
-                    if (purchasePrice.trim() || barcode.trim()) {
+                    if (formError) setFormError(null);
+                    // Only auto-generate/update SKU when adding a new product and user hasn't typed a custom SKU
+                    if (!editingId && !barcodeManuallyEdited && (purchasePrice.trim() || barcode.trim())) {
                       setBarcode(
                         generateAutoSkuFromName(nextName, autoSkuSeed, purchasePrice)
                       );
@@ -577,11 +605,14 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
                 </label>
                 <input
                   type="number"
-                  required={!matchedProductBySku || matchedProductBySku.price <= 0}
+                  required={!editingId && (!matchedProductBySku || matchedProductBySku.price <= 0)}
                   min="0"
                   step="any"
                   value={price}
-                  onChange={(e) => setPrice(e.target.value)}
+                  onChange={(e) => {
+                    setPrice(e.target.value);
+                    if (formError) setFormError(null);
+                  }}
                   placeholder={
                     matchedProductBySku && matchedProductBySku.price > 0
                       ? String(matchedProductBySku.price)
@@ -607,7 +638,7 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
                 />
               </div>
 
-              {/* Cost Price (Optional - Auto encodes into SKU) */}
+              {/* Cost Price (Optional - Auto encodes into SKU for new items) */}
               <div className="sm:col-span-2">
                 <label className="block text-[11px] font-bold text-stone-500 mb-1">
                   {isBn ? 'কেনা দাম (ঐচ্ছিক)' : 'Cost (Opt)'}
@@ -620,10 +651,12 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
                   onChange={(e) => {
                     const nextCost = e.target.value;
                     setPurchasePrice(nextCost);
-                    // Automatically update SKU with [1-2 letters] + [1st digit of cost] + [6 middle digits] + [last digits of cost]
-                    setBarcode(
-                      generateAutoSkuFromName(name, autoSkuSeed, nextCost, barcode)
-                    );
+                    // Preserve existing custom barcode when editing; auto-encode SKU for new items
+                    if (!editingId && !barcodeManuallyEdited) {
+                      setBarcode(
+                        generateAutoSkuFromName(name, autoSkuSeed, nextCost, barcode)
+                      );
+                    }
                   }}
                   placeholder="0"
                   className="w-full border border-stone-200 bg-white px-2.5 py-2 rounded-xl text-xs sm:text-sm font-mono text-stone-700 focus:outline-none focus:border-blue-600"
@@ -637,8 +670,8 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
                     <BarcodeIcon className="w-3.5 h-3.5 text-blue-600" />
                     <span>
                       {isBn
-                        ? 'বারকোড / SKU নম্বর (কেনা দাম দিলেই অটো কোড তৈরি হবে)'
-                        : 'Barcode / SKU Number (Auto-encodes Cost Price into SKU)'}
+                        ? 'বারকোড / SKU নম্বর (প্রতিটি আলাদা SKU-তে আলাদা বারকোড তৈরি হবে)'
+                        : 'Barcode / SKU Number (Each unique SKU creates its own barcode)'}
                     </span>
                   </label>
                   <button
@@ -646,6 +679,7 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
                     onClick={() => {
                       const newSeed = String(Math.floor(100000 + Math.random() * 900000));
                       setAutoSkuSeed(newSeed);
+                      setBarcodeManuallyEdited(false);
                       setBarcode(
                         generateAutoSkuFromName(name, newSeed, purchasePrice, barcode)
                       );
@@ -659,7 +693,10 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
                 <input
                   type="text"
                   value={barcode}
-                  onChange={(e) => setBarcode(e.target.value)}
+                  onChange={(e) => {
+                    setBarcodeManuallyEdited(true);
+                    setBarcode(bengaliToEnglishDigits(e.target.value));
+                  }}
                   placeholder={
                     isBn
                       ? 'যেমন: LN589756800 বা ZF189756855 (কেনা দাম দিলে অটো জেনারেট হবে)'
@@ -854,7 +891,7 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
                     key={prod.id}
                     className="p-3 sm:p-3.5 hover:bg-stone-50/80 transition-colors flex flex-col gap-2"
                   >
-                    <div className="flex items-center justify-between gap-2">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                       {/* Left: Product Name & Price */}
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
@@ -938,7 +975,7 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
                       </div>
 
                       {/* Right: Quick Actions */}
-                      <div className="flex items-center gap-1.5 shrink-0">
+                      <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
                         {onSelectForBill && (
                           <button
                             type="button"
@@ -974,16 +1011,21 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
                         <button
                           type="button"
                           onClick={() => handleStartEdit(prod)}
-                          className="p-1.5 text-stone-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
-                          title={isBn ? 'এডিট' : 'Edit'}
+                          className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold flex items-center gap-1 border transition-colors cursor-pointer ${
+                            editingId === prod.id
+                              ? 'bg-amber-500 text-white border-amber-500'
+                              : 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-200'
+                          }`}
+                          title={isBn ? 'প্রোডাক্ট এডিট করুন' : 'Edit product'}
                         >
                           <Edit2 className="w-3.5 h-3.5" />
+                          <span>{isBn ? 'এডিট' : 'Edit'}</span>
                         </button>
 
                         <button
                           type="button"
                           onClick={() => onDeleteProduct(prod.id)}
-                          className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                          className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-rose-50 border border-stone-200 rounded-xl transition-colors cursor-pointer"
                           title={isBn ? 'ডিলিট' : 'Delete'}
                         >
                           <Trash2 className="w-3.5 h-3.5" />

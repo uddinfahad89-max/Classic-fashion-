@@ -2378,7 +2378,11 @@ export default function App() {
   };
 
   const handleMainTouchStart = (e: React.TouchEvent<HTMLElement>) => {
-    if (settings.enableSwipeNavigation === false || isAnyModalOpen || e.touches.length !== 1) {
+    const isSwipeEnabled =
+      settings.enableSwipeNavigation === true &&
+      typeof window !== 'undefined' &&
+      localStorage.getItem('simple_pos_swipe_explicit_on_v1') === 'true';
+    if (!isSwipeEnabled || isAnyModalOpen || e.touches.length !== 1) {
       swipeTouchRef.current = null;
       return;
     }
@@ -2828,6 +2832,7 @@ export default function App() {
             bills={bills}
             products={products}
             selectedProduct={barcodeTargetProduct}
+            onOpenProductStock={() => setIsProductStockOpen(true)}
             onSaveProduct={(savedProd) => {
               const fresh = storageService.getProducts();
               setProducts(fresh);

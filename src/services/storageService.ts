@@ -111,7 +111,7 @@ const DEFAULT_SETTINGS: ThermalPrinterSettings = {
   uiScale: 'normal',
   screenOrientation: 'auto',
   landscapeRotationAngle: 90,
-  enableSwipeNavigation: true,
+  enableSwipeNavigation: false,
   autoOpenReceiptAfterBill: false,
   showPreviousBalanceOnBill: true,
   autoDeleteRecycleBin90Days: true,
@@ -246,6 +246,9 @@ class StorageService {
       }
       if (!parsed.defaultPaymentMethod) {
         parsed.defaultPaymentMethod = 'estimate';
+      }
+      if (typeof window !== 'undefined' && localStorage.getItem('simple_pos_swipe_explicit_on_v1') !== 'true') {
+        parsed.enableSwipeNavigation = false;
       }
       return { ...DEFAULT_SETTINGS, ...parsed };
     } catch {
@@ -2436,14 +2439,32 @@ class StorageService {
     if (!cleanCode) return this.getSyncedBarcodes();
     const list = this.getSyncedBarcodes();
     const lowerCode = cleanCode.toLowerCase();
-    const idx = list.findIndex(
-      (b) =>
-        (entry.id && b.id === entry.id) ||
-        (b.barcode && b.barcode.trim().toLowerCase() === lowerCode)
+
+    // Always match exact barcode first so a 1-character different SKU never overwrites an existing barcode
+    let idx = list.findIndex(
+      (b) => b.barcode && b.barcode.trim().toLowerCase() === lowerCode
     );
+    if (idx < 0 && entry.id) {
+      const idIdx = list.findIndex((b) => b.id === entry.id);
+      if (
+        idIdx >= 0 &&
+        (!list[idIdx].barcode || list[idIdx].barcode.trim().toLowerCase() === lowerCode)
+      ) {
+        idx = idIdx;
+      }
+    }
+
+    const sanitizedId = `bc_${cleanCode.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    const resolvedId =
+      idx >= 0
+        ? list[idx].id
+        : entry.id && !list.some((b) => b.id === entry.id)
+        ? entry.id
+        : sanitizedId;
+
     const normalized: SyncedBarcodeEntry = {
       ...entry,
-      id: entry.id || `bc_${cleanCode}`,
+      id: resolvedId,
       barcode: cleanCode,
       price: Number(entry.price) || 0,
       updatedAt: entry.updatedAt || Date.now(),
@@ -2547,12 +2568,25 @@ class StorageService {
       return `${prefix}${middle6}`;
     };
 
-    const existingIdx = products.findIndex(
-      (p) =>
-        (data.id && p.id === data.id) ||
-        (cleanBarcode && p.barcode && p.barcode.trim().toLowerCase() === cleanBarcode.toLowerCase()) ||
-        (cleanName && p.name.trim().toLowerCase() === cleanName.toLowerCase())
-    );
+    // 1. Explicit ID match ALWAYS takes priority so editing an added product updates that exact product
+    let existingIdx = -1;
+    if (data.id) {
+      existingIdx = products.findIndex((p) => p.id === data.id);
+    }
+    // 2. Without an explicit ID:
+    //    - If barcode/SKU is given, match ONLY by exact barcode (even 1-char difference creates a separate product & barcode)
+    //    - Only match by name when no barcode is specified
+    if (existingIdx < 0 && !data.id) {
+      if (cleanBarcode) {
+        existingIdx = products.findIndex(
+          (p) => p.barcode && p.barcode.trim().toLowerCase() === cleanBarcode.toLowerCase()
+        );
+      } else if (cleanName) {
+        existingIdx = products.findIndex(
+          (p) => p.name.trim().toLowerCase() === cleanName.toLowerCase()
+        );
+      }
+    }
 
     if (existingIdx >= 0) {
       const existing = products[existingIdx];
@@ -2563,15 +2597,23 @@ class StorageService {
           ? Math.max(0, data.stock)
           : existing.stock || 0;
 
+      const resolvedPrice =
+        data.id && typeof data.price === 'number' && !isNaN(data.price) && data.price >= 0
+          ? data.price
+          : data.price > 0
+          ? data.price
+          : existing.price;
+
       const updated: ProductStockItem = {
         ...existing,
         name: cleanName || existing.name,
-        price: data.price > 0 ? data.price : existing.price,
+        price: resolvedPrice,
         purchasePrice:
           data.purchasePrice !== undefined ? data.purchasePrice : existing.purchasePrice,
         stock: updatedStock,
         unit: data.unit || existing.unit || 'Pcs',
         category: data.category !== undefined ? data.category : existing.category,
+        noDiscount: data.noDiscount !== undefined ? data.noDiscount : existing.noDiscount,
         barcode:
           cleanBarcode ||
           existing.barcode ||
@@ -2599,6 +2641,7 @@ class StorageService {
         stock: initialStock,
         unit: data.unit || 'Pcs',
         category: data.category || '',
+        noDiscount: data.noDiscount,
         barcode: cleanBarcode || autoGenBarcode(data.purchasePrice),
         updatedAt: now,
       };

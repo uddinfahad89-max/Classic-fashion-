@@ -58,6 +58,7 @@ export interface BarcodeLabelConfig {
   barcodeNumberSize?: 'normal' | 'large';
   cornerRadius?: TagCornerRadius;
   titleFontSize?: TagTitleFontSize;
+  storeHeaderFontSize?: number;
   textAlign?: TagAlignment;
   showStorePhone?: boolean;
   showDiscountBadge?: boolean;

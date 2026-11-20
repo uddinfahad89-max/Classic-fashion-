@@ -733,18 +733,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  const nextVal = !(form.enableSwipeNavigation !== false);
+                  const currentlyOn =
+                    form.enableSwipeNavigation === true &&
+                    (typeof window === 'undefined' || localStorage.getItem('simple_pos_swipe_explicit_on_v1') === 'true');
+                  const nextVal = !currentlyOn;
+                  try {
+                    if (nextVal) {
+                      localStorage.setItem('simple_pos_swipe_explicit_on_v1', 'true');
+                    } else {
+                      localStorage.removeItem('simple_pos_swipe_explicit_on_v1');
+                    }
+                  } catch {}
                   const nextForm = { ...form, enableSwipeNavigation: nextVal };
                   setForm(nextForm);
                   onSaveSettings(nextForm);
                 }}
                 className={`px-3 py-1 rounded-xl text-[11px] font-black border transition-all cursor-pointer shrink-0 ${
-                  form.enableSwipeNavigation !== false
+                  form.enableSwipeNavigation === true &&
+                  (typeof window === 'undefined' || localStorage.getItem('simple_pos_swipe_explicit_on_v1') === 'true')
                     ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
                     : 'bg-white text-stone-600 border-stone-300'
                 }`}
               >
-                {form.enableSwipeNavigation !== false ? 'ON' : 'OFF'}
+                {form.enableSwipeNavigation === true &&
+                (typeof window === 'undefined' || localStorage.getItem('simple_pos_swipe_explicit_on_v1') === 'true')
+                  ? 'ON'
+                  : 'OFF'}
               </button>
             </div>
           </div>
