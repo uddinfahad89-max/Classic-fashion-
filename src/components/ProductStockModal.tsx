@@ -1024,7 +1024,12 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
 
                         <button
                           type="button"
-                          onClick={() => onDeleteProduct(prod.id)}
+                          onClick={() => {
+                            if (editingId === prod.id) {
+                              resetForm();
+                            }
+                            onDeleteProduct(prod.id);
+                          }}
                           className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-rose-50 border border-stone-200 rounded-xl transition-colors cursor-pointer"
                           title={isBn ? 'ডিলিট' : 'Delete'}
                         >

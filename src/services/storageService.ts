@@ -2716,6 +2716,25 @@ class StorageService {
     const products = rawList.filter((p) => p.id !== productId && !deletedSet.has(p.id));
     this.saveProducts(products);
 
+    // Also remove any synced barcode entry linked to this deleted product
+    try {
+      const deletedCodeLower = (product?.barcode || '').trim().toLowerCase();
+      const stillUsedByAnother =
+        Boolean(deletedCodeLower) &&
+        products.some((p) => (p.barcode || '').trim().toLowerCase() === deletedCodeLower);
+      const currentBarcodes = this.getSyncedBarcodes();
+      const filteredBarcodes = currentBarcodes.filter((b) => {
+        if (b.productId === productId || b.id === `bc_${productId}`) return false;
+        if (deletedCodeLower && !stillUsedByAnother && (b.barcode || '').trim().toLowerCase() === deletedCodeLower) {
+          return false;
+        }
+        return true;
+      });
+      if (filteredBarcodes.length !== currentBarcodes.length) {
+        this.saveSyncedBarcodes(filteredBarcodes);
+      }
+    } catch {}
+
     try {
       const profile = this.getUserProfile();
       const identifier = profile.email || profile.phone || profile.shopId || '';

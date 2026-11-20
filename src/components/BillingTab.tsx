@@ -805,7 +805,12 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     }
     const freshProducts = Array.from(prodMap.values());
 
-    // 1A. Exact match on barcode, id, or name (preferring items with price > 0)
+    // Helper to extract valid price from design/synced/past records
+    const normalizeAlphaNum = (val: string) =>
+      (val || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    // 1A. PHASE 1 — EXACT MATCHES ACROSS ALL SOURCES FIRST
+    // Never let prefix/fuzzy matches intercept a 1-character different SKU!
     let matchedProd =
       freshProducts.find(
         (p) =>
@@ -821,144 +826,78 @@ export const BillingTab: React.FC<BillingTabProps> = ({
           p.name.trim().toLowerCase() === lowerCode
       );
 
-    // 1B. Normalized alphanumeric match (e.g. "ZF-1678" === "ZF1678")
+    // 1B. Normalized exact alphanumeric match in freshProducts (e.g. "ZF-1678" === "ZF1678")
     if ((!matchedProd || matchedProd.price <= 0) && normCode.length >= 2) {
       const normMatch = freshProducts.find((p) => {
-        const pNorm = (p.barcode || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+        const pNorm = normalizeAlphaNum(p.barcode || '');
         return pNorm.length >= 2 && pNorm === normCode && p.price > 0;
       });
       if (normMatch) matchedProd = normMatch;
     }
 
-    // 1C. Prefix / Substring SKU match (e.g. scanned "ZF1678455" matches saved SKU "ZF1678" -> "Zufar royal king" Rs 300)
-    if ((!matchedProd || matchedProd.price <= 0) && normCode.length >= 3) {
-      const prefixMatches = freshProducts
-        .filter((p) => {
-          const pNorm = (p.barcode || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-          if (pNorm.length < 3) return false;
-          return normCode.startsWith(pNorm) || pNorm.startsWith(normCode);
-        })
-        .sort((a, b) => {
-          // Prefer products with price > 0, then longest matching barcode
-          if ((b.price > 0 ? 1 : 0) !== (a.price > 0 ? 1 : 0)) {
-            return (b.price > 0 ? 1 : 0) - (a.price > 0 ? 1 : 0);
-          }
-          return (b.barcode || '').length - (a.barcode || '').length;
-        });
-
-      if (prefixMatches.length > 0 && prefixMatches[0].price > 0) {
-        matchedProd = prefixMatches[0];
-      } else if (!matchedProd && prefixMatches.length > 0) {
-        matchedProd = prefixMatches[0];
-      }
-    }
-
-    // 1D. Cost-encoded SKU & 2-Letter Prefix match (e.g. "ZF1678455" / "ZF189756855" where cost=155 -> "Zufar royal king")
-    if ((!matchedProd || matchedProd.price <= 0) && /^[a-z]{1,2}\d+/i.test(normCode)) {
-      const alphaMatch = normCode.match(/^[a-z]{1,2}/i);
-      const alphaPrefix = alphaMatch ? alphaMatch[0].toLowerCase() : normCode.slice(0, 2);
-      const digitsAfterPrefix = normCode.slice(alphaPrefix.length);
-
-      const costOrLetterMatch = freshProducts.find((p) => {
-        if (p.price <= 0) return false;
-        const pNorm = (p.barcode || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-        const pNameLetters = p.name.trim().toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 2);
-        // Check if product purchasePrice matches the first+last digits of the scanned SKU
-        if (p.purchasePrice && p.purchasePrice > 0 && digitsAfterPrefix.length >= 7) {
-          const cStr = String(Math.round(p.purchasePrice));
-          const fDigit = cStr.slice(0, 1);
-          const lDigits = cStr.slice(1);
-          if (
-            digitsAfterPrefix.startsWith(fDigit) &&
-            (!lDigits || digitsAfterPrefix.endsWith(lDigits)) &&
-            (pNorm.startsWith(alphaPrefix) || pNameLetters.startsWith(alphaPrefix[0]))
-          ) {
-            return true;
-          }
-        }
-        return pNorm.startsWith(alphaPrefix) || pNameLetters === alphaPrefix;
-      });
-      if (costOrLetterMatch) {
-        matchedProd = costOrLetterMatch;
-      }
-    }
-
-    // 1E. Cloud-Synced Barcodes Registry lookup (Covers barcodes & prices created by Owner OR any linked Staff account in Barcode Studio / Stock)
+    // 1C. Cloud-Synced Barcodes Registry — EXACT match first (before any prefix matching anywhere!)
+    const syncedBarcodes = storageService.getSyncedBarcodes();
     if (!matchedProd || matchedProd.price <= 0) {
-      const syncedBarcodes = storageService.getSyncedBarcodes();
-      const matchedBc =
+      const exactSyncedBc =
         syncedBarcodes.find(
           (b) => Number(b.price) > 0 && b.barcode.trim().toLowerCase() === lowerCode
         ) ||
         syncedBarcodes.find((b) => {
           if (Number(b.price) <= 0) return false;
-          const bNorm = b.barcode.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+          const bNorm = normalizeAlphaNum(b.barcode);
           return normCode.length >= 2 && bNorm === normCode;
-        }) ||
-        syncedBarcodes.find((b) => {
-          if (Number(b.price) <= 0 || normCode.length < 3) return false;
-          const bNorm = b.barcode.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-          return bNorm.length >= 3 && (normCode.startsWith(bNorm) || bNorm.startsWith(normCode));
         });
 
-      if (matchedBc && Number(matchedBc.price) > 0) {
+      if (exactSyncedBc && Number(exactSyncedBc.price) > 0) {
         matchedProd = {
-          id: matchedBc.productId || matchedProd?.id || `bc-${cleanCode}`,
+          id: exactSyncedBc.productId || matchedProd?.id || `bc-${cleanCode}`,
           name:
             matchedProd?.name && !matchedProd.name.startsWith('Item (')
               ? matchedProd.name
-              : (matchedBc.productName || '').trim() || `Item (${cleanCode})`,
-          price: Number(matchedBc.price),
-          purchasePrice: matchedBc.purchasePrice || matchedProd?.purchasePrice,
+              : (exactSyncedBc.productName || '').trim() || `Item (${cleanCode})`,
+          price: Number(exactSyncedBc.price),
+          purchasePrice: exactSyncedBc.purchasePrice || matchedProd?.purchasePrice,
           stock: matchedProd?.stock ?? 1,
-          unit: matchedProd?.unit || matchedBc.unit || 'Pcs',
-          category: matchedBc.category || matchedProd?.category || '',
+          unit: matchedProd?.unit || exactSyncedBc.unit || 'Pcs',
+          category: exactSyncedBc.category || matchedProd?.category || '',
           barcode: cleanCode,
           updatedAt: Date.now(),
         };
       }
     }
 
-    // 2. Fallback lookup in saved Barcode Label Studio config (exact or prefix match)
-    if (!matchedProd || matchedProd.price <= 0) {
-      const savedDesign = storageService.getBarcodeCustomDesign();
-      if (savedDesign && savedDesign.barcodeValue) {
-        const dCode = savedDesign.barcodeValue.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-        const isDesignMatch =
-          dCode === normCode ||
-          (dCode.length >= 3 && (normCode.startsWith(dCode) || dCode.startsWith(normCode)));
-        const dPrice = Number(savedDesign.salePrice || savedDesign.mrp || 0);
-        if (isDesignMatch && dPrice > 0) {
-          const dName =
-            matchedProd?.name ||
-            (savedDesign.itemName || '').trim() ||
-            (savedDesign.storeName || '').trim() ||
-            `Item #${cleanCode}`;
-          matchedProd = {
-            id: matchedProd?.id || `barcode-${cleanCode}`,
-            name: dName,
-            price: dPrice,
-            stock: matchedProd?.stock ?? 1,
-            unit: matchedProd?.unit || 'Pcs',
-            barcode: cleanCode,
-            updatedAt: Date.now(),
-          };
-        }
+    // 1D. Saved Barcode Label Studio config — EXACT match
+    const savedDesign = storageService.getBarcodeCustomDesign();
+    if ((!matchedProd || matchedProd.price <= 0) && savedDesign && savedDesign.barcodeValue) {
+      const dCode = normalizeAlphaNum(savedDesign.barcodeValue);
+      const dPrice = Number(savedDesign.salePrice || savedDesign.mrp || 0);
+      if (dCode && dCode === normCode && dPrice > 0) {
+        const dName =
+          matchedProd?.name ||
+          (savedDesign.itemName || '').trim() ||
+          (savedDesign.storeName || '').trim() ||
+          `Item #${cleanCode}`;
+        matchedProd = {
+          id: matchedProd?.id || `barcode-${cleanCode}`,
+          name: dName,
+          price: dPrice,
+          stock: matchedProd?.stock ?? 1,
+          unit: matchedProd?.unit || 'Pcs',
+          barcode: cleanCode,
+          updatedAt: Date.now(),
+        };
       }
     }
 
-    // 3. Fallback lookup in previous bills if any billed item had this barcode or prefix with price > 0
+    // 1E. Previous bills — EXACT barcode or item name match
+    const pastBills = storageService.getBills();
     if (!matchedProd || matchedProd.price <= 0) {
-      const pastBills = storageService.getBills();
       for (const b of pastBills) {
         const foundItem = b.items?.find((it) => {
           if (!it.price || it.price <= 0) return false;
-          const itCode = (it.barcode || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+          const itCode = normalizeAlphaNum(it.barcode || '');
           return (
-            (itCode &&
-              (itCode === normCode ||
-                (itCode.length >= 3 &&
-                  (normCode.startsWith(itCode) || itCode.startsWith(normCode))))) ||
+            (itCode && itCode === normCode) ||
             it.name.trim().toLowerCase() === lowerCode
           );
         });
@@ -980,7 +919,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
       }
     }
 
-    // 4. If QR code contained embedded name & price
+    // 2. If QR code contained embedded name & price
     if ((!matchedProd || matchedProd.price <= 0) && (qrParsedName || qrParsedPrice > 0)) {
       matchedProd = {
         id: matchedProd?.id || `barcode-${cleanCode}`,
@@ -991,6 +930,138 @@ export const BillingTab: React.FC<BillingTabProps> = ({
         barcode: cleanCode,
         updatedAt: Date.now(),
       };
+    }
+
+    // 3. PHASE 2 — CONTROLLED LEGACY FALLBACKS ONLY IF NO EXACT MATCH FOUND ANYWHERE
+    // Never trigger on 1-character differences (require length gap >= 2 or exact cost-digit encoding)
+    if ((!matchedProd || matchedProd.price <= 0) && /^[a-z]{1,2}\d+/i.test(normCode)) {
+      const alphaMatch = normCode.match(/^[a-z]{1,2}/i);
+      const alphaPrefix = alphaMatch ? alphaMatch[0].toLowerCase() : normCode.slice(0, 2);
+      const digitsAfterPrefix = normCode.slice(alphaPrefix.length);
+
+      if (digitsAfterPrefix.length >= 7) {
+        const costMatch = freshProducts.find((p) => {
+          if (p.price <= 0 || !p.purchasePrice || p.purchasePrice <= 0) return false;
+          const pNorm = normalizeAlphaNum(p.barcode || '');
+          const pNameLetters = normalizeAlphaNum(p.name).slice(0, 2);
+          const cStr = String(Math.round(p.purchasePrice));
+          const fDigit = cStr.slice(0, 1);
+          const lDigits = cStr.slice(1);
+          return (
+            digitsAfterPrefix.startsWith(fDigit) &&
+            (!lDigits || digitsAfterPrefix.endsWith(lDigits)) &&
+            (pNorm.startsWith(alphaPrefix) || pNameLetters.startsWith(alphaPrefix[0]))
+          );
+        });
+        if (costMatch) {
+          matchedProd = costMatch;
+        }
+      }
+    }
+
+    // 3B. Strict prefix match only if length diff >= 2 (e.g. legacy 6-char SKU vs 9-char cost-encoded SKU)
+    if ((!matchedProd || matchedProd.price <= 0) && normCode.length >= 4) {
+      const prefixMatches = freshProducts
+        .filter((p) => {
+          const pNorm = normalizeAlphaNum(p.barcode || '');
+          if (pNorm.length < 4 || Math.abs(normCode.length - pNorm.length) < 2) return false;
+          return normCode.startsWith(pNorm) || pNorm.startsWith(normCode);
+        })
+        .sort((a, b) => {
+          if ((b.price > 0 ? 1 : 0) !== (a.price > 0 ? 1 : 0)) {
+            return (b.price > 0 ? 1 : 0) - (a.price > 0 ? 1 : 0);
+          }
+          return (b.barcode || '').length - (a.barcode || '').length;
+        });
+
+      if (prefixMatches.length > 0 && prefixMatches[0].price > 0) {
+        matchedProd = prefixMatches[0];
+      } else if (!matchedProd && prefixMatches.length > 0) {
+        matchedProd = prefixMatches[0];
+      }
+    }
+
+    if ((!matchedProd || matchedProd.price <= 0) && normCode.length >= 4) {
+      const prefixSyncedBc = syncedBarcodes.find((b) => {
+        if (Number(b.price) <= 0) return false;
+        const bNorm = normalizeAlphaNum(b.barcode);
+        return (
+          bNorm.length >= 4 &&
+          Math.abs(normCode.length - bNorm.length) >= 2 &&
+          (normCode.startsWith(bNorm) || bNorm.startsWith(normCode))
+        );
+      });
+      if (prefixSyncedBc && Number(prefixSyncedBc.price) > 0) {
+        matchedProd = {
+          id: prefixSyncedBc.productId || matchedProd?.id || `bc-${cleanCode}`,
+          name:
+            matchedProd?.name && !matchedProd.name.startsWith('Item (')
+              ? matchedProd.name
+              : (prefixSyncedBc.productName || '').trim() || `Item (${cleanCode})`,
+          price: Number(prefixSyncedBc.price),
+          purchasePrice: prefixSyncedBc.purchasePrice || matchedProd?.purchasePrice,
+          stock: matchedProd?.stock ?? 1,
+          unit: matchedProd?.unit || prefixSyncedBc.unit || 'Pcs',
+          category: prefixSyncedBc.category || matchedProd?.category || '',
+          barcode: cleanCode,
+          updatedAt: Date.now(),
+        };
+      }
+    }
+
+    if ((!matchedProd || matchedProd.price <= 0) && savedDesign && savedDesign.barcodeValue) {
+      const dCode = normalizeAlphaNum(savedDesign.barcodeValue);
+      const dPrice = Number(savedDesign.salePrice || savedDesign.mrp || 0);
+      if (
+        dCode.length >= 4 &&
+        Math.abs(normCode.length - dCode.length) >= 2 &&
+        (normCode.startsWith(dCode) || dCode.startsWith(normCode)) &&
+        dPrice > 0
+      ) {
+        const dName =
+          matchedProd?.name ||
+          (savedDesign.itemName || '').trim() ||
+          (savedDesign.storeName || '').trim() ||
+          `Item #${cleanCode}`;
+        matchedProd = {
+          id: matchedProd?.id || `barcode-${cleanCode}`,
+          name: dName,
+          price: dPrice,
+          stock: matchedProd?.stock ?? 1,
+          unit: matchedProd?.unit || 'Pcs',
+          barcode: cleanCode,
+          updatedAt: Date.now(),
+        };
+      }
+    }
+
+    if ((!matchedProd || matchedProd.price <= 0) && normCode.length >= 4) {
+      for (const b of pastBills) {
+        const foundItem = b.items?.find((it) => {
+          if (!it.price || it.price <= 0) return false;
+          const itCode = normalizeAlphaNum(it.barcode || '');
+          return (
+            itCode.length >= 4 &&
+            Math.abs(normCode.length - itCode.length) >= 2 &&
+            (normCode.startsWith(itCode) || itCode.startsWith(normCode))
+          );
+        });
+        if (foundItem) {
+          matchedProd = {
+            id: foundItem.productId || matchedProd?.id || `barcode-${cleanCode}`,
+            name:
+              matchedProd && !matchedProd.name.startsWith('Item (')
+                ? matchedProd.name
+                : foundItem.name,
+            price: foundItem.price,
+            stock: matchedProd?.stock ?? 1,
+            unit: foundItem.unit || matchedProd?.unit || 'Pcs',
+            barcode: cleanCode,
+            updatedAt: Date.now(),
+          };
+          break;
+        }
+      }
     }
 
     return { cleanCode, matchedProd };
@@ -1054,13 +1125,17 @@ export const BillingTab: React.FC<BillingTabProps> = ({
 
     // Check if this item is already present in current bill OR in-flight synchronous cache
     const inFlightItem = inFlightScannedCodesRef.current.get(lowerCode);
-    const existingIndex = billItems.findIndex(
-      (it) =>
-        (it.barcode && it.barcode.trim().toLowerCase() === lowerCode) ||
+    const existingIndex = billItems.findIndex((it) => {
+      const itBc = (it.barcode || '').trim().toLowerCase();
+      if (itBc) {
+        return itBc === lowerCode;
+      }
+      return (
         (matchedProd && it.productId && it.productId === matchedProd.id) ||
         (it.name.trim().toLowerCase() === resolvedName.toLowerCase() &&
           (it.price === resolvedPrice || it.price === 0))
-    );
+      );
+    });
 
     const existingItem = existingIndex >= 0 ? billItems[existingIndex] : inFlightItem || null;
 
@@ -1723,7 +1798,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     const qty = parseFloat(itemQty);
 
     if (!finalName || isNaN(price) || price <= 0) {
-      alert(t.enterValidNamePrice);
+      setScanStatusBanner({ message: `⚠️ ${t.enterValidNamePrice}`, type: 'warning' });
+      setTimeout(() => setScanStatusBanner(null), 3000);
       return;
     }
 
@@ -1803,11 +1879,19 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     const cleanUnit = editItemUnit.trim() || undefined;
 
     if (!cleanName) {
-      alert(isBn ? 'পণ্যের নাম লিখুন' : 'Please enter item name');
+      setScanStatusBanner({
+        message: isBn ? '⚠️ পণ্যের নাম লিখুন' : '⚠️ Please enter item name',
+        type: 'warning',
+      });
+      setTimeout(() => setScanStatusBanner(null), 3000);
       return;
     }
     if (isNaN(parsedPrice) || parsedPrice < 0) {
-      alert(isBn ? 'সঠিক দাম লিখুন' : 'Please enter a valid price');
+      setScanStatusBanner({
+        message: isBn ? '⚠️ সঠিক দাম লিখুন' : '⚠️ Please enter a valid price',
+        type: 'warning',
+      });
+      setTimeout(() => setScanStatusBanner(null), 3000);
       return;
     }
     const finalQty = isNaN(parsedQty) || parsedQty <= 0 ? 1 : parsedQty;
@@ -1872,7 +1956,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     }
 
     if (finalItems.length === 0) {
-      alert(t.addAtLeastOneItem);
+      setScanStatusBanner({ message: `⚠️ ${t.addAtLeastOneItem}`, type: 'warning' });
+      setTimeout(() => setScanStatusBanner(null), 3000);
       return;
     }
 
@@ -3014,7 +3099,11 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                     const parsedPrice = parseFloat(itemPrice) || 0;
                     const parsedStock = parseInt(itemStockInput, 10) || 0;
                     if (!cleanName) {
-                      alert(isBn ? 'প্রোডাক্টের নাম লিখুন' : 'Enter product name');
+                      setScanStatusBanner({
+                        message: isBn ? '⚠️ প্রোডাক্টের নাম লিখুন' : '⚠️ Enter product name',
+                        type: 'warning',
+                      });
+                      setTimeout(() => setScanStatusBanner(null), 3000);
                       return;
                     }
                     if (onQuickSaveProduct) {
