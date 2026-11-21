@@ -93,9 +93,6 @@ export function sendWhatsAppBill({
     }
   }
 
-  // Subtotal
-  message += `🛍️ *Subtotal:* ${sym}${sub.toFixed(0)}\n`;
-
   // If discount is present, show with percentage
   if (disc > 0) {
     message += `🏷️ *Discount:* -${sym}${disc.toFixed(0)} (*${discountPercent}% OFF*)\n`;
@@ -116,8 +113,7 @@ export function sendWhatsAppBill({
     // 1. Advance / Partial Payment (E.g. Total 3500, Advance Paid 2500, Due 1000)
     if (effectivePaid > 0 && effectiveBal > 0) {
       message += `💳 *Paid / Advance (জমা/অগ্রিম):* ${sym}${effectivePaid.toFixed(0)}\n` +
-                 `⚠️ *Remaining Due (বাকি):* ${sym}${effectiveBal.toFixed(0)}\n` +
-                 `🟡 *Payment Status:* Advance Paid (অগ্রিম জমা)\n`;
+                 `⚠️ *Remaining Due (বাকি):* ${sym}${effectiveBal.toFixed(0)}\n`;
     }
     // 2. Paid in Full (Balance <= 0 or Paid >= Total)
     else if (effectiveBal <= 0 || effectivePaid >= payable) {
@@ -125,13 +121,11 @@ export function sendWhatsAppBill({
       if (change > 0) {
         message += `🔄 *Change Returned (ফেরত):* ${sym}${change.toFixed(0)}\n`;
       }
-      message += `✅ *Payment Status:* Paid in Full (সম্পূর্ণ পরিশোধিত)\n`;
     }
     // 3. Complete Due / Credit Sale (Paid = 0, Balance > 0)
     else {
       message += `💳 *Paid Amount (জমা):* ${sym}0\n` +
-                 `⚠️ *Due Amount (বাকি):* ${sym}${effectiveBal.toFixed(0)}\n` +
-                 `🔴 *Payment Status:* Due / Credit (বাকি বিল)\n`;
+                 `⚠️ *Due Amount (বাকি):* ${sym}${effectiveBal.toFixed(0)}\n`;
     }
 
     // Tailoring specific details
