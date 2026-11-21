@@ -61,6 +61,123 @@ export const exportProductsForVyaparExcel = (products: ProductStockItem[]): void
   exportProductsToExcel(products, 'Vyapar_Items_Import.xlsx');
 };
 
+/**
+ * Exports a detailed Stock Valuation Report (.xlsx) including per-product stock qty,
+ * purchase cost value, selling value, estimated profit, and a summary row.
+ */
+export const exportStockValuationToExcel = (
+  products: ProductStockItem[],
+  includeCostAndProfit = true,
+  filename = 'Stock_Valuation_Report.xlsx'
+): void => {
+  if (!products || products.length === 0) return;
+
+  let totalUnits = 0;
+  let totalCostVal = 0;
+  let totalSaleVal = 0;
+  let totalEstProfit = 0;
+
+  const rows: Record<string, string | number>[] = products.map((p, idx) => {
+    const qty = Math.max(0, Number(p.stock) || 0);
+    const saleRate = Math.max(0, Number(p.price) || 0);
+    const costRate = Math.max(0, Number(p.purchasePrice) || 0);
+    const saleVal = qty * saleRate;
+    const costVal = qty * costRate;
+    const estProfit = costRate > 0 && saleRate > 0 ? saleVal - costVal : 0;
+
+    totalUnits += qty;
+    totalSaleVal += saleVal;
+    totalCostVal += costVal;
+    totalEstProfit += estProfit;
+
+    const status = qty <= 0 ? 'Out of Stock' : qty <= 3 ? 'Low Stock' : 'In Stock';
+
+    if (includeCostAndProfit) {
+      return {
+        '#': idx + 1,
+        'Product Name': p.name || 'Product',
+        'Barcode / SKU': bengaliToEnglishDigits(p.barcode || '').trim(),
+        'Stock Qty': qty,
+        'Unit': p.unit || 'Pcs',
+        'Purchase Rate': costRate,
+        'Total Cost Value': costVal,
+        'Sale Rate': saleRate,
+        'Total Sale Value': saleVal,
+        'Est. Profit': estProfit,
+        'Status': status,
+      };
+    }
+
+    return {
+      '#': idx + 1,
+      'Product Name': p.name || 'Product',
+      'Barcode / SKU': bengaliToEnglishDigits(p.barcode || '').trim(),
+      'Stock Qty': qty,
+      'Unit': p.unit || 'Pcs',
+      'Sale Rate': saleRate,
+      'Total Sale Value': saleVal,
+      'Status': status,
+    };
+  });
+
+  if (includeCostAndProfit) {
+    rows.push({
+      '#': '',
+      'Product Name': 'TOTAL STOCK VALUE',
+      'Barcode / SKU': `${products.length} Items`,
+      'Stock Qty': totalUnits,
+      'Unit': 'All',
+      'Purchase Rate': '',
+      'Total Cost Value': totalCostVal,
+      'Sale Rate': '',
+      'Total Sale Value': totalSaleVal,
+      'Est. Profit': totalEstProfit,
+      'Status': '',
+    });
+  } else {
+    rows.push({
+      '#': '',
+      'Product Name': 'TOTAL STOCK VALUE',
+      'Barcode / SKU': `${products.length} Items`,
+      'Stock Qty': totalUnits,
+      'Unit': 'All',
+      'Sale Rate': '',
+      'Total Sale Value': totalSaleVal,
+      'Status': '',
+    });
+  }
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = includeCostAndProfit
+    ? [
+        { wch: 5 },
+        { wch: 28 },
+        { wch: 18 },
+        { wch: 11 },
+        { wch: 8 },
+        { wch: 14 },
+        { wch: 16 },
+        { wch: 12 },
+        { wch: 16 },
+        { wch: 14 },
+        { wch: 14 },
+      ]
+    : [
+        { wch: 5 },
+        { wch: 28 },
+        { wch: 18 },
+        { wch: 11 },
+        { wch: 8 },
+        { wch: 12 },
+        { wch: 16 },
+        { wch: 14 },
+      ];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Stock Valuation');
+  XLSX.writeFile(wb, filename);
+};
+
 // Convert Bengali Numerals (০, ১, ২, ৩, ৪, ৫, ৬, ৭, ৮, ৯) to ASCII Digits (0-9)
 export const bengaliToEnglishDigits = (str: string): string => {
   if (!str) return '';

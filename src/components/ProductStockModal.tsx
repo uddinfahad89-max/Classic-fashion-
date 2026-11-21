@@ -17,6 +17,7 @@ import {
   Sparkles,
   Download,
   Camera,
+  BarChart3,
 } from 'lucide-react';
 import JsBarcode from 'jsbarcode';
 import { ProductStockItem, ThermalPrinterSettings, Language } from '../types';
@@ -154,6 +155,7 @@ interface ProductStockModalProps {
   onOpenBarcodeStudio?: (product: ProductStockItem) => void;
   onOpenRecycleBin?: () => void;
   onOpenPurchaseBillUpload?: () => void;
+  onOpenStockReport?: () => void;
   settings: ThermalPrinterSettings;
   language?: Language;
 }
@@ -169,6 +171,7 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
   onOpenBarcodeStudio,
   onOpenRecycleBin,
   onOpenPurchaseBillUpload,
+  onOpenStockReport,
   settings,
   language = 'bn',
 }) => {
@@ -430,6 +433,20 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
             </div>
           </div>
           <div className="flex items-center gap-1.5">
+            {onOpenStockReport && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenStockReport();
+                }}
+                title={isBn ? 'বর্তমান স্টকে কত টাকার মাল আছে তার সম্পূর্ণ রিপোর্ট দেখুন' : 'View Stock Valuation Report'}
+                className="px-2.5 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-stone-950 flex items-center gap-1.5 text-xs font-black shadow-xs transition-colors cursor-pointer"
+              >
+                <BarChart3 className="w-3.5 h-3.5" />
+                <span>{isBn ? 'স্টক রিপোর্ট' : 'Stock Report'}</span>
+              </button>
+            )}
             {onOpenPurchaseBillUpload && (
               <button
                 type="button"
@@ -489,18 +506,36 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
               </div>
             </div>
           </div>
-          <div className="bg-white px-3 py-2 rounded-xl border border-stone-200/80 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              if (onOpenStockReport) {
+                onClose();
+                onOpenStockReport();
+              }
+            }}
+            className={`text-left bg-white px-3 py-2 rounded-xl border flex items-center gap-2 transition-colors ${
+              onOpenStockReport
+                ? 'border-indigo-200 hover:bg-indigo-50/70 cursor-pointer'
+                : 'border-stone-200/80'
+            }`}
+          >
             <TrendingUp className="w-4 h-4 text-indigo-600 shrink-0" />
-            <div>
-              <div className="text-[10px] font-semibold text-stone-500">
+            <div className="min-w-0">
+              <div className="text-[10px] font-semibold text-stone-500 truncate">
                 {isBn ? 'স্টকের মোট মূল্য' : 'Stock Value'}
               </div>
               <div className="text-xs sm:text-sm font-black text-indigo-700 font-mono truncate">
                 {sym}
                 {totalStockValue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
               </div>
+              {onOpenStockReport && (
+                <div className="text-[9px] font-bold text-indigo-600">
+                  {isBn ? 'রিপোর্ট দেখুন →' : 'View Report →'}
+                </div>
+              )}
             </div>
-          </div>
+          </button>
         </div>
 
         {/* Scrollable Content */}

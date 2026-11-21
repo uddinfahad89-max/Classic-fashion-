@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   BillItem,
   BillInvoice,
@@ -29,6 +29,7 @@ import { PurchaseTripTab } from './components/PurchaseTripTab';
 import { BarcodeTagStudioTab } from './components/BarcodeTagStudioTab';
 import { StaffManagementTab } from './components/StaffManagementTab';
 import { ProductStockModal } from './components/ProductStockModal';
+import { StockReportModal } from './components/StockReportModal';
 import { PrintReceiptModal } from './components/PrintReceiptModal';
 import { EditInvoiceModal } from './components/EditInvoiceModal';
 import { SettingsModal } from './components/SettingsModal';
@@ -82,8 +83,17 @@ export default function App() {
   const [language, setLanguage] = useState<Language>(storageService.getLanguage());
   const [purchaseTrips, setPurchaseTrips] = useState<PurchaseTrip[]>([]);
   const [products, setProducts] = useState<ProductStockItem[]>(() => storageService.getProducts());
+  const totalStockSaleValue = useMemo(
+    () =>
+      products.reduce(
+        (sum, p) => sum + Math.max(0, Number(p.stock) || 0) * Math.max(0, Number(p.price) || 0),
+        0
+      ),
+    [products]
+  );
   const [barcodeTargetProduct, setBarcodeTargetProduct] = useState<ProductStockItem | null>(null);
   const [isProductStockOpen, setIsProductStockOpen] = useState(false);
+  const [isStockReportOpen, setIsStockReportOpen] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [loginModalInitialTab, setLoginModalInitialTab] = useState<'login' | 'staff_login' | 'signup'>('login');
   const [onboardingInitialTab, setOnboardingInitialTab] = useState<'login' | 'staff_login' | 'signup'>('login');
@@ -2587,7 +2597,9 @@ export default function App() {
         onViewModeChange={setViewMode}
         totalInvoicesCount={bills.length}
         totalProductsCount={products.length}
+        totalStockSaleValue={totalStockSaleValue}
         onOpenProductStock={() => setIsProductStockOpen(true)}
+        onOpenStockReport={() => setIsStockReportOpen(true)}
         networkStatus={networkStatus}
         onOpenDataSaver={() => setIsDataSaverOpen(true)}
         onOpenBluetoothHelp={() => setIsBluetoothHelpOpen(true)}
@@ -2762,10 +2774,12 @@ export default function App() {
             <CashbookTab
               entries={cashEntries}
               bills={bills}
+              products={products}
               settings={settings}
               language={language}
               onAddEntry={handleAddCashEntry}
               onDeleteEntry={handleDeleteCashEntry}
+              onOpenStockReport={() => setIsStockReportOpen(true)}
             />
           ))}
 
@@ -2833,6 +2847,7 @@ export default function App() {
             products={products}
             selectedProduct={barcodeTargetProduct}
             onOpenProductStock={() => setIsProductStockOpen(true)}
+            onOpenStockReport={() => setIsStockReportOpen(true)}
             onSaveProduct={(savedProd) => {
               const fresh = storageService.getProducts();
               setProducts(fresh);
@@ -3105,6 +3120,18 @@ export default function App() {
         language={language}
         onOpenRecycleBin={() => setIsRecycleBinOpen(true)}
         onOpenPurchaseBillUpload={() => setIsPurchaseBillUploadOpen(true)}
+        onOpenStockReport={() => setIsStockReportOpen(true)}
+      />
+
+      {/* Stock Valuation Report Modal */}
+      <StockReportModal
+        isOpen={isStockReportOpen}
+        onClose={() => setIsStockReportOpen(false)}
+        products={products}
+        settings={settings}
+        language={language}
+        userProfile={userProfile}
+        onOpenProductStock={() => setIsProductStockOpen(true)}
       />
 
       {/* Purchase Bill Upload & Automatic AI Product + Barcode Generator Modal */}

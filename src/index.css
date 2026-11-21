@@ -38,7 +38,8 @@
 
 /* Hidden on screen, visible during window.print() */
 #thermal-print-root,
-#invoice-print-root {
+#invoice-print-root,
+#stock-report-print-root {
   display: none;
 }
 
@@ -63,14 +64,15 @@
     display: none !important;
   }
 
-  /* Show dedicated tax invoice print root if active */
-  #invoice-print-root.active-print {
+  /* Show dedicated tax invoice or stock report print root if active */
+  #invoice-print-root.active-print,
+  #stock-report-print-root.active-print {
     display: block !important;
     position: static !important;
     width: 100% !important;
     max-width: 100% !important;
     margin: 0 auto !important;
-    padding: 2mm 3mm !important;
+    padding: 4mm 5mm !important;
     background: #ffffff !important;
     color: #000000 !important;
     z-index: 999999 !important;

@@ -42,6 +42,7 @@ import {
   MoreVertical,
   X,
   Camera,
+  BarChart3,
 } from 'lucide-react';
 import JsBarcode from 'jsbarcode';
 import QRCode from 'qrcode';
@@ -87,6 +88,7 @@ interface BarcodeTagStudioTabProps {
   selectedProduct?: ProductStockItem | null;
   onSaveProduct?: (productData: any) => void;
   onOpenProductStock?: () => void;
+  onOpenStockReport?: () => void;
   onShowToast: (message: string, type?: 'success' | 'info' | 'error') => void;
 }
 
@@ -170,6 +172,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
   selectedProduct,
   onSaveProduct,
   onOpenProductStock,
+  onOpenStockReport,
   onShowToast,
 }) => {
   const isBn = language === 'bn';
@@ -5057,6 +5060,19 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                   {isBn ? '১. প্রোডাক্ট, স্ক্যান ও মোড অপশন:' : '1. Products, Scan & Modes:'}
                 </span>
                 <div className="grid grid-cols-2 gap-2">
+                  {onOpenStockReport && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsMoreMenuOpen(false);
+                        onOpenStockReport();
+                      }}
+                      className="col-span-2 py-2.5 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-2 cursor-pointer border bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border-indigo-200"
+                    >
+                      <BarChart3 className="w-4 h-4 text-indigo-600" />
+                      <span>{isBn ? '📊 স্টক ভ্যালু রিপোর্ট (মোট স্টকের দাম)' : '📊 Stock Value Report'}</span>
+                    </button>
+                  )}
                   {onOpenProductStock && (
                     <button
                       type="button"

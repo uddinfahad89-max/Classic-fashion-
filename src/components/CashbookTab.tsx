@@ -20,8 +20,17 @@ import {
   Clock,
   ChevronRight,
   Tag,
+  BarChart3,
+  Package,
 } from 'lucide-react';
-import { CashEntry, CashEntryType, ThermalPrinterSettings, BillInvoice, Language } from '../types';
+import {
+  CashEntry,
+  CashEntryType,
+  ThermalPrinterSettings,
+  BillInvoice,
+  Language,
+  ProductStockItem,
+} from '../types';
 import { translations } from '../utils/i18n';
 import { useBackHandler } from '../utils/useBackHandler';
 import { KhatabookEntryModal, KhatabookEntryPayload } from './KhatabookEntryModal';
@@ -29,9 +38,11 @@ import { KhatabookEntryModal, KhatabookEntryPayload } from './KhatabookEntryModa
 interface CashbookTabProps {
   entries: CashEntry[];
   bills?: BillInvoice[];
+  products?: ProductStockItem[];
   settings: ThermalPrinterSettings;
   onAddEntry: (type: CashEntryType, amount: number, note: string) => void;
   onDeleteEntry: (id: string) => void;
+  onOpenStockReport?: () => void;
   language?: Language;
 }
 
@@ -40,14 +51,29 @@ type DaybookDateFilter = 'today' | 'yesterday' | 'week' | 'all' | 'custom';
 export const CashbookTab: React.FC<CashbookTabProps> = ({
   entries,
   bills = [],
+  products = [],
   settings,
   onAddEntry,
   onDeleteEntry,
+  onOpenStockReport,
   language = 'en',
 }) => {
   const t = translations[language];
   const isBn = language === 'bn';
   const sym = settings.currencySymbol || '₹';
+
+  const stockValuation = useMemo(() => {
+    let units = 0;
+    let saleVal = 0;
+    let costVal = 0;
+    for (const p of products) {
+      const q = Math.max(0, Number(p.stock) || 0);
+      units += q;
+      saleVal += q * Math.max(0, Number(p.price) || 0);
+      costVal += q * Math.max(0, Number(p.purchasePrice) || 0);
+    }
+    return { units, saleVal, costVal };
+  }, [products]);
 
   // Filters
   const [dateFilter, setDateFilter] = useState<DaybookDateFilter>('today');
@@ -333,6 +359,49 @@ export const CashbookTab: React.FC<CashbookTabProps> = ({
           )}
         </div>
       </div>
+
+      {/* 1B. CURRENT STOCK VALUATION QUICK REPORT CARD */}
+      {onOpenStockReport && (
+        <button
+          type="button"
+          onClick={onOpenStockReport}
+          className="w-full text-left bg-gradient-to-r from-indigo-600 via-blue-600 to-emerald-600 hover:brightness-105 text-white rounded-2xl p-3 sm:p-3.5 shadow-sm flex items-center justify-between gap-3 cursor-pointer transition-all"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-white/15 flex items-center justify-center shrink-0 border border-white/20">
+              <BarChart3 className="w-5 h-5 text-white" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-[11px] font-bold text-blue-100 uppercase tracking-wide truncate">
+                {isBn ? 'বর্তমান স্টকে মোট মাল (Stock Valuation)' : 'Current Stock Valuation'}
+              </div>
+              <div className="flex items-center gap-2.5 flex-wrap mt-0.5">
+                <span className="text-sm sm:text-base font-black font-mono">
+                  {isBn ? 'বিক্রয়:' : 'Sale:'}{' '}
+                  {settings.hideCurrencySymbol || settings.currencySymbol === '₹' || !settings.currencySymbol ? 'Rs ' : `${settings.currencySymbol} `}
+                  {Math.round(stockValuation.saleVal).toLocaleString('en-IN')}
+                </span>
+                {stockValuation.costVal > 0 && (
+                  <span className="text-xs font-bold font-mono text-emerald-100 bg-white/15 px-2 py-0.5 rounded-lg">
+                    {isBn ? 'কেনা:' : 'Cost:'}{' '}
+                    {settings.hideCurrencySymbol || settings.currencySymbol === '₹' || !settings.currencySymbol ? 'Rs ' : `${settings.currencySymbol} `}
+                    {Math.round(stockValuation.costVal).toLocaleString('en-IN')}
+                  </span>
+                )}
+                <span className="text-[11px] text-blue-100 flex items-center gap-1">
+                  <Package className="w-3 h-3" />
+                  {stockValuation.units} {isBn ? 'পিস' : 'Pcs'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <span className="shrink-0 px-3 py-1.5 rounded-xl bg-white text-indigo-700 text-xs font-black flex items-center gap-1 shadow-xs">
+            <span>{isBn ? 'রিপোর্ট দেখুন' : 'View Report'}</span>
+            <ChevronRight className="w-3.5 h-3.5" />
+          </span>
+        </button>
+      )}
 
       {/* 2. SEARCH & CATEGORY CHIPS */}
       <div className="flex items-center gap-2">

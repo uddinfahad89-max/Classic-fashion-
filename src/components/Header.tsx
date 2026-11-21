@@ -40,6 +40,7 @@ import {
   KeyRound,
   Tablet,
   Pencil,
+  BarChart3,
 } from 'lucide-react';
 import {
   ThermalPrinterSettings,
@@ -82,7 +83,9 @@ interface HeaderProps {
   onViewModeChange: (mode: 'grid' | 'list') => void;
   totalInvoicesCount?: number;
   totalProductsCount?: number;
+  totalStockSaleValue?: number;
   onOpenProductStock?: () => void;
+  onOpenStockReport?: () => void;
   networkStatus?: NetworkStatusInfo;
   onOpenDataSaver?: () => void;
   onOpenBluetoothHelp?: () => void;
@@ -119,7 +122,9 @@ export const Header: React.FC<HeaderProps> = ({
   onViewModeChange,
   totalInvoicesCount = 0,
   totalProductsCount = 0,
+  totalStockSaleValue = 0,
   onOpenProductStock,
+  onOpenStockReport,
   networkStatus,
   onOpenDataSaver,
   onOpenBluetoothHelp,
@@ -784,6 +789,29 @@ export const Header: React.FC<HeaderProps> = ({
                   </button>
                 </div>
 
+                {/* 1B. Stock Valuation Report */}
+                {onOpenStockReport && (
+                  <div className="p-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsTopMoreMenuOpen(false);
+                        onOpenStockReport();
+                      }}
+                      className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold text-indigo-800 bg-indigo-50/80 hover:bg-indigo-100 flex items-center justify-between transition-colors cursor-pointer border border-indigo-200/70"
+                    >
+                      <span className="flex items-center gap-2">
+                        <BarChart3 className="w-4 h-4 text-indigo-600 shrink-0" />
+                        <span>{isBn ? 'স্টক ভ্যালু রিপোর্ট' : 'Stock Value Report'}</span>
+                      </span>
+                      <span className="text-[10px] font-mono font-black bg-indigo-600 text-white px-2 py-0.5 rounded-full">
+                        {(settings.hideCurrencySymbol || settings.currencySymbol === '₹' || !settings.currencySymbol ? 'Rs ' : `${settings.currencySymbol} `) +
+                          Math.round(totalStockSaleValue).toLocaleString('en-IN')}
+                      </span>
+                    </button>
+                  </div>
+                )}
+
                 {/* 2. Cloud Sync */}
                 {onManualSync && (
                   <div className="py-1">
@@ -1062,6 +1090,27 @@ export const Header: React.FC<HeaderProps> = ({
                     </span>
                     <span className="text-[10px] font-mono font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
                       {totalProductsCount}
+                    </span>
+                  </button>
+                )}
+
+                {/* 2C. Stock Valuation Report */}
+                {onOpenStockReport && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsDrawerOpen(false);
+                      onOpenStockReport();
+                    }}
+                    className="w-full text-left px-3.5 py-2.5 rounded-2xl text-xs sm:text-sm font-bold flex items-center justify-between text-indigo-800 bg-indigo-50/70 hover:bg-indigo-100/80 transition-colors cursor-pointer border border-indigo-200/70"
+                  >
+                    <span className="flex items-center gap-3">
+                      <BarChart3 className="w-5 h-5 text-indigo-600" />
+                      <span>{isBn ? 'স্টক ভ্যালু রিপোর্ট (Stock Report)' : 'Stock Value Report'}</span>
+                    </span>
+                    <span className="text-[10px] font-mono font-black bg-indigo-600 text-white px-2 py-0.5 rounded-full">
+                      {(settings.hideCurrencySymbol || settings.currencySymbol === '₹' || !settings.currencySymbol ? 'Rs ' : `${settings.currencySymbol} `) +
+                        Math.round(totalStockSaleValue).toLocaleString('en-IN')}
                     </span>
                   </button>
                 )}
