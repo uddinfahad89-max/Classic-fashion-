@@ -49,7 +49,7 @@ export const StockReportModal: React.FC<StockReportModalProps> = ({
   onOpenProductStock,
 }) => {
   const isBn = language === 'bn';
-  const canViewCostAndProfit =
+  const canViewPurchaseValue =
     userProfile?.role !== 'Staff' || Boolean(userProfile?.permissions?.canViewProfit);
 
   useBackHandler(
@@ -77,12 +77,11 @@ export const StockReportModal: React.FC<StockReportModalProps> = ({
     return `${sym}${Math.round(amount).toLocaleString('en-IN')}`;
   };
 
-  // Core stock valuation metrics across entire inventory
+  // Core stock valuation metrics across entire inventory (Both Purchase Value & Selling Value)
   const summary = useMemo(() => {
     let totalUnits = 0;
     let totalSaleValue = 0;
     let totalPurchaseValue = 0;
-    let estimatedProfit = 0;
     let itemsWithCostCount = 0;
     let inStockCount = 0;
     let lowStockCount = 0;
@@ -103,9 +102,6 @@ export const StockReportModal: React.FC<StockReportModalProps> = ({
         if (qty <= 3) lowStockCount += 1;
         if (costRate > 0) {
           itemsWithCostCount += 1;
-          if (saleRate > 0) {
-            estimatedProfit += qty * (saleRate - costRate);
-          }
         } else {
           missingCostCount += 1;
         }
@@ -119,7 +115,6 @@ export const StockReportModal: React.FC<StockReportModalProps> = ({
       totalUnits,
       totalSaleValue,
       totalPurchaseValue,
-      estimatedProfit,
       itemsWithCostCount,
       inStockCount,
       lowStockCount,
@@ -139,7 +134,6 @@ export const StockReportModal: React.FC<StockReportModalProps> = ({
         const costRate = Math.max(0, Number(p.purchasePrice) || 0);
         const saleVal = qty * saleRate;
         const costVal = qty * costRate;
-        const profitVal = qty > 0 && costRate > 0 && saleRate > 0 ? saleVal - costVal : 0;
 
         return {
           product: p,
@@ -148,7 +142,6 @@ export const StockReportModal: React.FC<StockReportModalProps> = ({
           costRate,
           saleVal,
           costVal,
-          profitVal,
         };
       })
       .filter(({ product, qty, costRate }) => {
@@ -182,10 +175,9 @@ export const StockReportModal: React.FC<StockReportModalProps> = ({
         acc.units += r.qty;
         acc.saleVal += r.saleVal;
         acc.costVal += r.costVal;
-        acc.profitVal += r.profitVal;
         return acc;
       },
-      { units: 0, saleVal: 0, costVal: 0, profitVal: 0 }
+      { units: 0, saleVal: 0, costVal: 0 }
     );
   }, [filteredRows]);
 
@@ -238,18 +230,18 @@ export const StockReportModal: React.FC<StockReportModalProps> = ({
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-2 mb-3 text-xs">
-          {canViewCostAndProfit && (
+        <div className={`grid gap-2 mb-3 text-xs ${canViewPurchaseValue ? 'grid-cols-3' : 'grid-cols-2'}`}>
+          {canViewPurchaseValue && (
             <div className="border border-black p-2 rounded">
               <div className="font-bold">
-                {isBn ? 'কেনা দামে মোট মাল (Cost Value)' : 'Total Purchase Value'}
+                {isBn ? 'Purchase Value (কেনা মূল্য)' : 'Purchase Value'}
               </div>
               <div className="text-base font-black">{formatMoney(summary.totalPurchaseValue)}</div>
             </div>
           )}
           <div className="border border-black p-2 rounded">
             <div className="font-bold">
-              {isBn ? 'বিক্রয় মূল্যে মোট মাল (Sale Value)' : 'Total Selling Value'}
+              {isBn ? 'Selling Value (বিক্রয় মূল্য)' : 'Selling Value'}
             </div>
             <div className="text-base font-black">{formatMoney(summary.totalSaleValue)}</div>
           </div>
@@ -267,14 +259,14 @@ export const StockReportModal: React.FC<StockReportModalProps> = ({
               <th className="text-left py-1.5 px-1">#</th>
               <th className="text-left py-1.5 px-1">{isBn ? 'প্রোডাক্ট' : 'Product'}</th>
               <th className="text-right py-1.5 px-1">{isBn ? 'স্টক' : 'Qty'}</th>
-              {canViewCostAndProfit && (
+              {canViewPurchaseValue && (
                 <>
-                  <th className="text-right py-1.5 px-1">{isBn ? 'কেনা দর' : 'Cost'}</th>
-                  <th className="text-right py-1.5 px-1">{isBn ? 'মোট কেনা' : 'Cost Val'}</th>
+                  <th className="text-right py-1.5 px-1">{isBn ? 'কেনা দর' : 'Purchase Rate'}</th>
+                  <th className="text-right py-1.5 px-1">{isBn ? 'Purchase Val' : 'Purchase Value'}</th>
                 </>
               )}
-              <th className="text-right py-1.5 px-1">{isBn ? 'বিক্রয় দর' : 'Rate'}</th>
-              <th className="text-right py-1.5 px-1">{isBn ? 'মোট বিক্রয়' : 'Sale Val'}</th>
+              <th className="text-right py-1.5 px-1">{isBn ? 'বিক্রয় দর' : 'Selling Rate'}</th>
+              <th className="text-right py-1.5 px-1">{isBn ? 'Selling Val' : 'Selling Value'}</th>
             </tr>
           </thead>
           <tbody>
@@ -288,7 +280,7 @@ export const StockReportModal: React.FC<StockReportModalProps> = ({
                 <td className="py-1 px-1 text-right font-mono">
                   {qty} {product.unit || 'Pcs'}
                 </td>
-                {canViewCostAndProfit && (
+                {canViewPurchaseValue && (
                   <>
                     <td className="py-1 px-1 text-right font-mono">{costRate > 0 ? formatMoney(costRate) : '-'}</td>
                     <td className="py-1 px-1 text-right font-mono">{costVal > 0 ? formatMoney(costVal) : '-'}</td>
@@ -305,7 +297,7 @@ export const StockReportModal: React.FC<StockReportModalProps> = ({
                 {isBn ? `মোট (${filteredRows.length} টি আইটেম)` : `TOTAL (${filteredRows.length} Items)`}
               </td>
               <td className="py-1.5 px-1 text-right font-mono">{filteredTotals.units}</td>
-              {canViewCostAndProfit && (
+              {canViewPurchaseValue && (
                 <>
                   <td className="py-1.5 px-1"></td>
                   <td className="py-1.5 px-1 text-right font-mono">{formatMoney(filteredTotals.costVal)}</td>
@@ -337,8 +329,8 @@ export const StockReportModal: React.FC<StockReportModalProps> = ({
                 </h2>
                 <p className="text-[11px] text-blue-100 truncate">
                   {isBn
-                    ? 'আপনার দোকানে বর্তমানে মোট কত টাকার মাল আছে তার সম্পূর্ণ হিসাব'
-                    : 'Complete value of all goods currently available in stock'}
+                    ? 'স্টকে থাকা পণ্যের Purchase Value ও Selling Value এর সম্পূর্ণ হিসাব'
+                    : 'Purchase Value & Selling Value of all goods currently in stock'}
                 </p>
               </div>
             </div>
@@ -348,7 +340,7 @@ export const StockReportModal: React.FC<StockReportModalProps> = ({
                 <>
                   <button
                     type="button"
-                    onClick={() => exportStockValuationToExcel(products, canViewCostAndProfit)}
+                    onClick={() => exportStockValuationToExcel(products, canViewPurchaseValue)}
                     className="px-2.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
                     title={isBn ? 'এক্সেল রিপোর্ট ডাউনলোড করুন' : 'Download Excel Report'}
                   >
@@ -379,35 +371,33 @@ export const StockReportModal: React.FC<StockReportModalProps> = ({
 
           {/* Scrollable Body */}
           <div className="flex-1 overflow-y-auto p-3.5 sm:p-5 space-y-4 bg-stone-50/70">
-            {/* Hero Summary Valuation Cards */}
-            <div className={`grid gap-2.5 ${canViewCostAndProfit ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2'}`}>
-              {/* Card 1: Total Purchase / Cost Capital Value */}
-              {canViewCostAndProfit && (
+            {/* Hero Summary Valuation Cards: Purchase Value + Selling Value + Total Qty */}
+            <div className={`grid gap-2.5 ${canViewPurchaseValue ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2'}`}>
+              {/* Card 1: Total Purchase Value */}
+              {canViewPurchaseValue && (
                 <div className="bg-gradient-to-br from-emerald-600 to-teal-700 text-white p-3.5 sm:p-4 rounded-2xl shadow-sm border border-emerald-500/40">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[11px] font-bold text-emerald-100 uppercase tracking-wide">
-                      {isBn ? 'কেনা দামে মোট মাল (পুঁজি)' : 'Total Cost Value'}
+                      {isBn ? 'Purchase Value (কেনা মূল্য)' : 'Purchase Value'}
                     </span>
                     <Wallet className="w-4 h-4 text-emerald-200 shrink-0" />
                   </div>
                   <div className="text-xl sm:text-2xl font-black font-mono mt-1 tracking-tight">
                     {formatMoney(summary.totalPurchaseValue)}
                   </div>
-                  <div className="text-[10px] text-emerald-100 mt-1 flex items-center justify-between gap-1">
-                    <span>
-                      {isBn
-                        ? `কেনা দর যুক্ত: ${summary.itemsWithCostCount}/${summary.inStockCount} আইটেম`
-                        : `Cost entered: ${summary.itemsWithCostCount}/${summary.inStockCount} items`}
-                    </span>
+                  <div className="text-[10px] text-emerald-100 mt-1">
+                    {isBn
+                      ? `কেনা দর যুক্ত: ${summary.itemsWithCostCount}/${summary.inStockCount} আইটেম`
+                      : `Cost entered: ${summary.itemsWithCostCount}/${summary.inStockCount} items`}
                   </div>
                 </div>
               )}
 
-              {/* Card 2: Total Selling / Retail Value */}
+              {/* Card 2: Total Selling Value */}
               <div className="bg-gradient-to-br from-indigo-600 to-blue-700 text-white p-3.5 sm:p-4 rounded-2xl shadow-sm border border-indigo-500/40">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[11px] font-bold text-blue-100 uppercase tracking-wide">
-                    {isBn ? 'বিক্রয় মূল্যে মোট মাল' : 'Total Selling Value'}
+                    {isBn ? 'Selling Value (বিক্রয় মূল্য)' : 'Selling Value'}
                   </span>
                   <TrendingUp className="w-4 h-4 text-blue-200 shrink-0" />
                 </div>
@@ -418,63 +408,49 @@ export const StockReportModal: React.FC<StockReportModalProps> = ({
                   <Boxes className="w-3 h-3 shrink-0" />
                   <span>
                     {isBn
-                      ? `মোট ${summary.totalUnits} পিস (${summary.inStockCount}টি প্রোডাক্ট স্টকে)`
-                      : `${summary.totalUnits} units across ${summary.inStockCount} in-stock items`}
+                      ? `মোট ${summary.totalUnits} পিস (${summary.inStockCount}টি প্রোডাক্ট)`
+                      : `${summary.totalUnits} units (${summary.inStockCount} items)`}
                   </span>
                 </div>
               </div>
 
-              {/* Card 3: Estimated Profit OR Stock Units Summary */}
-              {canViewCostAndProfit ? (
-                <div className="bg-white p-3.5 sm:p-4 rounded-2xl shadow-xs border border-amber-200/90">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[11px] font-bold text-amber-800 uppercase tracking-wide">
-                      {isBn ? 'সম্ভাব্য লাভ (Est. Profit)' : 'Estimated Profit'}
-                    </span>
-                    <BarChart3 className="w-4 h-4 text-amber-600 shrink-0" />
-                  </div>
-                  <div className="text-xl sm:text-2xl font-black font-mono text-amber-700 mt-1 tracking-tight">
-                    {formatMoney(summary.estimatedProfit)}
-                  </div>
-                  <div className="text-[10px] text-stone-500 mt-1">
-                    {summary.itemsWithCostCount > 0
-                      ? isBn
-                        ? `কেনা দাম দেওয়া ${summary.itemsWithCostCount}টি আইটেমের হিসাবে`
-                        : `Based on ${summary.itemsWithCostCount} items with cost price`
-                      : isBn
-                      ? 'প্রোডাক্টে কেনা দাম যোগ করলে লাভ দেখাবে'
-                      : 'Add purchase rate to calculate profit'}
-                  </div>
+              {/* Card 3: Stock Summary Count */}
+              <div className="bg-white p-3.5 sm:p-4 rounded-2xl shadow-xs border border-stone-200">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-bold text-stone-600 uppercase tracking-wide">
+                    {isBn ? 'মোট প্রোডাক্ট ও স্টক' : 'Total Inventory Qty'}
+                  </span>
+                  <Package className="w-4 h-4 text-blue-600 shrink-0" />
                 </div>
-              ) : (
-                <div className="bg-white p-3.5 sm:p-4 rounded-2xl shadow-xs border border-stone-200">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[11px] font-bold text-stone-600 uppercase tracking-wide">
-                      {isBn ? 'মোট প্রোডাক্ট ও স্টক' : 'Total Inventory Qty'}
-                    </span>
-                    <Package className="w-4 h-4 text-blue-600 shrink-0" />
-                  </div>
-                  <div className="text-xl sm:text-2xl font-black font-mono text-stone-900 mt-1 tracking-tight">
-                    {summary.totalUnits} <span className="text-sm font-bold text-stone-500">{isBn ? 'পিস' : 'Pcs'}</span>
-                  </div>
-                  <div className="text-[10px] text-stone-500 mt-1">
-                    {isBn
-                      ? `${summary.inStockCount}টি স্টকে আছে • ${summary.outOfStockCount}টি শেষ`
-                      : `${summary.inStockCount} in stock • ${summary.outOfStockCount} out`}
-                  </div>
+                <div className="text-xl sm:text-2xl font-black font-mono text-stone-900 mt-1 tracking-tight">
+                  {summary.totalUnits}{' '}
+                  <span className="text-sm font-bold text-stone-500">{isBn ? 'পিস' : 'Pcs'}</span>
                 </div>
-              )}
+                <div className="text-[10px] text-stone-500 mt-1 flex items-center gap-1.5 flex-wrap">
+                  <span className="text-emerald-700 font-bold">
+                    {isBn ? `${summary.inStockCount} স্টকে` : `${summary.inStockCount} in`}
+                  </span>
+                  <span>•</span>
+                  <span className="text-amber-700 font-bold">
+                    {isBn ? `${summary.lowStockCount} লো` : `${summary.lowStockCount} low`}
+                  </span>
+                  <span>•</span>
+                  <span className="text-rose-600 font-bold">
+                    {isBn ? `${summary.outOfStockCount} শেষ` : `${summary.outOfStockCount} out`}
+                  </span>
+                </div>
+              </div>
             </div>
 
             {/* Helpful note when some stocked products don't have purchasePrice */}
-            {canViewCostAndProfit && summary.missingCostCount > 0 && (
+            {canViewPurchaseValue && summary.missingCostCount > 0 && (
               <div className="bg-amber-50 border border-amber-200 rounded-2xl p-2.5 sm:p-3 flex items-center justify-between gap-2.5">
                 <div className="flex items-start gap-2 text-xs text-amber-900">
                   <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                   <span>
                     {isBn
-                      ? `${summary.missingCostCount}টি স্টক পণ্যে 'কেনা দাম' (Purchase Rate) দেওয়া নেই। সঠিক পুঁজির হিসাব পেতে এগুলো আপডেট করুন।`
-                      : `${summary.missingCostCount} stocked item(s) don't have a Purchase Rate yet. Add cost rates for exact capital calculation.`}
+                      ? `${summary.missingCostCount}টি স্টক পণ্যে কেনা দাম (Purchase Rate) দেওয়া নেই। সঠিক Purchase Value পেতে এগুলো আপডেট করুন।`
+                      : `${summary.missingCostCount} stocked item(s) don't have a Purchase Rate yet. Add purchase rates for exact Purchase Value.`}
                   </span>
                 </div>
                 <button
@@ -540,7 +516,7 @@ export const StockReportModal: React.FC<StockReportModalProps> = ({
                 <span>{isBn ? `স্টক শেষ (${summary.outOfStockCount})` : `Out (${summary.outOfStockCount})`}</span>
               </button>
 
-              {canViewCostAndProfit && summary.missingCostCount > 0 && (
+              {canViewPurchaseValue && summary.missingCostCount > 0 && (
                 <button
                   type="button"
                   onClick={() => setStatusFilter('missing_cost')}
@@ -550,7 +526,7 @@ export const StockReportModal: React.FC<StockReportModalProps> = ({
                       : 'bg-white text-purple-700 border-purple-200 hover:bg-purple-50'
                   }`}
                 >
-                  {isBn ? `কেনা দাম নেই (${summary.missingCostCount})` : `No Cost (${summary.missingCostCount})`}
+                  {isBn ? `কেনা দাম নেই (${summary.missingCostCount})` : `No Purchase Rate (${summary.missingCostCount})`}
                 </button>
               )}
             </div>
@@ -589,11 +565,11 @@ export const StockReportModal: React.FC<StockReportModalProps> = ({
                   className="text-xs font-bold text-stone-800 bg-transparent focus:outline-none cursor-pointer"
                 >
                   <option value="sale_val_desc">
-                    {isBn ? 'বেশি বিক্রয় মূল্য আগে' : 'Highest Sale Value'}
+                    {isBn ? 'বেশি Selling Value আগে' : 'Highest Selling Value'}
                   </option>
-                  {canViewCostAndProfit && (
+                  {canViewPurchaseValue && (
                     <option value="cost_val_desc">
-                      {isBn ? 'বেশি কেনা মূল্য আগে' : 'Highest Cost Value'}
+                      {isBn ? 'বেশি Purchase Value আগে' : 'Highest Purchase Value'}
                     </option>
                   )}
                   <option value="qty_desc">{isBn ? 'বেশি স্টক আগে' : 'Highest Qty'}</option>
@@ -603,7 +579,7 @@ export const StockReportModal: React.FC<StockReportModalProps> = ({
               </div>
             </div>
 
-            {/* Product Breakdown List */}
+            {/* Product Breakdown List (Both Purchase Value & Selling Value) */}
             {filteredRows.length === 0 ? (
               <div className="bg-white rounded-2xl border border-stone-200 p-8 text-center space-y-2">
                 <Package className="w-10 h-10 text-stone-300 mx-auto" />
@@ -632,7 +608,7 @@ export const StockReportModal: React.FC<StockReportModalProps> = ({
               </div>
             ) : (
               <div className="space-y-2">
-                {filteredRows.map(({ product, qty, saleRate, costRate, saleVal, costVal, profitVal }, idx) => {
+                {filteredRows.map(({ product, qty, saleRate, costRate, saleVal, costVal }, idx) => {
                   const isOut = qty <= 0;
                   const isLow = qty > 0 && qty <= 3;
 
@@ -669,17 +645,18 @@ export const StockReportModal: React.FC<StockReportModalProps> = ({
                             >
                               {qty} {product.unit || 'Pcs'}
                             </span>
-                            <span className="text-stone-500 font-mono">
-                              {isBn ? 'বিক্রয় দর:' : 'Rate:'} <strong className="text-stone-800">{formatMoney(saleRate)}</strong>
-                            </span>
-                            {canViewCostAndProfit && (
+                            {canViewPurchaseValue && (
                               <span className="text-stone-500 font-mono">
-                                {isBn ? 'কেনা:' : 'Cost:'}{' '}
+                                {isBn ? 'কেনা দর:' : 'Purchase:'}{' '}
                                 <strong className={costRate > 0 ? 'text-emerald-700' : 'text-rose-500'}>
                                   {costRate > 0 ? formatMoney(costRate) : isBn ? 'নেই' : 'N/A'}
                                 </strong>
                               </span>
                             )}
+                            <span className="text-stone-500 font-mono">
+                              {isBn ? 'বিক্রয় দর:' : 'Selling:'}{' '}
+                              <strong className="text-stone-800">{formatMoney(saleRate)}</strong>
+                            </span>
                           </div>
                         </div>
 
@@ -698,16 +675,16 @@ export const StockReportModal: React.FC<StockReportModalProps> = ({
                         )}
                       </div>
 
-                      {/* Valuation Strip */}
+                      {/* Purchase Value & Selling Value Strip */}
                       <div
                         className={`grid gap-2 pt-2 border-t border-stone-100 text-xs ${
-                          canViewCostAndProfit ? 'grid-cols-3' : 'grid-cols-1'
+                          canViewPurchaseValue ? 'grid-cols-2' : 'grid-cols-1'
                         }`}
                       >
-                        {canViewCostAndProfit && (
-                          <div className="bg-emerald-50/70 px-2.5 py-1.5 rounded-xl border border-emerald-100">
+                        {canViewPurchaseValue && (
+                          <div className="bg-emerald-50/70 px-3 py-1.5 rounded-xl border border-emerald-100">
                             <div className="text-[10px] font-semibold text-emerald-800">
-                              {isBn ? 'মোট কেনা মূল্য' : 'Total Cost'}
+                              {isBn ? 'Purchase Value (কেনা মূল্য)' : 'Purchase Value'}
                             </div>
                             <div className="font-mono font-black text-emerald-700">
                               {costVal > 0 ? formatMoney(costVal) : '—'}
@@ -715,25 +692,14 @@ export const StockReportModal: React.FC<StockReportModalProps> = ({
                           </div>
                         )}
 
-                        <div className="bg-blue-50/70 px-2.5 py-1.5 rounded-xl border border-blue-100">
+                        <div className="bg-blue-50/70 px-3 py-1.5 rounded-xl border border-blue-100">
                           <div className="text-[10px] font-semibold text-blue-800">
-                            {isBn ? 'মোট বিক্রয় মূল্য' : 'Total Sale Value'}
+                            {isBn ? 'Selling Value (বিক্রয় মূল্য)' : 'Selling Value'}
                           </div>
                           <div className="font-mono font-black text-blue-700">
                             {formatMoney(saleVal)}
                           </div>
                         </div>
-
-                        {canViewCostAndProfit && (
-                          <div className="bg-amber-50/70 px-2.5 py-1.5 rounded-xl border border-amber-100">
-                            <div className="text-[10px] font-semibold text-amber-900">
-                              {isBn ? 'সম্ভাব্য লাভ' : 'Est. Profit'}
-                            </div>
-                            <div className="font-mono font-black text-amber-700">
-                              {costRate > 0 && saleRate > 0 ? formatMoney(profitVal) : '—'}
-                            </div>
-                          </div>
-                        )}
                       </div>
                     </div>
                   );
@@ -744,7 +710,7 @@ export const StockReportModal: React.FC<StockReportModalProps> = ({
 
           {/* Sticky Bottom Filtered Totals & Actions Footer */}
           <div className="px-4 py-3 bg-white border-t border-stone-200 flex flex-wrap items-center justify-between gap-2 shrink-0">
-            <div className="flex items-center gap-3 flex-wrap text-xs">
+            <div className="flex items-center gap-3.5 flex-wrap text-xs">
               <div>
                 <span className="text-[10px] text-stone-500 block">
                   {isBn ? `তালিকায় (${filteredRows.length} আইটেম)` : `Showing (${filteredRows.length} items)`}
@@ -753,10 +719,10 @@ export const StockReportModal: React.FC<StockReportModalProps> = ({
                   {filteredTotals.units} {isBn ? 'পিস' : 'Pcs'}
                 </span>
               </div>
-              {canViewCostAndProfit && (
+              {canViewPurchaseValue && (
                 <div>
                   <span className="text-[10px] text-emerald-700 block font-semibold">
-                    {isBn ? 'কেনা মূল্য' : 'Cost Value'}
+                    {isBn ? 'Purchase Value' : 'Purchase Value'}
                   </span>
                   <span className="font-mono font-black text-emerald-700">
                     {formatMoney(filteredTotals.costVal)}
@@ -765,7 +731,7 @@ export const StockReportModal: React.FC<StockReportModalProps> = ({
               )}
               <div>
                 <span className="text-[10px] text-indigo-700 block font-semibold">
-                  {isBn ? 'বিক্রয় মূল্য' : 'Sale Value'}
+                  {isBn ? 'Selling Value' : 'Selling Value'}
                 </span>
                 <span className="font-mono font-black text-indigo-700">
                   {formatMoney(filteredTotals.saleVal)}

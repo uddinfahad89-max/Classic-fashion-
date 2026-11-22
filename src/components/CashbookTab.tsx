@@ -376,18 +376,16 @@ export const CashbookTab: React.FC<CashbookTabProps> = ({
                 {isBn ? 'বর্তমান স্টকে মোট মাল (Stock Valuation)' : 'Current Stock Valuation'}
               </div>
               <div className="flex items-center gap-2.5 flex-wrap mt-0.5">
+                <span className="text-xs sm:text-sm font-black font-mono text-emerald-100 bg-white/15 px-2 py-0.5 rounded-lg">
+                  {isBn ? 'Purchase:' : 'Purchase:'}{' '}
+                  {settings.hideCurrencySymbol || settings.currencySymbol === '₹' || !settings.currencySymbol ? 'Rs ' : `${settings.currencySymbol} `}
+                  {Math.round(stockValuation.costVal).toLocaleString('en-IN')}
+                </span>
                 <span className="text-sm sm:text-base font-black font-mono">
-                  {isBn ? 'বিক্রয়:' : 'Sale:'}{' '}
+                  {isBn ? 'Selling:' : 'Selling:'}{' '}
                   {settings.hideCurrencySymbol || settings.currencySymbol === '₹' || !settings.currencySymbol ? 'Rs ' : `${settings.currencySymbol} `}
                   {Math.round(stockValuation.saleVal).toLocaleString('en-IN')}
                 </span>
-                {stockValuation.costVal > 0 && (
-                  <span className="text-xs font-bold font-mono text-emerald-100 bg-white/15 px-2 py-0.5 rounded-lg">
-                    {isBn ? 'কেনা:' : 'Cost:'}{' '}
-                    {settings.hideCurrencySymbol || settings.currencySymbol === '₹' || !settings.currencySymbol ? 'Rs ' : `${settings.currencySymbol} `}
-                    {Math.round(stockValuation.costVal).toLocaleString('en-IN')}
-                  </span>
-                )}
                 <span className="text-[11px] text-blue-100 flex items-center gap-1">
                   <Package className="w-3 h-3" />
                   {stockValuation.units} {isBn ? 'পিস' : 'Pcs'}
