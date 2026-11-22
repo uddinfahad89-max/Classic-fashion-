@@ -33,7 +33,7 @@ interface StockReportModalProps {
   settings: ThermalPrinterSettings;
   language?: Language;
   userProfile?: UserProfile;
-  onOpenProductStock?: () => void;
+  onOpenProductStock?: (productToEdit?: ProductStockItem) => void;
 }
 
 type StockStatusFilter = 'all' | 'in_stock' | 'low_stock' | 'out_of_stock' | 'missing_cost';
@@ -158,6 +158,10 @@ export const StockReportModal: React.FC<StockReportModalProps> = ({
       });
 
     rows.sort((a, b) => {
+      const aHasStock = a.qty > 0 ? 1 : 0;
+      const bHasStock = b.qty > 0 ? 1 : 0;
+      if (aHasStock !== bHasStock) return bHasStock - aHasStock;
+
       if (sortBy === 'sale_val_desc') return b.saleVal - a.saleVal;
       if (sortBy === 'cost_val_desc') return b.costVal - a.costVal;
       if (sortBy === 'qty_desc') return b.qty - a.qty;
@@ -665,7 +669,7 @@ export const StockReportModal: React.FC<StockReportModalProps> = ({
                             type="button"
                             onClick={() => {
                               onClose();
-                              onOpenProductStock();
+                              onOpenProductStock(product);
                             }}
                             className="p-1.5 rounded-xl bg-stone-100 hover:bg-blue-50 text-stone-600 hover:text-blue-700 transition-colors cursor-pointer shrink-0"
                             title={isBn ? 'স্টক বা দাম আপডেট করুন' : 'Edit Stock or Price'}

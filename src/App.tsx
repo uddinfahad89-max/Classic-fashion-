@@ -93,6 +93,7 @@ export default function App() {
   );
   const [barcodeTargetProduct, setBarcodeTargetProduct] = useState<ProductStockItem | null>(null);
   const [isProductStockOpen, setIsProductStockOpen] = useState(false);
+  const [editingStockProduct, setEditingStockProduct] = useState<ProductStockItem | null>(null);
   const [isStockReportOpen, setIsStockReportOpen] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [loginModalInitialTab, setLoginModalInitialTab] = useState<'login' | 'staff_login' | 'signup'>('login');
@@ -3082,9 +3083,16 @@ export default function App() {
       {/* Product Stock Manager Modal */}
       <ProductStockModal
         isOpen={isProductStockOpen}
-        onClose={() => setIsProductStockOpen(false)}
+        onClose={() => {
+          setIsProductStockOpen(false);
+          setEditingStockProduct(null);
+        }}
         products={products}
-        onSaveProduct={handleSaveProductStock}
+        initialEditProduct={editingStockProduct}
+        onSaveProduct={(data) => {
+          handleSaveProductStock(data);
+          setEditingStockProduct(null);
+        }}
         onAdjustStock={handleAdjustProductStock}
         onDeleteProduct={handleDeleteProductStock}
         onSelectForBill={(prod, qty = 1) => {
@@ -3131,7 +3139,10 @@ export default function App() {
         settings={settings}
         language={language}
         userProfile={userProfile}
-        onOpenProductStock={() => setIsProductStockOpen(true)}
+        onOpenProductStock={(productToEdit) => {
+          setEditingStockProduct(productToEdit || null);
+          setIsProductStockOpen(true);
+        }}
       />
 
       {/* Purchase Bill Upload & Automatic AI Product + Barcode Generator Modal */}

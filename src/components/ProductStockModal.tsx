@@ -156,6 +156,7 @@ interface ProductStockModalProps {
   onOpenRecycleBin?: () => void;
   onOpenPurchaseBillUpload?: () => void;
   onOpenStockReport?: () => void;
+  initialEditProduct?: ProductStockItem | null;
   settings: ThermalPrinterSettings;
   language?: Language;
 }
@@ -172,6 +173,7 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
   onOpenRecycleBin,
   onOpenPurchaseBillUpload,
   onOpenStockReport,
+  initialEditProduct,
   settings,
   language = 'bn',
 }) => {
@@ -261,10 +263,19 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
   const sym = hideCurrency ? 'Rs ' : `${settings.currencySymbol} `;
 
   const filteredProducts = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return products;
+    const sortStockFirst = (list: ProductStockItem[]): ProductStockItem[] => {
+      return [...list].sort((a, b) => {
+        const aHasStock = (Number(a.stock) || 0) > 0 ? 1 : 0;
+        const bHasStock = (Number(b.stock) || 0) > 0 ? 1 : 0;
+        if (aHasStock !== bHasStock) return bHasStock - aHasStock;
+        return 0;
+      });
+    };
 
-    // Sort: products starting with the query come first, then partial matches
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return sortStockFirst(products);
+
+    // Sort: products starting with the query come first, then partial matches (in-stock items first within each group)
     const startsWith: ProductStockItem[] = [];
     const contains: ProductStockItem[] = [];
 
@@ -281,7 +292,7 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
         contains.push(p);
       }
     }
-    return [...startsWith, ...contains];
+    return [...sortStockFirst(startsWith), ...sortStockFirst(contains)];
   }, [products, searchQuery]);
 
   const totalProducts = products.length;
@@ -293,6 +304,52 @@ export const ProductStockModal: React.FC<ProductStockModalProps> = ({
     () => products.reduce((sum, p) => sum + Math.max(0, p.stock || 0) * (p.price || 0), 0),
     [products]
   );
+
+  // When opened with a target product to edit (e.g. from Stock Report Edit icon), populate Edit form immediately
+  useEffect(() => {
+    if (isOpen && initialEditProduct) {
+      setFormError(null);
+      setEditingId(initialEditProduct.id);
+      setName(initialEditProduct.name || '');
+      setPrice(
+        initialEditProduct.price !== undefined && initialEditProduct.price !== null
+          ? String(initialEditProduct.price)
+          : '0'
+      );
+      setPurchasePrice(
+        initialEditProduct.purchasePrice !== undefined && initialEditProduct.purchasePrice !== null
+          ? String(initialEditProduct.purchasePrice)
+          : ''
+      );
+      setStock(
+        initialEditProduct.stock !== undefined && initialEditProduct.stock !== null
+          ? String(initialEditProduct.stock)
+          : '0'
+      );
+      setAutoSkuSeed(String(Math.floor(100000 + Math.random() * 900000)));
+      const existingCode = (initialEditProduct.barcode || '').trim();
+      setBarcode(existingCode);
+      setBarcodeManuallyEdited(Boolean(existingCode));
+      setUnit(initialEditProduct.unit || 'Pcs');
+
+      requestAnimationFrame(() => {
+        scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+        setTimeout(() => {
+          nameInputRef.current?.focus();
+        }, 150);
+      });
+    } else if (!isOpen) {
+      setEditingId(null);
+      setName('');
+      setPrice('');
+      setPurchasePrice('');
+      setStock('');
+      setBarcode('');
+      setBarcodeManuallyEdited(false);
+      setFormError(null);
+      setUnit('Pcs');
+    }
+  }, [isOpen, initialEditProduct]);
 
   if (!isOpen) return null;
 
