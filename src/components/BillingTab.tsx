@@ -1746,6 +1746,16 @@ export const BillingTab: React.FC<BillingTabProps> = ({
   const paidNum = parseFloat(paidAmount) || 0;
   const changeAmount = Math.max(0, paidNum - grandTotal);
 
+  // Automatically switch Estimate -> Cash when user enters a positive Advance/Paid amount
+  const handlePaidAmountChange = (rawVal: string) => {
+    setPaidAmount(rawVal);
+    const numericVal = parseFloat(rawVal);
+    if (!isNaN(numericVal) && numericVal > 0 && (paymentMethod === 'estimate' || isEstimateBill)) {
+      setPaymentMethod('cash');
+      setIsEstimateBill(false);
+    }
+  };
+
   // Khatabook Calculator Save Handler
   const handleCalculatorSave = (payload: KhatabookEntryPayload) => {
     if (calculatorTarget === 'item') {
@@ -1777,7 +1787,7 @@ export const BillingTab: React.FC<BillingTabProps> = ({
     }
 
     if (calculatorTarget === 'paid') {
-      setPaidAmount(payload.amount.toString());
+      handlePaidAmountChange(payload.amount.toString());
       setIsCalculatorModalOpen(false);
       return;
     }
@@ -3552,14 +3562,14 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                       : `Advance ${sym ? `(${sym})` : ''}`
                     : paymentMethod === 'estimate'
                     ? isBn
-                      ? `অগ্রিম/পরিশোধ (এস্টিমেট) ${sym ? `(${sym})` : ''}`
-                      : `Advance/Paid (Estimate) ${sym ? `(${sym})` : ''}`
+                      ? `অগ্রিম / প্রাপ্ত টাকা ${sym ? `(${sym})` : ''}`
+                      : `Advance / Paid ${sym ? `(${sym})` : ''}`
                     : `${t.paidReceivedLabel} ${sym ? `(${sym})` : ''}`}
                 </label>
                 {grandTotal > 0 && (
                   <button
                     type="button"
-                    onClick={() => setPaidAmount(grandTotal.toFixed(2))}
+                    onClick={() => handlePaidAmountChange(grandTotal.toFixed(2))}
                     className="text-[10px] text-blue-600 hover:text-blue-700 font-bold underline cursor-pointer shrink-0"
                   >
                     {t.exactBtn}
@@ -3573,12 +3583,12 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                   min="0"
                   step="any"
                   value={paidAmount}
-                  onChange={(e) => setPaidAmount(e.target.value)}
+                  onChange={(e) => handlePaidAmountChange(e.target.value)}
                   placeholder={
                     paymentMethod === 'estimate'
                       ? isBn
-                        ? '0.00 (এস্টিমেট কোটেশন)'
-                        : '0.00 (Estimate Quotation)'
+                        ? 'অগ্রিম লিখলে অটো Cash হবে'
+                        : 'Type advance to switch to Cash'
                       : grandTotal > 0
                       ? grandTotal.toFixed(2)
                       : '0.00'
@@ -3787,6 +3797,17 @@ export const BillingTab: React.FC<BillingTabProps> = ({
             grandTotal > 0 &&
             Math.max(0, grandTotal - (paidAmount.trim() !== '' ? paidNum : 0)) > 0 && (
               <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-bold space-y-1">
+                {paidNum > 0 && paidNum < grandTotal && (
+                  <div className="flex items-center justify-between text-emerald-700">
+                    <span>
+                      {isBn ? 'অগ্রিম / নগদ জমা (Paid/Advance):' : 'Paid / Advance:'}
+                    </span>
+                    <span className="font-mono text-sm font-black">
+                      {sym}
+                      {paidNum.toFixed(2)}
+                    </span>
+                  </div>
+                )}
                 <div className="flex items-center justify-between">
                   <span>
                     {isTailoring
@@ -3794,8 +3815,8 @@ export const BillingTab: React.FC<BillingTabProps> = ({
                         ? 'ডেলিভারির সময় বাকি (Balance Due on Delivery):'
                         : 'Balance Due on Delivery:'
                       : isBn
-                      ? 'এই বিলের বাকি (Current Bill Due):'
-                      : 'Balance Due:'}
+                      ? 'বাকি টাকা (Remaining Due):'
+                      : 'Remaining Due:'}
                   </span>
                   <span className="font-mono text-sm font-black text-rose-600">
                     {sym}
