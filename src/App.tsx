@@ -138,6 +138,12 @@ export default function App() {
   } | null>(null);
   const [tabSlideAnim, setTabSlideAnim] = useState<'left' | 'right' | null>(null);
   const scrollStageRef = useRef<HTMLDivElement | null>(null);
+  const invoicesScrollPosRef = useRef<{ windowY: number; stageTop: number }>({
+    windowY: 0,
+    stageTop: 0,
+  });
+  const wasInvoiceOverlayOpenRef = useRef(false);
+  const isRestoringInvoicesScrollRef = useRef(false);
   const swipeTouchRef = useRef<{
     active: boolean;
     startX: number;
@@ -2365,6 +2371,83 @@ export default function App() {
       : [{ id: 'staff' as ActiveTab, labelBn: 'স্টাফ', labelEn: 'Staff' }]),
   ];
 
+  const isInvoiceOverlayOpen = Boolean(receiptBill) || Boolean(editingBill);
+
+  const captureInvoicesScrollPosition = () => {
+    if (typeof window === 'undefined' || activeTab !== 'invoices') return;
+    invoicesScrollPosRef.current = {
+      windowY: window.scrollY || window.pageYOffset || 0,
+      stageTop: scrollStageRef.current?.scrollTop || 0,
+    };
+  };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (activeTab !== 'invoices' || isInvoiceOverlayOpen) return;
+
+    const handleTrackInvoicesScroll = () => {
+      if (isRestoringInvoicesScrollRef.current) return;
+      invoicesScrollPosRef.current = {
+        windowY: window.scrollY || window.pageYOffset || 0,
+        stageTop: scrollStageRef.current?.scrollTop || 0,
+      };
+    };
+
+    const stageEl = scrollStageRef.current;
+    window.addEventListener('scroll', handleTrackInvoicesScroll, { passive: true });
+    stageEl?.addEventListener('scroll', handleTrackInvoicesScroll, { passive: true });
+
+    return () => {
+      window.removeEventListener('scroll', handleTrackInvoicesScroll);
+      stageEl?.removeEventListener('scroll', handleTrackInvoicesScroll);
+    };
+  }, [activeTab, isInvoiceOverlayOpen, isForceLandscapeRotated]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (activeTab !== 'invoices') {
+      wasInvoiceOverlayOpenRef.current = false;
+      return;
+    }
+
+    if (isInvoiceOverlayOpen) {
+      wasInvoiceOverlayOpenRef.current = true;
+      return;
+    }
+
+    if (wasInvoiceOverlayOpenRef.current) {
+      wasInvoiceOverlayOpenRef.current = false;
+      const saved = invoicesScrollPosRef.current;
+      isRestoringInvoicesScrollRef.current = true;
+
+      const applyRestore = () => {
+        if (scrollStageRef.current && Math.abs(scrollStageRef.current.scrollTop - saved.stageTop) > 1) {
+          scrollStageRef.current.scrollTop = saved.stageTop;
+        }
+        if (Math.abs((window.scrollY || 0) - saved.windowY) > 1) {
+          window.scrollTo({ top: saved.windowY, behavior: 'auto' });
+        }
+      };
+
+      applyRestore();
+      const rafId = window.requestAnimationFrame(applyRestore);
+      const t1 = window.setTimeout(applyRestore, 40);
+      const t2 = window.setTimeout(applyRestore, 120);
+      const t3 = window.setTimeout(() => {
+        applyRestore();
+        isRestoringInvoicesScrollRef.current = false;
+      }, 220);
+
+      return () => {
+        window.cancelAnimationFrame(rafId);
+        window.clearTimeout(t1);
+        window.clearTimeout(t2);
+        window.clearTimeout(t3);
+        isRestoringInvoicesScrollRef.current = false;
+      };
+    }
+  }, [activeTab, isInvoiceOverlayOpen]);
+
   const isAnyModalOpen =
     isProductStockOpen ||
     isLoginModalOpen ||
@@ -2729,12 +2812,16 @@ export default function App() {
             settings={settings}
             language={language}
             onViewReceipt={(bill) => {
+              captureInvoicesScrollPosition();
               setReceiptInitialTotalOnly(Boolean(settings.isTotalOnlySlip));
               setReceiptBill(bill);
             }}
             onDeleteBill={handleDeleteBill}
             onUpdateBill={handleUpdateBill}
-            onEditBill={(bill) => setEditingBill(bill)}
+            onEditBill={(bill) => {
+              captureInvoicesScrollPosition();
+              setEditingBill(bill);
+            }}
             onLoadIntoBilling={(bill) => {
               setBillItems(bill.items);
               setActiveTab('billing');

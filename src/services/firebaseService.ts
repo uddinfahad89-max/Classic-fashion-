@@ -137,17 +137,60 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   throw new Error(JSON.stringify(errInfo));
 }
 
+function safeFirestoreDocId(rawId?: string | null, fallbackPrefix = 'doc'): string {
+  const cleaned = String(rawId || '')
+    .trim()
+    .replace(/\//g, '_');
+  if (cleaned) return cleaned;
+  return `${fallbackPrefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function sanitizeFirestorePayload<T>(value: T): T {
+  if (value === undefined) return null as unknown as T;
+  if (value === null) return value;
+  if (typeof value === 'number') {
+    return (Number.isFinite(value) ? value : 0) as unknown as T;
+  }
+  if (Array.isArray(value)) {
+    return value
+      .filter((item) => item !== undefined)
+      .map((item) => sanitizeFirestorePayload(item)) as unknown as T;
+  }
+  if (typeof value === 'object') {
+    const out: Record<string, any> = {};
+    for (const [k, v] of Object.entries(value as Record<string, any>)) {
+      if (v !== undefined) {
+        out[k] = sanitizeFirestorePayload(v);
+      }
+    }
+    return out as T;
+  }
+  return value;
+}
+
 async function testBootConnection() {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
   try {
     await getDocFromServer(doc(db, '_connection_test', 'ping'));
   } catch (error) {
     if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error('Please check your Firebase configuration.');
+      // Retry once after initial long-polling/auth warm-up before reporting config issue
+      await new Promise((r) => setTimeout(r, 1500));
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+      try {
+        await getDocFromServer(doc(db, '_connection_test', 'ping'));
+      } catch (retryErr) {
+        if (retryErr instanceof Error && retryErr.message.includes('the client is offline')) {
+          console.warn('Please check your Firebase configuration.');
+        }
+      }
     }
   }
 }
 if (typeof window !== 'undefined' && db) {
-  void testBootConnection();
+  setTimeout(() => {
+    void testBootConnection();
+  }, 600);
 }
 
 class FirebaseService {
@@ -916,7 +959,10 @@ class FirebaseService {
       const storeAnchor = (shopId || uid).trim().toLowerCase();
       const cleanBarcode = String(item.barcode || '').trim();
       if (!cleanBarcode) return false;
-      const docId = item.id || `barcode_${cleanBarcode.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+      const docId = safeFirestoreDocId(
+        item.id || `barcode_${cleanBarcode.replace(/[^a-zA-Z0-9_-]/g, '_')}`,
+        'barcode'
+      );
       const barcodeRef = doc(db, 'barcodes', docId);
 
       const payload: BarcodeItem & { ownerEmail: string; storeId: string; createdByEmail: string } = {
@@ -959,7 +1005,7 @@ class FirebaseService {
         updatedAt: payload.updatedAt,
       });
 
-      await setDoc(barcodeRef, payload, { merge: true });
+      await setDoc(barcodeRef, sanitizeFirestorePayload(payload), { merge: true });
       return true;
     } catch (e: any) {
       if (String(e?.message || '').includes('Missing or insufficient permissions')) {
@@ -1043,12 +1089,13 @@ class FirebaseService {
       const cashierName = invoice.cashierName || (activeCashier !== 'Counter Staff' ? activeCashier : activeProf.name || '');
       const cashierId = invoice.cashierId || activeProf.operatorCode || activeProf.staffId || '';
 
-      const invoiceRef = doc(db, 'invoices', invoice.id);
+      const safeId = safeFirestoreDocId(invoice.id || invoice.invoiceNo, 'inv');
+      const invoiceRef = doc(db, 'invoices', safeId);
 
-      const payload = {
-        id: invoice.id,
-        invoiceNo: invoice.invoiceNo,
-        date: invoice.date,
+      const payload = sanitizeFirestorePayload({
+        id: safeId,
+        invoiceNo: invoice.invoiceNo || safeId,
+        date: invoice.date || '',
         time: invoice.time || '',
         customerName: invoice.customerName || '',
         customerPhone: invoice.customerPhone || '',
@@ -1084,7 +1131,7 @@ class FirebaseService {
         deletedAt: invoice.deletedAt || null,
         deletedBy: invoice.deletedBy || null,
         syncedAt: new Date().toISOString()
-      };
+      });
 
       await setDoc(invoiceRef, payload, { merge: true });
       return true;
@@ -1163,7 +1210,7 @@ class FirebaseService {
         });
       }
 
-      await setDoc(invoiceRef, updatePayload, { merge: true });
+      await setDoc(invoiceRef, sanitizeFirestorePayload(updatePayload), { merge: true });
 
       // If bill has invoiceNo or id matches, unmark in related Firestore docs
       const invNo = bill?.invoiceNo || (id.startsWith('inv-') ? undefined : id);
@@ -1438,11 +1485,12 @@ class FirebaseService {
       const uid = this.getEffectiveUserId(userId);
       const actorEmail = this.getActorEmail();
       const storeAnchor = (shopId || uid).trim().toLowerCase();
-      const prodRef = doc(db, 'products', product.id);
+      const safeProdId = safeFirestoreDocId(product.id, 'prod');
+      const prodRef = doc(db, 'products', safeProdId);
 
-      const payload = {
-        id: product.id,
-        name: product.name,
+      const payload = sanitizeFirestorePayload({
+        id: safeProdId,
+        name: product.name || '',
         price: product.price || 0,
         purchasePrice: product.purchasePrice || 0,
         stock: product.stock ?? 0,
@@ -1461,7 +1509,7 @@ class FirebaseService {
         deletedAt: product.deletedAt || null,
         deletedBy: product.deletedBy || null,
         syncedAt: new Date().toISOString()
-      };
+      });
 
       await setDoc(prodRef, payload, { merge: true });
       return true;
@@ -1527,7 +1575,7 @@ class FirebaseService {
         });
       }
 
-      await setDoc(prodRef, updatePayload, { merge: true });
+      await setDoc(prodRef, sanitizeFirestorePayload(updatePayload), { merge: true });
 
       // Remove from local tombstone if present
       try {
@@ -1665,7 +1713,7 @@ class FirebaseService {
         syncedAt: new Date().toISOString()
       };
 
-      await setDoc(profileRef, payload, { merge: true });
+      await setDoc(profileRef, sanitizeFirestorePayload(payload), { merge: true });
       return true;
     } catch (e: any) {
       console.warn('Firebase syncProfile notice:', e?.message || e);
@@ -1710,10 +1758,12 @@ class FirebaseService {
     try {
       await this.ensureAuthenticated();
       const uid = this.getEffectiveUserId(userId);
-      const cashRef = doc(db, 'cash_entries', entry.id);
+      const safeCashId = safeFirestoreDocId(entry.id, 'cash');
+      const cashRef = doc(db, 'cash_entries', safeCashId);
 
-      const payload = {
+      const payload = sanitizeFirestorePayload({
         ...entry,
+        id: safeCashId,
         userId: uid,
         userEmail: uid,
         email: uid,
@@ -1723,7 +1773,7 @@ class FirebaseService {
         deletedAt: entry.deletedAt || null,
         deletedBy: entry.deletedBy || null,
         syncedAt: new Date().toISOString()
-      };
+      });
 
       await setDoc(cashRef, payload, { merge: true });
       return true;
@@ -1840,10 +1890,12 @@ class FirebaseService {
     try {
       await this.ensureAuthenticated();
       const uid = this.getEffectiveUserId(userId);
-      const dueRef = doc(db, 'customer_dues', due.id);
+      const safeDueId = safeFirestoreDocId(due.id, 'due');
+      const dueRef = doc(db, 'customer_dues', safeDueId);
 
-      const payload = {
+      const payload = sanitizeFirestorePayload({
         ...due,
+        id: safeDueId,
         userId: uid,
         userEmail: uid,
         email: uid,
@@ -1853,7 +1905,7 @@ class FirebaseService {
         deletedAt: due.deletedAt || null,
         deletedBy: due.deletedBy || null,
         syncedAt: new Date().toISOString()
-      };
+      });
 
       await setDoc(dueRef, payload, { merge: true });
       return true;
@@ -1968,10 +2020,12 @@ class FirebaseService {
     try {
       await this.ensureAuthenticated();
       const uid = this.getEffectiveUserId(userId);
-      const tripRef = doc(db, 'purchase_trips', trip.id);
+      const safeTripId = safeFirestoreDocId(trip.id, 'trip');
+      const tripRef = doc(db, 'purchase_trips', safeTripId);
 
-      const payload = {
+      const payload = sanitizeFirestorePayload({
         ...trip,
+        id: safeTripId,
         userId: uid,
         userEmail: uid,
         email: uid,
@@ -1981,7 +2035,7 @@ class FirebaseService {
         deletedAt: trip.deletedAt || null,
         deletedBy: trip.deletedBy || null,
         syncedAt: new Date().toISOString()
-      };
+      });
 
       await setDoc(tripRef, payload, { merge: true });
       return true;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import {
   Barcode as BarcodeIcon,
   Printer,
@@ -414,9 +414,31 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
   }, []);
 
   const labelPreviewRef = useRef<HTMLDivElement | null>(null);
+  const previewStageRef = useRef<HTMLDivElement | null>(null);
   const interactiveCanvasRef = useRef<HTMLDivElement | null>(null);
+  const shopItemRef = useRef<HTMLDivElement | null>(null);
+  const barcodeItemRef = useRef<HTMLDivElement | null>(null);
+  const priceItemRef = useRef<HTMLDivElement | null>(null);
   const [selectedCanvasItem, setSelectedCanvasItem] = useState<'shop' | 'barcode' | 'price' | null>(null);
   const [draggingCanvasItem, setDraggingCanvasItem] = useState<'shop' | 'barcode' | 'price' | null>(null);
+  const [measurementOverlay, setMeasurementOverlay] = useState<{
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+    width: number;
+    height: number;
+    canvasLeft: number;
+    canvasTop: number;
+    canvasWidth: number;
+    canvasHeight: number;
+    isCenterXAligned: boolean;
+    matchedVerticalLines: number[];
+    xMm: string;
+    yMm: string;
+    wMm: string;
+    hMm: string;
+  } | null>(null);
   const dragSessionRef = useRef<{
     item: 'shop' | 'barcode' | 'price';
     startClientX: number;
@@ -1526,7 +1548,22 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
   const tsplLayout = useMemo(() => {
     const labelW = 400; // 50mm * 8 dots/mm = 400 dots
     const rollLeftOffset = 0; // Direct 0..400 dots mapping on 50mm x 25mm canvas
-    const getCharW = (f?: string) => (f === '1' ? 8 : f === '2' ? 10 : f === '4' ? 18 : 12);
+    const getCharW = (f?: string) => (f === '1' ? 8 : f === '2' ? 12 : f === '4' ? 24 : 16);
+    const fitFont = (
+      text: string,
+      preferredFont: '1' | '2' | '3' | '4',
+      maxWidthDots: number
+    ): '1' | '2' | '3' | '4' => {
+      const order: ('1' | '2' | '3' | '4')[] = ['4', '3', '2', '1'];
+      const startIdx = Math.max(0, order.indexOf(preferredFont));
+      for (let i = startIdx; i < order.length; i++) {
+        const candidate = order[i];
+        if (text.length * getCharW(candidate) <= maxWidthDots) {
+          return candidate;
+        }
+      }
+      return '1';
+    };
     const align: 'left' | 'center' | 'right' = labelConfig.tsplAlign || 'center';
     const direction: '0,0' | '1,0' = labelConfig.tsplDirection || '0,0';
 
@@ -1548,8 +1585,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
         : Math.max(8, Math.round((labelW - shopTextW) / 2));
     const rawShopX =
       labelConfig.tsplCustomX && labelConfig.tsplShopX !== undefined ? labelConfig.tsplShopX : autoShopX;
-    const maxSafeShopX = Math.max(8, labelW - shopTextW - 10);
-    const shopX = Math.max(4, Math.min(maxSafeShopX, rawShopX));
+    const shopX = Math.max(4, Math.round(rawShopX));
     const shopY = labelConfig.tsplShopY ?? 20;
 
     const barcodeCode = (labelConfig.barcodeValue || '1001').trim();
@@ -1593,17 +1629,23 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
         ? Number(labelConfig.salePrice)
         : Number(labelConfig.mrp) || 0;
     const priceText = `${pricePrefix}${activePrice}`;
-    const priceFont: '1' | '2' | '3' | '4' = labelConfig.tsplPriceFont || '3';
+    const priceFont: '1' | '2' | '3' | '4' = fitFont(
+      priceText,
+      labelConfig.tsplPriceFont || '3',
+      labelW - 16
+    );
     const priceCharW = getCharW(priceFont);
-    const priceTextW = priceText.length * priceCharW;
+    const priceTextW = Math.min(labelW - 12, priceText.length * priceCharW);
     const autoPriceX =
       align === 'left'
         ? 16
         : align === 'right'
         ? Math.max(10, labelW - 16 - priceTextW)
         : Math.max(10, Math.round((labelW - priceTextW) / 2));
-    const priceX =
+    const rawPriceX =
       labelConfig.tsplCustomX && labelConfig.tsplPriceX !== undefined ? labelConfig.tsplPriceX : autoPriceX;
+    const maxSafePriceX = Math.max(8, labelW - priceTextW - 10);
+    const priceX = Math.max(4, Math.min(maxSafePriceX, rawPriceX));
     const priceY = labelConfig.tsplPriceY ?? 142;
 
     return {
@@ -1659,8 +1701,10 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
       priceX: tsplLayout.priceX,
       priceY: tsplLayout.priceY,
       priceFont: tsplLayout.priceFont,
+      density: darknessMode === 'extra_dark' ? 14 : darknessMode === 'dark' ? 12 : 9,
+      speed: 2,
     });
-  }, [labelConfig, tsplLayout]);
+  }, [labelConfig, tsplLayout, darknessMode]);
 
   // Interactive 4Barcode-style Touch & Mouse Drag-and-Drop Handlers (1mm = 8 dots -> 50x25mm = 400x200 dots)
   const handleCanvasItemPointerDown = (
@@ -1700,21 +1744,15 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
       canvasWidth,
       canvasHeight,
     };
-
-    // Lock current X coordinates so non-dragged elements stay in their exact place
-    setLabelConfig((prev) => ({
-      ...prev,
-      tsplCustomX: true,
-      tsplShopX: prev.tsplShopX ?? tsplLayout.shopX,
-      tsplBarcodeX: prev.tsplBarcodeX ?? tsplLayout.barcodeX,
-      tsplPriceX: prev.tsplPriceX ?? tsplLayout.priceX,
-    }));
   };
 
   const handleCanvasItemPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     const session = dragSessionRef.current;
     if (!session) return;
     e.stopPropagation();
+
+    const movedPx = Math.hypot(e.clientX - session.startClientX, e.clientY - session.startClientY);
+    if (movedPx < 3) return;
 
     // 1mm = 8 dots => 50mm = 400 dots wide, 25mm = 200 dots high
     const totalDotsX = 50 * 8; // 400 dots
@@ -1731,10 +1769,16 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     const nextDotY = Math.max(2, Math.min(totalDotsY - 16, session.startDotY + deltaDotsY));
 
     setLabelConfig((prev) => {
+      const baseCustom = {
+        ...prev,
+        tsplCustomX: true,
+        tsplShopX: prev.tsplShopX ?? tsplLayout.shopX,
+        tsplBarcodeX: prev.tsplBarcodeX ?? tsplLayout.barcodeX,
+        tsplPriceX: prev.tsplPriceX ?? tsplLayout.priceX,
+      };
       if (session.item === 'shop') {
         return {
-          ...prev,
-          tsplCustomX: true,
+          ...baseCustom,
           tsplShopX: nextDotX,
           tsplShopY: nextDotY,
         };
@@ -1917,6 +1961,106 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
     pinchSessionRef.current = null;
   };
 
+  // Compute pixel-accurate edge-to-edge measurement guidelines on the 50x25mm preview stage
+  useLayoutEffect(() => {
+    if (labelConfig.layoutStyle !== 'ultra_simple' || !selectedCanvasItem) {
+      setMeasurementOverlay(null);
+      return;
+    }
+
+    const computeOverlay = () => {
+      const stageEl = previewStageRef.current;
+      const canvasEl = interactiveCanvasRef.current;
+      const itemEl =
+        selectedCanvasItem === 'shop'
+          ? shopItemRef.current
+          : selectedCanvasItem === 'barcode'
+          ? barcodeItemRef.current
+          : priceItemRef.current;
+
+      if (!stageEl || !canvasEl || !itemEl) {
+        setMeasurementOverlay(null);
+        return;
+      }
+
+      const stageRect = stageEl.getBoundingClientRect();
+      const canvasRect = canvasEl.getBoundingClientRect();
+      const itemRect = itemEl.getBoundingClientRect();
+
+      const left = itemRect.left - stageRect.left;
+      const right = itemRect.right - stageRect.left;
+      const top = itemRect.top - stageRect.top;
+      const bottom = itemRect.bottom - stageRect.top;
+      const width = itemRect.width;
+      const height = itemRect.height;
+
+      const canvasLeft = canvasRect.left - stageRect.left;
+      const canvasTop = canvasRect.top - stageRect.top;
+      const canvasWidth = canvasRect.width || 300;
+      const canvasHeight = canvasRect.height || 150;
+
+      const itemCenterX = left + width / 2;
+      const canvasCenterX = canvasLeft + canvasWidth / 2;
+      const isCenterXAligned = Math.abs(itemCenterX - canvasCenterX) <= 3;
+
+      const matchedVerticalLines: number[] = [];
+      const candidates: { key: 'shop' | 'barcode' | 'price'; el: HTMLDivElement | null }[] = [
+        { key: 'shop', el: shopItemRef.current },
+        { key: 'barcode', el: barcodeItemRef.current },
+        { key: 'price', el: priceItemRef.current },
+      ];
+      for (const c of candidates) {
+        if (c.key === selectedCanvasItem || !c.el) continue;
+        const r = c.el.getBoundingClientRect();
+        const oLeft = r.left - stageRect.left;
+        const oRight = r.right - stageRect.left;
+        const oCenter = oLeft + r.width / 2;
+        if (Math.abs(left - oLeft) <= 2.5) matchedVerticalLines.push(oLeft);
+        if (Math.abs(right - oRight) <= 2.5) matchedVerticalLines.push(oRight);
+        if (Math.abs(itemCenterX - oCenter) <= 2.5) matchedVerticalLines.push(oCenter);
+      }
+
+      const pxToMmX = 50 / canvasWidth;
+      const pxToMmY = 25 / canvasHeight;
+      const relX = Math.max(0, itemRect.left - canvasRect.left);
+      const relY = Math.max(0, itemRect.top - canvasRect.top);
+
+      setMeasurementOverlay({
+        left,
+        right,
+        top,
+        bottom,
+        width,
+        height,
+        canvasLeft,
+        canvasTop,
+        canvasWidth,
+        canvasHeight,
+        isCenterXAligned,
+        matchedVerticalLines,
+        xMm: (relX * pxToMmX).toFixed(1),
+        yMm: (relY * pxToMmY).toFixed(1),
+        wMm: (width * pxToMmX).toFixed(1),
+        hMm: (height * pxToMmY).toFixed(1),
+      });
+    };
+
+    computeOverlay();
+    const rafId = window.requestAnimationFrame(computeOverlay);
+    window.addEventListener('resize', computeOverlay);
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.removeEventListener('resize', computeOverlay);
+    };
+  }, [
+    labelConfig,
+    tsplLayout,
+    selectedCanvasItem,
+    draggingCanvasItem,
+    barcodeDataUrl,
+    qrCodeDataUrl,
+  ]);
+
   // Quick test print on thermal printer (50x25mm label test or receipt test)
   const handleTestPrint = async () => {
     try {
@@ -1959,6 +2103,8 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
           priceX: tsplLayout.priceX,
           priceY: tsplLayout.priceY,
           priceFont: tsplLayout.priceFont,
+          density: darknessMode === 'extra_dark' ? 14 : darknessMode === 'dark' ? 12 : 9,
+          speed: 2,
         });
         const res = await thermalPrinterService.printNativeTsplViaBluetooth(testCmd);
         if (res.success) {
@@ -4127,11 +4273,95 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
         {/* RIGHT COLUMN: Live Sticker Preview & Printing Actions (5 Cols on desktop) */}
         <div className="lg:col-span-5 space-y-4">
           <div className="bg-white p-4 sm:p-5 rounded-2xl border border-stone-200 shadow-xs space-y-3.5">
-            {/* Visual Thermal Sticker Container */}
+            {/* Visual Thermal Sticker Container with Edge-to-Edge Measurement Guide Lines */}
             <div
+              ref={previewStageRef}
               onClick={() => setSelectedCanvasItem(null)}
-              className="bg-stone-100/90 p-3 sm:p-4 rounded-2xl border border-dashed border-stone-300 flex flex-col items-center justify-center min-h-[215px] gap-2 overflow-hidden"
+              className="bg-stone-100/90 px-3 pt-7 pb-4 sm:px-5 sm:pt-8 sm:pb-5 rounded-2xl border border-dashed border-stone-300 flex flex-col items-center justify-center min-h-[225px] gap-2 overflow-hidden relative"
             >
+              {/* Full-Stage Measurement Guide Lines Overlay (4Barcode / Labelife style - excluded from capture) */}
+              {labelConfig.layoutStyle === 'ultra_simple' && (
+                <div
+                  data-drag-ui="true"
+                  className="absolute inset-0 pointer-events-none z-30"
+                >
+                  {/* Top & Left Millimeter Ruler Reference Bar + Live mm Readout */}
+                  <div className="absolute top-1.5 inset-x-3 flex items-center justify-between text-[9px] font-mono font-bold text-teal-700/90">
+                    <span className="bg-white/85 px-1.5 py-0.5 rounded border border-teal-200/80 shadow-2xs">
+                      {widthMm}×{heightMm}mm
+                    </span>
+                    {measurementOverlay ? (
+                      <span className="bg-teal-600 text-white px-2 py-0.5 rounded-full shadow-xs tracking-tight">
+                        X:{measurementOverlay.xMm} • Y:{measurementOverlay.yMm} • {measurementOverlay.wMm}×{measurementOverlay.hMm}mm
+                      </span>
+                    ) : (
+                      <span className="text-stone-400 font-sans font-semibold text-[10px]">
+                        {isBn ? 'মেজারমেন্ট লাইন দেখতে আইটেমে ট্যাপ করুন' : 'Tap any item to show guide lines'}
+                      </span>
+                    )}
+                  </div>
+
+                  {measurementOverlay && (
+                    <>
+                      {/* Subtle 50mm Top Ruler Ticks aligned to the sticker width */}
+                      <div
+                        className="absolute flex justify-between items-end"
+                        style={{
+                          left: `${measurementOverlay.canvasLeft}px`,
+                          top: `${Math.max(18, measurementOverlay.canvasTop - 10)}px`,
+                          width: `${measurementOverlay.canvasWidth}px`,
+                          height: '8px',
+                        }}
+                      >
+                        {[0, 10, 20, 30, 40, 50].map((mm) => (
+                          <div key={mm} className="flex flex-col items-center -translate-x-1/2 first:translate-x-0 last:translate-x-0">
+                            <span className="text-[7px] font-mono text-teal-700/75 leading-none mb-0.5">{mm}</span>
+                            <span className="w-px h-1.5 bg-teal-500/60" />
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* 4 Edge-to-Edge Measurement Lines (Left, Right, Top, Bottom across full stage) */}
+                      <div
+                        className="absolute top-0 bottom-0 w-px bg-teal-500/65"
+                        style={{ left: `${measurementOverlay.left}px` }}
+                      />
+                      <div
+                        className="absolute top-0 bottom-0 w-px bg-teal-500/65"
+                        style={{ left: `${measurementOverlay.right}px` }}
+                      />
+                      <div
+                        className="absolute left-0 right-0 h-px bg-teal-500/65"
+                        style={{ top: `${measurementOverlay.top}px` }}
+                      />
+                      <div
+                        className="absolute left-0 right-0 h-px bg-teal-500/65"
+                        style={{ top: `${measurementOverlay.bottom}px` }}
+                      />
+
+                      {/* Vertical Center Alignment Guide (highlights dashed line when centered on sticker) */}
+                      {measurementOverlay.isCenterXAligned && (
+                        <div
+                          className="absolute top-0 bottom-0 border-l border-dashed border-emerald-500/80"
+                          style={{
+                            left: `${measurementOverlay.canvasLeft + measurementOverlay.canvasWidth / 2}px`,
+                          }}
+                        />
+                      )}
+
+                      {/* Cross-Element Vertical Edge Snap Guides */}
+                      {measurementOverlay.matchedVerticalLines.map((xPos, idx) => (
+                        <div
+                          key={idx}
+                          className="absolute top-0 bottom-0 border-l border-dotted border-cyan-600/80"
+                          style={{ left: `${xPos}px` }}
+                        />
+                      ))}
+                    </>
+                  )}
+                </div>
+              )}
+
               <div
                 ref={labelPreviewRef}
                 id="thermal-sticker-live-card"
@@ -4197,6 +4427,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                     {/* Line 1: Shop Name (Top - Directly Draggable & Resizable) */}
                     {labelConfig.showStoreName && tsplLayout.shopText && (
                       <div
+                        ref={shopItemRef}
                         onClick={(e) => e.stopPropagation()}
                         onPointerDown={(e) => handleCanvasItemPointerDown('shop', e)}
                         onPointerMove={handleCanvasItemPointerMove}
@@ -4204,7 +4435,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                         onPointerCancel={handleCanvasItemPointerUp}
                         className={`absolute font-mono font-black whitespace-nowrap leading-none cursor-grab active:cursor-grabbing touch-none px-1 py-0.5 rounded-xs ${
                           selectedCanvasItem === 'shop'
-                            ? 'ring-1 ring-indigo-500 bg-indigo-50/40 z-20'
+                            ? 'ring-1 ring-teal-500 bg-teal-50/20 z-20'
                             : 'z-10'
                         }`}
                         style={{
@@ -4224,7 +4455,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                             onPointerUp={handleCanvasResizePointerUp}
                             onPointerCancel={handleCanvasResizePointerUp}
                             title={isBn ? 'টেনে লেখা ছোট-বড় করুন' : 'Drag to resize text'}
-                            className="absolute right-0 -bottom-2.5 w-4 h-4 rounded-full bg-indigo-600 text-white border-2 border-white shadow-sm flex items-center justify-center text-[8px] cursor-nwse-resize touch-none"
+                            className="absolute -right-2 -bottom-2.5 w-4.5 h-4.5 rounded-full bg-teal-500 text-white border-2 border-white shadow-sm flex items-center justify-center text-[8px] cursor-nwse-resize touch-none"
                           >
                             ↘
                           </div>
@@ -4235,6 +4466,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                     {/* Line 2: Barcode + Human Readable Digits (Middle - Directly Draggable & Resizable by Hand) */}
                     {labelConfig.showBarcode && (
                       <div
+                        ref={barcodeItemRef}
                         onClick={(e) => e.stopPropagation()}
                         onPointerDown={(e) => handleCanvasItemPointerDown('barcode', e)}
                         onPointerMove={handleCanvasItemPointerMove}
@@ -4245,7 +4477,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                         onTouchEnd={handleBarcodeTouchEnd}
                         className={`absolute flex flex-col items-start cursor-grab active:cursor-grabbing touch-none p-0.5 rounded-xs ${
                           selectedCanvasItem === 'barcode'
-                            ? 'ring-1.5 ring-indigo-600 bg-indigo-50/25 z-20'
+                            ? 'ring-1 ring-teal-500 bg-teal-50/15 z-20'
                             : 'z-10'
                         }`}
                         style={{
@@ -4281,64 +4513,65 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                           />
                         ) : null}
 
-                        {/* Interactive Touch/Mouse Resize Handles for Barcode Line */}
-                        {/* 1. Left Width Handle (↔) */}
-                        <div
-                          data-drag-ui="true"
-                          onPointerDown={(e) => handleCanvasResizePointerDown('barcode', 'width-left', e)}
-                          onPointerMove={handleCanvasResizePointerMove}
-                          onPointerUp={handleCanvasResizePointerUp}
-                          onPointerCancel={handleCanvasResizePointerUp}
-                          title={isBn ? 'বাম দিক থেকে চওড়া ছোট-বড় করুন' : 'Drag left edge to resize width'}
-                          className="absolute -left-2.5 top-1/2 -translate-y-1/2 w-4 h-6 rounded-md bg-indigo-600/90 hover:bg-indigo-700 text-white border border-white shadow-xs flex items-center justify-center text-[8px] font-bold cursor-ew-resize touch-none"
-                        >
-                          ↔
-                        </div>
+                        {/* Interactive Touch/Mouse Resize Handles (Shown only when Barcode is selected) */}
+                        {selectedCanvasItem === 'barcode' && (
+                          <>
+                            <div
+                              data-drag-ui="true"
+                              onPointerDown={(e) => handleCanvasResizePointerDown('barcode', 'width-left', e)}
+                              onPointerMove={handleCanvasResizePointerMove}
+                              onPointerUp={handleCanvasResizePointerUp}
+                              onPointerCancel={handleCanvasResizePointerUp}
+                              title={isBn ? 'বাম দিক থেকে চওড়া ছোট-বড় করুন' : 'Drag left edge to resize width'}
+                              className="absolute -left-2.5 top-1/2 -translate-y-1/2 w-4 h-6 rounded-md bg-teal-600/90 hover:bg-teal-700 text-white border border-white shadow-xs flex items-center justify-center text-[8px] font-bold cursor-ew-resize touch-none"
+                            >
+                              ↔
+                            </div>
 
-                        {/* 2. Right Width Handle (↔) */}
-                        <div
-                          data-drag-ui="true"
-                          onPointerDown={(e) => handleCanvasResizePointerDown('barcode', 'width-right', e)}
-                          onPointerMove={handleCanvasResizePointerMove}
-                          onPointerUp={handleCanvasResizePointerUp}
-                          onPointerCancel={handleCanvasResizePointerUp}
-                          title={isBn ? 'ডান দিকে টেনে বারকোড লম্বা/ছোট করুন' : 'Drag right edge to resize barcode width'}
-                          className="absolute -right-2.5 top-1/2 -translate-y-1/2 w-4 h-6 rounded-md bg-indigo-600/90 hover:bg-indigo-700 text-white border border-white shadow-xs flex items-center justify-center text-[8px] font-bold cursor-ew-resize touch-none"
-                        >
-                          ↔
-                        </div>
+                            <div
+                              data-drag-ui="true"
+                              onPointerDown={(e) => handleCanvasResizePointerDown('barcode', 'width-right', e)}
+                              onPointerMove={handleCanvasResizePointerMove}
+                              onPointerUp={handleCanvasResizePointerUp}
+                              onPointerCancel={handleCanvasResizePointerUp}
+                              title={isBn ? 'ডান দিকে টেনে বারকোড লম্বা/ছোট করুন' : 'Drag right edge to resize barcode width'}
+                              className="absolute -right-2.5 top-1/2 -translate-y-1/2 w-4 h-6 rounded-md bg-teal-600/90 hover:bg-teal-700 text-white border border-white shadow-xs flex items-center justify-center text-[8px] font-bold cursor-ew-resize touch-none"
+                            >
+                              ↔
+                            </div>
 
-                        {/* 3. Bottom Height Handle (↕) */}
-                        <div
-                          data-drag-ui="true"
-                          onPointerDown={(e) => handleCanvasResizePointerDown('barcode', 'height', e)}
-                          onPointerMove={handleCanvasResizePointerMove}
-                          onPointerUp={handleCanvasResizePointerUp}
-                          onPointerCancel={handleCanvasResizePointerUp}
-                          title={isBn ? 'নিচে টেনে বারকোড উঁচু/নিচু করুন' : 'Drag bottom edge to resize barcode height'}
-                          className="absolute left-1/2 -translate-x-1/2 -bottom-2.5 w-6 h-4 rounded-md bg-indigo-600/90 hover:bg-indigo-700 text-white border border-white shadow-xs flex items-center justify-center text-[8px] font-bold cursor-ns-resize touch-none"
-                        >
-                          ↕
-                        </div>
+                            <div
+                              data-drag-ui="true"
+                              onPointerDown={(e) => handleCanvasResizePointerDown('barcode', 'height', e)}
+                              onPointerMove={handleCanvasResizePointerMove}
+                              onPointerUp={handleCanvasResizePointerUp}
+                              onPointerCancel={handleCanvasResizePointerUp}
+                              title={isBn ? 'নিচে টেনে বারকোড উঁচু/নিচু করুন' : 'Drag bottom edge to resize barcode height'}
+                              className="absolute left-1/2 -translate-x-1/2 -bottom-2.5 w-6 h-4 rounded-md bg-teal-600/90 hover:bg-teal-700 text-white border border-white shadow-xs flex items-center justify-center text-[8px] font-bold cursor-ns-resize touch-none"
+                            >
+                              ↕
+                            </div>
 
-                        {/* 4. Bottom-Right Corner Handle (↘ Simultaneous Width + Height Resize) */}
-                        <div
-                          data-drag-ui="true"
-                          onPointerDown={(e) => handleCanvasResizePointerDown('barcode', 'corner', e)}
-                          onPointerMove={handleCanvasResizePointerMove}
-                          onPointerUp={handleCanvasResizePointerUp}
-                          onPointerCancel={handleCanvasResizePointerUp}
-                          title={isBn ? 'কোণা ধরে টেনে বারকোড ছোট-বড় করুন' : 'Drag corner to resize width & height'}
-                          className="absolute -right-2.5 -bottom-2.5 w-4.5 h-4.5 rounded-full bg-amber-500 hover:bg-amber-600 text-stone-950 border-2 border-white shadow-sm flex items-center justify-center text-[9px] font-black cursor-nwse-resize touch-none"
-                        >
-                          ↘
-                        </div>
+                            <div
+                              data-drag-ui="true"
+                              onPointerDown={(e) => handleCanvasResizePointerDown('barcode', 'corner', e)}
+                              onPointerMove={handleCanvasResizePointerMove}
+                              onPointerUp={handleCanvasResizePointerUp}
+                              onPointerCancel={handleCanvasResizePointerUp}
+                              title={isBn ? 'কোণা ধরে টেনে বারকোড ছোট-বড় করুন' : 'Drag corner to resize width & height'}
+                              className="absolute -right-2.5 -bottom-2.5 w-5 h-5 rounded-full bg-teal-500 hover:bg-teal-600 text-white border-2 border-white shadow-sm flex items-center justify-center text-[9px] font-black cursor-nwse-resize touch-none"
+                            >
+                              ↘
+                            </div>
+                          </>
+                        )}
                       </div>
                     )}
 
                     {/* Line 3: MRP / Price (Bottom - Directly Draggable & Resizable) */}
                     {(labelConfig.showMrp || labelConfig.showSalePrice) && (
                       <div
+                        ref={priceItemRef}
                         onClick={(e) => e.stopPropagation()}
                         onPointerDown={(e) => handleCanvasItemPointerDown('price', e)}
                         onPointerMove={handleCanvasItemPointerMove}
@@ -4346,7 +4579,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                         onPointerCancel={handleCanvasItemPointerUp}
                         className={`absolute font-mono font-black whitespace-nowrap leading-none cursor-grab active:cursor-grabbing touch-none px-1 py-0.5 rounded-xs ${
                           selectedCanvasItem === 'price'
-                            ? 'ring-1 ring-indigo-500 bg-indigo-50/40 z-20'
+                            ? 'ring-1 ring-teal-500 bg-teal-50/20 z-20'
                             : 'z-10'
                         }`}
                         style={{
@@ -4372,7 +4605,7 @@ export const BarcodeTagStudioTab: React.FC<BarcodeTagStudioTabProps> = ({
                             onPointerUp={handleCanvasResizePointerUp}
                             onPointerCancel={handleCanvasResizePointerUp}
                             title={isBn ? 'টেনে লেখা ছোট-বড় করুন' : 'Drag to resize text'}
-                            className="absolute -right-2.5 -bottom-2.5 w-4 h-4 rounded-full bg-indigo-600 text-white border-2 border-white shadow-sm flex items-center justify-center text-[8px] cursor-nwse-resize touch-none"
+                            className="absolute -right-2 -bottom-2.5 w-4.5 h-4.5 rounded-full bg-teal-500 text-white border-2 border-white shadow-sm flex items-center justify-center text-[8px] cursor-nwse-resize touch-none"
                           >
                             ↘
                           </div>

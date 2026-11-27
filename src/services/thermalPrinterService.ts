@@ -1384,45 +1384,82 @@ export class ThermalPrinterService {
     }
   }
 
-  // High-speed chunked BLE writer for raw ESC/POS & TSPL binary buffers
+  // High-speed chunked BLE writer for raw ESC/POS & TSPL binary buffers with MTU & method fallback
   async writeRawChunks(data: Uint8Array): Promise<void> {
     if (!this.characteristic) {
       throw new Error('Bluetooth printer characteristic not found');
     }
+    if (!data || data.length === 0) return;
 
-    const canWriteWithoutResponse =
+    const hasNoResp =
       Boolean(this.characteristic.properties?.writeWithoutResponse) &&
       typeof this.characteristic.writeValueWithoutResponse === 'function';
+    const hasWithResp =
+      Boolean(this.characteristic.properties?.write) &&
+      typeof this.characteristic.writeValueWithResponse === 'function';
+    const hasLegacyWrite = typeof this.characteristic.writeValue === 'function';
 
-    // Safe BLE MTU chunk size (64 bytes) with 15ms pacing to prevent UART buffer overflow or dropped characters
-    const CHUNK_SIZE = 64;
-
-    for (let i = 0; i < data.length; i += CHUNK_SIZE) {
-      const chunk = data.slice(i, i + CHUNK_SIZE);
-      let written = false;
-      let attempts = 0;
-
-      while (!written && attempts < 2) {
-        attempts++;
+    const writeSinglePacket = async (packet: Uint8Array, preferNoResp: boolean) => {
+      // Ensure clean standalone ArrayBuffer (byteOffset === 0) for strict Android Web Bluetooth implementations
+      const cleanBuf = new Uint8Array(packet);
+      if (preferNoResp && hasNoResp) {
         try {
-          if (canWriteWithoutResponse) {
-            await this.characteristic.writeValueWithoutResponse(chunk);
-          } else if (typeof this.characteristic.writeValueWithResponse === 'function') {
-            await this.characteristic.writeValueWithResponse(chunk);
-          } else if (typeof this.characteristic.writeValue === 'function') {
-            await this.characteristic.writeValue(chunk);
+          await this.characteristic.writeValueWithoutResponse(cleanBuf);
+          return;
+        } catch {
+          if (hasWithResp) {
+            await this.characteristic.writeValueWithResponse(cleanBuf);
+            return;
           }
-          written = true;
-        } catch (chunkErr) {
-          if (attempts >= 2) throw chunkErr;
-          await new Promise((r) => setTimeout(r, 15));
+          if (hasLegacyWrite) {
+            await this.characteristic.writeValue(cleanBuf);
+            return;
+          }
+          throw new Error('Bluetooth writeWithoutResponse failed');
         }
       }
+      if (hasWithResp) {
+        await this.characteristic.writeValueWithResponse(cleanBuf);
+        return;
+      }
+      if (hasNoResp) {
+        await this.characteristic.writeValueWithoutResponse(cleanBuf);
+        return;
+      }
+      if (hasLegacyWrite) {
+        await this.characteristic.writeValue(cleanBuf);
+        return;
+      }
+      throw new Error('No writable Bluetooth GATT method available');
+    };
 
-      if (canWriteWithoutResponse) {
-        await new Promise((r) => setTimeout(r, 15));
-      } else {
-        await new Promise((r) => setTimeout(r, 5));
+    // Start with 64-byte chunks, automatically step down to universal 20-byte ATT MTU chunks on GATT Invalid argument/overflow
+    let chunkSize = 64;
+    let i = 0;
+
+    while (i < data.length) {
+      const end = Math.min(data.length, i + chunkSize);
+      const chunk = data.slice(i, end);
+
+      try {
+        await writeSinglePacket(chunk, hasNoResp);
+        i = end;
+        await new Promise((r) => setTimeout(r, hasNoResp ? 14 : 6));
+      } catch (err) {
+        if (chunkSize > 20) {
+          // Step down to guaranteed universal 20-byte BLE MTU payload
+          chunkSize = 20;
+          await new Promise((r) => setTimeout(r, 20));
+          continue;
+        }
+        // Retry once with 20-byte packet and response fallback
+        await new Promise((r) => setTimeout(r, 25));
+        try {
+          await writeSinglePacket(chunk, false);
+          i = end;
+        } catch {
+          throw err;
+        }
       }
     }
   }
@@ -1446,6 +1483,7 @@ export class ThermalPrinterService {
     if (!ctx) return new Uint8Array();
 
     // 1. Solid Pure White Background (#FFFFFF) - Must NOT heat the printer
+    ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = '#FFFFFF';
     ctx.fillRect(0, 0, targetWidth, targetHeight);
     // Draw canvas image on top of solid white background
@@ -1536,6 +1574,7 @@ export class ThermalPrinterService {
     if (!ctx) return new Uint8Array();
 
     // 1. Solid Pure White Background (#FFFFFF)
+    ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = '#FFFFFF';
     ctx.fillRect(0, 0, targetWidthDots, targetHeightDots);
     ctx.drawImage(canvas, 0, 0, targetWidthDots, targetHeightDots);
@@ -1605,6 +1644,8 @@ export class ThermalPrinterService {
     widthMm?: number;
     heightMm?: number;
     copies?: number;
+    density?: number;
+    speed?: number;
     showStoreName?: boolean;
     showItemName?: boolean;
     showPrice?: boolean;
@@ -1635,6 +1676,8 @@ export class ThermalPrinterService {
       widthMm = 50,
       heightMm = 25,
       copies = 1,
+      density = 12,
+      speed = 2,
       showStoreName = true,
       showItemName = false,
       showPrice = true,
@@ -1655,21 +1698,43 @@ export class ThermalPrinterService {
       priceFont = '3',
     } = options;
 
-    // 203 DPI = 8 dots/mm (50mm = 400 dots, 25mm = 200 dots)
-    const labelWidthDots = Math.round(widthMm * 8);
+    const safeNum = (val: unknown, fallback: number) =>
+      typeof val === 'number' && Number.isFinite(val) ? val : fallback;
 
+    const safeWidthMm = Math.max(15, safeNum(widthMm, 50));
+    const safeHeightMm = Math.max(15, safeNum(heightMm, 25));
+    const safeDensity = Math.max(1, Math.min(15, Math.round(safeNum(density, 12))));
+    const safeSpeed = Math.max(1, Math.min(5, Math.round(safeNum(speed, 2))));
+
+    // 203 DPI = 8 dots/mm (50mm = 400 dots, 25mm = 200 dots)
+    const labelWidthDots = Math.round(safeWidthMm * 8);
+
+    // Accurate 203 DPI TSPL bitmap font cell widths (Font 1: 8x12, Font 2: 12x20, Font 3: 16x24, Font 4: 24x32)
     const getFontCharWidth = (f: string) => {
       if (f === '1') return 8;
-      if (f === '2') return 10;
-      if (f === '4') return 18;
-      return 12; // TSPL Font "3" effective width on 203 DPI label printer
+      if (f === '2') return 12;
+      if (f === '4') return 24;
+      return 16;
+    };
+
+    const fitFontForText = (text: string, preferredFont: '1' | '2' | '3' | '4'): '1' | '2' | '3' | '4' => {
+      const maxTextDots = labelWidthDots - 16;
+      const order: ('4' | '3' | '2' | '1')[] = ['4', '3', '2', '1'];
+      const startIdx = Math.max(0, order.indexOf(preferredFont));
+      for (let idx = startIdx; idx < order.length; idx++) {
+        const candidate = order[idx];
+        if (text.length * getFontCharWidth(candidate) <= maxTextDots) {
+          return candidate;
+        }
+      }
+      return '1';
     };
 
     const calcAlignedX = (textLen: number, charW: number, align: 'left' | 'center' | 'right') => {
       const textWidth = textLen * charW;
-      if (align === 'left') return 16;
-      if (align === 'right') return Math.max(10, labelWidthDots - 16 - textWidth);
-      return Math.max(10, Math.round((labelWidthDots - textWidth) / 2));
+      if (align === 'left') return 12;
+      if (align === 'right') return Math.max(8, labelWidthDots - 12 - textWidth);
+      return Math.max(8, Math.round((labelWidthDots - textWidth) / 2));
     };
 
     let elements = '';
@@ -1680,11 +1745,16 @@ export class ThermalPrinterService {
     const cleanStore = (storeName || itemName || 'MY SHOP').trim().replace(/["\r\n]/g, '');
     if ((showStoreName && cleanStore) || (!showStoreName && showItemName && itemName)) {
       const line1Text = (showStoreName && cleanStore ? cleanStore : (itemName || '')).trim().replace(/["\r\n]/g, '');
-      const charW1 = getFontCharWidth(shopFont);
-      const x1 = shopX !== undefined ? Math.max(0, Math.round(shopX)) : calcAlignedX(line1Text.length, charW1, alignment);
-      const y1 = Math.max(0, Math.round(shopY));
+      const activeShopFont = shopFont || '3';
+      const charW1 = getFontCharWidth(activeShopFont);
+      const autoX1 = calcAlignedX(line1Text.length, charW1, alignment);
+      const x1 =
+        shopX !== undefined && Number.isFinite(shopX)
+          ? Math.max(4, Math.round(shopX))
+          : autoX1;
+      const y1 = Math.max(4, Math.round(safeNum(shopY, 20)));
 
-      elements += `TEXT ${x1}, ${y1}, "${shopFont}", 0, 1, 1, "${line1Text}"\r\n`;
+      elements += `TEXT ${x1}, ${y1}, "${activeShopFont}", 0, 1, 1, "${line1Text}"\r\n`;
     }
 
     // ==========================================
@@ -1692,17 +1762,18 @@ export class ThermalPrinterService {
     // ==========================================
     if (showBarcode !== false) {
       const cleanCode = (barcodeValue || '1001').trim().replace(/["\r\n]/g, '');
-      const bY = Math.max(0, Math.round(barcodeY));
-      const bHeight = Math.max(20, Math.min(120, Math.round(barcodeHeight)));
+      const bY = Math.max(0, Math.round(safeNum(barcodeY, 52)));
+      const bHeight = Math.max(20, Math.min(120, Math.round(safeNum(barcodeHeight, 40))));
 
       if (barcodeType === 'QR') {
         const qrWidthDots = 100;
-        const qrX = barcodeX !== undefined ? Math.max(0, Math.round(barcodeX)) : calcAlignedX(1, qrWidthDots, alignment);
+        const qrX =
+          barcodeX !== undefined && Number.isFinite(barcodeX)
+            ? Math.max(4, Math.round(barcodeX))
+            : calcAlignedX(1, qrWidthDots, alignment);
         elements += `QRCODE ${qrX}, ${bY}, L, 4, A, 0, "${cleanCode}"\r\n`;
       } else if (barcodeType === 'EAN13' && /^\d{12,13}$/.test(cleanCode.replace(/\D/g, ''))) {
-        // EAN-13 has exactly 95 modules (3 start guard + 42 left + 5 center guard + 42 right + 3 end guard)
         const digitsOnly = cleanCode.replace(/\D/g, '');
-        // Calculate standard check digit if only 12 digits provided
         let ean13Code = digitsOnly;
         if (ean13Code.length === 12) {
           let sum = 0;
@@ -1721,34 +1792,31 @@ export class ThermalPrinterService {
         const wide = barcodeRatio === '1:2' ? 2 : barcodeRatio === '2:2' ? 2 : 3;
         const estBarcodeWidth = 95 * narrow;
         const bX =
-          barcodeX !== undefined
-            ? Math.max(0, Math.round(barcodeX))
+          barcodeX !== undefined && Number.isFinite(barcodeX)
+            ? Math.max(4, Math.round(barcodeX))
             : alignment === 'left'
-            ? 16
+            ? 12
             : alignment === 'right'
-            ? Math.max(10, labelWidthDots - 16 - estBarcodeWidth)
-            : Math.max(10, Math.round((labelWidthDots - estBarcodeWidth) / 2));
+            ? Math.max(8, labelWidthDots - 12 - estBarcodeWidth)
+            : Math.max(8, Math.round((labelWidthDots - estBarcodeWidth) / 2));
 
-        // TSPL EAN13 BARCODE command
         elements += `BARCODE ${bX}, ${bY}, "EAN13", ${bHeight}, 1, 0, ${narrow}, ${wide}, "${ean13Code}"\r\n`;
       } else {
         const narrow = barcodeRatio === '1:2' ? 1 : 2;
         const wide = barcodeRatio === '1:2' ? 2 : barcodeRatio === '2:2' ? 2 : 3;
-        // Accurate Code128 module count: numeric pairs use Subset C (1 symbol per 2 digits)
         const isPureNumericEven = /^\d+$/.test(cleanCode) && cleanCode.length >= 4;
         const dataSymbols = isPureNumericEven ? Math.ceil(cleanCode.length / 2) : cleanCode.length;
         const totalModules = (dataSymbols + 3) * 11 + 2;
         const estBarcodeWidth = totalModules * narrow;
         const bX =
-          barcodeX !== undefined
-            ? Math.max(0, Math.round(barcodeX))
+          barcodeX !== undefined && Number.isFinite(barcodeX)
+            ? Math.max(4, Math.round(barcodeX))
             : alignment === 'left'
-            ? 16
+            ? 12
             : alignment === 'right'
-            ? Math.max(10, labelWidthDots - 16 - estBarcodeWidth)
-            : Math.max(10, Math.round((labelWidthDots - estBarcodeWidth) / 2));
+            ? Math.max(8, labelWidthDots - 12 - estBarcodeWidth)
+            : Math.max(8, Math.round((labelWidthDots - estBarcodeWidth) / 2));
 
-        // BARCODE <barcodeX>, <barcodeY>, "128", 40, 1, 0, 2, 3, "<barcodeCode>"
         elements += `BARCODE ${bX}, ${bY}, "128", ${bHeight}, 1, 0, ${narrow}, ${wide}, "${cleanCode}"\r\n`;
       }
     }
@@ -1760,23 +1828,29 @@ export class ThermalPrinterService {
       const activePrice = mrp || salePrice || 0;
       const normalizedPrefix = pricePrefix ? (pricePrefix.endsWith(' ') ? pricePrefix : `${pricePrefix} `) : 'MRP: Rs. ';
       const priceText = `${normalizedPrefix}${activePrice}`.trim().replace(/["\r\n]/g, '');
-      const charW3 = getFontCharWidth(priceFont);
+      const fittedPriceFont = fitFontForText(priceText, priceFont);
+      const charW3 = getFontCharWidth(fittedPriceFont);
       const resolvedMrpX = mrpX !== undefined ? mrpX : priceX;
       const resolvedMrpY = mrpY !== undefined ? mrpY : priceY;
-      const pX = resolvedMrpX !== undefined ? Math.max(0, Math.round(resolvedMrpX)) : calcAlignedX(priceText.length, charW3, alignment);
-      // Ensure MRP Y is spaced below barcode + human-readable digits unless explicitly dragged higher
-      const pY = Math.max(0, Math.round(resolvedMrpY));
+      const pX =
+        resolvedMrpX !== undefined && Number.isFinite(resolvedMrpX)
+          ? Math.max(6, Math.round(resolvedMrpX))
+          : calcAlignedX(priceText.length, charW3, alignment);
+      const pY = Math.max(0, Math.round(safeNum(resolvedMrpY, 142)));
 
-      elements += `TEXT ${pX}, ${pY}, "${priceFont}", 0, 1, 1, "${priceText}"\r\n`;
+      elements += `TEXT ${pX}, ${pY}, "${fittedPriceFont}", 0, 1, 1, "${priceText}"\r\n`;
     }
 
+    const safeCopies = Math.max(1, Math.round(safeNum(copies, 1)));
     return (
-      `SIZE ${widthMm} mm, ${heightMm} mm\r\n` +
+      `SIZE ${safeWidthMm} mm, ${safeHeightMm} mm\r\n` +
       `GAP 2 mm, 0 mm\r\n` +
       `DIRECTION ${direction}\r\n` +
+      `SPEED ${safeSpeed}\r\n` +
+      `DENSITY ${safeDensity}\r\n` +
       `CLS\r\n` +
       elements +
-      `PRINT ${Math.max(1, copies)},1\r\n`
+      `PRINT ${safeCopies},1\r\n`
     );
   }
 
@@ -2015,23 +2089,7 @@ export class ThermalPrinterService {
       commands.push(0x0a, 0x0a, 0x0a);
       commands.push(0x1d, 0x56, 0x41, 0x10); // Cut
       const data = new Uint8Array(commands);
-
-      const CHUNK_SIZE = 64;
-      const canWriteWithoutResponse =
-        this.characteristic.properties?.writeWithoutResponse &&
-        typeof this.characteristic.writeValueWithoutResponse === 'function';
-
-      for (let i = 0; i < data.length; i += CHUNK_SIZE) {
-        const chunk = data.slice(i, i + CHUNK_SIZE);
-        if (canWriteWithoutResponse) {
-          await this.characteristic.writeValueWithoutResponse(chunk);
-        } else if (typeof this.characteristic.writeValue === 'function') {
-          await this.characteristic.writeValue(chunk);
-        } else if (typeof this.characteristic.writeValueWithResponse === 'function') {
-          await this.characteristic.writeValueWithResponse(chunk);
-        }
-        await new Promise((r) => setTimeout(r, 15));
-      }
+      await this.writeRawChunks(data);
 
       return {
         success: true,

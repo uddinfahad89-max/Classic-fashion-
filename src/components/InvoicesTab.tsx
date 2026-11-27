@@ -14,6 +14,9 @@ import {
   CheckCircle2,
   SlidersHorizontal,
   RefreshCw,
+  BarChart3,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { BillInvoice, ThermalPrinterSettings, Language, UserProfile } from '../types';
 import { thermalPrinterService } from '../services/thermalPrinterService';
@@ -127,7 +130,7 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
   const [localSearchTerm, setLocalSearchTerm] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
-  const [showSummaryCard, setShowSummaryCard] = useState(false);
+  const [showSummaryCard, setShowSummaryCard] = useState(true);
   const [datePreset, setDatePreset] = useState<DateFilterPreset>('all');
   const [customDate, setCustomDate] = useState('');
   const [paymentFilter, setPaymentFilter] = useState<'all' | 'estimate' | 'cash' | 'upi' | 'card' | 'due' | 'tailoring'>('all');
@@ -266,30 +269,85 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
 
   const stats = useMemo(() => {
     const totalCount = filteredBills.length;
-    const totalRevenue = filteredBills.reduce((sum, b) => sum + b.grandTotal, 0);
-    const dueRevenue = filteredBills.reduce((sum, b) => {
+    const now = new Date();
+    let salesCount = 0;
+    let salesRevenue = 0;
+    let dueRevenue = 0;
+    let cashPaid = 0;
+    let upiPaid = 0;
+    let estimateCount = 0;
+    let estimateTotal = 0;
+
+    for (const b of filteredBills) {
       const isEst =
         b.paymentMethod === 'estimate' ||
         b.paymentStatus === 'ESTIMATE' ||
         Boolean(b.isEstimate);
-      if (isEst) return sum; // Estimates are quotations, not outstanding customer dues
+      const amount = Number(b.grandTotal) || 0;
+
+      if (isEst) {
+        estimateCount += 1;
+        estimateTotal += amount;
+        continue;
+      }
+
+      salesCount += 1;
+      salesRevenue += amount;
 
       const isDue =
         b.paymentMethod === 'due' ||
         b.paymentStatus === 'DUE' ||
         b.paymentStatus === 'PARTIAL' ||
         (b.balance !== undefined && b.balance > 0);
-      if (!isDue) return sum;
-      const dueAmt =
-        b.balance !== undefined && b.balance > 0
-          ? b.balance
-          : Math.max(0, b.grandTotal - (b.paidAmount || 0));
-      return sum + (dueAmt > 0 ? dueAmt : b.grandTotal);
-    }, 0);
-    const paidRevenue = Math.max(0, totalRevenue - dueRevenue);
 
-    return { totalCount, totalRevenue, paidRevenue, dueRevenue };
-  }, [filteredBills]);
+      let dueAmt = 0;
+      if (isDue) {
+        const rawDue =
+          b.balance !== undefined && b.balance > 0
+            ? b.balance
+            : Math.max(0, amount - (b.paidAmount || 0));
+        dueAmt = rawDue > 0 ? rawDue : amount;
+        dueRevenue += dueAmt;
+      }
+
+      const paidAmt = Math.max(0, amount - dueAmt);
+      if (b.paymentMethod === 'upi') {
+        upiPaid += paidAmt;
+      } else {
+        cashPaid += paidAmt;
+      }
+    }
+
+    const paidRevenue = Math.max(0, salesRevenue - dueRevenue);
+
+    let todayCount = 0;
+    let todayRevenue = 0;
+    for (const b of bills) {
+      const isEst =
+        b.paymentMethod === 'estimate' ||
+        b.paymentStatus === 'ESTIMATE' ||
+        Boolean(b.isEstimate);
+      if (isEst) continue;
+      if (isSameDay(b.timestamp, now)) {
+        todayCount += 1;
+        todayRevenue += Number(b.grandTotal) || 0;
+      }
+    }
+
+    return {
+      totalCount,
+      salesCount,
+      salesRevenue,
+      paidRevenue,
+      dueRevenue,
+      cashPaid,
+      upiPaid,
+      estimateCount,
+      estimateTotal,
+      todayCount,
+      todayRevenue,
+    };
+  }, [filteredBills, bills]);
 
   const formatAmount = (amount: number) => {
     const rounded = Math.round(amount * 100) / 100;
@@ -413,7 +471,7 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
                     }}
                     className="w-full text-left px-3.5 py-2 text-xs font-semibold text-stone-700 hover:bg-stone-50 flex items-center justify-between cursor-pointer"
                   >
-                    <span>{isBn ? 'মোট হিসাব সামারি দেখুন' : 'Show Sales Summary'}</span>
+                    <span>{isBn ? 'বিক্রয় রিপোর্ট দেখুন' : 'Show Sale Report'}</span>
                     {showSummaryCard && <CheckCircle2 className="w-3.5 h-3.5 text-[#129958]" />}
                   </button>
                   <button
@@ -483,35 +541,104 @@ export const InvoicesTab: React.FC<InvoicesTabProps> = ({
         </div>
       </div>
 
-      {/* Collapsible Summary Bar (only shown if toggled from 3-dots menu) */}
-      {showSummaryCard && (
-        <div className="px-4 py-3 bg-stone-50 border-b border-stone-200 grid grid-cols-3 gap-2 text-center animate-in fade-in duration-150">
-          <div className="p-2 rounded-xl bg-white border border-stone-200/80">
-            <span className="block text-[10px] uppercase font-bold text-stone-500">
-              {isBn ? 'মোট বিক্রয়' : 'Total Sales'}
-            </span>
-            <span className="text-xs sm:text-sm font-black text-stone-900 block mt-0.5">
-              {sym} {formatAmount(stats.totalRevenue)}
-            </span>
+      {/* Sale Report Section (Upper side above invoice list) */}
+      <div className="px-3 sm:px-4 py-2.5 bg-gradient-to-b from-slate-50 to-stone-50/70 border-b border-stone-200">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-7 h-7 rounded-lg bg-blue-100 text-[#0066cc] flex items-center justify-center shrink-0">
+              <BarChart3 className="w-4 h-4 stroke-[2.2]" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <h2 className="text-xs sm:text-sm font-black text-stone-900 tracking-tight">
+                  {isBn ? 'বিক্রয় রিপোর্ট (Sale Report)' : 'Sale Report'}
+                </h2>
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-white border border-stone-200 text-stone-600">
+                  {stats.totalCount} {isBn ? 'বিল' : 'Bills'}
+                </span>
+                {stats.estimateCount > 0 && (
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-700">
+                    {isBn ? `এস্টিমেট: ${sym} ${formatAmount(stats.estimateTotal)}` : `Est: ${sym} ${formatAmount(stats.estimateTotal)}`}
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
-          <div className="p-2 rounded-xl bg-white border border-emerald-200/80">
-            <span className="block text-[10px] uppercase font-bold text-[#129958]">
-              {isBn ? 'নগদ আদায়' : 'Paid'}
-            </span>
-            <span className="text-xs sm:text-sm font-black text-[#129958] block mt-0.5">
-              {sym} {formatAmount(stats.paidRevenue)}
-            </span>
-          </div>
-          <div className="p-2 rounded-xl bg-white border border-rose-200/80">
-            <span className="block text-[10px] uppercase font-bold text-rose-600">
-              {isBn ? 'বাকি' : 'Due'}
-            </span>
-            <span className="text-xs sm:text-sm font-black text-rose-600 block mt-0.5">
-              {sym} {formatAmount(stats.dueRevenue)}
-            </span>
-          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowSummaryCard((prev) => !prev)}
+            className="px-2 py-1 rounded-lg bg-white hover:bg-stone-100 border border-stone-200 text-[11px] font-bold text-stone-600 flex items-center gap-1 cursor-pointer shrink-0 transition-colors"
+          >
+            <span>{showSummaryCard ? (isBn ? 'লুকান' : 'Hide') : (isBn ? 'দেখুন' : 'Show')}</span>
+            {showSummaryCard ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
         </div>
-      )}
+
+        {showSummaryCard && (
+          <div className="mt-2.5 grid grid-cols-2 sm:grid-cols-4 gap-2 animate-in fade-in duration-150">
+            <div className="p-2.5 rounded-xl bg-white border border-stone-200/90 shadow-2xs">
+              <span className="block text-[10px] uppercase font-bold text-stone-500">
+                {paymentFilter === 'estimate'
+                  ? isBn ? 'মোট এস্টিমেট' : 'Total Estimate'
+                  : isBn ? 'মোট বিক্রয় (Sales)' : 'Total Sales'}
+              </span>
+              <span className="text-sm sm:text-base font-black text-stone-900 block mt-0.5 truncate">
+                {sym} {formatAmount(paymentFilter === 'estimate' ? stats.estimateTotal : stats.salesRevenue)}
+              </span>
+              <span className="block text-[10px] text-stone-400 mt-0.5">
+                {paymentFilter === 'estimate'
+                  ? `${stats.estimateCount} ${isBn ? 'টি এস্টিমেট' : 'estimates'}`
+                  : `${stats.salesCount} ${isBn ? 'টি সেল বিল' : 'sale bills'}`}
+              </span>
+            </div>
+
+            <div className="p-2.5 rounded-xl bg-white border border-emerald-200/90 shadow-2xs">
+              <span className="block text-[10px] uppercase font-bold text-[#129958]">
+                {isBn ? 'আদায় (Paid)' : 'Paid Received'}
+              </span>
+              <span className="text-sm sm:text-base font-black text-[#129958] block mt-0.5 truncate">
+                {sym} {formatAmount(stats.paidRevenue)}
+              </span>
+              <span className="block text-[10px] text-stone-400 mt-0.5 truncate">
+                Cash {formatAmount(stats.cashPaid)} • UPI {formatAmount(stats.upiPaid)}
+              </span>
+            </div>
+
+            <div className="p-2.5 rounded-xl bg-white border border-rose-200/90 shadow-2xs">
+              <span className="block text-[10px] uppercase font-bold text-rose-600">
+                {isBn ? 'বাকি (Due)' : 'Due Receivable'}
+              </span>
+              <span className="text-sm sm:text-base font-black text-rose-600 block mt-0.5 truncate">
+                {sym} {formatAmount(stats.dueRevenue)}
+              </span>
+              <span className="block text-[10px] text-stone-400 mt-0.5">
+                {isBn ? 'বকেয়া পাওনা' : 'Outstanding'}
+              </span>
+            </div>
+
+            <div
+              onClick={() => setDatePreset((prev) => (prev === 'today' ? 'all' : 'today'))}
+              className={`p-2.5 rounded-xl border shadow-2xs cursor-pointer transition-colors ${
+                datePreset === 'today'
+                  ? 'bg-blue-50 border-blue-300'
+                  : 'bg-white border-blue-200/80 hover:bg-blue-50/40'
+              }`}
+              title={isBn ? 'আজকের বিল ফিল্টার করতে ক্লিক করুন' : 'Click to toggle Today filter'}
+            >
+              <span className="block text-[10px] uppercase font-bold text-[#0066cc]">
+                {isBn ? "আজকের বিক্রয় (Today)" : "Today's Sale"}
+              </span>
+              <span className="text-sm sm:text-base font-black text-[#0066cc] block mt-0.5 truncate">
+                {sym} {formatAmount(stats.todayRevenue)}
+              </span>
+              <span className="block text-[10px] text-stone-500 mt-0.5">
+                {stats.todayCount} {isBn ? 'টি বিল আজ' : 'bills today'}
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Collapsible Filter Bar (when Filter icon is tapped) */}
       {showFilters && (

@@ -8,17 +8,10 @@ import {
   getFirestore,
   setLogLevel
 } from "firebase/firestore";
+import appletFirebaseConfig from "../firebase-applet-config.json";
 
 // Your web app's Firebase configuration
-export const firebaseConfig = {
-  apiKey: "AIzaSyDAl0AE1OvHgDOqinr4_VVW8UOMOxFF_HQ",
-  authDomain: "classic-fashion-pos.firebaseapp.com",
-  projectId: "classic-fashion-pos",
-  storageBucket: "classic-fashion-pos.firebasestorage.app",
-  messagingSenderId: "172454758518",
-  appId: "1:172454758518:web:24425a2cf79b20bfa37757",
-  measurementId: "G-F7H5J10EZB"
-};
+export const firebaseConfig = appletFirebaseConfig;
 
 // Initialize Firebase safely (avoid re-initialization if already loaded)
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
@@ -43,23 +36,33 @@ try {
 // Initialize Auth
 export const auth = getAuth(app);
 
-// Initialize Firestore with long-polling transport & persistent multi-tab cache
-// to prevent 10s backend connection timeouts in sandboxes, iframes and mobile webviews
+// Initialize Firestore with databaseId, ignoreUndefinedProperties, and long-polling transport
+const databaseId = (firebaseConfig as any).firestoreDatabaseId || '(default)';
 let dbInstance: any;
 try {
-  dbInstance = initializeFirestore(app, {
-    experimentalForceLongPolling: true,
-    localCache: persistentLocalCache({
-      tabManager: persistentMultipleTabManager()
-    })
-  });
+  dbInstance = initializeFirestore(
+    app,
+    {
+      experimentalForceLongPolling: true,
+      ignoreUndefinedProperties: true,
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager()
+      })
+    },
+    databaseId
+  );
 } catch {
   try {
-    dbInstance = initializeFirestore(app, {
-      experimentalForceLongPolling: true
-    });
+    dbInstance = initializeFirestore(
+      app,
+      {
+        experimentalForceLongPolling: true,
+        ignoreUndefinedProperties: true
+      },
+      databaseId
+    );
   } catch {
-    dbInstance = getFirestore(app);
+    dbInstance = getFirestore(app, databaseId);
   }
 }
 

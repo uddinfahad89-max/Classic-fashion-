@@ -19,6 +19,13 @@ class BackHandlerManager {
     if (this.isInitialized || typeof window === 'undefined') return;
     this.isInitialized = true;
 
+    // Prevent browser/Android Chrome from resetting scroll to 0 on popstate back navigation
+    try {
+      if ('scrollRestoration' in window.history) {
+        window.history.scrollRestoration = 'manual';
+      }
+    } catch {}
+
     // Push initial sentinel state
     try {
       window.history.pushState({ posSentinel: true, ts: Date.now() }, '', window.location.href);
